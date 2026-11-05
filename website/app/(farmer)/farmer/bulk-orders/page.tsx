@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Loader2,
@@ -245,7 +246,9 @@ function RateBusinessModal({ order, onClose }: { order: any; onClose: () => void
 
 export default function FarmerBulkOrdersPage() {
   const queryClient = useQueryClient();
-  const [tab, setTab] = useState<"bulk" | "b2b">("bulk");
+  const searchParams = useSearchParams();
+  const targetB2bOrderId = searchParams.get("orderId") || "";
+  const [tab, setTab] = useState<"bulk" | "b2b">(searchParams.get("tab") === "b2b" || targetB2bOrderId ? "b2b" : "bulk");
   const [bulkFilter, setBulkFilter] = useState("");
   const [b2bFilter, setB2bFilter] = useState("");
   const [weighingFor, setWeighingFor] = useState<string | null>(null);
@@ -369,6 +372,21 @@ export default function FarmerBulkOrdersPage() {
 
   const visibleOrders = filterBulk(allBulkOrders);
   const visibleB2bOrders = filterB2b(b2bOrders);
+
+  useEffect(() => {
+    if (!targetB2bOrderId) return;
+    setTab("b2b");
+    setB2bFilter("");
+    if (b2bLoading) return;
+    const matchingOrder = b2bOrders.find((order: any) =>
+      String(order.id || order._id || order.orderId || "") === targetB2bOrderId
+    );
+    if (!matchingOrder) return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById("b2b-order-" + targetB2bOrderId)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [targetB2bOrderId, b2bLoading, b2bOrders]);
 
   const nextOfB2b = (status: string) => {
     const i = b2bFlow.indexOf(status);
@@ -496,7 +514,11 @@ export default function FarmerBulkOrdersPage() {
                 const hasWeighed = o.preparedKg != null;
                 const canWeigh = ["confirmed", "preparing", "quality_check"].includes(o.status);
                 return (
-                  <Card key={o.id}>
+                  <Card
+                    key={o.id}
+                    id={targetB2bOrderId && String(o.id || o._id || o.orderId || "") === targetB2bOrderId ? "b2b-order-" + targetB2bOrderId : undefined}
+                    className={targetB2bOrderId && String(o.id || o._id || o.orderId || "") === targetB2bOrderId ? "border-2 border-emerald-500 bg-emerald-50/30 shadow-md ring-2 ring-emerald-100" : undefined}
+                  >
                     <CardContent className="space-y-3 p-4">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
