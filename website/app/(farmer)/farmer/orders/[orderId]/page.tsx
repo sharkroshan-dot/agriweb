@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useRef, useEffect } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Package, MapPin, Clock, CreditCard, User, Phone, Hash, ShoppingBag, ChevronDown, ChevronUp, Store, CheckCircle, Loader2, ScanLine, X } from "lucide-react";
@@ -35,12 +35,14 @@ const pickupPaymentLabel = (method: string) => {
 
 export default function FarmerOrderDetailPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const orderId = params.orderId as string;
+  const isB2BOrder = searchParams.get("source") === "b2b";
   const [showAllTracking, setShowAllTracking] = useState(false);
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ["farmerOrder", orderId],
-    queryFn: () => api.get(`/orders/${orderId}`),
+    queryKey: ["farmerOrder", isB2BOrder ? "b2b" : "retail", orderId],
+    queryFn: () => api.get(isB2BOrder ? `/b2b/orders/${orderId}` : `/orders/${orderId}`),
     enabled: !!orderId,
     refetchInterval: 10000,
   });
@@ -48,7 +50,7 @@ export default function FarmerOrderDetailPage() {
   const { data: fulfillmentCheckData } = useQuery({
     queryKey: ["farmerFulfillmentCheck", orderId],
     queryFn: () => api.get(`/farmers/me/orders/${orderId}/fulfillment-check`),
-    enabled: !!orderId,
+    enabled: !!orderId && !isB2BOrder,
     refetchInterval: 10000,
   });
   const fulfillmentCheck = fulfillmentCheckData?.data || fulfillmentCheckData || null;
