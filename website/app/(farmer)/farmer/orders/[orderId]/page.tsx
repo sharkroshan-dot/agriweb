@@ -73,7 +73,7 @@ const cropEmoji = (name: string) => {
 function OrderProductThumbnail({ name, image }: { name: string; image?: string }) {
   const [imageFailed, setImageFailed] = useState(false);
   return (
-    <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-emerald-100 bg-emerald-50 shadow-sm">
+    <div className="flex h-28 w-28 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-emerald-100 bg-emerald-50 shadow-sm">
       {image && !imageFailed ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={image} alt={name} className="h-full w-full object-cover" onError={() => setImageFailed(true)} />
@@ -412,7 +412,7 @@ export default function FarmerOrderDetailPage() {
                 <span>Product</span><span className="text-center">Quantity</span><span className="text-right">Unit price</span><span className="text-right">Amount</span>
               </div>
               {order.items.map((item: any, index: number) => (
-                <div key={index} className="grid grid-cols-2 items-center gap-2 rounded-lg border border-slate-200 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_100px_120px_120px] sm:gap-3 sm:border-0 sm:px-4">
+                <div key={index} className="grid min-h-32 grid-cols-2 items-center gap-3 rounded-lg border border-slate-200 px-4 py-4 sm:grid-cols-[minmax(0,1fr)_100px_120px_120px] sm:gap-4 sm:border-0 sm:px-4">
                   <div className="flex min-w-0 items-center gap-3">
                     <OrderProductThumbnail key={`${item.productId || item.name}-${item.image || "crop-fallback"}`} name={item.name} image={item.image} />
                     <div className="min-w-0">
