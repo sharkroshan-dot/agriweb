@@ -591,6 +591,37 @@ export default function FarmerSupplyCalendarPage() {
           </Card>
         </aside>
       </section>
+
+      {harvestEntry && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/45 p-4" role="dialog" aria-modal="true" aria-labelledby="supply-harvest-title">
+          <form onSubmit={submitHarvest} className="w-full max-w-md space-y-4 rounded-2xl bg-white p-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-3">
+              <div><h2 id="supply-harvest-title" className="text-lg font-bold text-slate-900">Record harvest</h2><p className="mt-1 text-sm text-slate-500">{harvestEntry.cropName} · Expected {harvestEntry.expectedQuantityKg} kg</p></div>
+              <button type="button" onClick={() => setHarvestEntry(null)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100" aria-label="Close"><X className="h-5 w-5" /></button>
+            </div>
+            <label className="block space-y-1 text-sm font-medium text-slate-700">Actual harvested quantity (kg)
+              <input required min="0.01" step="0.01" type="number" value={harvestQuantity} onChange={event => setHarvestQuantity(event.target.value)} className="h-11 w-full rounded-lg border border-slate-300 px-3" />
+            </label>
+            <label className="block space-y-1 text-sm font-medium text-slate-700">Final selling price per kg (₹)
+              <input required min="0.01" step="0.01" type="number" value={harvestRate} onChange={event => setHarvestRate(event.target.value)} className="h-11 w-full rounded-lg border border-slate-300 px-3" />
+            </label>
+            <p className="rounded-lg bg-blue-50 p-3 text-xs text-blue-800">After saving, create a traceability batch for this harvest.</p>
+            <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setHarvestEntry(null)}>Cancel</Button><Button type="submit" disabled={harvestMutation.isPending} className="bg-emerald-700 text-white">{harvestMutation.isPending ? "Saving..." : "Save harvest"}</Button></div>
+          </form>
+        </div>
+      )}
+      {batchEntry && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/45 p-4" role="dialog" aria-modal="true" aria-labelledby="supply-batch-title">
+          <form onSubmit={submitBatch} className="w-full max-w-md space-y-4 rounded-2xl bg-white p-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-3"><div><h2 id="supply-batch-title" className="text-lg font-bold text-slate-900">Create traceability batch</h2><p className="mt-1 text-sm text-slate-500">{batchEntry.cropName} · {batchEntry.actualQuantityKg ?? batchEntry.expectedQuantityKg} kg</p></div><button type="button" onClick={() => setBatchEntry(null)} className="rounded-lg p-2 text-slate-500" aria-label="Close"><X className="h-5 w-5" /></button></div>
+            <label className="block space-y-1 text-sm font-medium text-slate-700">Quality grade<select value={batchGrade} onChange={event => setBatchGrade(event.target.value)} className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3"><option>Premium</option><option>Standard</option><option>Economy</option></select></label>
+            <label className="block space-y-1 text-sm font-medium text-slate-700">Storage method<select value={batchStorage} onChange={event => setBatchStorage(event.target.value)} className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3"><option value="normal">Normal / ambient</option><option value="cold_storage">Cold storage</option><option value="refrigerated">Refrigerated</option><option value="frozen">Frozen</option></select></label>
+            <label className="block space-y-1 text-sm font-medium text-slate-700">Shelf life (days)<input required min="1" max="365" type="number" value={batchShelfLife} onChange={event => setBatchShelfLife(event.target.value)} className="h-11 w-full rounded-lg border border-slate-300 px-3" /></label>
+            <p className="rounded-lg bg-blue-50 p-3 text-xs text-blue-800">The batch receives a traceability lot number. An authorized verifier completes quality approval.</p>
+            <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setBatchEntry(null)}>Cancel</Button><Button type="submit" disabled={batchMutation.isPending} className="bg-emerald-700 text-white">{batchMutation.isPending ? "Creating..." : "Create batch"}</Button></div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }
