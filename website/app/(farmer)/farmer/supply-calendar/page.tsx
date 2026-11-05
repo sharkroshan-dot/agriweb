@@ -453,9 +453,11 @@ export default function FarmerSupplyCalendarPage() {
                         ? "/farmer/harvest-planner"
                         : entry.id.startsWith("contract-")
                           ? "/farmer/b2b/contracts"
-                          : entry.referenceId
-                            ? `/farmer/orders/${encodeURIComponent(entry.referenceId)}`
-                            : "/farmer/orders"
+                          : entry.id.startsWith("b2b-") && entry.referenceId
+                            ? `/farmer/bulk-orders?tab=b2b&orderId=${encodeURIComponent(entry.referenceId)}`
+                            : entry.referenceId
+                              ? `/farmer/orders/${encodeURIComponent(entry.referenceId)}`
+                              : "/farmer/orders"
                     }
                     className="mt-2 inline-flex items-center text-xs font-semibold text-emerald-700 hover:text-emerald-800"
                   >
