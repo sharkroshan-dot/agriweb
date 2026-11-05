@@ -440,6 +440,7 @@ class OrderService:
                 "productId": ObjectId(item.productId),
                 "variantId": ObjectId(item.variantId) if item.variantId else None,
                 "productName": product["name"],
+                "productImage": next((url for url in (product.get("images") or []) if isinstance(url, str) and url.strip()), None) or product.get("image") or product.get("imageUrl"),
                 "quantity": item.quantity,
                 "unitPrice": effective_unit_price,
                 "batchId": str(product.get("batchId")) if product.get("batchId") else None,
@@ -840,9 +841,22 @@ class OrderService:
                     "phone": partner.get("phone")
                 }
         
-        # Convert ObjectId fields to strings for response serialization
+        # Convert ObjectId fields to strings and hydrate product images for
+        # legacy orders whose item snapshot predates productImage support.
         order["id"] = str(order["_id"])
         for item in order.get("items", []):
+            product_id = str(item.get("productId")) if item.get("productId") else None
+            if product_id and not (item.get("productImage") or item.get("image") or item.get("imageUrl")):
+                try:
+                    product = await product_repository.get_by_id(product_id)
+                    if product:
+                        images = product.get("images") or []
+                        item["productImage"] = next(
+                            (url for url in images if isinstance(url, str) and url.strip()),
+                            None,
+                        ) or product.get("image") or product.get("imageUrl")
+                except Exception:
+                    logger.warning("Could not resolve product image for order item %s", product_id)
             if isinstance(item.get("productId"), ObjectId):
                 item["productId"] = str(item["productId"])
             if item.get("variantId") and isinstance(item["variantId"], ObjectId):
