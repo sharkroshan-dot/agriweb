@@ -5,7 +5,9 @@ import { PrefetchLink as Link } from "../shared/prefetch-link";
 import { useSession } from "next-auth/react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  LayoutDashboard,\n  ClipboardList,\n  FlaskConical,
+  LayoutDashboard,
+  ClipboardList,
+  FlaskConical,
   Package,
   ShoppingCart,
   Truck,
