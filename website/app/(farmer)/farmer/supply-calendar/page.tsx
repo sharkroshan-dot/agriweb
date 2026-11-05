@@ -344,7 +344,6 @@ export default function FarmerSupplyCalendarPage() {
     .reduce((sum: number, plan: any) => sum + Math.max(0, Number(plan.expectedQuantityKg || 0)), 0);
   const totalHarvestedPlansKg = plans.filter((plan: any) => isHarvested(plan))
     .reduce((sum: number, plan: any) => sum + Math.max(0, Number(plan.actualQuantityKg ?? plan.expectedQuantityKg ?? 0)), 0);
-  const missedContractOccurrences = contractProgress.reduce((sum, item) => sum + item.missed.length, 0);
 
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
@@ -383,6 +382,7 @@ export default function FarmerSupplyCalendarPage() {
       missed,
     };
   });
+  const missedContractOccurrences = contractProgress.reduce((sum, item) => sum + item.missed.length, 0);
   const threeDaysAhead = new Date(todayStart);
   threeDaysAhead.setDate(threeDaysAhead.getDate() + 3);
   const overdueHarvestPlans = plans.filter((plan: any) => {
