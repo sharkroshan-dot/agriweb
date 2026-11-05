@@ -175,7 +175,6 @@ export default function FarmerSupplyCalendarPage() {
   const activeContracts = contracts.filter((contract: any) => ["active", "confirmed"].includes(String(contract.status || "").toLowerCase()));
   const inventorySummary = inventoryData?.data || {};
   const inventoryProducts = Array.isArray(inventorySummary.products) ? inventorySummary.products : [];
-  const inventoryByProductId = new Map<string, any>(inventoryProducts.filter((product: any) => product.product_id).map((product: any) => [String(product.product_id), product]));
   const inventoryByProductName = new Map<string, any>(inventoryProducts.map((product: any) => [String(product.product_name || "").trim().toLocaleLowerCase(), product]));
   const inventoryAvailableKg = Number(inventorySummary.total_available || 0);
   const inventoryReservedKg = Number(inventorySummary.total_reserved || 0);
@@ -221,7 +220,6 @@ export default function FarmerSupplyCalendarPage() {
           : (orderStatus.includes("pickup") || deliveryType === "pickup" ? "farm_pickup" : "retail_delivery");
         const items = Array.isArray(order.items) ? order.items : [];
         const productBreakdown = items.map((item: any) => ({
-          productId: String(item.productId || item.product_id || item.product?._id || item.product?.id || ""),
           name: String(item.productName || item.name || item.product?.name || order.cropName || order.productName || (isB2B ? "Business supply" : "Customer order")),
           quantityKg: Number(item.quantityKg ?? item.quantity ?? item.packedQuantityKg ?? 0),
         })).filter((item: any) => Number.isFinite(item.quantityKg) && item.quantityKg > 0);
@@ -356,7 +354,7 @@ export default function FarmerSupplyCalendarPage() {
   const contractProgress = activeContracts.map((contract: any) => {
     const history = Array.isArray(contract.deliveryHistory) ? contract.deliveryHistory : [];
     const completed = history.filter((item: any) => completedOrderStatuses.includes(String(item.status || "").toLowerCase()));
-    const suppliedKg = completed.reduce((sum: number, item: any) => sum + Math.max(0, Number(item.deliveredQuantityKg ?? item.fulfilledQuantityKg ?? item.receivedQuantityKg ?? item.approvedQuantityKg ?? 0)), 0);
+    const suppliedKg = completed.reduce((sum: number, item: any) => sum + Math.max(0, Number(item.deliveredQuantityKg ?? item.fulfilledQuantityKg ?? item.receivedQuantityKg ?? 0)), 0);
     const totalKg = Math.max(0, Number(contract.quantityPerMonthKg || 0) * Number(contract.durationMonths || 0));
     const remainingKg = totalKg > 0 ? Math.max(0, totalKg - suppliedKg) : null;
     const missed = history.filter((item: any) => {
@@ -419,7 +417,6 @@ export default function FarmerSupplyCalendarPage() {
   const deliveryCount = monthEntries.filter(entry => ["farm_pickup", "warehouse_delivery", "business_delivery", "retail_delivery"].includes(entry.eventType || "")).length;
   const harvestTaskCount = harvestedCount + preHarvestCount;
   const monthLabel = monthCursor.toLocaleDateString("en-IN", { month: "long", year: "numeric" });
-  const monthCompletedDeliveries = monthEntries.filter(entry => ["delivered", "completed", "fulfilled"].includes(String(entry.status).toLowerCase())).length;
 
   const changeMonth = (amount: number) => setMonthCursor(current => new Date(current.getFullYear(), current.getMonth() + amount, 1));
   const goToday = () => {
