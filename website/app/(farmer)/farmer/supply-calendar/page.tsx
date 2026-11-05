@@ -349,6 +349,10 @@ export default function FarmerSupplyCalendarPage() {
     .reduce((sum: number, plan: any) => sum + Math.max(0, Number(plan.expectedQuantityKg || 0)), 0);
   const totalHarvestedPlansKg = plans.filter((plan: any) => isHarvested(plan))
     .reduce((sum: number, plan: any) => sum + Math.max(0, Number(plan.actualQuantityKg ?? plan.expectedQuantityKg ?? 0)), 0);
+  const missedContractOccurrences = contractProgress.reduce((sum, item) => sum + item.missed.length, 0);
+
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
   const contractProgress = activeContracts.map((contract: any) => {
     const history = Array.isArray(contract.deliveryHistory) ? contract.deliveryHistory : [];
     const completed = history.filter((item: any) => completedOrderStatuses.includes(String(item.status || "").toLowerCase()));
@@ -363,9 +367,6 @@ export default function FarmerSupplyCalendarPage() {
     return { id: String(contract._id || contract.id || contract.contractNumber), name: String(contract.cropName || "Contract supply"), suppliedKg, totalKg, remainingKg, completionPct: totalKg > 0 ? Math.min(100, suppliedKg / totalKg * 100) : null, completedCount: completed.length, occurrenceCount: history.length, missed };
   });
   const missedContractOccurrences = contractProgress.reduce((sum, item) => sum + item.missed.length, 0);
-
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
   const threeDaysAhead = new Date(todayStart);
   threeDaysAhead.setDate(threeDaysAhead.getDate() + 3);
   const overdueHarvestPlans = plans.filter((plan: any) => {
