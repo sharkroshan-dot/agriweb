@@ -160,12 +160,12 @@ export default function FarmerOrderDetailPage() {
       deliveryType: o.deliveryType || "delivery",
       date: o.orderDate || o.createdAt,
       items: items.map((i: any) => ({
-        name: i.productName || "Product",
-        quantity: String(i.quantity || 0),
-        price: Number(i.totalPrice || i.unitPrice * i.quantity || 0),
-        unitPrice: Number(i.unitPrice || 0),
+        name: i.productName || i.cropName || i.name || "Product",
+        quantity: String(i.quantity ?? i.quantityKg ?? i.approvedQuantityKg ?? 0),
+        price: Number(i.totalPrice || i.lineTotal || i.unitPrice * (i.quantity ?? i.quantityKg ?? 0) || 0),
+        unitPrice: Number(i.unitPrice || i.pricePerKg || 0),
       })),
-      subtotal: Number(o.subtotal || 0),
+      subtotal: Number(o.subtotal ?? o.subtotalAmount ?? o.totalAmount ?? 0),
       delivery: Number(o.deliveryCharge || 0),
       platformFee: Number(o.platformFee || 0),
       platformCommission: Number(o.platformCommission || 0),
@@ -212,7 +212,7 @@ export default function FarmerOrderDetailPage() {
             <p className="font-medium text-destructive">Failed to load order</p>
             <p className="text-sm text-muted-foreground">{(error as any)?.message || "An unexpected error occurred"}</p>
             <p className="mt-2 text-xs text-muted-foreground">orderId: {orderId}</p>
-            <p className="mt-2 text-xs text-muted-foreground">API: http://localhost:8000/api/v1/orders/{orderId}</p>
+            <p className="mt-2 text-xs text-muted-foreground">API: http://localhost:8000/api/v1/{isB2BOrder ? "b2b/orders" : "orders"}/{orderId}</p>
             <Button asChild>
               <Link href="/farmer/orders">Back to orders</Link>
             </Button>
