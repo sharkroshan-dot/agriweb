@@ -336,9 +336,7 @@ export default function FarmerSupplyCalendarPage() {
       inventoryMatched: Boolean(stock),
     };
   });
-  const totalRecordedHarvestKg = Array.from(harvestedByProduct.values()).reduce((sum, value) => sum + value, 0);
   const totalInventoryGapKg = supplyDemandRows.reduce((sum, row) => sum + (row.gap ?? 0), 0);
-  const inventoryMatchedProducts = supplyDemandRows.filter(row => row.inventoryMatched).length;
 
   const completedOrderStatuses = ["delivered", "completed", "fulfilled", "received"];
   const allFarmerOrders = [...farmerOrders, ...b2bOrders];
@@ -353,16 +351,38 @@ export default function FarmerSupplyCalendarPage() {
   todayStart.setHours(0, 0, 0, 0);
   const contractProgress = activeContracts.map((contract: any) => {
     const history = Array.isArray(contract.deliveryHistory) ? contract.deliveryHistory : [];
-    const completed = history.filter((item: any) => completedOrderStatuses.includes(String(item.status || "").toLowerCase()));
-    const suppliedKg = completed.reduce((sum: number, item: any) => sum + Math.max(0, Number(item.deliveredQuantityKg ?? item.fulfilledQuantityKg ?? item.receivedQuantityKg ?? 0)), 0);
-    const totalKg = Math.max(0, Number(contract.quantityPerMonthKg || 0) * Number(contract.durationMonths || 0));
-    const remainingKg = totalKg > 0 ? Math.max(0, totalKg - suppliedKg) : null;
+    const completedStatuses = ["delivered", "completed"];
+    const completed = history.filter((item: any) =>
+      completedStatuses.includes(String(item.fulfillmentStatus || "").toLowerCase())
+    );
+    const suppliedKg = completed.reduce((sum: number, item: any) =>
+      sum + Math.max(0, Number(item.fulfilledQuantityKg || 0)), 0
+    );
+    const occurrenceQuantities = history.map((item: any) =>
+      Math.max(0, Number(item.requestedQuantityKg || item.approvedQuantityKg || contract.quantityPerDeliveryKg || 0))
+    );
+    const totalKg = occurrenceQuantities.length
+      ? occurrenceQuantities.reduce((sum: number, value: number) => sum + value, 0)
+      : null;
+    const remainingKg = totalKg == null ? null : Math.max(0, totalKg - suppliedKg);
     const missed = history.filter((item: any) => {
       const scheduled = parsePlanDate(item.scheduledDate);
-      return scheduled && scheduled < todayStart && !completedOrderStatuses.includes(String(item.status || "").toLowerCase())
+      const state = String(item.fulfillmentStatus || "").toLowerCase();
+      return scheduled && scheduled < todayStart
+        && !completedStatuses.includes(state)
         && !["cancelled", "canceled", "skipped"].includes(String(item.status || "").toLowerCase());
     });
-    return { id: String(contract._id || contract.id || contract.contractNumber), name: String(contract.cropName || "Contract supply"), suppliedKg, totalKg, remainingKg, completionPct: totalKg > 0 ? Math.min(100, suppliedKg / totalKg * 100) : null, completedCount: completed.length, occurrenceCount: history.length, missed };
+    return {
+      id: String(contract._id || contract.id || contract.contractNumber),
+      name: String(contract.cropName || "Contract supply"),
+      suppliedKg,
+      totalKg,
+      remainingKg,
+      completionPct: totalKg != null && totalKg > 0 ? Math.min(100, suppliedKg / totalKg * 100) : null,
+      completedCount: completed.length,
+      occurrenceCount: history.length,
+      missed,
+    };
   });
   const missedContractOccurrences = contractProgress.reduce((sum, item) => sum + item.missed.length, 0);
   const threeDaysAhead = new Date(todayStart);
