@@ -371,11 +371,18 @@ async def inspection_queue(current_user: dict = Depends(get_current_user)):
             if not batch:
                 batch = await batch_repo.find_one({"_id": batch_id_text, "deletedAt": None})
         if not batch:
-            logger.warning(
-                "Skipping quality inspection %s: linked batch %s was not found",
-                rec.get("_id"), batch_id
-            )
-            continue
+            # A previously submitted and assigned evidence record can still be
+            # reviewed if its batch was archived/deleted after submission.
+            # Do not expose an unassigned record without batch data to resolve
+            # the farmer's district.
+            assigned_id = rec.get("assignedWarehouseId")
+            if not assigned_id or (warehouse and str(assigned_id) != str(warehouse["_id"])):
+                logger.warning(
+                    "Skipping unrouteable quality inspection %s: linked batch %s was not found",
+                    rec.get("_id"), batch_id
+                )
+                continue
+            batch = {}
 
         if warehouse:
             assigned_id = rec.get("assignedWarehouseId")
@@ -425,13 +432,13 @@ async def inspection_queue(current_user: dict = Depends(get_current_user)):
 
         item = _serialize_inspection(rec)
         item["batch"] = {
-            "id": str(batch["_id"]),
-            "lotNumber": batch.get("lotNumber"),
-            "cropName": batch.get("cropName"),
-            "quantityKg": batch.get("quantityKg"),
-            "harvestDate": batch.get("harvestDate"),
-            "storageType": batch.get("storageType"),
-            "expiresAt": batch.get("expiresAt"),
+            "id": str(batch.get("_id") or batch_id or ""),
+            "lotNumber": batch.get("lotNumber") or item.get("lotNumber"),
+            "cropName": batch.get("cropName") or item.get("cropName"),
+            "quantityKg": batch.get("quantityKg") if batch.get("quantityKg") is not None else item.get("weightKg"),
+            "harvestDate": batch.get("harvestDate") or item.get("harvestDate"),
+            "storageType": batch.get("storageType") or item.get("storageType"),
+            "expiresAt": batch.get("expiresAt") or item.get("expiresAt"),
             "qualityStatus": batch.get("qualityStatus"),
         }
         item["sortPriority"] = rank.get(item.get("priority"), 2)
