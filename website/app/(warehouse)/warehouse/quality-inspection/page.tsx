@@ -41,10 +41,12 @@ export default function WarehouseQualityInspectionPage() {
   const [incomingUsableQuantity, setIncomingUsableQuantity] = useState("");
   const [incomingQualityNotes, setIncomingQualityNotes] = useState("");
 
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, isFetching, error, refetch } = useQuery({
     queryKey: ["warehouseQualityQueue"],
     queryFn: () => api.get("/quality/inspections/queue"),
-    refetchInterval: 30000,
+    refetchInterval: 20000,
+    refetchOnWindowFocus: true,
+    retry: 2,
   });
 
   const incomingQuery = useQuery({
@@ -132,11 +134,36 @@ export default function WarehouseQualityInspectionPage() {
   };
 
   const queue: Inspection[] = useMemo(() => {
-    // The API client keeps the response envelope and also unwraps data fields.
-    // Accept both forms and guard against malformed/empty payloads.
-    const payload = data?.data ?? data;
-    const rows = payload?.inspections ?? payload?.data?.inspections ?? payload?.items ?? [];
-    return Array.isArray(rows) ? rows : [];
+    // Support Axios, unwrapped API responses, and FastAPI response envelopes.
+    let payload: any = data;
+    for (let depth = 0; depth < 3; depth += 1) {
+      if (payload && !Array.isArray(payload) && payload.data && typeof payload.data === "object") {
+        payload = payload.data;
+      } else {
+        break;
+      }
+    }
+    const rows = (Array.isArray(payload) ? payload : null)
+      ?? payload?.inspections
+      ?? payload?.items
+      ?? payload?.results
+      ?? payload?.data?.inspections
+      ?? [];
+    if (!Array.isArray(rows)) return [];
+    return rows
+      .filter((row: any) => row && typeof row === "object")
+      .map((row: any) => ({
+        ...row,
+        id: String(row.id || row._id || ""),
+        batch: {
+          ...(row.batch || {}),
+          lotNumber: row.batch?.lotNumber || row.lotNumber,
+          cropName: row.batch?.cropName || row.cropName,
+          quantityKg: row.batch?.quantityKg ?? row.weightKg,
+          storageType: row.batch?.storageType || row.storageType,
+        },
+      }))
+      .filter((row: Inspection) => Boolean(row.id));
   }, [data]);
 
   const claimMutation = useMutation({
@@ -268,7 +295,14 @@ export default function WarehouseQualityInspectionPage() {
 
       <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
         <Card>
-          <CardHeader><CardTitle>Inspection Queue</CardTitle></CardHeader>
+          <CardHeader>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <CardTitle>Inspection Queue ({queue.length})</CardTitle>
+              <Button type="button" size="sm" variant="outline" onClick={() => refetch()} disabled={isFetching}>
+                {isFetching ? "Refreshing…" : "Refresh queue"}
+              </Button>
+            </div>
+          </CardHeader>
           <CardContent className="space-y-3">
             {isLoading ? <p className="text-sm text-muted-foreground">Loading inspection requests…</p> : null}
             {!isLoading && !error && queue.length === 0 ? <div className="rounded-lg border border-dashed p-5 text-sm text-muted-foreground"><p className="font-medium text-slate-700">No inspections are currently assigned to this warehouse.</p><p className="mt-1">Evidence submitted by farmers appears here after district routing. If an item is missing, check that the farmer profile has a valid farm district and that this warehouse is configured to serve that district.</p></div> : null}
