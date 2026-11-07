@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Users2, Plus, Loader2, CheckCircle2, MapPin, Sprout, Package, ShoppingCart, Truck, Wallet, BarChart3, UserPlus, ClipboardList, Warehouse, ArrowRight, X, QrCode, MessageCircle, LayoutDashboard, Copy, Printer } from "lucide-react";
@@ -21,6 +21,9 @@ const stages: {key:Stage;title:string;icon:any}[] = [
 export default function FarmerCooperativePage(){
  const qc=useQueryClient();
  const searchParams=useSearchParams();
+ const router=useRouter();
+ const [productionSearch,setProductionSearch]=useState("");
+ const [productionStatus,setProductionStatus]=useState("active");
  const [stage,setStage]=useState<Stage>("overview");
  const [selectedCoopId,setSelectedCoopId]=useState("");
  const [showCreate,setShowCreate]=useState(false); const [showJoin,setShowJoin]=useState(false); const [showQr,setShowQr]=useState(false); const [showQrJoin,setShowQrJoin]=useState(false); const [qrInviteCode,setQrInviteCode]=useState("");
@@ -122,12 +125,28 @@ export default function FarmerCooperativePage(){
             <Metric icon={X} label="Cancelled plans" value={dash.production?.cancelledPlans ?? cancelledPlans.length} />
           </div>
           {needsUpdate.length > 0 && <div className="mt-4 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4"><span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-700"><ClipboardList className="h-4 w-4"/></span><div><p className="text-sm font-semibold text-amber-900">{needsUpdate.length} harvest update{needsUpdate.length===1?"":"s"} required</p><p className="mt-1 text-xs leading-5 text-amber-800">These plans are marked harvested or completed but have no actual harvest quantity recorded. Ask the relevant farmer to update the harvested quantity.</p></div></div>}
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-4">
+            <div><p className="text-sm font-semibold text-emerald-950">Manage your farm production</p><p className="mt-1 text-xs text-emerald-800">Create crop plans, update cultivation progress, record harvest quantities and create traceable batches in your Harvest Planner.</p></div>
+            <Button className="bg-emerald-700 hover:bg-emerald-800" onClick={()=>router.push("/farmer/harvest-planner")}><Plus className="mr-2 h-4 w-4"/>Open Harvest Planner</Button>
+          </div>
           <section className="mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-white">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-slate-50/80 px-5 py-4">
-              <div><h3 className="text-sm font-semibold text-slate-900">Active crop plans</h3><p className="mt-1 text-xs text-slate-500">Planned quantity compared with actual harvest for each crop</p></div>
+              <div><h3 className="text-sm font-semibold text-slate-900">Cooperative crop plans</h3><p className="mt-1 text-xs text-slate-500">Production plans submitted by active cooperative members</p></div>
               <Badge variant="outline">{activePlans.length} active</Badge>
             </div>
-            {activePlans.length ? <div className="divide-y divide-slate-100">
+            <div className="grid gap-3 border-b border-slate-100 p-4 sm:grid-cols-[minmax(0,1fr)_190px]">
+              <Input value={productionSearch} onChange={e=>setProductionSearch(e.target.value)} placeholder="Search crop or farmer…" aria-label="Search production plans"/>
+              <select value={productionStatus} onChange={e=>setProductionStatus(e.target.value)} className="h-10 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700"><option value="active">Active plans</option><option value="all">All plans</option><option value="attention">Needs harvest update</option><option value="cancelled">Cancelled plans</option></select>
+            </div>
+            {(() => {
+              const visiblePlans = plans.filter((plan:any) => {
+                const cancelled = Boolean(plan.isCancelled) || ["cancelled","canceled","rejected","deleted"].includes(String(plan.status||"").toLowerCase());
+                const needs = String(plan.status||"").toLowerCase()==="harvest_update_required";
+                const matchesStatus = productionStatus==="all" || (productionStatus==="cancelled" ? cancelled : productionStatus==="attention" ? needs : !cancelled);
+                const q=productionSearch.trim().toLowerCase();
+                return matchesStatus && (!q || String(plan.cropName||"").toLowerCase().includes(q) || String(plan.farmerName||"").toLowerCase().includes(q));
+              });
+              return visiblePlans.length ? <div className="divide-y divide-slate-100">
               {activePlans.map((plan: any) => {
                 const expected = Number(plan.expectedQuantityKg || 0);
                 const actual = Number(plan.actualQuantityKg || 0);
@@ -137,14 +156,16 @@ export default function FarmerCooperativePage(){
                 const completed = ["harvested", "completed"].includes(status) && actual > 0;
                 return <div key={plan.id} className="grid gap-4 px-5 py-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(150px,0.65fr)_minmax(180px,0.8fr)] lg:items-center hover:bg-slate-50/60">
                   <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2"><p className="font-semibold capitalize text-slate-900">{plan.cropName || "Crop"}</p><Badge variant="outline" className={needsHarvestUpdate ? "border-amber-200 bg-amber-50 text-amber-800" : completed ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-sky-200 bg-sky-50 text-sky-800"}>{needsHarvestUpdate ? "Harvest update required" : completed ? "Harvest recorded" : status.replace(/_/g, " ")}</Badge></div>
+                    <div className="flex flex-wrap items-center gap-2"><div><p className="font-semibold capitalize text-slate-900">{plan.cropName || "Crop"}</p><p className="mt-1 text-xs text-slate-500">{plan.farmerName || (plan.isMine ? "Your farm" : "Cooperative member")}</p></div><Badge variant="outline" className={needsHarvestUpdate ? "border-amber-200 bg-amber-50 text-amber-800" : completed ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-sky-200 bg-sky-50 text-sky-800"}>{needsHarvestUpdate ? "Harvest update required" : completed ? "Harvest recorded" : status.replace(/_/g, " ")}</Badge></div>
                     <p className="mt-1 text-xs text-slate-500">Expected harvest: {plan.expectedHarvestDate ? new Date(plan.expectedHarvestDate).toLocaleDateString() : "Date not set"}</p>
                   </div>
                   <div className="flex items-center justify-between gap-4 lg:block"><div><p className="text-lg font-semibold tabular-nums text-slate-900">{actual.toLocaleString()} kg</p><p className="text-xs text-slate-500">Harvested of {expected.toLocaleString()} kg</p></div></div>
                   <div><div className="flex items-center justify-between text-xs"><span className="font-medium text-slate-600">Harvest progress</span><span className="font-semibold tabular-nums text-slate-800">{Math.round(percent)}%</span></div><div className="mt-2 h-2.5 overflow-hidden rounded-full bg-slate-100"><div className={"h-full rounded-full "+(needsHarvestUpdate ? "bg-amber-500" : "bg-emerald-600")} style={{width:percent+"%"}}/></div></div>
                 </div>;
               })}
-            </div> : <EmptyState title="No active production plans" description="When cooperative members create production plans, they will appear here."/>}
+            </div> : <EmptyState title="No matching production plans" description="Try changing the search or status filter, or ask members to create a production plan."/>}
+              );
+            })()}
           </section>
           {cancelledPlans.length > 0 && <details className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white"><summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 text-sm font-medium text-slate-700"><span>Cancelled plans</span><Badge variant="outline">{cancelledPlans.length}</Badge></summary><div className="divide-y divide-slate-100 border-t border-slate-100">{cancelledPlans.map((plan: any)=><div key={plan.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-3"><div><p className="font-medium capitalize text-slate-800">{plan.cropName || "Crop"}</p><p className="mt-0.5 text-xs text-slate-500">Cancelled plan · Target {Number(plan.expectedQuantityKg||0).toLocaleString()} kg</p></div><Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-600">Cancelled</Badge></div>)}</div></details>}
         </>;
