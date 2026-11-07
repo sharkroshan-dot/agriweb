@@ -926,12 +926,20 @@ async def cooperative_dashboard(cooperative_id: str, current_user: dict = Depend
     plans = await harvest_plan_repo.find_many({"farmerId": {"$in": member_ids}, "deletedAt": None}, limit=1000, sort=[("expectedHarvestDate", 1)])
     production_rows = []
     expected_kg = harvested_kg = 0.0
+    active_plan_count = cancelled_plan_count = 0
     for plan in plans:
         expected = float(plan.get("expectedQuantityKg") or 0)
         actual = float(plan.get("actualQuantityKg") or 0)
-        expected_kg += expected
+        raw_status = str(plan.get("status") or plan.get("stage") or "planned").strip().lower()
+        is_cancelled = raw_status in {"cancelled", "canceled", "rejected", "deleted"}
+        if is_cancelled:
+            cancelled_plan_count += 1
+        else:
+            active_plan_count += 1
+            expected_kg += expected
         harvested_kg += actual
-        production_rows.append({"id": str(plan["_id"]), "farmerId": str(plan.get("farmerId")), "cropName": plan.get("cropName") or plan.get("crop") or "Crop", "expectedQuantityKg": round(expected, 2), "actualQuantityKg": round(actual, 2), "expectedHarvestDate": plan.get("expectedHarvestDate"), "status": plan.get("status") or plan.get("stage") or "planned"})
+        display_status = "harvest_update_required" if raw_status in {"harvested", "completed"} and actual <= 0 else raw_status
+        production_rows.append({"id": str(plan["_id"]), "farmerId": str(plan.get("farmerId")), "cropName": plan.get("cropName") or plan.get("crop") or "Crop", "expectedQuantityKg": round(expected, 2), "actualQuantityKg": round(actual, 2), "expectedHarvestDate": plan.get("expectedHarvestDate"), "status": display_status, "isCancelled": is_cancelled})
 
     batches = await batch_repo.find_many({"farmerId": {"$in": member_ids}, "deletedAt": None}, limit=1000)
     batch_counts = {}
@@ -965,7 +973,7 @@ async def cooperative_dashboard(cooperative_id: str, current_user: dict = Depend
 
     allocations = await cooperative_allocation_repo.find_many({"cooperativeId": cid, "deletedAt": None}, limit=2000, sort=[("createdAt", -1)])
     allocated_kg = round(sum(float(x.get("quantityKg") or 0) for x in allocations), 2)
-    return {"success": True, "data": {"cooperativeId": str(cid), "role": "manager" if str((coop or {}).get("managerId")) == str(uid) else "member", "production": {"plans": production_rows, "expectedKg": round(expected_kg, 2), "harvestedKg": round(harvested_kg, 2), "batchCounts": batch_counts}, "inventory": {k: v for k, v in stock.items() if k != "farmerAvailableKg"}, "orders": {"summary": order_summary, "recent": order_rows[:20]}, "distribution": distribution, "earnings": {"grossSales": round(order_summary["revenue"], 2), "allocatedB2BKg": allocated_kg}, "reports": {"members": len(member_ids), "productionPlans": len(plans), "batches": len(batches), "products": stock["productCount"], "orders": len(orders), "deliveries": len(assignments)}}}
+    return {"success": True, "data": {"cooperativeId": str(cid), "role": "manager" if str((coop or {}).get("managerId")) == str(uid) else "member", "production": {"plans": production_rows, "activePlans": active_plan_count, "cancelledPlans": cancelled_plan_count, "expectedKg": round(expected_kg, 2), "harvestedKg": round(harvested_kg, 2), "batchCounts": batch_counts}, "inventory": {k: v for k, v in stock.items() if k != "farmerAvailableKg"}, "orders": {"summary": order_summary, "recent": order_rows[:20]}, "distribution": distribution, "earnings": {"grossSales": round(order_summary["revenue"], 2), "allocatedB2BKg": allocated_kg}, "reports": {"members": len(member_ids), "productionPlans": len(plans), "batches": len(batches), "products": stock["productCount"], "orders": len(orders), "deliveries": len(assignments)}}}
 
 
 class CooperativeMessageCreate(BaseModel):
