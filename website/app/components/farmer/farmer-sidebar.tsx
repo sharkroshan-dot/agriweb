@@ -50,85 +50,84 @@ import { api } from "../../lib/api/client";
 
 const navGroups = [
   {
-    label: "Management",
+    label: "Overview",
     items: [
       { name: "Dashboard", href: "/farmer/dashboard", icon: LayoutDashboard },
-      { name: "Products", href: "/farmer/products", icon: Package },
-      { name: "Restock & Inventory", href: "/farmer/restock", icon: PackagePlus },
-      { name: "Farm Baskets", href: "/farmer/farm-baskets", icon: ShoppingBasket },
-      { name: "Customers", href: "/farmer/customers", icon: Users },
-      { name: "Ratings & Reviews", href: "/farmer/reviews", icon: Star },
-      { name: "Harvest Calendar", href: "/farmer/harvests", icon: Sprout },
-      { name: "Harvest Planner", href: "/farmer/harvest-planner", icon: CalendarClock },
+      { name: "Operations Overview", href: "/farmer/order-operations", icon: ClipboardList },
     ],
   },
   {
-    label: "Order Operations",
+    label: "Orders & Fulfillment",
     items: [
-      { name: "Operations Overview", href: "/farmer/order-operations", icon: ClipboardList },
-      { name: "Orders", href: "/farmer/orders", icon: ShoppingCart },
+      { name: "Customer Orders", href: "/farmer/orders", icon: ShoppingCart },
       { name: "Packing & Checking", href: "/farmer/packing", icon: PackageCheck },
       { name: "Quality Inspection", href: "/farmer/quality", icon: FlaskConical },
       { name: "Batches & Traceability", href: "/farmer/batches", icon: Layers },
-      { name: "Order Map", href: "/farmer/order-map", icon: MapPin },
-      { name: "Delivery Calendar", href: "/farmer/delivery-calendar", icon: Calendar },
-      { name: "Smart Route", href: "/farmer/smart-route", icon: Map },
-      { name: "Delivery Slots", href: "/farmer/delivery-slots", icon: Truck },
       { name: "Warehouse Returns", href: "/farmer/warehouse-returns", icon: PackageCheck },
-      { name: "Bulk & B2B Orders", href: "/farmer/bulk-orders", icon: Truck },
     ],
   },
   {
-    label: "Farming & Supply",
+    label: "Delivery & Routes",
     items: [
-      { name: "Crop Advisor", href: "/farmer/crop-advisor", icon: Sparkles },
-      { name: "Weather & Perishability", href: "/farmer/weather", icon: CloudSun },
+      { name: "Order Map", href: "/farmer/order-map", icon: MapPin },
+      { name: "Smart Route Planner", href: "/farmer/smart-route", icon: Map },
+      { name: "My Delivery Route", href: "/farmer/route", icon: Truck },
+      { name: "Delivery Calendar", href: "/farmer/delivery-calendar", icon: Calendar },
+      { name: "Delivery Slots", href: "/farmer/delivery-slots", icon: CalendarClock },
+    ],
+  },
+  {
+    label: "Products & Inventory",
+    items: [
+      { name: "My Products", href: "/farmer/products", icon: Package },
+      { name: "Stock & Restocking", href: "/farmer/restock", icon: PackagePlus },
+      { name: "Farm Baskets", href: "/farmer/farm-baskets", icon: ShoppingBasket },
+      { name: "Harvest Calendar", href: "/farmer/harvests", icon: Sprout },
+      { name: "Harvest Planner", href: "/farmer/harvest-planner", icon: CalendarClock },
       { name: "Supply Calendar", href: "/farmer/supply-calendar", icon: Boxes },
-      { name: "Cooperative", href: "/farmer/cooperative", icon: Users2 },
-      { name: "Education Center", href: "/farmer/education", icon: GraduationCap },
     ],
   },
   {
-    label: "Deliveries",
+    label: "B2B & Cooperative",
     items: [
-      { name: "Route", href: "/farmer/route", icon: Truck },
+      { name: "Business RFQs", href: "/farmer/b2b/rfqs", icon: Briefcase },
+      { name: "Bulk Purchase Requests", href: "/farmer/purchase-requests", icon: FileText },
+      { name: "B2B Supply Contracts", href: "/farmer/b2b/contracts", icon: FileSignature },
+      { name: "B2B Fulfillment Orders", href: "/farmer/bulk-orders", icon: Truck },
+      { name: "Farmer Cooperative", href: "/farmer/cooperative", icon: Users2 },
     ],
   },
   {
-    label: "Insights",
-    items: [
-      { name: "Analytics", href: "/farmer/analytics", icon: BarChart },
-      { name: "AI Predictions", href: "/farmer/ai-predictions", icon: Bot },
-      { name: "Farm Impact", href: "/farmer/impact", icon: Leaf },
-      { name: "AI Farm Advisor", href: "/farmer/advisor", icon: Sparkles },
-      { name: "Demand Heatmap", href: "/farmer/demand-heatmap", icon: Flame },
-    ],
-  },
-  {
-    label: "AI Assistant",
-    items: [
-      { name: "Voice Assistant", href: "/farmer/assistant", icon: Bot },
-      { name: "Messages", href: "/farmer/messages", icon: MessageSquare },
-    ],
-  },
-  {
-    label: "Finance & Earnings",
+    label: "Earnings & Customers",
     items: [
       { name: "Earnings", href: "/farmer/earnings", icon: Wallet },
+      { name: "Customers", href: "/farmer/customers", icon: Users },
+      { name: "Ratings & Reviews", href: "/farmer/reviews", icon: Star },
       { name: "Offers & Coupons", href: "/farmer/coupons", icon: BadgePercent },
     ],
   },
   {
-    label: "B2B & Bulk",
+    label: "Insights & Planning",
     items: [
-      { name: "Bulk RFQ", href: "/farmer/purchase-requests", icon: FileText },
-      { name: "Business RFQs", href: "/farmer/b2b/rfqs", icon: Briefcase },
-      { name: "B2B Supply Workspace", href: "/farmer/b2b/contracts", icon: FileSignature },
-
+      { name: "Analytics", href: "/farmer/analytics", icon: BarChart },
+      { name: "Demand Heatmap", href: "/farmer/demand-heatmap", icon: Flame },
+      { name: "AI Predictions", href: "/farmer/ai-predictions", icon: Bot },
+      { name: "Farm Impact", href: "/farmer/impact", icon: Leaf },
+      { name: "Crop Advisor", href: "/farmer/crop-advisor", icon: Sparkles },
+      { name: "Weather & Perishability", href: "/farmer/weather", icon: CloudSun },
     ],
   },
   {
-    label: "System",
+    label: "Support & Learning",
+    items: [
+      { name: "Messages", href: "/farmer/messages", icon: MessageSquare },
+      { name: "AI Farm Advisor", href: "/farmer/advisor", icon: Sparkles },
+      { name: "Voice Assistant", href: "/farmer/assistant", icon: Bot },
+      { name: "Education Center", href: "/farmer/education", icon: GraduationCap },
+    ],
+  },
+  {
+    label: "Account & Security",
     items: [
       { name: "AgriConnect Score", href: "/farmer/agri-score", icon: BadgeCheck },
       { name: "Settings", href: "/farmer/settings", icon: Settings },
