@@ -21,6 +21,10 @@ from app.api.v1.auth import get_current_user
 from app.repositories.base_repository import BaseRepository
 from app.repositories.product_repository import product_repository
 from app.repositories.inventory_repository import inventory_repository
+from app.repositories.farmer_repository import farmer_repository
+from app.repositories.warehouse_repository import warehouse_repository
+from app.services.warehouse_collection_service import warehouse_collection_districts, farmer_collection_district
+from app.services.quality_inspection_routing import resolve_quality_inspection_warehouse, require_assigned_warehouse_access
 harvest_preorder_repository = BaseRepository("harvest_preorders")
 from app.services.quality_ai import assess_quality
 from app.services.notification_service import NotificationService
@@ -129,6 +133,8 @@ def _grade_value(grade: str) -> int:
 def _serialize_inspection(rec: dict) -> dict:
     rec["id"] = str(rec["_id"])
     rec["farmerId"] = str(rec.get("farmerId"))
+    if rec.get("assignedWarehouseId") is not None:
+        rec["assignedWarehouseId"] = str(rec["assignedWarehouseId"])
     if rec.get("batchId"):
         rec["batchId"] = str(rec["batchId"])
     # grade = the currently effective grade (verified once set, else declared)
@@ -288,6 +294,7 @@ async def request_inspection(data: InspectionRequest, current_user: dict = Depen
         raise HTTPException(status_code=400, detail="Invalid batch id")
     batch = await batch_repo.find_one({"_id": batch_id, "farmerId": ObjectId(current_user["_id"]), "deletedAt": None})
     if not batch: raise HTTPException(status_code=404, detail="Batch not found")
+    receiving_warehouse, assigned_district = await resolve_quality_inspection_warehouse(current_user["_id"], batch)
     now = datetime.utcnow()
     priority = _inspection_priority(batch.get("expiresAt"), data.urgent)
     due_at = now + timedelta(hours=2 if priority == "critical" else INSPECTION_SLA_HOURS.get(batch.get("storageType"), 6))
@@ -296,7 +303,9 @@ async def request_inspection(data: InspectionRequest, current_user: dict = Depen
         "farmerDeclaredGrade": batch.get("farmerDeclaredGrade"), "grade": None, "status": "pending", "inspectionStatus": "pending",
         "verificationStatus": VERIFICATION_STATUS_DECLARED, "verifiedGrade": None, "verificationMethod": None, "verifiedBy": None, "verifiedAt": None,
         "verificationNotes": None, "photos": [], "videos": [], "evidenceNotes": None, "requestedAt": now, "inspectionDueAt": due_at, "priority": priority, "urgentRequested": bool(data.urgent),
-        "assignedTo": existing.get("assignedTo") if existing else None, "assignedAt": existing.get("assignedAt") if existing else None, "deletedAt": None, "updatedAt": now}
+        "assignedTo": existing.get("assignedTo") if existing else None, "assignedAt": existing.get("assignedAt") if existing else None,
+        "assignedWarehouseId": receiving_warehouse["_id"], "assignedWarehouseName": receiving_warehouse.get("name") or receiving_warehouse.get("warehouseName") or "Warehouse",
+        "assignedDistrict": assigned_district, "warehouseAssignedAt": now, "deletedAt": None, "updatedAt": now}
     if existing:
         await inspection_repo.update({"_id": existing["_id"]}, payload); inspection_id = existing["_id"]
     else:
@@ -312,7 +321,13 @@ async def request_inspection(data: InspectionRequest, current_user: dict = Depen
 async def inspection_queue(current_user: dict = Depends(get_current_user)):
     """Priority queue for authorized warehouse/admin inspectors."""
     _require_verifier(current_user)
-    records = await inspection_repo.find_many({"deletedAt": None, "inspectionStatus": {"$in": ["pending", "in_progress", "evidence_submitted"]}}, limit=500)
+    queue_filter = {"deletedAt": None, "inspectionStatus": {"$in": ["pending", "in_progress", "evidence_submitted"]}}
+    if current_user.get("role") == "warehouse":
+        warehouse = await warehouse_repository.get_by_manager(str(current_user["_id"]))
+        if not warehouse:
+            raise HTTPException(status_code=403, detail="No warehouse is assigned to this account.")
+        queue_filter["assignedWarehouseId"] = {"$in": [warehouse["_id"], str(warehouse["_id"])]}
+    records = await inspection_repo.find_many(queue_filter, limit=500)
     rank = {"critical": 0, "urgent": 1, "normal": 2}
     queue = []
     for rec in records:
@@ -333,8 +348,11 @@ async def claim_inspection(inspection_id: str, data: InspectionClaim, current_us
     except Exception: raise HTTPException(status_code=404, detail="Inspection not found")
     rec = await inspection_repo.find_one({"_id": oid, "deletedAt": None})
     if not rec: raise HTTPException(status_code=404, detail="Inspection not found")
+    await require_assigned_warehouse_access(rec, current_user)
+    if rec.get("inspectionStatus") not in ("pending", "evidence_submitted", "in_progress"):
+        raise HTTPException(status_code=409, detail="This inspection is not available to claim.")
     now = datetime.utcnow()
-    await inspection_repo.update({"_id": oid}, {"inspectionStatus": "in_progress", "assignedTo": ObjectId(current_user["_id"]), "assignedAt": now, "claimNotes": data.notes, "updatedAt": now})
+    await inspection_repo.update({"_id": oid, "assignedWarehouseId": rec.get("assignedWarehouseId")}, {"inspectionStatus": "in_progress", "assignedTo": ObjectId(current_user["_id"]), "assignedAt": now, "claimNotes": data.notes, "updatedAt": now})
     await batch_repo.update({"_id": rec.get("batchId")}, {"qualityStatus": "inspection_in_progress", "inspectionAssignedTo": ObjectId(current_user["_id"])})
     refreshed = await inspection_repo.find_one({"_id": oid})
     return {"success": True, "data": _serialize_inspection(refreshed)}
@@ -403,6 +421,7 @@ async def submit_inspection_evidence(
         raise HTTPException(status_code=403, detail="Only the owning farmer can submit inspection evidence")
     if rec.get("inspectionStatus") in ("approved", "rejected"):
         raise HTTPException(status_code=409, detail="This inspection is already finalized")
+    receiving_warehouse, assigned_district = await resolve_quality_inspection_warehouse(rec.get("farmerId"), await batch_repo.find_one({"_id": rec.get("batchId"), "deletedAt": None}) if rec.get("batchId") else None)
     photos = data.photos or rec.get("photos") or []
     videos = data.videos or rec.get("videos") or []
     if not photos and not videos:
@@ -416,6 +435,10 @@ async def submit_inspection_evidence(
             "inspectorNotes": data.notes or rec.get("inspectorNotes"),
             "verificationStatus": VERIFICATION_STATUS_EVIDENCE,
             "inspectionStatus": "evidence_submitted",
+            "assignedWarehouseId": receiving_warehouse["_id"],
+            "assignedWarehouseName": receiving_warehouse.get("name") or receiving_warehouse.get("warehouseName") or "Warehouse",
+            "assignedDistrict": assigned_district,
+            "warehouseAssignedAt": datetime.utcnow(),
             "evidenceSubmittedAt": datetime.utcnow(),
             "updatedAt": datetime.utcnow(),
         },
@@ -444,6 +467,7 @@ async def verify_inspection(inspection_id: str, data: InspectionVerify, current_
     except Exception: raise HTTPException(status_code=404, detail="Inspection not found")
     rec = await inspection_repo.find_one({"_id": oid, "deletedAt": None})
     if not rec: raise HTTPException(status_code=404, detail="Inspection not found")
+    await require_assigned_warehouse_access(rec, current_user)
     if rec.get("inspectionStatus") not in ("evidence_submitted", "in_progress"):
         raise HTTPException(status_code=409, detail="Farmer must submit photo or video evidence before warehouse approval")
     if not (rec.get("photos") or rec.get("videos")):
@@ -497,6 +521,7 @@ async def reject_inspection(inspection_id: str, data: InspectionReject, current_
     except Exception: raise HTTPException(status_code=404, detail="Inspection not found")
     rec = await inspection_repo.find_one({"_id": oid, "deletedAt": None})
     if not rec: raise HTTPException(status_code=404, detail="Inspection not found")
+    await require_assigned_warehouse_access(rec, current_user)
     now = datetime.utcnow()
     await inspection_repo.update({"_id": oid}, {"verificationStatus": VERIFICATION_STATUS_REJECTED, "verificationNotes": data.reason,
         "verifiedBy": ObjectId(current_user["_id"]), "verifiedAt": now, "inspectionStatus": "rejected", "status": STATUS_FAILED, "updatedAt": now})
@@ -670,12 +695,23 @@ async def list_inspections(current_user: dict = Depends(get_current_user)):
             sort=[("inspectedAt", -1)],
             limit=200,
         )
-    else:
+    elif current_user.get("role") == "admin":
         inspections = await inspection_repo.find_many(
             {"deletedAt": None},
             sort=[("inspectedAt", -1)],
             limit=500,
         )
+    elif current_user.get("role") == "warehouse":
+        warehouse = await warehouse_repository.get_by_manager(str(current_user["_id"]))
+        if not warehouse:
+            raise HTTPException(status_code=403, detail="No warehouse is assigned to this account.")
+        inspections = await inspection_repo.find_many(
+            {"deletedAt": None, "assignedWarehouseId": {"$in": [warehouse["_id"], str(warehouse["_id"])]}},
+            sort=[("inspectedAt", -1)],
+            limit=500,
+        )
+    else:
+        raise HTTPException(status_code=403, detail="Not authorized to view quality inspections.")
     return {
         "success": True,
         "data": {
@@ -701,6 +737,10 @@ async def get_inspection(
         raise HTTPException(status_code=404, detail="Inspection not found")
     if current_user.get("role") == "farmer" and str(rec.get("farmerId")) != str(current_user["_id"]):
         raise HTTPException(status_code=404, detail="Inspection not found")
+    if current_user.get("role") in ("warehouse", "admin"):
+        await require_assigned_warehouse_access(rec, current_user)
+    else:
+        raise HTTPException(status_code=403, detail="Not authorized to view this inspection.")
 
     return {"success": True, "data": _serialize_inspection(rec)}
 
