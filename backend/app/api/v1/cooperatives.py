@@ -1124,35 +1124,106 @@ async def allocate_b2b_supply(
     allocations: List[Dict[str, Any]] = Body(...),
     current_user: dict = Depends(get_current_user),
 ):
-    """Record a manager-approved allocation of member-owned stock to a cooperative sale."""
+    """Atomically reserve member-owned inventory for a cooperative B2B commitment."""
     _require_farmer(current_user)
     cid = _oid(cooperative_id, "cooperative id")
     uid = _oid(current_user["_id"], "farmer id")
     coop = await cooperative_repo.find_one({"_id": cid, "status": "active", "deletedAt": None})
     if not coop or str(coop.get("managerId")) != str(uid):
         raise HTTPException(403, "Only the cooperative manager can allocate supply")
+    if not allocations:
+        raise HTTPException(400, "Add at least one product quantity to reserve")
+
     members = await _member_ids(cid)
     member_set = {str(x) for x in members}
-    result = []
+    validated = []
     for item in allocations:
         farmer_id = str(item.get("farmerId") or "")
         product_id = str(item.get("productId") or "")
-        quantity = float(item.get("quantityKg") or 0)
+        try:
+            quantity = round(float(item.get("quantityKg") or 0), 3)
+        except (TypeError, ValueError):
+            quantity = 0
         if farmer_id not in member_set or quantity <= 0:
             raise HTTPException(400, "Each allocation must use an active cooperative farmer and a positive quantity")
         try:
-            product = await product_repo.find_one({"_id": ObjectId(product_id), "farmerId": ObjectId(farmer_id), "isActive": {"$ne": False}})
+            product = await product_repo.find_one({"_id": ObjectId(product_id), "farmerId": ObjectId(farmer_id), "isActive": {"$ne": False}, "deletedAt": None})
         except Exception:
             product = None
         if not product:
             raise HTTPException(404, "Product not found for the selected farmer")
-        stock = await inventory_repository.get_stock_summary(product_id)
-        available = float((stock or {}).get("available_stock") or 0)
-        if quantity > available:
-            raise HTTPException(400, f"Insufficient available stock for {product.get('name', 'product')}")
-        result.append({"farmerId": farmer_id, "productId": product_id, "productName": product.get("name"), "quantityKg": round(quantity, 2)})
-    if result:
-        now = datetime.utcnow()
-        await cooperative_allocation_repo.create({"cooperativeId": cid, "managerId": uid, "allocations": result, "quantityKg": round(sum(x["quantityKg"] for x in result), 2), "status": "approved", "createdAt": now, "updatedAt": now, "deletedAt": None})
-        await _create_cooperative_system_message(cid, f"Manager recorded a cooperative supply allocation of {round(sum(x['quantityKg'] for x in result), 2)} kg. Check Inventory for the farmer-wise breakdown.")
-    return {"success": True, "data": {"cooperativeId": str(cid), "allocations": result, "totalQuantityKg": round(sum(x["quantityKg"] for x in result), 2), "status": "approved"}}
+        validated.append({"farmerId": farmer_id, "productId": product_id, "productName": product.get("name"), "quantityKg": quantity})
+
+    # The conditional Mongo update is the source of truth and prevents races
+    # with other B2B allocations and normal customer reservations.
+    reserved_lines = []
+    for line in validated:
+        if not await inventory_repository.atomic_reserve(line["productId"], line["quantityKg"]):
+            for prior in reversed(reserved_lines):
+                await inventory_repository.atomic_release(prior["productId"], prior["quantityKg"])
+            stock = await inventory_repository.get_stock_summary(line["productId"])
+            available = float((stock or {}).get("available_stock") or 0)
+            raise HTTPException(409, f"Insufficient available stock for {line['productName']}. Current available quantity: {available:g} kg")
+        reserved_lines.append(line)
+
+    total_quantity = round(sum(x["quantityKg"] for x in reserved_lines), 3)
+    allocation_id = await cooperative_allocation_repo.create({
+        "cooperativeId": cid, "managerId": uid, "allocations": reserved_lines,
+        "quantityKg": total_quantity, "status": "approved",
+        "reservationStatus": "active", "createdAt": datetime.utcnow(),
+        "updatedAt": datetime.utcnow(), "deletedAt": None,
+    })
+    if not allocation_id:
+        for line in reversed(reserved_lines):
+            await inventory_repository.atomic_release(line["productId"], line["quantityKg"])
+        raise HTTPException(500, "Could not save the B2B allocation. Reserved stock was released.")
+
+    await _create_cooperative_system_message(cid, f"Manager reserved {total_quantity} kg for a B2B commitment. Customer-facing available stock has been reduced.")
+    return {"success": True, "data": {"id": allocation_id, "cooperativeId": str(cid), "allocations": reserved_lines, "totalQuantityKg": total_quantity, "status": "approved", "reservationStatus": "active"}}
+
+
+@router.post("/{cooperative_id}/b2b-allocation/{allocation_id}/cancel")
+async def cancel_b2b_supply_allocation(
+    cooperative_id: str,
+    allocation_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Cancel an unfulfilled B2B allocation and release its reserved stock."""
+    _require_farmer(current_user)
+    cid = _oid(cooperative_id, "cooperative id")
+    aid = _oid(allocation_id, "allocation id")
+    uid = _oid(current_user["_id"], "farmer id")
+    coop = await cooperative_repo.find_one({"_id": cid, "status": "active", "deletedAt": None})
+    if not coop or str(coop.get("managerId")) != str(uid):
+        raise HTTPException(403, "Only the cooperative manager can cancel this allocation")
+    allocation = await cooperative_allocation_repo.find_one({"_id": aid, "cooperativeId": cid, "deletedAt": None})
+    if not allocation:
+        raise HTTPException(404, "B2B allocation not found")
+    if allocation.get("reservationStatus") == "released" or allocation.get("status") == "cancelled":
+        return {"success": True, "data": {"id": allocation_id, "status": "cancelled", "reservationStatus": "released", "alreadyCancelled": True}}
+    if allocation.get("reservationStatus") != "active":
+        raise HTTPException(409, "This allocation is not an active stock reservation")
+
+    released = []
+    for line in allocation.get("allocations", []):
+        product_id = str(line.get("productId") or "")
+        quantity = float(line.get("quantityKg") or 0)
+        if quantity <= 0:
+            continue
+        if not await inventory_repository.atomic_release(product_id, quantity):
+            for prior in reversed(released):
+                await inventory_repository.atomic_reserve(prior["productId"], prior["quantityKg"])
+            raise HTTPException(409, "Stock release could not be completed safely. No cancellation was recorded; please retry.")
+        released.append({"productId": product_id, "quantityKg": quantity})
+
+    updated = await cooperative_allocation_repo.update(
+        {"_id": aid, "cooperativeId": cid, "reservationStatus": "active"},
+        {"status": "cancelled", "reservationStatus": "released", "cancelledAt": datetime.utcnow()},
+    )
+    if not updated:
+        for prior in reversed(released):
+            await inventory_repository.atomic_reserve(prior["productId"], prior["quantityKg"])
+        raise HTTPException(409, "Allocation status changed during cancellation. Please refresh and retry.")
+    released_total = round(sum(x["quantityKg"] for x in released), 3)
+    await _create_cooperative_system_message(cid, f"A B2B allocation was cancelled and {released_total} kg was returned to available cooperative stock.")
+    return {"success": True, "data": {"id": allocation_id, "status": "cancelled", "reservationStatus": "released", "releasedQuantityKg": released_total}}
