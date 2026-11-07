@@ -1025,6 +1025,13 @@ async def cooperative_dashboard(cooperative_id: str, current_user: dict = Depend
                 "unit": item.get("unit") or "kg",
             } for item in items],
             "requiredQuantityKg": float(order.get("quantityKg") or order.get("requiredQuantityKg") or sum(float(x.get("quantityKg") or x.get("quantity") or 0) for x in items)),
+            "fulfillmentMode": order.get("fulfillmentMode") or ("cooperative" if order.get("cooperativeId") else "individual"),
+            "contributions": [{
+                "farmerId": str(line.get("farmerId") or ""),
+                "productId": str(line.get("productId") or ""),
+                "productName": line.get("productName") or order.get("productName") or "Product",
+                "quantityKg": float(line.get("quantityKg") or 0),
+            } for line in (order.get("supplyAllocations") or [])],
             "totalAmount": total_amount,
             "status": status,
             "deliveryDate": order.get("deliveryDate") or order.get("businessDeliveryDate"),
