@@ -368,7 +368,29 @@ async def list_batches(current_user: dict = Depends(get_current_user)):
         sort=[("createdAt", -1)],
         limit=200,
     )
-    return {"success": True, "data": {"batches": [_serialize_batch(b) for b in batches], "count": len(batches)}}
+    serialized = []
+    for batch in batches:
+        item = _serialize_batch(batch)
+        inspection = None
+        inspection_id = batch.get("inspectionId")
+        if inspection_id:
+            try:
+                inspection = await quality_inspection_repo.find_one({
+                    "_id": inspection_id,
+                    "farmerId": ObjectId(current_user["_id"]),
+                    "deletedAt": None,
+                })
+            except Exception:
+                inspection = None
+        if not inspection:
+            inspection = await quality_inspection_repo.find_one({
+                "batchId": batch["_id"],
+                "farmerId": ObjectId(current_user["_id"]),
+                "deletedAt": None,
+            })
+        item["inspection"] = _serialize_inspection(inspection) if inspection else None
+        serialized.append(item)
+    return {"success": True, "data": {"batches": serialized, "count": len(serialized)}}
 
 
 @router.get("/{batch_id}")
