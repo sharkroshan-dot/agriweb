@@ -237,7 +237,7 @@ export function FarmerQualityPanel() {
                 </div>
                 <Badge variant="outline" className="border-slate-200 bg-white">{evidenceQueue.length} active {evidenceQueue.length === 1 ? "inspection" : "inspections"}</Badge>
               </div>
-              <div className="grid grid-cols-2 gap-3 pt-2 sm:max-w-md">
+              <div className="grid w-full grid-cols-2 gap-3 pt-2">
                 <div className="rounded-lg border border-amber-100 bg-amber-50/70 px-3 py-2">
                   <p className="text-xl font-semibold tabular-nums text-amber-800">{needsEvidence}</p>
                   <p className="text-xs font-medium text-amber-800">Evidence required</p>
