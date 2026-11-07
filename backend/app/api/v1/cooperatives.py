@@ -27,6 +27,11 @@ delivery_assignment_repo = BaseRepository("delivery_assignments")
 cooperative_allocation_repo = BaseRepository("cooperative_allocations")
 cooperative_message_repo = BaseRepository("cooperative_messages")
 
+cooperative_inventory_repo = BaseRepository("cooperative_inventory")
+cooperative_contribution_repo = BaseRepository("cooperative_order_contributions")
+cooperative_settlement_repo = BaseRepository("cooperative_settlements")
+
+
 
 def _require_farmer(user: dict) -> None:
     if user.get("role") != "farmer":
@@ -909,6 +914,129 @@ async def cooperative_supply(
     }
 
 
+
+
+
+
+class CooperativeInventoryContribution(BaseModel):
+    productId: str
+    availableQuantityKg: float = Field(..., gt=0, le=10000000)
+    pricePerKg: float = Field(..., gt=0, le=1000000)
+    qualityGrade: str = Field(default="Standard", min_length=1, max_length=40)
+    availabilityDate: str | None = Field(default=None, max_length=40)
+
+
+@router.get("/{cooperative_id}/inventory")
+async def list_cooperative_inventory(cooperative_id: str, current_user: dict = Depends(get_current_user)):
+    _require_farmer(current_user)
+    cid = _oid(cooperative_id, "cooperative id")
+    uid = _oid(current_user["_id"], "farmer id")
+    member = await member_repo.find_one({"cooperativeId": cid, "userId": uid, "status": "active", "deletedAt": None})
+    if not member:
+        raise HTTPException(403, "You are not an active cooperative member")
+    rows = await cooperative_inventory_repo.find_many({"cooperativeId": cid, "status": "active", "deletedAt": None}, limit=3000, sort=[("updatedAt", -1)])
+    farmer_ids = list({x.get("farmerId") for x in rows if x.get("farmerId")})
+    farmers = await user_repo.find_many({"_id": {"$in": farmer_ids}}, limit=500) if farmer_ids else []
+    names = {str(x["_id"]): (f"{x.get('firstName','')} {x.get('lastName','')}".strip() or x.get("email") or "Farmer") for x in farmers}
+    products = []
+    for row in rows:
+        products.append({
+            "id": str(row["_id"]), "farmerId": str(row.get("farmerId")),
+            "farmerName": names.get(str(row.get("farmerId")), "Farmer"),
+            "productId": str(row.get("productId")), "productName": row.get("productName", "Product"),
+            "availableQuantityKg": float(row.get("availableQuantityKg") or 0),
+            "reservedQuantityKg": float(row.get("reservedQuantityKg") or 0),
+            "availableForOrdersKg": max(0, float(row.get("availableQuantityKg") or 0) - float(row.get("reservedQuantityKg") or 0)),
+            "pricePerKg": float(row.get("pricePerKg") or 0), "qualityGrade": row.get("qualityGrade") or "Standard",
+            "availabilityDate": row.get("availabilityDate"), "updatedAt": row.get("updatedAt"),
+            "isMine": str(row.get("farmerId")) == str(uid),
+        })
+    grouped = {}
+    for row in products:
+        key = row["productId"]
+        item = grouped.setdefault(key, {"productId": key, "productName": row["productName"], "totalAvailableKg": 0.0, "farmersCount": 0, "contributions": []})
+        item["totalAvailableKg"] += row["availableForOrdersKg"]
+        item["farmersCount"] += 1
+        item["contributions"].append(row)
+    combined = []
+    for item in grouped.values():
+        item["totalAvailableKg"] = round(item["totalAvailableKg"], 2)
+        combined.append(item)
+    return {"success": True, "data": {"contributions": products, "products": sorted(combined, key=lambda x: x["productName"].lower())}}
+
+
+@router.post("/{cooperative_id}/inventory", status_code=201)
+async def upsert_cooperative_inventory(cooperative_id: str, data: CooperativeInventoryContribution, current_user: dict = Depends(get_current_user)):
+    _require_farmer(current_user)
+    cid = _oid(cooperative_id, "cooperative id")
+    uid = _oid(current_user["_id"], "farmer id")
+    member = await member_repo.find_one({"cooperativeId": cid, "userId": uid, "status": "active", "deletedAt": None})
+    if not member:
+        raise HTTPException(403, "Only active cooperative members can contribute inventory")
+    pid = _oid(data.productId, "product id")
+    product = await product_repo.find_one({"_id": pid, "farmerId": uid, "isActive": {"$ne": False}, "deletedAt": None})
+    if not product:
+        raise HTTPException(404, "Select one of your active products")
+    stock = await inventory_repository.get_stock_summary(str(pid))
+    physically_available = float((stock or {}).get("available_stock") or 0)
+    if data.availableQuantityKg > physically_available:
+        raise HTTPException(409, f"Your available farm inventory is {physically_available:g} kg; cooperative contribution cannot exceed it")
+    existing = await cooperative_inventory_repo.find_one({"cooperativeId": cid, "farmerId": uid, "productId": pid, "deletedAt": None})
+    now = datetime.utcnow()
+    values = {
+        "cooperativeId": cid, "farmerId": uid, "productId": pid,
+        "productName": product.get("name") or product.get("productName") or "Product",
+        "availableQuantityKg": round(data.availableQuantityKg, 3),
+        "pricePerKg": round(data.pricePerKg, 2), "qualityGrade": data.qualityGrade.strip(),
+        "availabilityDate": data.availabilityDate, "status": "active", "updatedAt": now, "deletedAt": None,
+    }
+    if existing:
+        reserved = float(existing.get("reservedQuantityKg") or 0)
+        if values["availableQuantityKg"] < reserved:
+            raise HTTPException(409, f"{reserved:g} kg is already reserved for confirmed orders")
+        await cooperative_inventory_repo.update({"_id": existing["_id"]}, values)
+        record_id = str(existing["_id"])
+    else:
+        values.update({"reservedQuantityKg": 0.0, "createdAt": now})
+        record_id = await cooperative_inventory_repo.create(values)
+    if not record_id:
+        raise HTTPException(500, "Could not save cooperative inventory contribution")
+    await _create_cooperative_system_message(cid, f"A member updated cooperative inventory: {values['productName']} · {values['availableQuantityKg']:g} kg")
+    return {"success": True, "data": {"id": record_id, **{k: v for k, v in values.items() if k not in {"cooperativeId", "farmerId", "productId"}}, "farmerId": str(uid)}, "message": "Cooperative inventory contribution saved"}
+
+
+@router.get("/marketplace/supply")
+async def cooperative_marketplace_supply(current_user: dict = Depends(get_current_user)):
+    """Business-facing catalogue: combined, unreserved cooperative quantities only."""
+    if current_user.get("role") not in {"business", "business_user"}:
+        raise HTTPException(403, "Only business buyers can view cooperative bulk supply")
+    rows = await cooperative_inventory_repo.find_many({"status": "active", "deletedAt": None}, limit=10000)
+    groups = {}
+    for row in rows:
+        coop_id = str(row.get("cooperativeId"))
+        product_id = str(row.get("productId"))
+        key = (coop_id, product_id)
+        available = max(0.0, float(row.get("availableQuantityKg") or 0) - float(row.get("reservedQuantityKg") or 0))
+        if available <= 0:
+            continue
+        group = groups.setdefault(key, {"cooperativeId": coop_id, "productId": product_id, "productName": row.get("productName") or "Product", "totalAvailableKg": 0.0, "farmersCount": 0, "qualityGrades": set(), "indicativeMinPrice": None, "indicativeMaxPrice": None})
+        group["totalAvailableKg"] += available
+        group["farmersCount"] += 1
+        group["qualityGrades"].add(row.get("qualityGrade") or "Standard")
+        price = float(row.get("pricePerKg") or 0)
+        group["indicativeMinPrice"] = price if group["indicativeMinPrice"] is None else min(group["indicativeMinPrice"], price)
+        group["indicativeMaxPrice"] = price if group["indicativeMaxPrice"] is None else max(group["indicativeMaxPrice"], price)
+    output = []
+    for item in groups.values():
+        coop = await cooperative_repo.find_one({"_id": ObjectId(item["cooperativeId"]), "status": "active", "deletedAt": None})
+        if not coop:
+            continue
+        item["cooperativeName"] = coop.get("name") or "Farmer cooperative"
+        item["location"] = coop.get("location") or ""
+        item["totalAvailableKg"] = round(item["totalAvailableKg"], 2)
+        item["qualityGrades"] = sorted(item["qualityGrades"])
+        output.append(item)
+    return {"success": True, "data": {"products": sorted(output, key=lambda x: (x["cooperativeName"], x["productName"]))}}
 
 
 @router.get("/dashboard/{cooperative_id}")
