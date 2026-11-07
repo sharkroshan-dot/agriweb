@@ -316,8 +316,8 @@ async def discover_farmers_for_cooperative(
     location_term = location.strip()
     crop_term = crop.strip()
     name_term = search.strip()
-    if not location_term and not crop_term:
-        raise HTTPException(400, "Enter a location or crop to find matching farmers")
+    if not location_term and not crop_term and not name_term:
+        raise HTTPException(400, "Enter a location, crop or farmer name/contact to discover farmers")
 
     uid = _oid(current_user["_id"], "farmer id")
     users_query: Dict[str, Any] = {
@@ -330,6 +330,8 @@ async def discover_farmers_for_cooperative(
             {"firstName": {"$regex": name_term, "$options": "i"}},
             {"lastName": {"$regex": name_term, "$options": "i"}},
             {"name": {"$regex": name_term, "$options": "i"}},
+            {"phone": {"$regex": name_term, "$options": "i"}},
+            {"email": {"$regex": name_term, "$options": "i"}},
         ]
     users = await user_repo.find_many(users_query, limit=500, sort=[("firstName", 1), ("lastName", 1)])
     if not users:
@@ -417,6 +419,8 @@ async def discover_farmers_for_cooperative(
             "name": f"{farmer.get('firstName', '')} {farmer.get('lastName', '')}".strip()
                     or farmer.get("name") or "Farmer",
             "farmName": profile.get("farmName") or profile.get("ownerName"),
+            "phone": farmer.get("phone"),
+            "email": farmer.get("email"),
             "location": full_location or "Location not provided",
             "crops": unique_crops[:12],
             "matchingCrops": matching_crops[:8],
