@@ -52,7 +52,7 @@ interface InspectionRecord {
   inspectorNotes?: string;
 }
 
-export default function FarmerQualityPage() {
+export function FarmerQualityPanel() {
   const queryClient = useQueryClient();
   const router = useRouter();
   const [filter, setFilter] = useState<string>("all");
@@ -180,9 +180,9 @@ export default function FarmerQualityPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Quality Inspection</h1>
+          <h2 className="text-xl font-semibold text-slate-900">Quality inspection & evidence</h2>
           <p className="text-gray-500">
-            Record grades, size, freshness and damage %, with photo proof. Essential for B2B &amp; bulk orders.
+            Submit batch evidence, follow warehouse review and view the final quality decision.
           </p>
         </div>
         <div className="rounded-lg border bg-amber-50 px-3 py-2 text-xs text-amber-800">
