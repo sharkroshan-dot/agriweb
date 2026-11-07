@@ -1009,8 +1009,22 @@ async def cooperative_dashboard(cooperative_id: str, current_user: dict = Depend
         elif "fail" in status or "cancel" in status: distribution["failed"] += 1
 
     allocations = await cooperative_allocation_repo.find_many({"cooperativeId": cid, "deletedAt": None}, limit=2000, sort=[("createdAt", -1)])
-    allocated_kg = round(sum(float(x.get("quantityKg") or 0) for x in allocations), 2)
-    return {"success": True, "data": {"cooperativeId": str(cid), "role": "manager" if str((coop or {}).get("managerId")) == str(uid) else "member", "production": {"plans": production_rows, "activePlans": active_plan_count, "cancelledPlans": cancelled_plan_count, "expectedKg": round(expected_kg, 2), "harvestedKg": round(harvested_kg, 2), "batchCounts": batch_counts}, "inventory": {k: v for k, v in stock.items() if k != "farmerAvailableKg"}, "orders": {"summary": order_summary, "recent": order_rows[:20]}, "distribution": distribution, "earnings": {"grossSales": round(order_summary["revenue"], 2), "allocatedB2BKg": allocated_kg}, "reports": {"members": len(member_ids), "productionPlans": len(plans), "batches": len(batches), "products": stock["productCount"], "orders": len(orders), "deliveries": len(assignments)}}}
+    active_allocations = [x for x in allocations if x.get("reservationStatus") == "active"]
+    allocated_kg = round(sum(float(x.get("quantityKg") or 0) for x in active_allocations), 2)
+    allocation_rows = [{
+        "id": str(x["_id"]),
+        "quantityKg": float(x.get("quantityKg") or 0),
+        "status": x.get("status"),
+        "reservationStatus": x.get("reservationStatus") or "legacy_unreserved",
+        "createdAt": x.get("createdAt"),
+        "allocations": [{
+            "farmerId": str(line.get("farmerId") or ""),
+            "productId": str(line.get("productId") or ""),
+            "productName": line.get("productName") or "Product",
+            "quantityKg": float(line.get("quantityKg") or 0),
+        } for line in x.get("allocations", [])],
+    } for x in allocations]
+    return {"success": True, "data": {"cooperativeId": str(cid), "role": "manager" if str((coop or {}).get("managerId")) == str(uid) else "member", "production": {"plans": production_rows, "activePlans": active_plan_count, "cancelledPlans": cancelled_plan_count, "expectedKg": round(expected_kg, 2), "harvestedKg": round(harvested_kg, 2), "batchCounts": batch_counts}, "inventory": {k: v for k, v in stock.items() if k != "farmerAvailableKg"}, "allocations": allocation_rows, "orders": {"summary": order_summary, "recent": order_rows[:20]}, "distribution": distribution, "earnings": {"grossSales": round(order_summary["revenue"], 2), "allocatedB2BKg": allocated_kg}, "reports": {"members": len(member_ids), "productionPlans": len(plans), "batches": len(batches), "products": stock["productCount"], "orders": len(orders), "deliveries": len(assignments)}}}
 
 
 class CooperativeMessageCreate(BaseModel):
