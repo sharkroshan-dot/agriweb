@@ -1403,13 +1403,17 @@ async def cooperative_settlements(cooperative_id: str, current_user: dict = Depe
     for settlement in settlements:
         payouts = settlement.get("payouts") or []
         visible = payouts if member.get("role") == "manager" else [x for x in payouts if str(x.get("farmerId")) == str(uid)]
+        farmer_ids = list({ObjectId(str(x.get("farmerId"))) for x in visible if ObjectId.is_valid(str(x.get("farmerId") or ""))})
+        farmer_users = await user_repo.find_many({"_id": {"$in": farmer_ids}}, limit=500) if farmer_ids else []
+        farmer_names = {str(x["_id"]): (f"{x.get('firstName','')} {x.get('lastName','')}".strip() or x.get("email") or "Farmer") for x in farmer_users}
         rows.append({
             "id": str(settlement["_id"]), "orderId": str(settlement.get("orderId")),
             "orderNumber": settlement.get("orderNumber"), "buyerPaidAmount": float(settlement.get("buyerPaidAmount") or 0),
             "sharedCosts": float(settlement.get("sharedCosts") or 0), "cooperativeFee": float(settlement.get("cooperativeFee") or 0),
             "payoutPool": float(settlement.get("payoutPool") or 0), "status": settlement.get("status") or "prepared",
             "payouts": [{
-                "farmerId": str(x.get("farmerId")), "amount": float(x.get("payoutAmount") or 0),
+                "farmerId": str(x.get("farmerId")), "farmerName": farmer_names.get(str(x.get("farmerId")), "Farmer"),
+                "isMine": str(x.get("farmerId")) == str(uid), "amount": float(x.get("payoutAmount") or 0),
                 "grossAmount": float(x.get("grossAmount") or 0), "acceptedQuantityKg": float(x.get("acceptedQuantityKg") or 0),
                 "payoutStatus": x.get("payoutStatus") or "pending", "paidAt": x.get("paidAt"),
             } for x in visible],
