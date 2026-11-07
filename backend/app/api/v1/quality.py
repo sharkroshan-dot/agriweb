@@ -384,8 +384,13 @@ async def create_inspection(data: InspectionCreate, current_user: dict = Depends
     except Exception: raise HTTPException(status_code=400, detail="Invalid batch id")
     batch = await batch_repo.find_one({"_id": batch_id, "deletedAt": None})
     if not batch: raise HTTPException(status_code=404, detail="Batch not found")
+    receiving_warehouse, assigned_district = await resolve_quality_inspection_warehouse(batch.get("farmerId"), batch)
+    if current_user.get("role") == "warehouse":
+        await require_assigned_warehouse_access({"assignedWarehouseId": receiving_warehouse["_id"]}, current_user)
     now = datetime.utcnow()
-    inspection = {"farmerId": batch.get("farmerId"), "batchId": batch_id, "lotNumber": batch.get("lotNumber") or data.lotNumber.strip(),
+    inspection = {"farmerId": batch.get("farmerId"), "assignedWarehouseId": receiving_warehouse["_id"],
+        "assignedWarehouseName": receiving_warehouse.get("name") or receiving_warehouse.get("warehouseName") or "Warehouse",
+        "assignedDistrict": assigned_district, "warehouseAssignedAt": now, "batchId": batch_id, "lotNumber": batch.get("lotNumber") or data.lotNumber.strip(),
         "cropName": batch.get("cropName") or data.cropName.strip(), "farmerDeclaredGrade": batch.get("farmerDeclaredGrade"), "grade": grade, "size": data.size,
         "freshness": float(data.freshness), "damagedPct": float(data.damagedPct), "weightKg": float(data.weightKg), "inspectorNotes": data.inspectorNotes,
         "photos": data.photos or [], "status": _inspection_status(grade, float(data.damagedPct)), "inspectionStatus": "completed", "verificationStatus": VERIFICATION_STATUS_EVIDENCE,
@@ -553,6 +558,10 @@ async def ai_assess_inspection(
         raise HTTPException(status_code=404, detail="Inspection not found")
     if current_user.get("role") == "farmer" and str(rec.get("farmerId")) != str(current_user["_id"]):
         raise HTTPException(status_code=404, detail="Inspection not found")
+    if current_user.get("role") in ("warehouse", "admin"):
+        await require_assigned_warehouse_access(rec, current_user)
+    elif current_user.get("role") != "farmer":
+        raise HTTPException(status_code=403, detail="Not authorized to assess this inspection.")
 
     assessment = assess_quality(rec)
     assessment["assessedAt"] = datetime.utcnow()
