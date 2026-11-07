@@ -131,6 +131,7 @@ class CooperativeCreate(BaseModel):
 
 class JoinRequest(BaseModel):
     inviteCode: str = Field(..., min_length=4, max_length=30)
+    source: str = Field(default="manual", max_length=20)
 
 
 class ManagerAction(BaseModel):
@@ -432,6 +433,36 @@ async def discover_farmers_for_cooperative(
 
     return {"success": True, "data": {"farmers": matches, "count": len(matches)}}
 
+@router.get("/public/invite/{invite_code}")
+async def public_cooperative_invite_details(invite_code: str):
+    """Public, read-only preview used when a farmer scans a cooperative QR code."""
+    code = invite_code.strip().upper()
+    coop = await cooperative_repo.find_one({
+        "inviteCode": code,
+        "status": "active",
+        "deletedAt": None,
+    })
+    if not coop:
+        raise HTTPException(404, "This cooperative invitation is invalid or no longer available")
+    member_count = await member_repo.collection.count_documents({
+        "cooperativeId": coop["_id"],
+        "status": "active",
+        "deletedAt": None,
+    })
+    return {
+        "success": True,
+        "data": {
+            "id": str(coop["_id"]),
+            "name": coop.get("name"),
+            "location": coop.get("location"),
+            "description": coop.get("description") or "",
+            "crops": coop.get("crops", []),
+            "memberCount": member_count,
+            "status": coop.get("status"),
+        },
+    }
+
+
 @router.get("/invite/{invite_code}")
 async def cooperative_invite_details(
     invite_code: str,
@@ -675,6 +706,9 @@ async def join_cooperative(
     _require_farmer(current_user)
     uid = _oid(current_user["_id"], "farmer id")
     code = data.inviteCode.strip().upper()
+    source = data.source.strip().lower() or "manual"
+    if source not in {"manual", "qr"}:
+        raise HTTPException(400, "Invalid cooperative join source")
     coop = await cooperative_repo.find_one({
         "inviteCode": code,
         "status": "active",
@@ -695,9 +729,9 @@ async def join_cooperative(
 
     now = datetime.utcnow()
     if existing:
-        await member_repo.collection.update_one({"_id": existing["_id"]}, {"$set": {"status": "pending", "requestedAt": now, "deletedAt": None}})
+        await member_repo.collection.update_one({"_id": existing["_id"]}, {"$set": {"status": "pending", "requestedAt": now, "joinSource": source, "joinInviteCode": code, "deletedAt": None}})
     else:
-        await member_repo.create({"cooperativeId": coop["_id"], "userId": uid, "role": "member", "status": "pending", "requestedAt": now, "deletedAt": None})
+        await member_repo.create({"cooperativeId": coop["_id"], "userId": uid, "role": "member", "status": "pending", "requestedAt": now, "joinSource": source, "joinInviteCode": code, "deletedAt": None})
     return {"success": True, "data": _public(coop), "message": f"Join request sent to {coop.get('name')}. Waiting for manager approval."}
 
 
