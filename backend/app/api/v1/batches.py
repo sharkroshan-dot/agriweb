@@ -388,7 +388,20 @@ async def list_batches(current_user: dict = Depends(get_current_user)):
                 "farmerId": ObjectId(current_user["_id"]),
                 "deletedAt": None,
             })
-        item["inspection"] = _serialize_inspection(inspection) if inspection else None
+        item["inspection"] = ({
+            "id": str(inspection.get("_id")) if inspection.get("_id") else None,
+            "inspectionStatus": inspection.get("inspectionStatus") or inspection.get("status"),
+            "status": inspection.get("status"),
+            "verificationStatus": inspection.get("verificationStatus"),
+            "photos": inspection.get("photos") or [],
+            "videos": inspection.get("videos") or [],
+            "evidenceNotes": inspection.get("evidenceNotes"),
+            "evidenceSubmittedAt": inspection.get("evidenceSubmittedAt"),
+            "verifiedGrade": inspection.get("verifiedGrade"),
+            "verificationNotes": inspection.get("verificationNotes"),
+            "inspectionDueAt": inspection.get("inspectionDueAt"),
+            "priority": inspection.get("priority"),
+        } if inspection else None)
         serialized.append(item)
     return {"success": True, "data": {"batches": serialized, "count": len(serialized)}}
 
