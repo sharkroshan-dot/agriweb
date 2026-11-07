@@ -72,6 +72,7 @@ rating_repo = BaseRepository("b2b_ratings")
 contract_repo = BaseRepository("b2b_supply_contracts")
 farmer_profile_repo = BaseRepository("farmer_profiles")
 warehouse_repo = BaseRepository("warehouses")
+cooperative_contribution_repo = BaseRepository("cooperative_order_contributions")
 
 RFQ_OPEN = "open"
 RFQ_AWARDED = "awarded"
@@ -3569,6 +3570,142 @@ async def resolve_b2b_goods_receipt_dispute(
             "amountDue": _b2b_amount_due(order),
         },
     }
+
+
+class CooperativeWarehouseContributionReceipt(BaseModel):
+    actualQuantityKg: float = Field(..., ge=0, le=10000000)
+    qualityCheck: str = Field(..., pattern="^(passed|failed)$")
+    notes: Optional[str] = Field(None, max_length=1000)
+
+
+async def _require_cooperative_warehouse_order(order_id: str, current_user: Dict[str, Any]) -> Dict[str, Any]:
+    role = str(current_user.get("role") or "").lower()
+    if role not in ("warehouse", "warehouse_manager", "warehouse_staff", "admin", "super_admin"):
+        raise HTTPException(status_code=403, detail="Warehouse staff access required")
+    if not ObjectId.is_valid(order_id):
+        raise HTTPException(status_code=400, detail="Invalid B2B order ID")
+    order = await order_repo.find_one({"_id": ObjectId(order_id), "deletedAt": None})
+    if not order:
+        raise HTTPException(status_code=404, detail="B2B order not found")
+    if not order.get("cooperativeId"):
+        raise HTTPException(status_code=404, detail="This B2B order is not assigned to a cooperative")
+    if role not in ("admin", "super_admin"):
+        warehouse_id = await _resolve_b2b_current_warehouse_id(current_user)
+        if not ObjectId.is_valid(warehouse_id):
+            raise HTTPException(status_code=409, detail="Your account is not linked to a registered warehouse")
+        assigned_source = str(order.get("sourceWarehouseId") or order.get("assignedWarehouseId") or order.get("warehouseId") or "")
+        if assigned_source and assigned_source != warehouse_id:
+            raise HTTPException(status_code=403, detail="Only the assigned source warehouse can record farmer-wise cooperative receipt and quality")
+    return order
+
+
+async def _ensure_cooperative_order_contributions(order: Dict[str, Any]) -> List[Dict[str, Any]]:
+    cooperative_id = order.get("cooperativeId")
+    if not cooperative_id:
+        return []
+    order_id = order.get("_id")
+    rows = await cooperative_contribution_repo.find_many(
+        {"cooperativeId": cooperative_id, "orderId": order_id, "deletedAt": None},
+        limit=500,
+    )
+    existing = {str(row.get("farmerId")) + "|" + str(row.get("productId")) for row in rows}
+    for allocation in order.get("supplyAllocations") or []:
+        farmer_id = str(allocation.get("farmerId") or "")
+        product_id = str(allocation.get("productId") or "")
+        key = farmer_id + "|" + product_id
+        if not farmer_id or not product_id or key in existing or not ObjectId.is_valid(farmer_id):
+            continue
+        inventory = await BaseRepository("cooperative_inventory").find_one({
+            "cooperativeId": cooperative_id,
+            "farmerId": ObjectId(farmer_id),
+            "productId": ObjectId(product_id) if ObjectId.is_valid(product_id) else product_id,
+            "deletedAt": None,
+        })
+        contribution = {
+            "cooperativeId": cooperative_id,
+            "orderId": order_id,
+            "orderNumber": order.get("orderNumber"),
+            "farmerId": ObjectId(farmer_id),
+            "productId": ObjectId(product_id) if ObjectId.is_valid(product_id) else product_id,
+            "productName": allocation.get("productName") or order.get("productName") or "Product",
+            "assignedQuantityKg": float(allocation.get("quantityKg") or 0),
+            "unitPricePerKg": float((inventory or {}).get("pricePerKg") or allocation.get("pricePerKg") or 0),
+            "actualQuantityKg": None,
+            "acceptedQuantityKg": 0.0,
+            "status": "assigned",
+            "qualityStatus": "pending",
+            "warehouseQualityStatus": "pending",
+            "createdAt": datetime.utcnow(),
+            "updatedAt": datetime.utcnow(),
+            "deletedAt": None,
+        }
+        new_id = await cooperative_contribution_repo.create(contribution)
+        if new_id:
+            rows.append({**contribution, "_id": ObjectId(new_id)})
+            existing.add(key)
+    return rows
+
+
+@router.get("/warehouse/fulfillment/{order_id}/cooperative-contributions")
+async def get_warehouse_cooperative_contributions(order_id: str, current_user: dict = Depends(get_current_user)):
+    order = await _require_cooperative_warehouse_order(order_id, current_user)
+    rows = await _ensure_cooperative_order_contributions(order)
+    farmer_ids = list({row.get("farmerId") for row in rows if isinstance(row.get("farmerId"), ObjectId)})
+    farmers = await user_repository.find_many({"_id": {"$in": farmer_ids}}, limit=500) if farmer_ids else []
+    names = {str(user["_id"]): (f"{user.get('firstName', '')} {user.get('lastName', '')}".strip() or user.get("email") or "Farmer") for user in farmers}
+    contributions = [{
+        "id": str(row["_id"]),
+        "farmerId": str(row.get("farmerId") or ""),
+        "farmerName": names.get(str(row.get("farmerId")), "Farmer"),
+        "productName": row.get("productName") or order.get("productName") or "Produce",
+        "assignedQuantityKg": float(row.get("assignedQuantityKg") or 0),
+        "actualQuantityKg": row.get("actualQuantityKg"),
+        "acceptedQuantityKg": float(row.get("acceptedQuantityKg") or 0),
+        "qualityStatus": row.get("warehouseQualityStatus") or row.get("qualityStatus") or "pending",
+        "notes": row.get("warehouseQualityNotes") or "",
+    } for row in rows]
+    return {"success": True, "data": {"orderId": order_id, "orderNumber": order.get("orderNumber"), "contributions": contributions, "count": len(contributions)}}
+
+
+@router.patch("/warehouse/fulfillment/{order_id}/cooperative-contributions/{contribution_id}")
+async def update_warehouse_cooperative_contribution(
+    order_id: str,
+    contribution_id: str,
+    data: CooperativeWarehouseContributionReceipt,
+    current_user: dict = Depends(get_current_user),
+):
+    order = await _require_cooperative_warehouse_order(order_id, current_user)
+    if not ObjectId.is_valid(contribution_id):
+        raise HTTPException(status_code=400, detail="Invalid contribution ID")
+    if order.get("status") not in (ORDER_PICKED_UP, ORDER_WAREHOUSE_RECEIVED):
+        raise HTTPException(status_code=409, detail="Farmer-wise receipt can be recorded only after farm pickup")
+    rows = await _ensure_cooperative_order_contributions(order)
+    contribution = next((row for row in rows if str(row.get("_id")) == contribution_id), None)
+    if not contribution:
+        raise HTTPException(status_code=404, detail="Contribution does not belong to this cooperative B2B order")
+    assigned = float(contribution.get("assignedQuantityKg") or 0)
+    if data.actualQuantityKg > assigned:
+        raise HTTPException(status_code=400, detail=f"Actual received quantity cannot exceed this farmer's assigned {assigned:g} kg")
+    now = datetime.utcnow()
+    passed = data.qualityCheck == "passed"
+    values = {
+        "actualQuantityKg": round(data.actualQuantityKg, 3),
+        "warehouseQualityStatus": data.qualityCheck,
+        "qualityStatus": "passed" if passed else "failed",
+        "acceptedQuantityKg": round(data.actualQuantityKg, 3) if passed else 0.0,
+        "status": "quality_passed" if passed else "quality_failed",
+        "warehouseQualityNotes": (data.notes or "").strip(),
+        "warehouseReceivedAt": now,
+        "warehouseReceivedBy": str(current_user.get("_id") or ""),
+        "updatedAt": now,
+    }
+    updated = await cooperative_contribution_repo.update(
+        {"_id": contribution["_id"], "cooperativeId": order["cooperativeId"], "orderId": order["_id"]},
+        values,
+    )
+    if not updated:
+        raise HTTPException(status_code=409, detail="Contribution changed while saving. Refresh and retry.")
+    return {"success": True, "data": {"contributionId": contribution_id, **values}, "message": "Farmer-wise warehouse quantity and quality saved"}
 
 
 class B2BLogisticsAction(BaseModel):
