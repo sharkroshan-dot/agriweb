@@ -292,13 +292,20 @@ export default function WarehouseQualityInspectionPage() {
           <CardContent>
             {!selected ? (
               <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
-                Select a queue item, claim it, then inspect the physical produce.
+                Select a farmer request, review the submitted photos/videos, claim it, then record Passed or Failed.
               </div>
             ) : (
               <div className="space-y-5">
                 <div className="rounded-xl bg-muted/50 p-4">
                   <p className="font-semibold">{selected.batch?.cropName} · {selected.batch?.lotNumber}</p>
                   <p className="text-sm text-muted-foreground">{selected.batch?.quantityKg} kg · harvested {selected.batch?.harvestDate ? new Date(selected.batch.harvestDate).toLocaleDateString() : "—"}</p>
+                </div>
+                <div className="rounded-xl border p-4 space-y-3">
+                  <div><p className="font-semibold">Farmer-submitted evidence</p><p className="text-xs text-muted-foreground">Review these photos and videos before recording your decision.</p></div>
+                  {(selected as any).photos?.length ? <div className="grid grid-cols-2 gap-3">{(selected as any).photos.map((url: string, index: number) => <a key={url + index} href={url} target="_blank" rel="noreferrer"><img src={url} alt={"Farmer evidence " + (index + 1)} className="h-36 w-full rounded-lg border object-cover" /></a>)}</div> : <p className="text-sm text-muted-foreground">No photos submitted.</p>}
+                  {(selected as any).videos?.length ? <div className="space-y-2">{(selected as any).videos.map((url: string, index: number) => <video key={url + index} src={url} controls playsInline className="max-h-64 w-full rounded-lg border" />)}</div> : <p className="text-sm text-muted-foreground">No videos submitted.</p>}
+                  {(selected as any).evidenceNotes && <p className="rounded-md bg-muted/50 p-3 text-sm">{(selected as any).evidenceNotes}</p>}
+                  <p className="text-xs text-muted-foreground">Submitted: {(selected as any).evidenceSubmittedAt ? new Date((selected as any).evidenceSubmittedAt).toLocaleString() : "—"}</p>
                 </div>
 
                 {selected.inspectionStatus !== "in_progress" && (
