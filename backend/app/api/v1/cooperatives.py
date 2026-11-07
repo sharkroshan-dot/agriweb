@@ -937,14 +937,21 @@ async def cooperative_dashboard(cooperative_id: str, current_user: dict = Depend
         else:
             active_plan_count += 1
             expected_kg += expected
-        harvested_kg += actual
+            harvested_kg += actual
         display_status = "harvest_update_required" if raw_status in {"harvested", "completed"} and actual <= 0 else raw_status
         farmer_id = str(plan.get("farmerId") or "")
         farmer_user = await user_repo.find_one({"_id": plan.get("farmerId")}) if plan.get("farmerId") else None
         farmer_name = f"{(farmer_user or {}).get('firstName', '')} {(farmer_user or {}).get('lastName', '')}".strip() or (farmer_user or {}).get("email") or "Cooperative farmer"
-        production_rows.append({"id": str(plan["_id"]), "farmerId": farmer_id, "farmerName": farmer_name, "isMine": farmer_id == str(uid), "cropName": plan.get("cropName") or plan.get("crop") or "Crop", "expectedQuantityKg": round(expected, 2), "actualQuantityKg": round(actual, 2), "expectedHarvestDate": plan.get("expectedHarvestDate"), "status": display_status, "isCancelled": is_cancelled})
+        production_rows.append({"id": str(plan["_id"]), "farmerId": farmer_id, "farmerName": farmer_name, "isMine": farmer_id == str(uid), "cropName": plan.get("cropName") or plan.get("crop") or "Crop", "fieldName": plan.get("fieldName"), "areaAcres": plan.get("areaAcres"), "season": plan.get("season"), "plantingDate": plan.get("plantingDate"), "expectedQuantityKg": round(expected, 2), "actualQuantityKg": round(actual, 2), "expectedHarvestDate": plan.get("expectedHarvestDate"), "harvestedAt": plan.get("harvestedAt"), "status": display_status, "isCancelled": is_cancelled, "productCreated": bool(plan.get("productCreated"))})
 
     batches = await batch_repo.find_many({"farmerId": {"$in": member_ids}, "deletedAt": None}, limit=1000)
+    batch_by_plan = {str(b.get("sourceHarvestPlanId")): b for b in batches if b.get("sourceHarvestPlanId")}
+    for row in production_rows:
+        batch = batch_by_plan.get(row["id"])
+        if batch:
+            row["batchId"] = str(batch["_id"])
+            row["batchStatus"] = str(batch.get("status") or "pending")
+            row["qualityStatus"] = str(batch.get("verificationStatus") or batch.get("qualityStatus") or "pending")
     batch_counts = {}
     for b in batches:
         status = str(b.get("qualityStatus") or b.get("status") or "pending")
