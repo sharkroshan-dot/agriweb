@@ -1472,6 +1472,16 @@ async def create_cooperative_order_settlement(cooperative_id: str, order_id: str
     }
     existing = await cooperative_settlement_repo.find_one({"cooperativeId": cid, "orderId": oid, "deletedAt": None})
     if existing:
+        existing_payouts = existing.get("payouts") or []
+        already_paid = {str(x.get("farmerId")) for x in existing_payouts if x.get("payoutStatus") == "paid"}
+        if already_paid:
+            raise HTTPException(
+                status_code=409,
+                detail="This settlement already contains recorded farmer payments. It cannot be recalculated; preserve the payment ledger and create an adjustment workflow instead.",
+            )
+        # Recalculation is allowed only before the first farmer payout is recorded.
+        settlement_doc["createdAt"] = existing.get("createdAt") or settlement_doc["createdAt"]
+        settlement_doc["updatedAt"] = datetime.utcnow()
         await cooperative_settlement_repo.update({"_id": existing["_id"]}, settlement_doc)
         settlement_id = str(existing["_id"])
     else:
