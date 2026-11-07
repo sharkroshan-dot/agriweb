@@ -677,24 +677,25 @@ async def _cooperative_context(user_id: str) -> Optional[Dict[str, Any]]:
 
 
 async def _cooperative_can_supply(coop_id: ObjectId, product_name: str) -> Dict[str, Any]:
+    """Read only quantities explicitly contributed to this cooperative inventory."""
     member_repo = BaseRepository("cooperative_members")
+    inventory_repo = BaseRepository("cooperative_inventory")
     members = await member_repo.find_many({"cooperativeId": coop_id, "status": "active", "deletedAt": None}, limit=500)
+    member_ids = {str(x.get("userId")) for x in members if x.get("userId")}
     name_key = (product_name or "").strip().lower()
+    inventory_rows = await inventory_repo.find_many({"cooperativeId": coop_id, "status": "active", "deletedAt": None}, limit=5000)
     rows = []
     total = 0.0
-    for member in members:
-        farmer_id = member.get("userId")
-        if not farmer_id:
+    for item in inventory_rows:
+        farmer_id = str(item.get("farmerId") or "")
+        product_name_key = str(item.get("productName") or "").strip().lower()
+        if farmer_id not in member_ids or not name_key or not (product_name_key == name_key or name_key in product_name_key or product_name_key in name_key):
             continue
-        products = await product_repository.get_by_farmer(str(farmer_id), limit=500)
-        for product in products:
-            product_name_key = (product.get("name") or "").strip().lower()
-            if not name_key or not (product_name_key == name_key or name_key in product_name_key or product_name_key in name_key):
-                continue
-            stock = await InventoryService.get_available_stock(str(product["_id"]))
-            if stock > 0:
-                rows.append({"farmerId": str(farmer_id), "productId": str(product["_id"]), "productName": product.get("name"), "availableKg": float(stock)})
-                total += float(stock)
+        available = max(0.0, float(item.get("availableQuantityKg") or 0) - float(item.get("reservedQuantityKg") or 0))
+        if available <= 0:
+            continue
+        rows.append({"farmerId": farmer_id, "productId": str(item.get("productId")), "productName": item.get("productName"), "availableKg": available, "pricePerKg": float(item.get("pricePerKg") or 0), "qualityGrade": item.get("qualityGrade") or "Standard"})
+        total += available
     return {"canSupply": total > 0, "availableKg": round(total, 2), "rows": rows}
 
 
@@ -706,7 +707,7 @@ def _build_cooperative_allocations(rows: List[Dict[str, Any]], quantity: float) 
             break
         take = min(remaining, float(row.get("availableKg") or 0))
         if take > 0:
-            allocations.append({"farmerId": row["farmerId"], "productId": row["productId"], "productName": row.get("productName"), "quantityKg": round(take, 2)})
+            allocations.append({"farmerId": row["farmerId"], "productId": row["productId"], "productName": row.get("productName"), "quantityKg": round(take, 2), "pricePerKg": float(row.get("pricePerKg") or 0), "qualityGrade": row.get("qualityGrade") or "Standard"})
             remaining -= take
     return allocations if remaining <= 0.001 else []
 
