@@ -301,11 +301,18 @@ async def discover_farmers_for_cooperative(
     location: str = Query("", max_length=160),
     crop: str = Query("", max_length=80),
     search: str = Query("", max_length=100),
+    cooperative_id: str = Query("", alias="cooperativeId", max_length=64),
     limit: int = Query(30, ge=1, le=50),
     current_user: dict = Depends(get_current_user),
 ):
-    """Discover farmers by farm location and crops they grow, for cooperative invitations."""
+    """Discover farmers by farm location and crops for a manager's cooperative invitations."""
     _require_farmer(current_user)
+    if not cooperative_id:
+        raise HTTPException(400, "Select a cooperative before discovering farmers")
+    cid = _oid(cooperative_id, "cooperative id")
+    target_cooperative = await cooperative_repo.find_one({"_id": cid, "status": "active", "deletedAt": None})
+    if not target_cooperative or str(target_cooperative.get("managerId")) != str(current_user["_id"]):
+        raise HTTPException(403, "Only the cooperative manager can discover farmers to invite")
     location_term = location.strip()
     crop_term = crop.strip()
     name_term = search.strip()
@@ -395,13 +402,13 @@ async def discover_farmers_for_cooperative(
             continue
 
         existing_membership = await member_repo.find_one({
-            "userId": farmer["_id"], "status": "active", "deletedAt": None
+            "cooperativeId": cid, "userId": farmer["_id"], "status": "active", "deletedAt": None
         })
         pending_membership = await member_repo.find_one({
-            "userId": farmer["_id"], "status": "pending", "deletedAt": None
+            "cooperativeId": cid, "userId": farmer["_id"], "status": "pending", "deletedAt": None
         })
         pending_invitation = await cooperative_repo.find_one({
-            "type": "invitation", "farmerId": farmer["_id"], "status": "pending",
+            "type": "invitation", "cooperativeId": cid, "farmerId": farmer["_id"], "status": "pending",
             "deletedAt": None, "expiresAt": {"$gt": datetime.utcnow()},
         })
         full_location = ", ".join(dict.fromkeys(str(v).strip() for v in location_values if v))
