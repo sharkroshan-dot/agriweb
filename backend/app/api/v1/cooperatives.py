@@ -926,6 +926,26 @@ class CooperativeInventoryContribution(BaseModel):
     availabilityDate: str | None = Field(default=None, max_length=40)
 
 
+
+@router.get("/{cooperative_id}/inventory/options")
+async def cooperative_inventory_options(cooperative_id: str, current_user: dict = Depends(get_current_user)):
+    _require_farmer(current_user)
+    cid = _oid(cooperative_id, "cooperative id")
+    uid = _oid(current_user["_id"], "farmer id")
+    member = await member_repo.find_one({"cooperativeId": cid, "userId": uid, "status": "active", "deletedAt": None})
+    if not member:
+        raise HTTPException(403, "You are not an active cooperative member")
+    products = await product_repo.find_many({"farmerId": uid, "isActive": {"$ne": False}, "deletedAt": None}, limit=1000)
+    rows = []
+    for product in products:
+        stock = await inventory_repository.get_stock_summary(str(product["_id"]))
+        available = float((stock or {}).get("available_stock") or 0)
+        if available <= 0:
+            continue
+        rows.append({"productId": str(product["_id"]), "productName": product.get("name") or product.get("productName") or "Product", "availableFarmStockKg": round(available, 3), "defaultPricePerKg": float(product.get("price") or 0), "unit": product.get("unit") or "kg"})
+    return {"success": True, "data": {"products": rows}}
+
+
 @router.get("/{cooperative_id}/inventory")
 async def list_cooperative_inventory(cooperative_id: str, current_user: dict = Depends(get_current_user)):
     _require_farmer(current_user)
