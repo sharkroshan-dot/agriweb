@@ -131,10 +131,13 @@ export default function WarehouseQualityInspectionPage() {
     setIncomingQualityNotes("");
   };
 
-  const queue: Inspection[] = useMemo(
-    () => data?.data?.inspections ?? data?.inspections ?? [],
-    [data]
-  );
+  const queue: Inspection[] = useMemo(() => {
+    // The API client keeps the response envelope and also unwraps data fields.
+    // Accept both forms and guard against malformed/empty payloads.
+    const payload = data?.data ?? data;
+    const rows = payload?.inspections ?? payload?.data?.inspections ?? payload?.items ?? [];
+    return Array.isArray(rows) ? rows : [];
+  }, [data]);
 
   const claimMutation = useMutation({
     mutationFn: (id: string) => api.post(`/quality/inspections/${id}/claim`, { notes: "Inspector assigned for physical inspection" }),
@@ -216,7 +219,7 @@ export default function WarehouseQualityInspectionPage() {
         </CardContent>
       </Card>
 
-      {error && <Card className="border-red-200 bg-red-50"><CardContent className="p-4 text-sm text-red-700">Unable to load inspection queue.</CardContent></Card>}
+      {error && <Card className="border-red-200 bg-red-50"><CardContent className="space-y-2 p-4 text-sm text-red-700"><p className="font-semibold">Unable to load inspection queue.</p><p>{(error as Error).message || "The quality inspection API returned an error."}</p><Button type="button" size="sm" variant="outline" onClick={() => queryClient.invalidateQueries({ queryKey: ["warehouseQualityQueue"] })}>Retry queue</Button></CardContent></Card>}
 
       <Card className="border-amber-200">
         <CardHeader>
@@ -268,7 +271,7 @@ export default function WarehouseQualityInspectionPage() {
           <CardHeader><CardTitle>Inspection Queue</CardTitle></CardHeader>
           <CardContent className="space-y-3">
             {isLoading ? <p className="text-sm text-muted-foreground">Loading inspection requests…</p> : null}
-            {!isLoading && queue.length === 0 ? <p className="text-sm text-muted-foreground">No pending inspection requests.</p> : null}
+            {!isLoading && !error && queue.length === 0 ? <div className="rounded-lg border border-dashed p-5 text-sm text-muted-foreground"><p className="font-medium text-slate-700">No inspections are currently assigned to this warehouse.</p><p className="mt-1">Evidence submitted by farmers appears here after district routing. If an item is missing, check that the farmer profile has a valid farm district and that this warehouse is configured to serve that district.</p></div> : null}
             {queue.map((item) => (
               <button key={item.id} onClick={() => openInspection(item)} className="w-full rounded-xl border p-4 text-left transition hover:border-emerald-400 hover:bg-emerald-50/40">
                 <div className="flex items-start justify-between gap-3">
