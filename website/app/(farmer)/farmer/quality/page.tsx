@@ -14,6 +14,8 @@ import {
   PackageSearch,
   Star,
   Bot,
+  Trash2,
+  Film,
 } from "lucide-react";
 import { api } from "../../../lib/api/client";
 import { formatDate, cn } from "../../../lib/utils";
@@ -71,6 +73,18 @@ export function FarmerQualityPanel() {
   const [cameraOpen, setCameraOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [evidenceFiles, setEvidenceFiles] = useState<Record<string, File[]>>({});
+  const [evidencePreviews, setEvidencePreviews] = useState<Record<string, string[]>>({});
+
+  useEffect(() => {
+    const previews: Record<string, string[]> = {};
+    Object.entries(evidenceFiles).forEach(([inspectionId, files]) => {
+      previews[inspectionId] = files.map(file => URL.createObjectURL(file));
+    });
+    setEvidencePreviews(previews);
+    return () => {
+      Object.values(previews).flat().forEach(url => URL.revokeObjectURL(url));
+    };
+  }, [evidenceFiles]);
   const [evidenceNotes, setEvidenceNotes] = useState<Record<string, string>>({});
 
   const { data: recordsData, isLoading } = useQuery({
@@ -278,12 +292,50 @@ export function FarmerQualityPanel() {
                             <span className="text-sm font-semibold text-slate-700">Choose photos or video</span>
                             <span className="mt-1 text-xs text-slate-500">JPG, PNG, MP4, WEBM or MOV · Select multiple files</span>
                           </label>
-                          <input id={`evidence-${r.id}`} type="file" accept="image/*,video/mp4,video/webm,video/quicktime" multiple onChange={e => setEvidenceFiles(current => ({ ...current, [r.id]: Array.from(e.target.files || []) }))} className="sr-only" />
+                          <input
+                            id={`evidence-${r.id}`}
+                            type="file"
+                            accept="image/*,video/mp4,video/webm,video/quicktime"
+                            multiple
+                            onChange={e => {
+                              const chosen = Array.from(e.target.files || []);
+                              if (chosen.length) {
+                                setEvidenceFiles(current => ({ ...current, [r.id]: [...(current[r.id] || []), ...chosen] }));
+                              }
+                              e.currentTarget.value = "";
+                            }}
+                            className="sr-only"
+                          />
                           {selectedFiles.length > 0 && (
-                            <div className="mt-2 flex flex-wrap gap-1.5">
-                              {selectedFiles.map((file, index) => (
-                                <span key={`${file.name}-${index}`} className="max-w-full truncate rounded-md bg-slate-100 px-2 py-1 text-[11px] text-slate-600">{file.name}</span>
-                              ))}
+                            <div className="mt-3">
+                              <div className="mb-2 flex items-center justify-between gap-2">
+                                <p className="text-xs font-semibold text-slate-700">Preview selected evidence</p>
+                                <span className="text-[11px] text-slate-500">{selectedFiles.length} file{selectedFiles.length === 1 ? "" : "s"} · Remove anything incorrect before submitting</span>
+                              </div>
+                              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
+                                {selectedFiles.map((file, index) => {
+                                  const previewUrl = evidencePreviews[r.id]?.[index];
+                                  const isVideo = file.type.startsWith("video/");
+                                  return (
+                                    <div key={`${file.name}-${file.lastModified}-${index}`} className="group relative min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                                      <div className="relative flex h-28 items-center justify-center overflow-hidden bg-slate-100">
+                                        {previewUrl && (isVideo ? (
+                                          <video src={previewUrl} controls preload="metadata" className="h-full w-full object-contain" />
+                                        ) : (
+                                          <img src={previewUrl} alt={`Selected evidence ${index + 1}: ${file.name}`} className="h-full w-full object-cover" />
+                                        ))}
+                                        {isVideo && <span className="pointer-events-none absolute left-2 top-2 rounded bg-slate-900/75 px-1.5 py-0.5 text-[10px] font-semibold text-white"><Film className="mr-1 inline h-3 w-3" />Video</span>}
+                                      </div>
+                                      <div className="flex items-center justify-between gap-2 p-2">
+                                        <span title={file.name} className="min-w-0 truncate text-[11px] text-slate-600">{file.name}</span>
+                                        <button type="button" aria-label={`Remove ${file.name}`} title="Remove this file" onClick={() => setEvidenceFiles(current => ({ ...current, [r.id]: (current[r.id] || []).filter((_, fileIndex) => fileIndex !== index) }))} className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-rose-100 bg-white text-rose-600 transition hover:bg-rose-50 focus:outline-none focus:ring-2 focus:ring-rose-200">
+                                          <Trash2 className="h-3.5 w-3.5" />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
                             </div>
                           )}
                         </div>
