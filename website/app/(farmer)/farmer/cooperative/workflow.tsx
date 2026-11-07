@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Users2, Plus, Loader2, CheckCircle2, MapPin, Sprout, Package, ShoppingCart, Truck, Wallet, BarChart3, UserPlus, ClipboardList, Warehouse, ArrowRight, X, QrCode, MessageCircle, LayoutDashboard, Copy, Printer, Search, CalendarDays, ClipboardCheck, History, FilePlus2, Wheat } from "lucide-react";
+import { Users2, Plus, Loader2, CheckCircle2, MapPin, Sprout, Package, ShoppingCart, Truck, Wallet, BarChart3, UserPlus, ClipboardList, Warehouse, ArrowRight, X, QrCode, MessageCircle, LayoutDashboard, Copy, Printer, Search, FilePlus2, Wheat } from "lucide-react";
 import CooperativeChat from "./chat";
 import { QRCodeSVG } from "qrcode.react";
 import { api } from "../../../lib/api/client";
@@ -23,8 +23,6 @@ export default function FarmerCooperativePage(){
  const searchParams=useSearchParams();
  const router=useRouter();
  const [productionSearch,setProductionSearch]=useState("");
- const [productionView,setProductionView]=useState("overview");
- const [productionStatus,setProductionStatus]=useState("active");
  const [stage,setStage]=useState<Stage>("overview");
  const [selectedCoopId,setSelectedCoopId]=useState("");
  const [showCreate,setShowCreate]=useState(false); const [showJoin,setShowJoin]=useState(false); const [showQr,setShowQr]=useState(false); const [showQrJoin,setShowQrJoin]=useState(false); const [qrInviteCode,setQrInviteCode]=useState("");
