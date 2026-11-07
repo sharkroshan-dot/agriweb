@@ -927,6 +927,17 @@ async def cooperative_dashboard(cooperative_id: str, current_user: dict = Depend
     production_rows = []
     expected_kg = harvested_kg = 0.0
     active_plan_count = cancelled_plan_count = 0
+    plan_ids = [p["_id"] for p in plans if p.get("_id")]
+    linked_batches = await batch_repo.find_many(
+        {"sourceHarvestPlanId": {"$in": plan_ids}, "deletedAt": None},
+        limit=1000,
+        sort=[("createdAt", -1)],
+    ) if plan_ids else []
+    batch_by_plan = {}
+    for linked_batch in linked_batches:
+        batch_key = str(linked_batch.get("sourceHarvestPlanId") or "")
+        if batch_key and batch_key not in batch_by_plan:
+            batch_by_plan[batch_key] = linked_batch
     for plan in plans:
         expected = float(plan.get("expectedQuantityKg") or 0)
         actual = float(plan.get("actualQuantityKg") or 0)
@@ -942,7 +953,23 @@ async def cooperative_dashboard(cooperative_id: str, current_user: dict = Depend
         farmer_id = str(plan.get("farmerId") or "")
         farmer_user = await user_repo.find_one({"_id": plan.get("farmerId")}) if plan.get("farmerId") else None
         farmer_name = f"{(farmer_user or {}).get('firstName', '')} {(farmer_user or {}).get('lastName', '')}".strip() or (farmer_user or {}).get("email") or "Cooperative farmer"
-        production_rows.append({"id": str(plan["_id"]), "farmerId": farmer_id, "farmerName": farmer_name, "isMine": farmer_id == str(uid), "cropName": plan.get("cropName") or plan.get("crop") or "Crop", "fieldName": plan.get("fieldName"), "areaAcres": plan.get("areaAcres"), "season": plan.get("season"), "plantingDate": plan.get("plantingDate"), "expectedQuantityKg": round(expected, 2), "actualQuantityKg": round(actual, 2), "expectedHarvestDate": plan.get("expectedHarvestDate"), "harvestedAt": plan.get("harvestedAt"), "status": display_status, "isCancelled": is_cancelled, "productCreated": bool(plan.get("productCreated"))})
+        linked_batch = batch_by_plan.get(str(plan["_id"]))
+        production_rows.append({
+            "id": str(plan["_id"]), "farmerId": farmer_id, "farmerName": farmer_name,
+            "isMine": farmer_id == str(uid), "cropName": plan.get("cropName") or plan.get("crop") or "Crop",
+            "fieldName": plan.get("fieldName"), "areaAcres": plan.get("areaAcres"),
+            "season": plan.get("season"), "plantingDate": plan.get("plantingDate"),
+            "expectedQuantityKg": round(expected, 2), "actualQuantityKg": round(actual, 2),
+            "expectedHarvestDate": plan.get("expectedHarvestDate"), "harvestedAt": plan.get("harvestedAt"),
+            "status": display_status, "stage": plan.get("stage") or raw_status,
+            "isCancelled": is_cancelled, "productCreated": bool(plan.get("productCreated")),
+            "batch": ({
+                "id": str(linked_batch["_id"]), "lotNumber": linked_batch.get("lotNumber"),
+                "status": linked_batch.get("status"), "qualityStatus": linked_batch.get("qualityStatus"),
+                "verificationStatus": linked_batch.get("verificationStatus"),
+                "quantityKg": float(linked_batch.get("quantityKg") or 0),
+            } if linked_batch else None),
+        })
 
     batches = await batch_repo.find_many({"farmerId": {"$in": member_ids}, "deletedAt": None}, limit=1000)
     batch_by_plan = {str(b.get("sourceHarvestPlanId")): b for b in batches if b.get("sourceHarvestPlanId")}
