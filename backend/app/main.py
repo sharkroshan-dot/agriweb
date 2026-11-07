@@ -85,6 +85,7 @@ async def lifespan(app: FastAPI):
     expiry_task = None
     workflow_task = None
     recurring_supply_task = None
+    basket_task = None
     try:
         await MongoDB.connect()
         await RedisClient.connect()
