@@ -319,24 +319,103 @@ async def request_inspection(data: InspectionRequest, current_user: dict = Depen
 
 @router.get("/inspections/queue")
 async def inspection_queue(current_user: dict = Depends(get_current_user)):
-    """Priority queue for authorized warehouse/admin inspectors."""
+    """Priority queue for the assigned warehouse, including legacy evidence records."""
     _require_verifier(current_user)
-    queue_filter = {"deletedAt": None, "inspectionStatus": {"$in": ["pending", "in_progress", "evidence_submitted"]}}
+
+    # Keep current workflow states, but also discover older records whose
+    # evidence timestamp/verification marker was saved before the queue schema
+    # was standardized. Those records are reconciled below before being shown.
+    queue_filter = {
+        "deletedAt": None,
+        "$or": [
+            {"inspectionStatus": {"$in": ["pending", "in_progress", "evidence_submitted"]}},
+            {"evidenceSubmittedAt": {"$exists": True}},
+            {"verificationStatus": VERIFICATION_STATUS_EVIDENCE},
+        ],
+    }
+    warehouse = None
     if current_user.get("role") == "warehouse":
         warehouse = await warehouse_repository.get_by_manager(str(current_user["_id"]))
         if not warehouse:
             raise HTTPException(status_code=403, detail="No warehouse is assigned to this account.")
-        queue_filter["assignedWarehouseId"] = {"$in": [warehouse["_id"], str(warehouse["_id"])]}
-    records = await inspection_repo.find_many(queue_filter, limit=500)
+        warehouse_id = warehouse["_id"]
+        queue_filter["$and"] = [{
+            "$or": [
+                {"assignedWarehouseId": {"$in": [warehouse_id, str(warehouse_id)]}},
+                {"assignedWarehouseId": {"$exists": False}},
+                {"assignedWarehouseId": None},
+            ]
+        }]
+
+    records = await inspection_repo.find_many(queue_filter, limit=1000)
     rank = {"critical": 0, "urgent": 1, "normal": 2}
     queue = []
     for rec in records:
         batch = await batch_repo.find_one({"_id": rec.get("batchId"), "deletedAt": None})
-        if not batch: continue
+        if not batch:
+            continue
+
+        if warehouse:
+            assigned_id = rec.get("assignedWarehouseId")
+            if assigned_id:
+                if str(assigned_id) != str(warehouse["_id"]):
+                    continue
+            else:
+                # Backfill only when the farmer's district resolves to this
+                # exact warehouse. Never expose an unassigned record to every
+                # warehouse or fall back to the nearest warehouse.
+                try:
+                    receiving_warehouse, assigned_district = await resolve_quality_inspection_warehouse(
+                        rec.get("farmerId") or batch.get("farmerId"), batch
+                    )
+                except HTTPException as exc:
+                    logger.warning(
+                        "Skipping legacy quality inspection %s: district routing failed (%s)",
+                        rec.get("_id"), exc.detail
+                    )
+                    continue
+                if str(receiving_warehouse.get("_id")) != str(warehouse["_id"]):
+                    continue
+                assignment = {
+                    "assignedWarehouseId": receiving_warehouse["_id"],
+                    "assignedWarehouseName": receiving_warehouse.get("name") or receiving_warehouse.get("warehouseName") or "Warehouse",
+                    "assignedDistrict": assigned_district,
+                    "warehouseAssignedAt": datetime.utcnow(),
+                }
+                await inspection_repo.update({"_id": rec["_id"]}, assignment)
+                rec.update(assignment)
+
+        inspection_status = rec.get("inspectionStatus")
+        evidence_exists = bool(rec.get("photos") or rec.get("videos"))
+        has_submission_marker = bool(rec.get("evidenceSubmittedAt")) or (
+            rec.get("verificationStatus") == VERIFICATION_STATUS_EVIDENCE
+            and evidence_exists
+            and inspection_status not in ("completed", "approved", "rejected")
+        )
+        if inspection_status not in ("pending", "in_progress", "evidence_submitted"):
+            if has_submission_marker:
+                rec["inspectionStatus"] = "evidence_submitted"
+                await inspection_repo.update(
+                    {"_id": rec["_id"]},
+                    {"inspectionStatus": "evidence_submitted", "updatedAt": datetime.utcnow()},
+                )
+            else:
+                continue
+
         item = _serialize_inspection(rec)
-        item["batch"] = {"id": str(batch["_id"]), "lotNumber": batch.get("lotNumber"), "cropName": batch.get("cropName"), "quantityKg": batch.get("quantityKg"),
-            "harvestDate": batch.get("harvestDate"), "storageType": batch.get("storageType"), "expiresAt": batch.get("expiresAt"), "qualityStatus": batch.get("qualityStatus")}
-        item["sortPriority"] = rank.get(item.get("priority"), 2); queue.append(item)
+        item["batch"] = {
+            "id": str(batch["_id"]),
+            "lotNumber": batch.get("lotNumber"),
+            "cropName": batch.get("cropName"),
+            "quantityKg": batch.get("quantityKg"),
+            "harvestDate": batch.get("harvestDate"),
+            "storageType": batch.get("storageType"),
+            "expiresAt": batch.get("expiresAt"),
+            "qualityStatus": batch.get("qualityStatus"),
+        }
+        item["sortPriority"] = rank.get(item.get("priority"), 2)
+        queue.append(item)
+
     queue.sort(key=lambda x: (x["sortPriority"], x.get("inspectionDueAt") or datetime.max))
     return {"success": True, "data": {"inspections": queue, "count": len(queue)}}
 
