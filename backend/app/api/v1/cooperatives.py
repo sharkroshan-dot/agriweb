@@ -22,6 +22,7 @@ product_repo = BaseRepository("products")
 harvest_plan_repo = BaseRepository("harvest_plans")
 batch_repo = BaseRepository("batches")
 order_repo = BaseRepository("orders")
+b2b_order_repo = BaseRepository("b2b_orders")
 delivery_assignment_repo = BaseRepository("delivery_assignments")
 cooperative_allocation_repo = BaseRepository("cooperative_allocations")
 cooperative_message_repo = BaseRepository("cooperative_messages")
@@ -984,59 +985,50 @@ async def cooperative_dashboard(cooperative_id: str, current_user: dict = Depend
         status = str(b.get("qualityStatus") or b.get("status") or "pending")
         batch_counts[status] = batch_counts.get(status, 0) + 1
 
-    # Show orders owned by every active farmer in this cooperative.
-    # Membership is the scope: do not mix in orders belonging to non-members.
-    # Keep the farmerId on each row so the actual owner can process their order.
-    orders = await order_repo.find_many(
-        {"farmerId": {"$in": member_ids}, "deletedAt": None},
+    # Only B2B orders explicitly assigned to this cooperative belong here.
+    # Retail orders from individual members must remain in each farmer's own order page.
+    orders = await b2b_order_repo.find_many(
+        {"cooperativeId": cid, "deletedAt": None},
         limit=2000,
-        sort=[("createdAt", -1)],
+        sort=[("startedAt", -1)],
     )
     order_summary = {"total": len(orders), "pending": 0, "confirmed": 0, "processing": 0, "readyForPickup": 0, "inTransit": 0, "delivered": 0, "completed": 0, "cancelled": 0, "other": 0, "revenue": 0.0}
     order_rows = []
     order_ids = []
     for order in orders:
-        status = str(order.get("orderStatus") or "pending").lower()
+        status = str(order.get("orderStatus") or order.get("status") or "pending").lower()
         key = {
-            "pending": "pending",
-            "confirmed": "confirmed",
-            "processing": "processing",
-            "ready_for_delivery": "readyForPickup",
-            "ready_for_pickup": "readyForPickup",
-            "dispatched": "inTransit",
-            "in_transit": "inTransit",
-            "delivered": "delivered",
-            "completed": "completed",
-            "cancelled": "cancelled",
-            "canceled": "cancelled",
-            "refunded": "cancelled",
+            "pending": "pending", "confirmed": "confirmed", "preparing": "processing",
+            "processing": "processing", "ready_for_delivery": "readyForPickup",
+            "ready_for_pickup": "readyForPickup", "dispatched": "inTransit",
+            "in_transit": "inTransit", "delivered": "delivered", "completed": "completed",
+            "cancelled": "cancelled", "canceled": "cancelled",
         }.get(status, "other")
         order_summary[key] += 1
         total_amount = float(order.get("totalAmount") or 0)
         if status in ("delivered", "completed"):
             order_summary["revenue"] += total_amount
         order_ids.append(order["_id"])
-        customer = order.get("customer") if isinstance(order.get("customer"), dict) else {}
-        address = order.get("deliveryAddress") if isinstance(order.get("deliveryAddress"), dict) else {}
         items = order.get("items") if isinstance(order.get("items"), list) else []
+        business_info = order.get("businessInfo") if isinstance(order.get("businessInfo"), dict) else {}
         order_rows.append({
             "id": str(order["_id"]),
-            "orderNumber": order.get("orderNumber") or str(order["_id"]),
-            "farmerId": str(order.get("farmerId")),
-            "customerName": order.get("customerName") or customer.get("name") or customer.get("fullName") or "Customer",
-            "customerPhone": order.get("customerPhone") or customer.get("phone"),
+            "orderNumber": order.get("orderNumber") or f"B2B-{str(order['_id'])[-6:]}",
+            "businessOrderId": str(order["_id"]),
+            "businessName": order.get("businessName") or business_info.get("businessName") or "Business buyer",
+            "businessUserId": str(order.get("businessUserId") or ""),
+            "farmerId": str(order.get("farmerId") or ""),
+            "productName": order.get("productName") or (items[0].get("productName") if items else "Multiple products"),
             "items": [{
                 "productName": item.get("productName") or item.get("name") or "Product",
-                "quantity": float(item.get("quantity") or item.get("quantityKg") or 0),
+                "quantity": float(item.get("quantityKg") or item.get("quantity") or 0),
                 "unit": item.get("unit") or "kg",
             } for item in items],
-            "itemCount": len(items),
-            "deliveryType": order.get("deliveryType"),
-            "deliveryCity": address.get("city") or order.get("deliveryCity"),
+            "requiredQuantityKg": float(order.get("quantityKg") or order.get("requiredQuantityKg") or sum(float(x.get("quantityKg") or x.get("quantity") or 0) for x in items)),
             "totalAmount": total_amount,
-            "paymentStatus": order.get("paymentStatus"),
             "status": status,
-            "createdAt": order.get("createdAt") or order.get("orderDate"),
+            "deliveryDate": order.get("deliveryDate") or order.get("businessDeliveryDate"),
+            "createdAt": order.get("startedAt") or order.get("createdAt"),
             "updatedAt": order.get("updatedAt"),
         })
 
