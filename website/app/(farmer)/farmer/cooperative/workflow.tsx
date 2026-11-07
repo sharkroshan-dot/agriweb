@@ -147,7 +147,7 @@ export default function FarmerCooperativePage(){
                 return matchesStatus && (!q || String(plan.cropName||"").toLowerCase().includes(q) || String(plan.farmerName||"").toLowerCase().includes(q));
               });
               return visiblePlans.length ? <div className="divide-y divide-slate-100">
-              {activePlans.map((plan: any) => {
+              {visiblePlans.map((plan: any) => {
                 const expected = Number(plan.expectedQuantityKg || 0);
                 const actual = Number(plan.actualQuantityKg || 0);
                 const percent = expected > 0 ? Math.min(100, actual / expected * 100) : 0;
