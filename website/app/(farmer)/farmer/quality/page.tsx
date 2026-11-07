@@ -44,6 +44,8 @@ interface InspectionRecord {
   damagedPct: number;
   weightKg: number;
   photos: string[];
+  videos?: string[];
+  inspectionStatus?: string;
   status: string;
   inspectedAt: string;
   requirement?: { grade: string; minAcceptablePct: number };
@@ -68,6 +70,8 @@ export default function FarmerQualityPage() {
   const [photos, setPhotos] = useState<string[]>([]);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [evidenceFiles, setEvidenceFiles] = useState<Record<string, File[]>>({});
+  const [evidenceNotes, setEvidenceNotes] = useState<Record<string, string>>({});
 
   const { data: recordsData, isLoading } = useQuery({
     queryKey: ["farmerQuality"],
@@ -116,6 +120,30 @@ export default function FarmerQualityPage() {
       toast.success("Inspection requested. A quality verifier must approve the batch before it can become a product.");
     },
     onError: (err: any) => toast.error(err?.message || "Could not request quality inspection"),
+  });
+
+  const evidenceMutation = useMutation({
+    mutationFn: async ({ id, files, notes }: { id: string; files: File[]; notes: string }) => {
+      if (!files.length) throw new Error("Choose at least one photo or video");
+      const photos: string[] = [];
+      const videos: string[] = [];
+      for (const file of files) {
+        const response = await api.upload("/products/upload", file);
+        const url = response?.data?.url;
+        if (!url) throw new Error("An evidence file could not be uploaded");
+        if (file.type.startsWith("video/")) videos.push(url);
+        else if (file.type.startsWith("image/")) photos.push(url);
+        else throw new Error("Only image and video files are supported");
+      }
+      return api.post("/quality/inspections/" + id + "/evidence", { photos, videos, notes });
+    },
+    onSuccess: async (_result, variables) => {
+      setEvidenceFiles(current => ({ ...current, [variables.id]: [] }));
+      await queryClient.invalidateQueries({ queryKey: ["farmerQuality"] });
+      await queryClient.invalidateQueries({ queryKey: ["farmerBatchesForQuality"] });
+      toast.success("Evidence sent to the warehouse quality team.");
+    },
+    onError: (err: any) => toast.error(err?.message || "Could not submit evidence"),
   });
 
   const records = filter === "all" ? apiRecords : apiRecords.filter((r) => r.status === filter);
@@ -182,10 +210,8 @@ export default function FarmerQualityPage() {
                       <FlaskConical className="mr-1.5 h-4 w-4" /> Request Inspection
                     </Button>
                   )}
-                  {inspection && inspection.verificationStatus === "farmer_declared" && (
-                    <Button size="sm" variant="outline" onClick={() => aiMutation.mutate(inspection.id)} disabled={aiMutation.isPending}>
-                      <Bot className="mr-1.5 h-4 w-4" /> AI Screening
-                    </Button>
+                  {inspection && !["approved", "rejected"].includes(inspection.inspectionStatus || "") && (
+                    <span className="text-xs font-medium text-amber-700">{["evidence_submitted", "in_progress"].includes(inspection.inspectionStatus || "") ? "Sent to warehouse · Awaiting decision" : "Inspection requested · Evidence required"}</span>
                   )}
                 </div>
               </div>
@@ -194,6 +220,23 @@ export default function FarmerQualityPage() {
           {batches.filter((b: any) => b.qualityStatus !== "approved" && b.qualityStatus !== "rejected").length === 0 && (
             <p className="text-sm text-slate-500">No pending batches. Complete a harvest and create a batch first.</p>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle className="text-base">Submit photos and videos to warehouse</CardTitle><CardDescription>Request inspection first, then upload product photos or a short video. The warehouse manager reviews the evidence and decides Passed or Failed.</CardDescription></CardHeader>
+        <CardContent className="space-y-3">
+          {apiRecords.filter((r: any) => !["approved", "rejected"].includes(r.inspectionStatus || "")).map((r: any) => (
+            <div key={r.id} className="space-y-2 rounded-lg border p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-semibold">{r.lotNumber} · {r.cropName}</p><p className="text-xs text-slate-500">{r.inspectionStatus || "pending"} · {r.photos?.length || 0} photos · {r.videos?.length || 0} videos</p></div><Badge variant={["evidence_submitted", "in_progress"].includes(r.inspectionStatus || "") ? "success" : "warning"}>{["evidence_submitted", "in_progress"].includes(r.inspectionStatus || "") ? "With warehouse" : "Evidence needed"}</Badge></div>
+              {!["evidence_submitted", "in_progress"].includes(r.inspectionStatus || "") && <>
+                <input type="file" accept="image/*,video/mp4,video/webm,video/quicktime" multiple onChange={e => setEvidenceFiles(current => ({ ...current, [r.id]: Array.from(e.target.files || []) }))} className="block w-full text-sm" />
+                <textarea value={evidenceNotes[r.id] || ""} onChange={e => setEvidenceNotes(current => ({ ...current, [r.id]: e.target.value }))} placeholder="Notes for warehouse manager (optional)" className="w-full rounded-lg border p-2 text-sm" />
+                <Button size="sm" onClick={() => evidenceMutation.mutate({ id: r.id, files: evidenceFiles[r.id] || [], notes: evidenceNotes[r.id] || "" })} disabled={evidenceMutation.isPending || !(evidenceFiles[r.id]?.length)}>{evidenceMutation.isPending ? "Uploading…" : "Upload & Submit Evidence"}</Button>
+              </>}
+            </div>
+          ))}
+          {apiRecords.length === 0 && <p className="text-sm text-slate-500">Request an inspection for a harvest batch to submit evidence.</p>}
         </CardContent>
       </Card>
 
