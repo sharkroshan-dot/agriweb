@@ -163,8 +163,7 @@ export default function FarmerCooperativePage(){
                   <div><div className="flex items-center justify-between text-xs"><span className="font-medium text-slate-600">Harvest progress</span><span className="font-semibold tabular-nums text-slate-800">{Math.round(percent)}%</span></div><div className="mt-2 h-2.5 overflow-hidden rounded-full bg-slate-100"><div className={"h-full rounded-full "+(needsHarvestUpdate ? "bg-amber-500" : "bg-emerald-600")} style={{width:percent+"%"}}/></div></div>
                 </div>;
               })}
-            </div> : <EmptyState title="No matching production plans" description="Try changing the search or status filter, or ask members to create a production plan."/>}
-              );
+            </div> : <EmptyState title="No matching production plans" description="Try changing the search or status filter, or ask members to create a production plan."/>;
             })()}
           </section>
           {cancelledPlans.length > 0 && <details className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white"><summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 text-sm font-medium text-slate-700"><span>Cancelled plans</span><Badge variant="outline">{cancelledPlans.length}</Badge></summary><div className="divide-y divide-slate-100 border-t border-slate-100">{cancelledPlans.map((plan: any)=><div key={plan.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-3"><div><p className="font-medium capitalize text-slate-800">{plan.cropName || "Crop"}</p><p className="mt-0.5 text-xs text-slate-500">Cancelled plan · Target {Number(plan.expectedQuantityKg||0).toLocaleString()} kg</p></div><Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-600">Cancelled</Badge></div>)}</div></details>}
