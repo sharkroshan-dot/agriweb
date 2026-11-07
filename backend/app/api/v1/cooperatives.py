@@ -1279,12 +1279,18 @@ async def cooperative_orders(cooperative_id: str, current_user: dict = Depends(g
             key = farmer_id + "|" + product_id
             if not farmer_id or key in existing_keys:
                 continue
+            inventory_line = await cooperative_inventory_repo.find_one({
+                "cooperativeId": cid, "farmerId": ObjectId(farmer_id),
+                "productId": ObjectId(product_id) if ObjectId.is_valid(product_id) else product_id,
+                "deletedAt": None,
+            })
             contribution = {
                 "cooperativeId": cid, "orderId": order_id,
                 "orderNumber": order.get("orderNumber"), "farmerId": ObjectId(farmer_id),
                 "productId": ObjectId(product_id) if ObjectId.is_valid(product_id) else product_id,
                 "productName": line.get("productName") or order.get("productName") or "Product",
                 "assignedQuantityKg": float(line.get("quantityKg") or 0),
+                "unitPricePerKg": float((inventory_line or {}).get("pricePerKg") or line.get("pricePerKg") or 0),
                 "actualQuantityKg": 0.0, "acceptedQuantityKg": 0.0,
                 "status": "assigned", "qualityStatus": "pending",
                 "createdAt": datetime.utcnow(), "updatedAt": datetime.utcnow(), "deletedAt": None,
@@ -1448,13 +1454,15 @@ async def create_cooperative_order_settlement(cooperative_id: str, order_id: str
         weighted.append((row, accepted, agreed_rate))
     if any(rate <= 0 for _, qty, rate in weighted if qty > 0):
         raise HTTPException(409, "A contribution is missing its agreed farmer price. Set contribution rates before settlement.")
-    base_total = sum(qty * rate for _, qty, rate in weighted)
+    base_total = round(sum(qty * rate for _, qty, rate in weighted), 2)
     if base_total <= 0:
         raise HTTPException(409, "Farmer payout basis is missing")
+    if base_total > payout_pool:
+        raise HTTPException(409, f"Agreed farmer payouts (₹{base_total:.2f}) exceed the available settlement pool (₹{payout_pool:.2f}). Review buyer price, farmer rates or recorded costs.")
     payouts = []
     for row, qty, rate in weighted:
-        amount = round(payout_pool * ((qty * rate) / base_total), 2)
-        payouts.append({"contributionId": str(row["_id"]), "farmerId": str(row.get("farmerId")), "acceptedQuantityKg": qty, "unitPricePerKg": rate, "grossAmount": round(qty * rate, 2), "payoutAmount": amount, "payoutStatus": "pending"})
+        amount = round(qty * rate, 2)
+        payouts.append({"contributionId": str(row["_id"]), "farmerId": str(row.get("farmerId")), "acceptedQuantityKg": qty, "unitPricePerKg": rate, "grossAmount": amount, "payoutAmount": amount, "payoutStatus": "pending"})
     settlement_doc = {
         "cooperativeId": cid, "orderId": oid, "orderNumber": order.get("orderNumber"),
         "buyerPaidAmount": round(data.buyerPaidAmount, 2), "sharedCosts": round(data.sharedCosts, 2),
