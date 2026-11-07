@@ -294,6 +294,133 @@ async def search_farmers(
     }
 
 
+
+
+@router.get("/farmers/discover")
+async def discover_farmers_for_cooperative(
+    location: str = Query("", max_length=160),
+    crop: str = Query("", max_length=80),
+    search: str = Query("", max_length=100),
+    limit: int = Query(30, ge=1, le=50),
+    current_user: dict = Depends(get_current_user),
+):
+    """Discover farmers by farm location and crops they grow, for cooperative invitations."""
+    _require_farmer(current_user)
+    location_term = location.strip()
+    crop_term = crop.strip()
+    name_term = search.strip()
+    if not location_term and not crop_term:
+        raise HTTPException(400, "Enter a location or crop to find matching farmers")
+
+    uid = _oid(current_user["_id"], "farmer id")
+    users_query: Dict[str, Any] = {
+        "role": "farmer",
+        "deletedAt": None,
+        "_id": {"$ne": uid},
+    }
+    if name_term:
+        users_query["$or"] = [
+            {"firstName": {"$regex": name_term, "$options": "i"}},
+            {"lastName": {"$regex": name_term, "$options": "i"}},
+            {"name": {"$regex": name_term, "$options": "i"}},
+        ]
+    users = await user_repo.find_many(users_query, limit=500, sort=[("firstName", 1), ("lastName", 1)])
+    if not users:
+        return {"success": True, "data": {"farmers": [], "count": 0}}
+
+    user_ids = [u["_id"] for u in users]
+    user_id_strings = [str(value) for value in user_ids]
+    profiles = await BaseRepository("farmer_profiles").find_many(
+        {"userId": {"$in": user_ids + user_id_strings}, "deletedAt": None},
+        limit=1000,
+    )
+    profile_by_user = {str(p.get("userId")): p for p in profiles if p.get("userId") is not None}
+
+    products = await product_repo.find_many(
+        {
+            "farmerId": {"$in": user_ids + user_id_strings},
+            "deletedAt": None,
+            "isActive": {"$ne": False},
+        },
+        limit=5000,
+    )
+    products_by_farmer: Dict[str, List[Dict[str, Any]]] = {}
+    for product in products:
+        farmer_key = str(product.get("farmerId", ""))
+        products_by_farmer.setdefault(farmer_key, []).append(product)
+
+    location_pattern = location_term.lower()
+    crop_pattern = crop_term.lower()
+    matches = []
+    for farmer in users:
+        farmer_id = str(farmer["_id"])
+        profile = profile_by_user.get(farmer_id, {})
+        profile_location = profile.get("location") or {}
+        if isinstance(profile_location, dict):
+            location_values = [
+                profile_location.get("city"), profile_location.get("district"),
+                profile_location.get("state"), profile_location.get("village"),
+                profile_location.get("address"),
+            ]
+        else:
+            location_values = [profile_location]
+        location_values.extend([
+            profile.get("city"), profile.get("district"), profile.get("state"),
+            profile.get("farmAddress"), farmer.get("city"), farmer.get("district"),
+            farmer.get("state"),
+        ])
+        location_text = ", ".join(str(v) for v in location_values if v)
+        if location_pattern and location_pattern not in location_text.lower():
+            continue
+
+        farmer_products = products_by_farmer.get(farmer_id, [])
+        farmer_crops = []
+        for product in farmer_products:
+            product_name = product.get("name") or product.get("productName") or product.get("cropName")
+            category = product.get("category")
+            if product_name:
+                farmer_crops.append(str(product_name))
+            if category:
+                farmer_crops.append(str(category))
+        profile_crops = profile.get("crops") or profile.get("cropTypes") or []
+        if isinstance(profile_crops, str):
+            profile_crops = [part.strip() for part in profile_crops.split(",") if part.strip()]
+        farmer_crops.extend(str(value) for value in profile_crops if value)
+        unique_crops = list(dict.fromkeys(farmer_crops))
+        matching_crops = [
+            value for value in unique_crops
+            if not crop_pattern or crop_pattern in value.lower()
+        ]
+        if crop_pattern and not matching_crops:
+            continue
+
+        existing_membership = await member_repo.find_one({
+            "userId": farmer["_id"], "status": "active", "deletedAt": None
+        })
+        pending_membership = await member_repo.find_one({
+            "userId": farmer["_id"], "status": "pending", "deletedAt": None
+        })
+        pending_invitation = await cooperative_repo.find_one({
+            "type": "invitation", "farmerId": farmer["_id"], "status": "pending",
+            "deletedAt": None, "expiresAt": {"$gt": datetime.utcnow()},
+        })
+        full_location = ", ".join(dict.fromkeys(str(v).strip() for v in location_values if v))
+        matches.append({
+            "id": farmer_id,
+            "name": f"{farmer.get('firstName', '')} {farmer.get('lastName', '')}".strip()
+                    or farmer.get("name") or "Farmer",
+            "farmName": profile.get("farmName") or profile.get("ownerName"),
+            "location": full_location or "Location not provided",
+            "crops": unique_crops[:12],
+            "matchingCrops": matching_crops[:8],
+            "membershipStatus": "member" if existing_membership else ("pending" if pending_membership else "available"),
+            "invitationStatus": "invited" if pending_invitation else "not_invited",
+        })
+        if len(matches) >= limit:
+            break
+
+    return {"success": True, "data": {"farmers": matches, "count": len(matches)}}
+
 @router.get("/invite/{invite_code}")
 async def cooperative_invite_details(
     invite_code: str,
