@@ -285,7 +285,7 @@ export default function FarmerBatchesPage() {
   };
 
   return (
-    <div className="w-full min-w-0 space-y-5 pb-8">
+    <div className="w-full min-w-0 space-y-6 pb-10">
       <FarmerPageHeader
         eyebrow="Harvest lots & product traceability"
         title="Batches & Traceability"
@@ -311,29 +311,37 @@ export default function FarmerBatchesPage() {
         </Button>
       </FarmerPageHeader>
 
-      <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+      <section aria-label="Batch overview" className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
         {[
           { label: "Total batches", value: batchSummary.total, icon: Layers, tone: "bg-slate-100 text-slate-700" },
-          { label: "Awaiting inspection", value: batchSummary.awaitingInspection, icon: FlaskConical, tone: "bg-amber-50 text-amber-700" },
-          { label: "Listed", value: batchSummary.listed, icon: PackageCheck, tone: "bg-emerald-50 text-emerald-700" },
-          { label: "Expired", value: batchSummary.expired, icon: AlertTriangle, tone: "bg-rose-50 text-rose-700" },
+          { label: "Needs attention", value: batchSummary.awaitingInspection, icon: FlaskConical, tone: "bg-amber-50 text-amber-700" },
+          { label: "Listed batches", value: batchSummary.listed, icon: PackageCheck, tone: "bg-emerald-50 text-emerald-700" },
+          { label: "Expired lots", value: batchSummary.expired, icon: AlertTriangle, tone: "bg-rose-50 text-rose-700" },
+          { label: "Available stock", value: `${batchSummary.remainingKg.toLocaleString("en-IN")} kg`, icon: Package, tone: "bg-sky-50 text-sky-700" },
         ].map((stat) => (
-          <Card key={stat.label} className="border-slate-200 shadow-sm">
-            <CardContent className="flex min-w-0 items-center justify-between gap-3 p-4 sm:p-5">
+          <Card key={stat.label} className="border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-shadow hover:shadow-md">
+            <CardContent className="flex min-w-0 items-center justify-between gap-2 p-4 sm:p-5">
               <div className="min-w-0">
-                <p className="text-sm font-medium text-slate-500">{stat.label}</p>
-                <p className="mt-1 text-2xl font-bold tracking-tight text-slate-950">{isLoading || isError ? "—" : stat.value}</p>
+                <p className="truncate text-xs font-semibold uppercase tracking-wide text-slate-500">{stat.label}</p>
+                <p className="mt-2 text-2xl font-bold tracking-tight text-slate-950">{isLoading || isError ? "—" : stat.value}</p>
               </div>
-              <span className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-xl", stat.tone)}>
-                <stat.icon className="h-5 w-5" />
-              </span>
+              <span className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-xl", stat.tone)}><stat.icon className="h-[18px] w-[18px]" /></span>
             </CardContent>
           </Card>
         ))}
       </section>
 
-      <FarmerQualityPanel />
-
+      <section className="space-y-3">
+        <div className="flex flex-wrap items-end justify-between gap-2 px-1">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700">Quality & compliance</p>
+            <h2 className="mt-1 text-lg font-semibold tracking-tight text-slate-950">Inspection workspace</h2>
+            <p className="mt-1 text-sm text-slate-500">Submit evidence for each lot and follow the warehouse verification decision.</p>
+          </div>
+          <Badge variant="outline" className="border-slate-200 bg-white text-slate-600">Farmer actions</Badge>
+        </div>
+        <FarmerQualityPanel />
+      </section>
       {showForm && (
         <Card className="overflow-hidden border-slate-200 shadow-sm">
           <CardHeader className="border-b border-slate-100 bg-slate-50/60">
@@ -425,10 +433,10 @@ export default function FarmerBatchesPage() {
       )}
 
       {!isLoading && !isError && batches.length > 0 ? (
-        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <div className="flex flex-col gap-3 border-b border-slate-100 bg-slate-50/60 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_2px_8px_rgba(15,23,42,0.04)]">
+          <div className="flex flex-col gap-3 border-b border-slate-100 bg-white p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
             <div>
-              <h2 className="text-base font-semibold text-slate-950">Harvest batches</h2>
+              <h2 className="text-lg font-semibold tracking-tight text-slate-950">Harvest lots</h2>
               <p className="mt-1 text-sm text-slate-500">{filteredBatches.length} of {batches.length} batches shown · {batchSummary.remainingKg.toLocaleString("en-IN")} kg remaining in stock</p>
             </div>
             <div className="relative w-full sm:max-w-sm">
@@ -525,7 +533,7 @@ export default function FarmerBatchesPage() {
                 <tbody className="divide-y divide-slate-100">
                   {filteredBatches.map((batch) => (
                     <Fragment key={batch.id}>
-                      <tr className="align-top transition-colors hover:bg-slate-50/70">
+                      <tr className="align-top transition-colors hover:bg-emerald-50/30">
                         <td className="px-4 py-4">
                           <div className="flex items-start gap-3">
                             <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><Layers className="h-4 w-4" /></span>
