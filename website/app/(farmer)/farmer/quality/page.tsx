@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -466,9 +466,8 @@ export function FarmerQualityPanel() {
 
 export default function FarmerQualityPage() {
   const router = useRouter();
-  useMemo(() => {
+  useEffect(() => {
     router.replace("/farmer/batches");
-    return null;
   }, [router]);
   return <div className="p-6 text-sm text-slate-500">Opening combined Batches &amp; Quality workspace…</div>;
 }
