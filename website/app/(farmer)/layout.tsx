@@ -10,6 +10,7 @@ import { Footer } from "../components/common/footer";
 import ChatWidget from "../components/shared/chat-widget";
 import { AppPresence } from "../components/chat/app-presence";
 import { WorkflowGuide } from "../components/shared/workflow-guide";
+import { RolePageFrame } from "../components/shared/role-page-frame";
 
 
 export default function FarmerLayout({ children }: { children: React.ReactNode }) {
@@ -17,6 +18,7 @@ export default function FarmerLayout({ children }: { children: React.ReactNode }
   const router = useRouter();
   const pathname = usePathname();
   const isOrderPage = pathname === "/farmer/orders" || pathname?.startsWith("/farmer/orders/");
+  const isCooperativePage = pathname === "/farmer/cooperative";
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -41,8 +43,8 @@ export default function FarmerLayout({ children }: { children: React.ReactNode }
       <RoleMobileNav role="farmer" />
       <div className="flex flex-1 bg-transparent">
         <FarmerSidebar />
-        <main className="site-main min-w-0 flex-1 overflow-x-hidden px-3 py-4 sm:px-5 sm:py-5 lg:px-7">
-          <div className={`site-content role-workspace mx-auto w-full max-w-[1440px] ${isOrderPage ? "" : "farmer-workspace"}`}><WorkflowGuide role="farmer" />{children}</div>
+        <main className={`site-main min-w-0 flex-1 overflow-x-hidden py-3 sm:py-4 ${isOrderPage || isCooperativePage ? "px-2 sm:px-4 lg:px-6" : "px-3 sm:px-5 lg:px-7"}`}>
+          <div className={`site-content role-workspace role-farmer mx-auto w-full ${isCooperativePage ? "!max-w-none" : "max-w-[1440px]"} ${isOrderPage ? "" : "farmer-workspace"}`}><WorkflowGuide role="farmer" compact /><RolePageFrame role="farmer" className={isCooperativePage ? "w-full !max-w-none" : ""}>{children}</RolePageFrame></div>
         </main>
       </div>
       <Footer />

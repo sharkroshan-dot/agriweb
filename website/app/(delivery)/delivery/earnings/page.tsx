@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem } from "../../../components/ui/select
 import { Switch } from "../../../components/ui/switch";
 import { api } from "../../../lib/api/client";
 import toast from "react-hot-toast";
+import { DeliveryPageHeader } from "../../../components/delivery/delivery-page-header";
 
 const inr = (v: number) => `Rs ${Number(v || 0).toLocaleString("en-IN")}`;
 
@@ -97,16 +98,11 @@ export default function DeliveryEarningsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-sm font-medium text-primary">Payments</p>
-          <h1 className="text-3xl font-semibold tracking-tight">Earnings</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Track your earnings and request payouts.</p>
-        </div>
+      <DeliveryPageHeader title="Earnings & payouts" description="Track today’s delivery income, pending payouts, balance and withdrawal preferences.">
         <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isLoading}>
           <RefreshCw className="mr-2 h-4 w-4" /> Refresh
         </Button>
-      </div>
+      </DeliveryPageHeader>
 
       {isLoading ? (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">

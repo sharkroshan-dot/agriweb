@@ -42,6 +42,44 @@ BATCH_EXPIRED = "expired"
 BATCH_CANCELLED = "cancelled"
 
 
+def effective_shelf_life_days(
+    master_crop: Dict[str, Any],
+    storage_type: str,
+    requested_days: Optional[int] = None,
+) -> int:
+    """Resolve shelf life using an explicit farmer value, storage rule, then crop default."""
+    if requested_days is not None:
+        return max(1, min(90, int(requested_days)))
+
+    storage_life = master_crop.get("storageShelfLifeDays") or {}
+    configured = storage_life.get(storage_type) if isinstance(storage_life, dict) else None
+    if isinstance(configured, dict):
+        configured = configured.get("days") or configured.get("shelfLifeDays")
+    try:
+        if configured is not None and int(configured) > 0:
+            return min(90, int(configured))
+    except (TypeError, ValueError):
+        logger.warning(
+            "Ignoring invalid %s shelf-life value for master crop %s",
+            storage_type,
+            master_crop.get("name") or master_crop.get("_id"),
+        )
+
+    try:
+        default_days = int(master_crop.get("defaultShelfLifeDays") or DEFAULT_SHELF_LIFE_DAYS.get(storage_type, 3))
+    except (TypeError, ValueError):
+        default_days = DEFAULT_SHELF_LIFE_DAYS.get(storage_type, 3)
+    return max(1, min(90, default_days))
+
+
+def expiry_date(harvest_date: datetime, shelf_life_days: int) -> datetime:
+    """Calculate the batch expiry timestamp from its harvest date and shelf life."""
+    normalized_harvest = _to_naive_utc(harvest_date)
+    if normalized_harvest is None:
+        raise ValueError("A harvest date is required to calculate batch expiry")
+    return normalized_harvest + timedelta(days=max(1, int(shelf_life_days)))
+
+
 class BatchCreate(BaseModel):
     cropName: str
     masterCropId: Optional[str] = None

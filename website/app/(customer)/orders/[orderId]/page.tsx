@@ -15,6 +15,7 @@ import { api } from "../../../lib/api/client";
 import { useCartStore } from "../../../lib/store/cart-store";
 import toast from "react-hot-toast";
 import { LiveChatDialog } from "../../../components/delivery/live-chat-dialog";
+import { CustomerPageHeader } from "../../../components/customer/customer-page-header";
 import { QRCodeSVG } from "qrcode.react";
 
 const statusColors: Record<string, string> = {
@@ -613,18 +614,15 @@ export default function OrderDetailPage() {
   };
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="customer-retail-shell space-y-6">
       <Button variant="ghost" asChild>
         <Link href="/orders" className="flex items-center gap-2">
           <ArrowLeft className="h-4 w-4" /> Back to orders
         </Link>
       </Button>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">Order {order.orderNumber.slice(-8)}</h1>
-          <p className="text-sm text-muted-foreground">Placed on {formatDate(order.date)}</p>
-        </div>
+      <CustomerPageHeader eyebrow="Order tracking" title={`Order ${order.orderNumber.slice(-8)}`} description={`Placed on ${formatDate(order.date)} · Follow every handoff from farm to doorstep.`} />
+      <div className="flex flex-wrap items-center justify-end gap-2">
         <div className="flex items-center gap-2">
           <Badge className={statusColors[order.status] || "border-gray-200 bg-gray-50 text-gray-700"}>
             {order.status.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}

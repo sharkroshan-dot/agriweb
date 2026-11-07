@@ -59,7 +59,7 @@ export default withAuth(
         const { pathname } = req.nextUrl;
         const publicPaths = [
           "/", "/login", "/register", "/verify", "/search", "/product", "/categories",
-          "/roadmap", "/api", "/_next", "/images", "/marketplace", "/nearby", "/trace",
+          "/roadmap", "/api", "/_next", "/images", "/marketplace", "/nearby", "/trace", "/cooperative-invite",
         ];
         if (publicPaths.some((p) => matches(pathname, p))) return true;
         return !!token;

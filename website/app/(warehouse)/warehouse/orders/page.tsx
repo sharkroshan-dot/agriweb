@@ -33,7 +33,7 @@ export default function WarehouseOrdersPage() {
     catch(e:any){toast.error(e?.message||"Allocation failed");}
   };
 
-  return <div className="space-y-6">
+  return <div className="warehouse-customer-orders-page space-y-6">
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div><h1 className="text-3xl font-bold">Customer Orders</h1><p className="text-muted-foreground">Warehouse-fulfilled orders only. Allocate stored stock before packing.</p></div>
       <Button variant="outline" size="icon" onClick={()=>refetch()}><RefreshCw className="h-4 w-4"/></Button>

@@ -11,14 +11,12 @@ class ProductCard extends StatelessWidget {
   final Map<String, dynamic> product;
   final VoidCallback? onTap;
   final double width;
-  final VoidCallback? onAdd;
 
   const ProductCard({
     super.key,
     required this.product,
     this.onTap,
     this.width = 160,
-    this.onAdd,
   });
 
   @override
@@ -97,31 +95,11 @@ class ProductCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(child: Text(
+                    Text(
                       name,
                       style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, height: 1.2, color: AppTheme.textPrimary),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                    )),
-                        if (onAdd != null) ...[
-                          const SizedBox(width: 6),
-                          Material(
-                            color: AppTheme.primaryGreen,
-                            shape: const CircleBorder(),
-                            child: InkWell(
-                              onTap: onAdd,
-                              customBorder: const CircleBorder(),
-                              child: const Padding(
-                                padding: EdgeInsets.all(7),
-                                child: Icon(Icons.add_shopping_cart, size: 15, color: Colors.white),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
                     ),
                     const SizedBox(height: 3),
                     Text(

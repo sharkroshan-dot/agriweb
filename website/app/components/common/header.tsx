@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useSession, signOut } from "next-auth/react";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import {
   User,
   LogOut,
@@ -11,7 +11,7 @@ import {
   Settings,
   Heart,
   ShoppingCart,
-  ArrowLeft,
+  Search,
 } from "lucide-react";
 import { useWishlist } from "../../lib/hooks/use-wishlist";
 import { useCartStore } from "../../lib/store/cart-store";
@@ -26,247 +26,162 @@ import {
   DropdownMenuSeparator,
 } from "../ui/dropdown-menu";
 
+const primaryLinks = [
+  { href: "/", label: "Home" },
+  { href: "/marketplace", label: "Marketplace" },
+  { href: "/nearby", label: "Nearby" },
+  { href: "/roadmap", label: "Roadmap" },
+];
+
+const roleLabels: Record<string, string> = {
+  customer: "Customer",
+  farmer: "Farmer",
+  business: "Business",
+  warehouse: "Warehouse",
+  delivery: "Delivery",
+  admin: "Admin",
+};
+
 export function Header() {
   const { data: session } = useSession();
   const pathname = usePathname();
   const router = useRouter();
-  const [liveAvatar, setLiveAvatar] = useState<string | null | undefined>(
-    undefined
-  );
+  const [globalSearch, setGlobalSearch] = useState("");
 
   const role = (session?.user as any)?.role as string | undefined;
   const dashboardHref = role ? `/${role}/dashboard` : "/customer/dashboard";
+  const roleLabel = role ? roleLabels[role] || "Workspace" : null;
+  const userLabel = (session?.user?.name || session?.user?.email || "Account").trim();
+  const canSearchProducts = !session?.user || role === "customer";
   const { items: wishlistItems } = useWishlist();
   const cartCount = useCartStore((s: any) =>
-    s.items.reduce(
-      (sum: number, i: any) => sum + (i.quantity || 0),
-      0
-    )
+    s.items.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0)
   );
 
-  const handleBack = () => {
-    // Go to the actual last page in browser history. This preserves the
-    // user's previous filters, scroll position, and page state when possible.
-    if (typeof window !== "undefined" && window.history.length > 1) {
-      router.back();
-      return;
-    }
-
-    router.push(session?.user ? dashboardHref : "/");
+  const handleProductSearch = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const query = globalSearch.trim();
+    router.push(query ? `/search?q=${encodeURIComponent(query)}` : "/search");
   };
 
   useEffect(() => {
-    const handler = (e: CustomEvent) => {
-      setLiveAvatar(e.detail);
+    const syncSearchFromUrl = () => {
+      const params = new URLSearchParams(window.location.search);
+      setGlobalSearch(params.get("q") || "");
     };
 
-    window.addEventListener("avatar-updated" as any, handler as any);
-    return () =>
-      window.removeEventListener("avatar-updated" as any, handler as any);
-  }, []);
+    syncSearchFromUrl();
+    window.addEventListener("popstate", syncSearchFromUrl);
+    return () => window.removeEventListener("popstate", syncSearchFromUrl);
+  }, [pathname]);
 
-  const avatarSrc = liveAvatar ?? session?.user?.image;
-  const showBackButton = pathname !== "/";
-  // Keep Back inside the actual content column whenever a role/customer
-  // sidebar is rendered. Customer marketplace routes such as /nearby and
-  // /cart live outside /customer/*, so route-prefix detection alone is not enough.
-  const customerSidebarRoutes = [
-    "/nearby",
-    "/marketplace/state",
-    "/marketplace/national",
-    "/trace",
-    "/cart",
-    "/orders",
-    "/delivery-slots",
-    "/wishlist",
-    "/bulk-orders",
-    "/subscriptions",
-    "/agripoints",
-    "/wallet",
-    "/payments",
-    "/refunds",
-    "/coupons",
-    "/reviews",
-    "/impact",
-    "/profile",
-  ];
-  const hasCustomerSidebar = customerSidebarRoutes.some(
-    (route) => pathname === route || pathname.startsWith(`${route}/`)
-  );
-  const hasRoleSidebar = /^\/(customer|farmer|delivery|business|warehouse|admin)(\/|$)/.test(pathname);
-  const hasSidebar = hasRoleSidebar || hasCustomerSidebar;
-  const backButtonStyle = hasSidebar
-    ? { left: "280px" }
-    : { left: "16px" };
+  const isActive = (href: string) =>
+    href === "/" ? pathname === "/" : pathname === href || pathname?.startsWith(`${href}/`);
 
   return (
-    <header className="sticky left-0 right-0 top-0 z-50 border-b border-slate-200/70 bg-white/80 shadow-sm shadow-slate-900/5 backdrop-blur-xl">
-      <div className="mx-auto flex h-16 max-w-[1440px] items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
-        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-          {showBackButton && (
-            <button
-              type="button"
-              onClick={handleBack}
-              aria-label="Go back to the previous page"
-              title="Go back"
-              className="group fixed top-[76px] z-[60] inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-3 text-slate-700 shadow-md shadow-slate-900/10 transition-all hover:-translate-x-0.5 hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:ring-offset-1"
-              style={backButtonStyle}
-            >
-              <ArrowLeft
-                className="h-4 w-4 shrink-0 transition-transform group-hover:-translate-x-0.5"
-                stroke="currentColor"
-                strokeWidth={2.25}
-                aria-hidden="true"
-              />
-              <span className="text-xs font-semibold">Back</span>
-            </button>
-          )}
-
-          <Link href="/" className="flex min-w-0 items-center gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-500 to-green-700 text-lg font-bold text-white shadow-md shadow-emerald-200">
-              A
-            </div>
-            <div className="hidden sm:block">
-              <p className="text-sm font-bold tracking-tight text-slate-900">
-                AgriConnect
-              </p>
-              <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-emerald-700">
-                Fresh daily
-              </p>
-            </div>
+    <header className="agri-site-header" data-role={role || "guest"}>
+      <div className={`agri-site-header-inner${canSearchProducts ? " has-product-search" : ""}`}>
+        <div className="agri-site-header-leading">
+          <Link href="/" className="agri-header-brand" aria-label="AgriConnect home">
+            <span className="agri-header-brand-mark" aria-hidden="true">A</span>
+            <span className="agri-header-brand-copy">
+              <span className="agri-header-brand-name">AgriConnect</span>
+              <span className="agri-header-brand-tagline">Fresh daily · Farm to home</span>
+            </span>
           </Link>
         </div>
 
-        <nav className="hidden items-center gap-1 rounded-full border border-slate-200/80 bg-slate-50/70 p-1 text-sm font-medium text-slate-600 md:flex">
-          <Link
-            href="/"
-            className="rounded-full px-3 py-1.5 transition hover:bg-white hover:text-emerald-700"
-          >
-            Home
-          </Link>
-          <Link
-            href="/marketplace"
-            className="rounded-full px-3 py-1.5 transition hover:bg-white hover:text-emerald-700"
-          >
-            Marketplace
-          </Link>
-          <Link
-            href="/nearby"
-            className="rounded-full px-3 py-1.5 transition hover:bg-white hover:text-emerald-700"
-          >
-            Nearby
-          </Link>
-          <Link
-            href="/roadmap"
-            className="rounded-full px-3 py-1.5 transition hover:bg-white hover:text-emerald-700"
-          >
-            Roadmap
-          </Link>
+        <nav className="agri-header-navigation" aria-label="Main navigation">
+          {primaryLinks.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              aria-current={isActive(item.href) ? "page" : undefined}
+              className={`agri-header-nav-link${isActive(item.href) ? " is-active" : ""}`}
+            >
+              {item.label}
+            </Link>
+          ))}
         </nav>
 
-        <div className="flex items-center gap-2 sm:gap-3">
+        {canSearchProducts && (
+          <form className="agri-header-search-form" role="search" aria-label="Search fresh products" onSubmit={handleProductSearch}>
+            <Search className="agri-header-search-leading-icon h-[18px] w-[18px]" aria-hidden="true" />
+            <input
+              type="search"
+              name="q"
+              aria-label="Search products"
+              placeholder="Search vegetables, fruits, grains..."
+              value={globalSearch}
+              onChange={(event) => setGlobalSearch(event.target.value)}
+            />
+            <button type="submit" aria-label="Submit product search" title="Search products">
+              <Search className="h-[17px] w-[17px]" aria-hidden="true" />
+              <span>Search</span>
+            </button>
+          </form>
+        )}
+
+        <div className="agri-site-header-actions">
           {!session?.user ? (
-            <>
-              <Link
-                href="/search"
-                className="hidden rounded-full border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700 sm:inline-flex"
-              >
-                Browse
-              </Link>
-              <Link
-                href="/login"
-                className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-emerald-200 transition hover:-translate-y-px hover:bg-emerald-700"
-              >
-                Sign In
-              </Link>
-            </>
+            <Link href="/login" className="agri-header-sign-in">Sign in</Link>
           ) : (
             <>
+              {roleLabel && (
+                <Link href={dashboardHref} className="agri-header-workspace" title={`Open ${roleLabel} dashboard`}>
+                  <LayoutDashboard className="h-4 w-4" aria-hidden="true" />
+                  <span>{roleLabel} workspace</span>
+                </Link>
+              )}
+
               {role === "customer" && (
                 <>
-                  <Link
-                    href="/cart"
-                    className="relative flex h-9 w-9 items-center justify-center rounded-full transition hover:bg-slate-100"
-                    title="Cart"
-                  >
-                    <ShoppingCart className="h-5 w-5 text-slate-600" />
-                    {cartCount > 0 && (
-                      <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-emerald-600 px-1 text-[10px] font-semibold text-white">
-                        {cartCount}
-                      </span>
-                    )}
+                  <Link href="/cart" aria-label={`Cart, ${cartCount} items`} title="Cart" className="agri-header-icon-link agri-header-count-link">
+                    <ShoppingCart className="h-[18px] w-[18px]" />
+                    {cartCount > 0 && <span className="agri-header-count">{cartCount > 99 ? "99+" : cartCount}</span>}
                   </Link>
-                  <Link
-                    href="/wishlist"
-                    className="relative flex h-9 w-9 items-center justify-center rounded-full transition hover:bg-slate-100"
-                    title="Wishlist"
-                  >
-                    <Heart className="h-5 w-5 text-slate-600" />
-                    {wishlistItems.length > 0 && (
-                      <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold text-white">
-                        {wishlistItems.length}
-                      </span>
-                    )}
+                  <Link href="/wishlist" aria-label={`Wishlist, ${wishlistItems.length} items`} title="Wishlist" className="agri-header-icon-link agri-header-count-link">
+                    <Heart className="h-[18px] w-[18px]" />
+                    {wishlistItems.length > 0 && <span className="agri-header-count agri-header-count--wishlist">{wishlistItems.length > 99 ? "99+" : wishlistItems.length}</span>}
                   </Link>
                 </>
               )}
-              <AICopilot />
-              <NotificationBell />
+
+              <span className="agri-header-action-divider" aria-hidden="true" />
+              <div className="agri-header-utility"><AICopilot /></div>
+              <div className="agri-header-utility"><NotificationBell /></div>
+
               <DropdownMenu>
-                <DropdownMenuTrigger className="flex items-center gap-2 rounded-full p-1 transition hover:bg-slate-100">
-                  {avatarSrc ? (
-                    <img
-                      src={avatarSrc}
-                      alt=""
-                      className="h-8 w-8 rounded-full object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-600 text-sm font-medium text-white">
-                      {(session.user.name || session.user.email || "U")
-                        .charAt(0)
-                        .toUpperCase()}
-                    </div>
-                  )}
+                <DropdownMenuTrigger className="agri-header-profile-trigger" aria-label={`Open ${roleLabel || "account"} menu for ${userLabel}`} title={userLabel}>
+                  <span className="agri-header-avatar agri-header-avatar--fallback" aria-hidden="true">
+                    {userLabel.charAt(0).toUpperCase()}
+                  </span>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent>
+
+                <DropdownMenuContent align="end" className="min-w-56">
                   <DropdownMenuLabel>
-                    {(session.user as any).name || (session.user as any).email}
+                    <span className="block max-w-56 truncate">{userLabel}</span>
+                    <span className="mt-0.5 block text-xs font-normal text-slate-500">{roleLabel ? `${roleLabel} workspace` : "AgriConnect account"}</span>
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem asChild>
-                    <Link
-                      href="/profile"
-                      className="flex items-center gap-2"
-                    >
-                      <User className="h-4 w-4" />
-                      My Profile
+                    <Link href="/profile" className="flex items-center gap-2">
+                      <User className="h-4 w-4" /> My Profile
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild>
-                    <Link
-                      href={dashboardHref}
-                      className="flex items-center gap-2"
-                    >
-                      <LayoutDashboard className="h-4 w-4" />
-                      Dashboard
+                    <Link href={dashboardHref} className="flex items-center gap-2">
+                      <LayoutDashboard className="h-4 w-4" /> Dashboard
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild>
-                    <Link
-                      href="/profile/addresses"
-                      className="flex items-center gap-2"
-                    >
-                      <Settings className="h-4 w-4" />
-                      Addresses
+                    <Link href="/profile/addresses" className="flex items-center gap-2">
+                      <Settings className="h-4 w-4" /> Addresses
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={() => signOut({ callbackUrl: "/" })}
-                    className="flex items-center gap-2 text-red-600"
-                  >
-                    <LogOut className="h-4 w-4" />
-                    Sign Out
+                  <DropdownMenuItem onClick={() => signOut({ callbackUrl: "/" })} className="flex items-center gap-2 text-red-600">
+                    <LogOut className="h-4 w-4" /> Sign out
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>

@@ -414,7 +414,7 @@ export default function LoginPage() {
         <p className="mt-4 text-center text-sm text-slate-500">
           New here?{" "}
           <Link
-            href={`/register${preselectedRole ? `?role=${preselectedRole}` : ""}`}
+            href={`/register?${new URLSearchParams({ ...(preselectedRole ? { role: preselectedRole } : {}), ...(callbackUrl ? { callbackUrl } : {}) }).toString()}`}
             className="font-medium text-emerald-600"
           >
             Create an account

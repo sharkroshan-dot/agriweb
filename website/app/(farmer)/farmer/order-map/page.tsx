@@ -1262,7 +1262,7 @@ export default function FarmerOrderMapPage() {
               </div>
               <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Farmer Order Map</h1>
               <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
-                Filter packed orders, select the orders you will deliver yourself, then confirm. Filtering never assigns an order.
+                Filter packed orders, select the orders you will deliver yourself, then confirm. Filtering never assigns an order. Nearby delivery planning respects the 15 km threshold.
               </p>
             </div>
             <div className="flex shrink-0 flex-wrap gap-2">

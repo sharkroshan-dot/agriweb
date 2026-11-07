@@ -21,6 +21,7 @@ import {
 import { Button } from "../../../components/ui/button";
 import { cn } from "../../../lib/utils";
 import { api } from "../../../lib/api/client";
+import { FarmerPageHeader } from "../../../components/farmer/farmer-page-header";
 import { formatPrice } from "../../../lib/utils";
 import {
   LineChart,
@@ -93,17 +94,13 @@ export default function FarmerAnalyticsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Analytics</h1>
-          <p className="text-gray-500">Data-driven insights to optimize your farm.</p>
-        </div>
+      <FarmerPageHeader title="Farm analytics" description="Use demand, sales and fulfilment trends to decide what to grow, stock and deliver next.">
         <div className="flex items-center gap-2">
           {[("7d" as const), ("30d" as const), ("90d" as const)].map((r) => (
             <Button key={r} variant={range === r ? "default" : "outline"} size="sm" onClick={() => setRange(r)}>{r}</Button>
           ))}
         </div>
-      </div>
+      </FarmerPageHeader>
 
       {insights.length > 0 && (
         <Card className="border-emerald-200 bg-gradient-to-br from-emerald-50/70 to-green-50/40">

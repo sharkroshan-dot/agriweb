@@ -37,6 +37,7 @@ import { cn, formatPrice } from "../../../lib/utils";
 import { api } from "../../../lib/api/client";
 import { Map } from "../../../components/shared/map";
 import toast from "react-hot-toast";
+import { FarmerPageHeader } from "../../../components/farmer/farmer-page-header";
 
 interface Stop {
   orderId: string;
@@ -233,11 +234,7 @@ export default function SmartRoutePage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Smart Route</h1>
-          <p className="text-gray-500">{dateStr}</p>
-        </div>
+      <FarmerPageHeader title="Smart route" description={`Optimise today’s delivery sequence for ${dateStr}. Review distance, time and net earnings before launching.`}>
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={handleOptimize}>
             <RotateCw className="mr-2 h-4 w-4" />
@@ -250,7 +247,7 @@ export default function SmartRoutePage() {
             </Link>
           </Button>
         </div>
-      </div>
+      </FarmerPageHeader>
 
       <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
         <Card>

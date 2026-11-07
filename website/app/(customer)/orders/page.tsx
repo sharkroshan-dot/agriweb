@@ -12,6 +12,7 @@ import { formatPrice } from "../../lib/utils";
 import { api } from "../../lib/api/client";
 import { useCartStore } from "../../lib/store/cart-store";
 import toast from "react-hot-toast";
+import { CustomerPageHeader } from "../../components/customer/customer-page-header";
 
 const statusColors: Record<string, string> = {
   pending: "border-yellow-200 bg-yellow-50 text-yellow-700",
@@ -95,15 +96,8 @@ export default function CustomerOrdersPage() {
   }
 
   return (
-    <div className="space-y-8 p-6">
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" asChild><Link href="/customer/dashboard"><ArrowLeft className="h-4 w-4" /></Link></Button>
-        <div className="flex-1">
-          <h1 className="text-2xl font-semibold">My Orders</h1>
-          <p className="text-sm text-muted-foreground">Home delivery orders</p>
-        </div>
-        <Button asChild><Link href="/nearby">Shop Again</Link></Button>
-      </div>
+    <div className="customer-retail-shell space-y-8">
+      <CustomerPageHeader eyebrow="Your activity" title="My Orders" description="Track deliveries, review past purchases, and reorder your favourites." actions={<Button asChild><Link href="/nearby">Shop Again</Link></Button>} />
 
       {orders.length === 0 ? (
         <Card><CardContent className="flex flex-col items-center gap-3 p-12 text-center">

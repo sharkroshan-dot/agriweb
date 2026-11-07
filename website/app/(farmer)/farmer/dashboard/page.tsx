@@ -50,6 +50,7 @@ import {
   Cell,
 } from "recharts";
 import { AICopilotCard } from "../../../components/shared/ai-copilot-card";
+import { FarmerPageHeader } from "../../../components/farmer/farmer-page-header";
 
 const COLORS = ["#22c55e", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6"];
 
@@ -185,11 +186,7 @@ export default function FarmerDashboardPage() {
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Dashboard</h1>
-          <p className="text-gray-500">Welcome back, {userName}! Here's what's happening with your farm.</p>
-        </div>
+      <FarmerPageHeader title="Farm operations dashboard" description={`Welcome back, ${userName}. Prioritise today’s orders, harvests and deliveries from one workspace.`}>
         <div className="flex items-center gap-2">
           <div className="selection-control flex rounded-lg border">
             {[("week" as const), ("month" as const), ("year" as const)].map((p) => (
@@ -209,6 +206,11 @@ export default function FarmerDashboardPage() {
             Export Report
           </Button>
         </div>
+      </FarmerPageHeader>
+
+      <div className="farmer-task-banner flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div><p className="font-semibold text-emerald-950">Today’s operations queue</p><p className="mt-1 text-sm text-emerald-800">Start with orders that need confirmation, packing or delivery planning.</p></div>
+        <div className="flex flex-wrap gap-2"><Button asChild size="sm" variant="outline"><Link href="/farmer/orders">Review orders</Link></Button><Button asChild size="sm" variant="outline"><Link href="/farmer/packing">Open packing</Link></Button></div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">

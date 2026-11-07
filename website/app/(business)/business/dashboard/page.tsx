@@ -4,13 +4,14 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FileText, ShoppingCart, Store, Loader2, ArrowRight, ShieldCheck, ShieldAlert, Sparkles, TrendingUp, Package, Users, PlusCircle } from "lucide-react";
+import { FileText, ShoppingCart, Store, Loader2, ArrowRight, ShieldCheck, ShieldAlert, Sparkles, TrendingUp, Package, Users, PlusCircle, AlertTriangle, ClipboardCheck, Clock3, CreditCard } from "lucide-react";
 import { api } from "../../../lib/api/client";
 import { formatPrice } from "../../../lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
 import { Badge } from "../../../components/ui/badge";
 import { Input } from "../../../components/ui/input";
+import { BusinessPageHeader } from "../../../components/business/business-page-header";
 
 export default function BusinessDashboard() {
   const router = useRouter();
@@ -30,11 +31,15 @@ export default function BusinessDashboard() {
   const { data: ordersData } = useQuery({
     queryKey: ["b2b", "orders"],
     queryFn: () => api.get("/b2b/orders"),
+    refetchInterval: 15000,
+    refetchOnWindowFocus: true,
   });
 
   const { data: contractsData } = useQuery({
     queryKey: ["businessContracts"],
     queryFn: () => api.get("/b2b/contracts"),
+    refetchInterval: 15000,
+    refetchOnWindowFocus: true,
     retry: 1,
   });
 
@@ -76,7 +81,109 @@ export default function BusinessDashboard() {
   const analytics = analyticsData?.data ?? {};
   const priceRec = priceRecMutation.data?.data;
   const demandItems = demandData?.data?.items || [];
-  const activeOrders = orders.filter((o: any) => ["confirmed", "preparing", "quality_check", "dispatched", "in_transit"].includes(o.status));
+  const activeOrders = orders.filter((o: any) => ["confirmed", "preparing", "quality_check", "ready_for_pickup", "picked_up", "warehouse_received", "transfer_in_transit", "destination_warehouse_received", "dispatched", "in_transit"].includes(String(o.status || "").toLowerCase()));
+
+  const ordersAwaitingInspection = orders.filter((order: any) =>
+    String(order.status || "").toLowerCase() === "delivered" && !order.goodsReceipt
+  );
+  const goodsReceiptDisputes = orders.filter((order: any) =>
+    ["dispute_open", "response_received"].includes(String(order.goodsReceipt?.status || "").toLowerCase())
+  );
+  const ordersAwaitingFinalConfirmation = orders.filter((order: any) =>
+    String(order.status || "").toLowerCase() === "delivered"
+    && String(order.goodsReceipt?.status || "").toLowerCase() === "resolved"
+  );
+  const openQuoteRfqs = rfqs.filter((rfq: any) =>
+    String(rfq.status || "").toLowerCase() === "open" && Number(rfq.offerCount || 0) > 0
+  );
+  const pendingFarmerContracts = contracts.filter((contract: any) =>
+    String(contract.status || "").toLowerCase() === "pending"
+  );
+  const delayedOrders = orders.filter((order: any) => {
+    const status = String(order.status || "").toLowerCase();
+    if (["completed", "delivered", "cancelled"].includes(status)) return false;
+    const dueDate = String(order.scheduledDeliveryDate || order.requiredDate || "").slice(0, 10);
+    return Boolean(dueDate && dueDate < todayKey);
+  });
+
+  const businessActions: Array<{ key: string; title: string; description: string; href: string; action: string; tone: "urgent" | "warning" | "info" }> = [
+    ...goodsReceiptDisputes.map((order: any) => ({
+      key: "receipt-dispute-" + order.id,
+      title: "Goods receipt dispute needs resolution",
+      description: order.orderNumber + " · " + (order.productName || "Produce") + " · " + (order.farmerInfo?.farmName || "Supplier"),
+      href: "/business/orders",
+      action: order.goodsReceipt?.status === "response_received" ? "Review supplier response" : "Review dispute",
+      tone: "urgent" as const,
+    })),
+    ...ordersAwaitingInspection.map((order: any) => ({
+      key: "receipt-" + order.id,
+      title: "Inspect delivered goods",
+      description: order.orderNumber + " · " + (order.productName || "Produce") + " · " + (order.quantityKg || 0) + " kg received for inspection",
+      href: "/business/orders",
+      action: "Record goods receipt",
+      tone: "warning" as const,
+    })),
+    ...ordersAwaitingFinalConfirmation.map((order: any) => ({
+      key: "receipt-final-" + order.id,
+      title: "Final receipt confirmation is pending",
+      description: order.orderNumber + " · " + (order.productName || "Produce") + " · Dispute resolution recorded",
+      href: "/business/orders",
+      action: "Confirm final receipt",
+      tone: "warning" as const,
+    })),
+    ...awaitingConfirmations.map((contract: any) => ({
+      key: "confirmation-" + (contract.id || contract.contractNumber),
+      title: "Today's recurring delivery confirmation is missing",
+      description: (contract.contractNumber || "Supply contract") + " · " + (contract.farmerName || "Supplier") + " · " + (contract.cropName || "Produce"),
+      href: "/business/contracts",
+      action: "Follow up",
+      tone: "warning" as const,
+    })),
+    ...shortageDeliveries.map((delivery: any, index: number) => ({
+      key: "shortage-" + delivery.contractNumber + "-" + delivery.scheduledDate + "-" + index,
+      title: "Recurring supply shortage reported",
+      description: delivery.contractNumber + " · " + delivery.cropName + " · " + delivery.scheduledDate,
+      href: "/business/contracts",
+      action: "Resolve shortage",
+      tone: "urgent" as const,
+    })),
+    ...openQuoteRfqs.map((rfq: any) => ({
+      key: "quotes-" + rfq.id,
+      title: "Farmer quotes are waiting",
+      description: (rfq.productName || "Product request") + " · " + (rfq.offerCount || 0) + " quote(s) received",
+      href: "/business/rfqs",
+      action: "Compare quotes",
+      tone: "info" as const,
+    })),
+    ...pendingFarmerContracts.map((contract: any) => ({
+      key: "contract-" + contract.id,
+      title: "Supply contract awaiting farmer acceptance",
+      description: (contract.contractNumber || "Contract") + " · " + (contract.farmerName || "Supplier"),
+      href: "/business/contracts",
+      action: "Review contract",
+      tone: "warning" as const,
+    })),
+    ...delayedOrders.map((order: any) => ({
+      key: "delayed-" + order.id,
+      title: "Purchase order is past its required date",
+      description: order.orderNumber + " · " + (order.productName || "Produce") + " · Due " + String(order.scheduledDeliveryDate || order.requiredDate).slice(0, 10),
+      href: "/business/orders",
+      action: "Track order",
+      tone: "urgent" as const,
+    })),
+    ...orders.filter((order: any) =>
+      String(order.status || "").toLowerCase() !== "cancelled" &&
+      !["dispute_open", "response_received"].includes(String(order.goodsReceipt?.status || "").toLowerCase()) &&
+      Math.max(0, Number(order.totalAmount || 0) - Number(order.paidAmount || (order.paymentStatus === "paid" ? order.totalAmount : order.paymentStatus === "advance" ? order.advanceAmount : 0))) > 0
+    ).map((order: any) => ({
+      key: "payment-" + order.id,
+      title: "Payment balance is outstanding",
+      description: order.orderNumber + " · Balance " + formatPrice(Math.max(0, Number(order.totalAmount || 0) - Number(order.paidAmount || (order.paymentStatus === "paid" ? order.totalAmount : order.paymentStatus === "advance" ? order.advanceAmount : 0)))),
+      href: "/business/payments",
+      action: "Review payment",
+      tone: "info" as const,
+    })),
+  ].slice(0, 10);
 
   const statCards = [
     { label: "Active RFQs", value: rfqs.filter((r: any) => r.status === "open").length, icon: FileText, color: "text-emerald-600" },
@@ -104,6 +211,64 @@ export default function BusinessDashboard() {
 
       {hasProfile && (
         <>
+
+      <BusinessPageHeader
+        title={profile.businessName || "Business workspace"}
+        eyebrow="Procurement workspace"
+        description={`${(profile.businessType || "Business").replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}${profile.city ? ` • ${profile.city}` : ""}`}
+        actionHref="/business/rfqs/new"
+        actionLabel="Create RFQ"
+        actionIcon="plus"
+      >
+        {profile.isVerified ? (
+          <Badge variant="success" className="gap-1"><ShieldCheck className="h-3.5 w-3.5" /> Verified Business</Badge>
+        ) : (
+          <Badge variant="outline" className="gap-1 text-amber-700"><ShieldAlert className="h-3.5 w-3.5" /> Unverified</Badge>
+        )}
+      </BusinessPageHeader>
+
+      <div className="business-task-banner flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div><p className="font-semibold text-blue-950">Procurement command centre</p><p className="text-sm text-blue-900">Review open quotes, confirm upcoming delivery dates and resolve supply risks before they become missed orders.</p></div>
+        <div className="flex flex-wrap gap-2"><Button asChild size="sm" variant="outline"><Link href="/business/rfqs">Review RFQ quotes</Link></Button><Button asChild size="sm" variant="outline"><Link href="/business/orders">Track orders</Link></Button></div>
+      </div>
+
+      <section className="space-y-3" aria-labelledby="business-action-center">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 id="business-action-center" className="text-lg font-semibold">Business Action Center</h2>
+            <p className="text-sm text-slate-500">Tasks that need your attention across quotes, contracts, deliveries, goods receipt and payments.</p>
+          </div>
+          <Badge variant={businessActions.some((item) => item.tone === "urgent") ? "warning" : "outline"}>
+            {businessActions.length} action{businessActions.length === 1 ? "" : "s"}
+          </Badge>
+        </div>
+        {businessActions.length === 0 ? (
+          <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
+            <ShieldCheck className="h-5 w-5 text-emerald-700" />
+            <div><p className="text-sm font-semibold text-emerald-900">All caught up</p><p className="text-xs text-emerald-800">No pending business actions were found in your current RFQs, contracts or B2B orders.</p></div>
+          </div>
+        ) : (
+          <div className="grid gap-2 lg:grid-cols-2">
+            {businessActions.map((item) => (
+              <div key={item.key} className={"flex flex-col gap-3 rounded-xl border p-3 sm:flex-row sm:items-center sm:justify-between " + (item.tone === "urgent" ? "border-rose-200 bg-rose-50/50" : item.tone === "warning" ? "border-amber-200 bg-amber-50/40" : "border-slate-200 bg-white")}>
+                <div className="flex min-w-0 items-start gap-3">
+                  <div className={"mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg " + (item.tone === "urgent" ? "bg-rose-100 text-rose-700" : item.tone === "warning" ? "bg-amber-100 text-amber-700" : "bg-blue-50 text-blue-700")}>
+                    {item.title.toLowerCase().includes("receipt") || item.title.toLowerCase().includes("inspect") ? <ClipboardCheck className="h-4 w-4" /> : item.title.toLowerCase().includes("payment") ? <CreditCard className="h-4 w-4" /> : item.title.toLowerCase().includes("delayed") ? <Clock3 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-900">{item.title}</p>
+                    <p className="mt-0.5 break-words text-xs text-slate-500">{item.description}</p>
+                  </div>
+                </div>
+                <Button asChild size="sm" variant="outline" className="shrink-0">
+                  <Link href={item.href}>{item.action} <ArrowRight className="ml-1 h-3.5 w-3.5" /></Link>
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
       <section className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
@@ -120,20 +285,6 @@ export default function BusinessDashboard() {
         </div>
         {shortageDeliveries.length > 0 && <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"><ShieldAlert className="mr-2 inline h-4 w-4" /> {shortageDeliveries.length} recurring delivery update(s) need review. Open Supply Contracts to review the farmer's quantities and choose a resolution.</div>}
       </section>
-      <div className="flex flex-col gap-1">
-        <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold">{profile.businessName}</h1>
-          {profile.isVerified ? (
-            <Badge variant="success" className="gap-1"><ShieldCheck className="h-3.5 w-3.5" /> Verified Business</Badge>
-          ) : (
-            <Badge variant="outline" className="gap-1 text-amber-700"><ShieldAlert className="h-3.5 w-3.5" /> Unverified</Badge>
-          )}
-        </div>
-        <p className="text-gray-500">
-          {(profile.businessType || "Business").replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}
-          {profile.city ? ` • ${profile.city}` : ""}
-        </p>
-      </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {statCards.map((s) => (

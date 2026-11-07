@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../..
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Badge } from "../../components/ui/badge";
-import { Warehouse, PackageCheck, Truck, Plus, RefreshCw, Copy, CheckCircle2, ArrowRight, Clock3, MapPin, ClipboardCheck, CircleCheck } from "lucide-react";
+import { Warehouse, PackageCheck, Truck, Plus, RefreshCw, Copy, CheckCircle2, ArrowRight, Clock3, MapPin, ClipboardCheck } from "lucide-react";
 import toast from "react-hot-toast";
 
 const unwrap = (value: any) => value?.data?.data ?? value?.data ?? value ?? {};
@@ -121,7 +121,7 @@ export default function LocalHubManagementPage() {
   const credentialData = createdCredentials?.data || createdCredentials;
   const canCreate = Boolean(form.name.trim() && form.district.trim() && form.state.trim() && form.address.trim() && Number(form.capacity) > 0 && form.managerName.trim() && form.username.trim() && form.email.trim());
 
-  return <div className="mx-auto max-w-6xl space-y-6">
+  return <div className="warehouse-hub-management-page mx-auto max-w-6xl space-y-6">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div><p className="text-sm font-medium text-emerald-700">Local Hub Operations</p><h1 className="mt-1 text-2xl font-bold tracking-tight">{isHubManager ? (isIncomingView ? "Incoming Orders" : (hub.name || "Local Hub Dashboard")) : "Local Hub Management"}</h1><p className="mt-2 max-w-3xl text-sm text-muted-foreground">{isHubManager ? (isIncomingView ? "Process shipments sent to your hub: confirm physical receipt, then publish eligible orders for final-mile delivery." : "Monitor your hub activity and incoming shipment totals. Open Incoming Orders to process transfers.") : "Create a local hub and provision its manager account. Hub managers use the same warehouse role but are restricted to their assigned hub."}</p></div>
       <Button variant="outline" onClick={() => hubsQuery.refetch()} disabled={hubsQuery.isFetching}><RefreshCw className="mr-2 h-4 w-4" />Refresh</Button>

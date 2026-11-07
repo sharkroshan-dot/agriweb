@@ -3106,11 +3106,30 @@ async def update_my_pickup_route_status(
                 "deliveryDispatchStatus": "in_transit_to_warehouse",
                 "deliveryDispatchAt": datetime.utcnow(),
             })
+        ignore_terminal_b2b_update = False
         if is_b2b_collection and ObjectId.is_valid(b2b_order_id):
-            # This is the exact collection read by /b2b/warehouse/fulfillment.
-            updated_b2b = await b2b_order_repository.update({"_id": ObjectId(b2b_order_id)}, order_update)
-            if not updated_b2b:
-                logger.warning("Pickup route %s: B2B order %s was not updated for stage %s", route_id, b2b_order_id, collection_status)
+            # Pickup routes can be replayed or updated late. Never let an old
+            # collection message reopen a delivered/completed/cancelled B2B order.
+            current_b2b = await b2b_order_repository.get_by_id(b2b_order_id)
+            ignore_terminal_b2b_update = bool(
+                current_b2b
+                and (
+                    str(current_b2b.get("status") or "").lower() in {"delivered", "completed", "cancelled"}
+                    or current_b2b.get("deliveredAt")
+                    or current_b2b.get("completedAt")
+                    or current_b2b.get("cancelledAt")
+                )
+            )
+            if ignore_terminal_b2b_update:
+                logger.warning(
+                    "Ignoring stale pickup progress for terminal B2B order %s (status=%s, route=%s, collection=%s)",
+                    b2b_order_id, current_b2b.get("status"), route_id, collection_status,
+                )
+            else:
+                # This is the exact collection read by /b2b/warehouse/fulfillment.
+                updated_b2b = await b2b_order_repository.update({"_id": ObjectId(b2b_order_id)}, order_update)
+                if not updated_b2b:
+                    logger.warning("Pickup route %s: B2B order %s was not updated for stage %s", route_id, b2b_order_id, collection_status)
             # A separate customer order may be linked; keep it synchronized only
             # when it is a distinct, valid ID.
             if ObjectId.is_valid(linked_order_id) and linked_order_id != b2b_order_id:
@@ -3118,6 +3137,8 @@ async def update_my_pickup_route_status(
         else:
             for candidate_order_id in order_ids:
                 await order_repository.update({"_id": ObjectId(candidate_order_id)}, order_update)
+        if ignore_terminal_b2b_update:
+            return
         titles = {
             "en_route": ("Collection partner en route", "The assigned pickup partner has started travelling to collect the shipment."),
             "arrived_at_farm": ("Pickup partner arrived at farm", "The pickup partner has arrived at the farm and is checking the shipment."),
@@ -4894,20 +4915,29 @@ async def update_my_farmer_fulfillment_warehouse_transfer_status(
     # same existing Pickup Routes actions without requiring a separate transfer
     # leg to exist for this order.
     if not leg:
-        b2b_orders = MongoDB.get_collection("orders")
+        # B2B logistics orders are persisted in b2b_orders, not the retail
+        # orders collection. Match the same assignment fields as the transfer
+        # list endpoint so Start Transfer works for both user and partner IDs.
+        b2b_orders = MongoDB.get_collection("b2b_orders")
         user_id = str(current_user["_id"])
+        user_oid = ObjectId(user_id)
         profile = await MongoDB.get_collection("delivery_partners").find_one({
-            "$or": [{"userId": ObjectId(user_id)}, {"userId": user_id}, {"user_id": ObjectId(user_id)}, {"user_id": user_id}],
+            "$or": [{"userId": user_oid}, {"userId": user_id}, {"user_id": user_oid}, {"user_id": user_id}],
             "deletedAt": {"$in": [None, False, ""]},
         })
-        assigned_values = [user_id, ObjectId(user_id)]
+        assigned_values = [user_id, user_oid]
         if profile and ObjectId.is_valid(str(profile.get("_id") or "")):
-            assigned_values.extend([str(profile["_id"]), profile["_id"]])
+            profile_id = ObjectId(str(profile["_id"]))
+            assigned_values.extend([str(profile_id), profile_id])
         b2b = await b2b_orders.find_one({
             "_id": ObjectId(transfer_id),
             "status": "transfer_in_transit",
-            "transferTeam": {"$in": assigned_values},
-            "$or": [{"deletedAt": None}, {"deletedAt": {"$exists": False}}, {"deletedAt": ""}],
+            "$or": [
+                {"transferTeam": {"$in": assigned_values}},
+                {"transferPartnerUserId": {"$in": assigned_values}},
+                {"assignedTransferPartnerId": {"$in": assigned_values}},
+            ],
+            "$and": [{"$or": [{"deletedAt": None}, {"deletedAt": {"$exists": False}}, {"deletedAt": ""}]}],
         })
         if not b2b:
             raise HTTPException(status_code=404, detail="Assigned warehouse transfer not found")
@@ -4935,7 +4965,12 @@ async def update_my_farmer_fulfillment_warehouse_transfer_status(
         )
         result = await b2b_orders.update_one(
             {"$and": [
-                {"_id": b2b["_id"], "status": "transfer_in_transit", "transferTeam": {"$in": assigned_values}},
+                {"_id": b2b["_id"], "status": "transfer_in_transit"},
+                {"$or": [
+                    {"transferTeam": {"$in": assigned_values}},
+                    {"transferPartnerUserId": {"$in": assigned_values}},
+                    {"assignedTransferPartnerId": {"$in": assigned_values}},
+                ]},
                 status_guard,
             ]},
             {"$set": {"transferPartnerStatus": next_status, time_field: now, "updatedAt": now}},

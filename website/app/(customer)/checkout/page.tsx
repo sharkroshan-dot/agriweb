@@ -14,6 +14,7 @@ import { formatPrice } from "../../lib/utils";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { PageErrorState } from "../../components/common/page-state";
+import { CustomerPageHeader } from "../../components/customer/customer-page-header";
 
 type DeliveryQuote = {
   method: string;
@@ -546,7 +547,7 @@ export default function CheckoutPage() {
 
   if (paymentStage === "success") {
     return (
-      <div className="space-y-6 p-6">
+      <div className="customer-retail-shell space-y-6">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>
             <Link href="/orders"><ArrowLeft className="h-4 w-4" /></Link>
@@ -579,12 +580,12 @@ export default function CheckoutPage() {
 
   if (items.length === 0) {
     return (
-      <div className="space-y-6 p-6">
+      <div className="customer-retail-shell space-y-6">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>
             <Link href="/cart"><ArrowLeft className="h-4 w-4" /></Link>
           </Button>
-          <h1 className="text-2xl font-semibold">Checkout</h1>
+          <CustomerPageHeader eyebrow="Secure checkout" title="Complete your order" description={`${itemCount} item${itemCount !== 1 ? "s" : ""} · ${formatPrice(displayTotal)} before delivery and offers`} />
         </div>
         <Card>
           <CardContent className="flex flex-col items-center gap-3 p-8 text-center">
@@ -601,7 +602,7 @@ export default function CheckoutPage() {
   }
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="customer-retail-shell space-y-6">
       {stockAdjustment && (
         <div role="dialog" aria-modal="true" aria-labelledby="stock-adjustment-title" className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-md space-y-4 rounded-2xl bg-white p-6 shadow-xl">
@@ -632,6 +633,12 @@ export default function CheckoutPage() {
           <h1 className="text-2xl font-semibold">Checkout</h1>
           <p className="text-sm text-muted-foreground">{itemCount} items · {formatPrice(displayTotal)}</p>
         </div>
+      </div>
+
+      <div className="customer-checkout-steps" aria-label="Checkout progress">
+        <span className="customer-checkout-step customer-checkout-step-active"><b>1</b> Delivery</span>
+        <span className="customer-checkout-step"><b>2</b> Payment</span>
+        <span className="customer-checkout-step"><b>3</b> Confirmation</span>
       </div>
 
       {paymentStage !== "idle" && (
@@ -1065,7 +1072,7 @@ export default function CheckoutPage() {
                                   type="button"
                                   className="w-full"
                                   size="lg"
-                                  onClick={handlePlaceOrder}
+                                  onClick={() => handlePlaceOrder()}
                                   disabled={isPlacing}
                                 >
                                   {isPlacing ? (
@@ -1221,7 +1228,7 @@ export default function CheckoutPage() {
                   <Button
                     className="mt-4 w-full"
                     size="lg"
-                    onClick={handlePlaceOrder}
+                    onClick={() => handlePlaceOrder()}
                     disabled={isPlacing || (paymentMethod === "wallet" && walletBalance < estimatedTotal)}
                   >
                     {isPlacing ? (

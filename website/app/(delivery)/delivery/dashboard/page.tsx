@@ -44,6 +44,7 @@ import { formatPrice, formatTime } from "../../../lib/utils";
 import toast from "react-hot-toast";
 import { Map as LiveRouteMap } from "../../../components/shared/map";
 import { DeliveryPriorityBadge, sortByDeliveryPriority } from "../../../components/delivery/delivery-priority";
+import { DeliveryPageHeader } from "../../../components/delivery/delivery-page-header";
 
 const MapUnavailable = ({ deliveries }: { deliveries: any[] }) => (
   <div className="flex h-[400px] w-full items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6">
@@ -440,13 +441,7 @@ export default function DeliveryDashboardPage() {
         </Card>
       )}
 
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Delivery Dashboard</h1>
-          <p className="text-muted-foreground">
-            {isAvailable ? "Online - Ready for deliveries" : "Offline - Not accepting deliveries"}
-          </p>
-        </div>
+      <DeliveryPageHeader title="Delivery dashboard" description={isAvailable ? "You are online and ready for delivery work. Start with the highest-priority assigned stop." : "You are offline and will not receive new delivery assignments."}>
         <div className="flex items-center gap-2">
           <Button
             variant={isAvailable ? "destructive" : "default"}
@@ -460,6 +455,11 @@ export default function DeliveryDashboardPage() {
             Refresh
           </Button>
         </div>
+      </DeliveryPageHeader>
+
+      <div className="delivery-next-task flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div><p className="font-semibold text-emerald-950">Next actionable task</p><p className="text-sm text-emerald-800">{deliveryList.length - completedCount > 0 ? "Open My Deliveries to accept or continue the next assigned stop." : "No active stops right now. Stay available for new assignments."}</p></div>
+        <Button asChild className="delivery-action-button bg-white text-emerald-700 hover:bg-emerald-50"><Link href="/delivery/deliveries">Open delivery queue</Link></Button>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
