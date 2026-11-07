@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Users2, Plus, Loader2, CheckCircle2, MapPin, Sprout, Package, ShoppingCart, Truck, Wallet, BarChart3, UserPlus, ClipboardList, Warehouse, ArrowRight, X, QrCode, MessageCircle, LayoutDashboard } from "lucide-react";
+import { Users2, Plus, Loader2, CheckCircle2, MapPin, Sprout, Package, ShoppingCart, Truck, Wallet, BarChart3, UserPlus, ClipboardList, Warehouse, ArrowRight, X, QrCode, MessageCircle, LayoutDashboard, Copy } from "lucide-react";
 import CooperativeChat from "./chat";
 import { QRCodeSVG } from "qrcode.react";
 import { api } from "../../../lib/api/client";
