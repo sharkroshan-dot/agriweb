@@ -5247,6 +5247,32 @@ async def update_b2b_warehouse_fulfillment(
             raise HTTPException(status_code=400, detail="Enter the received quantity in kg")
         if data.qualityCheck not in ("passed", "failed"):
             raise HTTPException(status_code=400, detail="Record a passed or failed quality inspection")
+        if order.get("cooperativeId"):
+            cooperative_rows = await _ensure_cooperative_order_contributions(order)
+            if not cooperative_rows:
+                raise HTTPException(status_code=409, detail="This cooperative order has no farmer contribution allocations. Verify the accepted cooperative offer before warehouse receipt.")
+            missing_receipts = [
+                row for row in cooperative_rows
+                if row.get("actualQuantityKg") is None or row.get("warehouseQualityStatus") not in ("passed", "failed")
+            ]
+            if missing_receipts:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Record actual received quantity and quality for all {len(cooperative_rows)} farmer contribution(s) before confirming the combined cooperative receipt.",
+                )
+            farmer_received_total = round(sum(float(row.get("actualQuantityKg") or 0) for row in cooperative_rows), 3)
+            if abs(farmer_received_total - float(data.receivedQuantityKg)) > 0.01:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Combined receipt must equal the farmer-wise received total ({farmer_received_total:g} kg). Do not enter a different combined quantity.",
+                )
+            all_farmer_quality_passed = all(row.get("warehouseQualityStatus") == "passed" for row in cooperative_rows)
+            expected_quality = "passed" if all_farmer_quality_passed else "failed"
+            if data.qualityCheck != expected_quality:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Combined cooperative quality must be marked {expected_quality} based on the individual farmer inspections.",
+                )
         receiving_warehouse_id = await _resolve_b2b_current_warehouse_id(current_user)
         if not receiving_warehouse_id:
             raise HTTPException(status_code=409, detail="Your warehouse account is not linked to a registered warehouse. Link this account to the warehouse that physically receives the stock before confirming receipt.")
