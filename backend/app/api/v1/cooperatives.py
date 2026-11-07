@@ -939,7 +939,10 @@ async def cooperative_dashboard(cooperative_id: str, current_user: dict = Depend
             expected_kg += expected
         harvested_kg += actual
         display_status = "harvest_update_required" if raw_status in {"harvested", "completed"} and actual <= 0 else raw_status
-        production_rows.append({"id": str(plan["_id"]), "farmerId": str(plan.get("farmerId")), "cropName": plan.get("cropName") or plan.get("crop") or "Crop", "expectedQuantityKg": round(expected, 2), "actualQuantityKg": round(actual, 2), "expectedHarvestDate": plan.get("expectedHarvestDate"), "status": display_status, "isCancelled": is_cancelled})
+        farmer_id = str(plan.get("farmerId") or "")
+        farmer_user = await user_repo.find_one({"_id": plan.get("farmerId")}) if plan.get("farmerId") else None
+        farmer_name = f"{(farmer_user or {}).get('firstName', '')} {(farmer_user or {}).get('lastName', '')}".strip() or (farmer_user or {}).get("email") or "Cooperative farmer"
+        production_rows.append({"id": str(plan["_id"]), "farmerId": farmer_id, "farmerName": farmer_name, "isMine": farmer_id == str(uid), "cropName": plan.get("cropName") or plan.get("crop") or "Crop", "expectedQuantityKg": round(expected, 2), "actualQuantityKg": round(actual, 2), "expectedHarvestDate": plan.get("expectedHarvestDate"), "status": display_status, "isCancelled": is_cancelled})
 
     batches = await batch_repo.find_many({"farmerId": {"$in": member_ids}, "deletedAt": None}, limit=1000)
     batch_counts = {}
