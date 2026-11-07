@@ -80,6 +80,7 @@ async def _get_members(cooperative_id: ObjectId, include_pending: bool = False) 
             "role": member.get("role", "member"),
             "status": member.get("status", "active"),
             "joinedAt": member.get("joinedAt"),
+            "joinSource": member.get("joinSource", "manual"),
             "name": f"{user.get('firstName', '')} {user.get('lastName', '')}".strip() or user.get("email", "Farmer"),
             "email": user.get("email"),
             "phone": user.get("phone"),
