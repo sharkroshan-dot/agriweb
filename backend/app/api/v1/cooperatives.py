@@ -1391,6 +1391,32 @@ async def cooperative_order_settlement(cooperative_id: str, order_id: str, curre
     return {"success": True, "data": {"orderId": order_id, "orderNumber": order.get("orderNumber"), "buyerPaidAmount": float((settlement or {}).get("buyerPaidAmount") or 0), "sharedCosts": float((settlement or {}).get("sharedCosts") or 0), "cooperativeFee": float((settlement or {}).get("cooperativeFee") or 0), "farmers": result, "status": (settlement or {}).get("status") or "awaiting_buyer_payment"}}
 
 
+
+@router.get("/{cooperative_id}/settlements")
+async def cooperative_settlements(cooperative_id: str, current_user: dict = Depends(get_current_user)):
+    _require_farmer(current_user)
+    cid = _oid(cooperative_id, "cooperative id")
+    uid = _oid(current_user["_id"], "farmer id")
+    member, _ = await _cooperative_member_or_403(cid, uid)
+    settlements = await cooperative_settlement_repo.find_many({"cooperativeId": cid, "deletedAt": None}, limit=1000, sort=[("createdAt", -1)])
+    rows = []
+    for settlement in settlements:
+        payouts = settlement.get("payouts") or []
+        visible = payouts if member.get("role") == "manager" else [x for x in payouts if str(x.get("farmerId")) == str(uid)]
+        rows.append({
+            "id": str(settlement["_id"]), "orderId": str(settlement.get("orderId")),
+            "orderNumber": settlement.get("orderNumber"), "buyerPaidAmount": float(settlement.get("buyerPaidAmount") or 0),
+            "sharedCosts": float(settlement.get("sharedCosts") or 0), "cooperativeFee": float(settlement.get("cooperativeFee") or 0),
+            "payoutPool": float(settlement.get("payoutPool") or 0), "status": settlement.get("status") or "prepared",
+            "payouts": [{
+                "farmerId": str(x.get("farmerId")), "amount": float(x.get("payoutAmount") or 0),
+                "grossAmount": float(x.get("grossAmount") or 0), "acceptedQuantityKg": float(x.get("acceptedQuantityKg") or 0),
+                "payoutStatus": x.get("payoutStatus") or "pending", "paidAt": x.get("paidAt"),
+            } for x in visible],
+        })
+    return {"success": True, "data": {"settlements": rows, "role": member.get("role")}}
+
+
 @router.post("/{cooperative_id}/orders/{order_id}/settlement")
 async def create_cooperative_order_settlement(cooperative_id: str, order_id: str, data: CooperativeSettlementRequest, current_user: dict = Depends(get_current_user)):
     _require_farmer(current_user)
