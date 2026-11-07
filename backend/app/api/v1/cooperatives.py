@@ -984,19 +984,65 @@ async def cooperative_dashboard(cooperative_id: str, current_user: dict = Depend
         status = str(b.get("qualityStatus") or b.get("status") or "pending")
         batch_counts[status] = batch_counts.get(status, 0) + 1
 
-    orders = await order_repo.find_many({"farmerId": {"$in": member_ids}, "deletedAt": None}, limit=2000, sort=[("createdAt", -1)])
-    order_summary = {"total": len(orders), "pending": 0, "processing": 0, "inTransit": 0, "delivered": 0, "completed": 0, "revenue": 0.0}
+    all_member_orders = await order_repo.find_many({"farmerId": {"$in": member_ids}, "deletedAt": None}, limit=2000, sort=[("createdAt", -1)])
+    # Cooperative Orders is the farmer-facing retail workflow. Exclude business
+    # procurement records so B2B orders remain in their dedicated workspace.
+    orders = [
+        order for order in all_member_orders
+        if not (
+            order.get("isB2B") is True
+            or str(order.get("orderType") or "").lower() in {"b2b", "business", "business_procurement"}
+            or str(order.get("buyerType") or "").lower() in {"business", "b2b"}
+            or str(order.get("procurementType") or "").lower() in {"b2b", "business"}
+        )
+    ]
+    order_summary = {"total": len(orders), "pending": 0, "confirmed": 0, "processing": 0, "readyForPickup": 0, "inTransit": 0, "delivered": 0, "completed": 0, "cancelled": 0, "other": 0, "revenue": 0.0}
     order_rows = []
     order_ids = []
     for order in orders:
-        status = str(order.get("orderStatus") or "pending")
-        key = {"pending": "pending", "confirmed": "pending", "processing": "processing", "ready_for_delivery": "processing", "ready_for_pickup": "processing", "dispatched": "inTransit", "in_transit": "inTransit", "delivered": "delivered", "completed": "completed"}.get(status)
-        if key:
-            order_summary[key] += 1
+        status = str(order.get("orderStatus") or "pending").lower()
+        key = {
+            "pending": "pending",
+            "confirmed": "confirmed",
+            "processing": "processing",
+            "ready_for_delivery": "readyForPickup",
+            "ready_for_pickup": "readyForPickup",
+            "dispatched": "inTransit",
+            "in_transit": "inTransit",
+            "delivered": "delivered",
+            "completed": "completed",
+            "cancelled": "cancelled",
+            "canceled": "cancelled",
+            "refunded": "cancelled",
+        }.get(status, "other")
+        order_summary[key] += 1
+        total_amount = float(order.get("totalAmount") or 0)
         if status in ("delivered", "completed"):
-            order_summary["revenue"] += float(order.get("totalAmount") or 0)
+            order_summary["revenue"] += total_amount
         order_ids.append(order["_id"])
-        order_rows.append({"id": str(order["_id"]), "orderNumber": order.get("orderNumber"), "farmerId": str(order.get("farmerId")), "status": status, "totalAmount": float(order.get("totalAmount") or 0), "createdAt": order.get("createdAt") or order.get("orderDate")})
+        customer = order.get("customer") if isinstance(order.get("customer"), dict) else {}
+        address = order.get("deliveryAddress") if isinstance(order.get("deliveryAddress"), dict) else {}
+        items = order.get("items") if isinstance(order.get("items"), list) else []
+        order_rows.append({
+            "id": str(order["_id"]),
+            "orderNumber": order.get("orderNumber") or str(order["_id"]),
+            "farmerId": str(order.get("farmerId")),
+            "customerName": order.get("customerName") or customer.get("name") or customer.get("fullName") or "Customer",
+            "customerPhone": order.get("customerPhone") or customer.get("phone"),
+            "items": [{
+                "productName": item.get("productName") or item.get("name") or "Product",
+                "quantity": float(item.get("quantity") or item.get("quantityKg") or 0),
+                "unit": item.get("unit") or "kg",
+            } for item in items],
+            "itemCount": len(items),
+            "deliveryType": order.get("deliveryType"),
+            "deliveryCity": address.get("city") or order.get("deliveryCity"),
+            "totalAmount": total_amount,
+            "paymentStatus": order.get("paymentStatus"),
+            "status": status,
+            "createdAt": order.get("createdAt") or order.get("orderDate"),
+            "updatedAt": order.get("updatedAt"),
+        })
 
     assignments = await delivery_assignment_repo.find_many({"orderId": {"$in": order_ids}, "deletedAt": None}, limit=2000) if order_ids else []
     distribution = {"total": len(assignments), "assigned": 0, "pickedUp": 0, "inTransit": 0, "delivered": 0, "failed": 0}
