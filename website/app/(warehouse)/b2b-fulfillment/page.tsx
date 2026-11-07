@@ -29,6 +29,33 @@ export default function B2BFulfillmentPage() {
     refetchInterval: view === "completed" ? 30000 : false,
   });
   const completedOrders = (completedQuery.data?.data?.orders || completedQuery.data?.orders || []).map((o: any) => ({ ...o, id: String(o.id || o._id || "") }));
+  const cooperativeOrderIds = orders.filter((o: any) => Boolean(o.cooperativeId)).map((o: any) => o.id).sort();
+  const cooperativeContributionsQuery = useQuery({
+    queryKey: ["b2b", "cooperative-contributions", cooperativeOrderIds.join(",")],
+    queryFn: async () => {
+      const entries = await Promise.all(cooperativeOrderIds.map(async (id: string) => {
+        const response = await api.get(`/b2b/warehouse/fulfillment/${encodeURIComponent(id)}/cooperative-contributions`);
+        return [id, response?.data?.data?.contributions || response?.data?.contributions || []] as const;
+      }));
+      return Object.fromEntries(entries);
+    },
+    enabled: cooperativeOrderIds.length > 0 && view === "active",
+    refetchInterval: 15000,
+    retry: 1,
+  });
+  const cooperativeContributionRows = cooperativeContributionsQuery.data || {};
+  const cooperativeContributionMutation = useMutation({
+    mutationFn: ({ orderId, contributionId, payload }: { orderId: string; contributionId: string; payload: any }) =>
+      api.patch(`/b2b/warehouse/fulfillment/${encodeURIComponent(orderId)}/cooperative-contributions/${encodeURIComponent(contributionId)}`, payload),
+    onSuccess: async () => {
+      toast.success("Farmer-wise received quantity and quality saved");
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["b2b", "cooperative-contributions"] }),
+        qc.invalidateQueries({ queryKey: ["b2b", "warehouse-fulfillment"] }),
+      ]);
+    },
+    onError: (e: any) => toast.error(e?.message || "Could not save farmer-wise receipt"),
+  });
   const displayedOrders = view === "completed" ? completedOrders : orders;
   const destinationQuery = useQuery({ queryKey: ["b2b", "destination-warehouses", destinationOrderId], queryFn: () => api.get(`/b2b/warehouse/fulfillment/destination-warehouses?orderId=${encodeURIComponent(destinationOrderId)}`), enabled: Boolean(destinationOrderId), retry: false });
   const destinationWarehouses = destinationQuery.data?.data?.warehouses || [];
@@ -151,6 +178,22 @@ export default function B2BFulfillmentPage() {
 
 
 
+        {o.cooperativeId && ["picked_up", "warehouse_received"].includes(String(o.status || "").toLowerCase()) && <section className="space-y-3 rounded-xl border border-violet-200 bg-violet-50/40 p-4">
+          <div><h3 className="font-semibold text-violet-950">Cooperative farmer-wise receipt & quality</h3><p className="mt-1 text-sm text-violet-900">Record the actual quantity and inspection result for each farmer contribution. The combined B2B order total is not split automatically.</p></div>
+          {cooperativeContributionsQuery.isLoading ? <p className="text-sm text-slate-600">Loading farmer contributions…</p> : cooperativeContributionsQuery.isError ? <p className="text-sm text-red-700">Could not load cooperative contributions. Refresh before receiving this order.</p> : (cooperativeContributionRows[o.id] || []).length === 0 ? <p className="text-sm text-slate-600">No farmer contribution allocations were found for this cooperative order. Verify its accepted B2B supply allocation before receipt.</p> : <div className="space-y-3">{(cooperativeContributionRows[o.id] || []).map((line: any) => {
+            const key = o.id + ":" + line.id;
+            const current = form(key);
+            return <div key={line.id} className="rounded-lg border border-violet-100 bg-white p-3">
+              <div className="flex flex-wrap items-start justify-between gap-2"><div><p className="font-semibold text-slate-900">{line.farmerName}</p><p className="text-xs text-slate-500">{line.productName} · Assigned {line.assignedQuantityKg} kg · Accepted {line.acceptedQuantityKg} kg</p></div><Badge>{label(line.qualityStatus)}</Badge></div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                <div><label className="mb-1 block text-xs font-medium">Actual received (kg)</label><Input type="number" min="0" step="0.01" max={line.assignedQuantityKg} value={current.actualQuantityKg ?? String(line.actualQuantityKg ?? line.assignedQuantityKg)} onChange={e => setForm(key, { actualQuantityKg: e.target.value })}/></div>
+                <div><label className="mb-1 block text-xs font-medium">Quality result</label><select className="h-10 w-full rounded-md border bg-white px-3 text-sm" value={current.qualityCheck || (line.qualityStatus === "passed" || line.qualityStatus === "failed" ? line.qualityStatus : "passed")} onChange={e => setForm(key, { qualityCheck: e.target.value })}><option value="passed">Passed</option><option value="failed">Failed</option></select></div>
+                <div className="flex items-end"><Button size="sm" disabled={cooperativeContributionMutation.isPending || !(Number(current.actualQuantityKg ?? line.actualQuantityKg ?? line.assignedQuantityKg) >= 0) || Number(current.actualQuantityKg ?? line.actualQuantityKg ?? line.assignedQuantityKg) > Number(line.assignedQuantityKg)} onClick={() => cooperativeContributionMutation.mutate({ orderId: o.id, contributionId: line.id, payload: { actualQuantityKg: Number(current.actualQuantityKg ?? line.actualQuantityKg ?? line.assignedQuantityKg), qualityCheck: current.qualityCheck || (line.qualityStatus === "passed" || line.qualityStatus === "failed" ? line.qualityStatus : "passed"), notes: current.notes || "" } })}>Save farmer receipt</Button></div>
+              </div>
+              <Input className="mt-2" value={current.notes || line.notes || ""} onChange={e => setForm(key, { notes: e.target.value })} placeholder="Farmer-specific quality or shortage notes"/>
+            </div>;
+          })}</div>}
+        </section>}
         {(!o.warehouseReceivedAt && !o.destinationReceivedAt && !o.receivedAtWarehouseId && !["warehouse_received", "transfer_in_transit", "destination_warehouse_received", "in_transit", "delivered", "completed"].includes(String(o.status || "").toLowerCase()) && (o.status === "picked_up" || ["warehouse_arrived", "arrived_warehouse", "departed_farm", "collected"].includes(String(o.warehouseFulfillmentStage || o.warehouseCollectionStatus || "").toLowerCase()))) && <section className="space-y-3 rounded-xl border bg-slate-50 p-4"><h3 className="font-medium"><PackageCheck className="mr-2 inline h-4 w-4"/>Warehouse receipt</h3><p className="text-sm text-slate-600">The pickup partner has collected this B2B order. Confirm the actual quantity received at this warehouse and the quality result here. This action updates the original B2B order; no separate Incoming Stock page is required for this workflow.</p><div className="grid gap-3 sm:grid-cols-2"><div><label className="mb-1 block text-sm font-medium">Actual received quantity (kg)</label><Input type="number" min="0.01" step="0.01" value={f.receivedQuantityKg ?? String(o.packedQuantityKg || o.quantityKg || "")} onChange={e => setForm(o.id, { receivedQuantityKg: e.target.value })}/></div><div><label className="mb-1 block text-sm font-medium">Quality inspection</label><select className="h-10 w-full rounded-md border bg-white px-3 text-sm" value={f.qualityCheck || "passed"} onChange={e => setForm(o.id, { qualityCheck: e.target.value })}><option value="passed">Passed</option><option value="failed">Failed</option></select></div></div><Input value={f.notes || ""} onChange={e => setForm(o.id, { notes: e.target.value })} placeholder="Receipt and inspection notes (optional)"/><Button disabled={mutation.isPending || !(Number(f.receivedQuantityKg ?? o.packedQuantityKg ?? o.quantityKg) > 0)} onClick={() => act(o.id, { action: "receive_stock", receivedQuantityKg: Number(f.receivedQuantityKg ?? o.packedQuantityKg ?? o.quantityKg), qualityCheck: f.qualityCheck || "passed", notes: f.notes })}><ClipboardCheck className="mr-2 h-4 w-4"/>Confirm Warehouse Receipt</Button></section>}
 
         {o.status === "warehouse_received" && (
