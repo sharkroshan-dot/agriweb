@@ -7,7 +7,6 @@ import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard,
   ClipboardList,
-  FlaskConical,
   Package,
   ShoppingCart,
   Truck,
@@ -61,7 +60,6 @@ const navGroups = [
     items: [
       { name: "Customer Orders", href: "/farmer/orders", icon: ShoppingCart },
       { name: "Packing & Checking", href: "/farmer/packing", icon: PackageCheck },
-      { name: "Quality Inspection", href: "/farmer/quality", icon: FlaskConical },
       { name: "Batches & Traceability", href: "/farmer/batches", icon: Layers },
       { name: "Warehouse Returns", href: "/farmer/warehouse-returns", icon: PackageCheck },
     ],
