@@ -462,3 +462,13 @@ export function FarmerQualityPanel() {
     </div>
   );
 }
+
+
+export default function FarmerQualityPage() {
+  const router = useRouter();
+  useMemo(() => {
+    router.replace("/farmer/batches");
+    return null;
+  }, [router]);
+  return <div className="p-6 text-sm text-slate-500">Opening combined Batches &amp; Quality workspace…</div>;
+}
