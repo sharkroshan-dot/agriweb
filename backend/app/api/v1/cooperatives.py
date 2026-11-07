@@ -984,18 +984,14 @@ async def cooperative_dashboard(cooperative_id: str, current_user: dict = Depend
         status = str(b.get("qualityStatus") or b.get("status") or "pending")
         batch_counts[status] = batch_counts.get(status, 0) + 1
 
-    all_member_orders = await order_repo.find_many({"farmerId": {"$in": member_ids}, "deletedAt": None}, limit=2000, sort=[("createdAt", -1)])
-    # Cooperative Orders is the farmer-facing retail workflow. Exclude business
-    # procurement records so B2B orders remain in their dedicated workspace.
-    orders = [
-        order for order in all_member_orders
-        if not (
-            order.get("isB2B") is True
-            or str(order.get("orderType") or "").lower() in {"b2b", "business", "business_procurement"}
-            or str(order.get("buyerType") or "").lower() in {"business", "b2b"}
-            or str(order.get("procurementType") or "").lower() in {"b2b", "business"}
-        )
-    ]
+    # Show orders owned by every active farmer in this cooperative.
+    # Membership is the scope: do not mix in orders belonging to non-members.
+    # Keep the farmerId on each row so the actual owner can process their order.
+    orders = await order_repo.find_many(
+        {"farmerId": {"$in": member_ids}, "deletedAt": None},
+        limit=2000,
+        sort=[("createdAt", -1)],
+    )
     order_summary = {"total": len(orders), "pending": 0, "confirmed": 0, "processing": 0, "readyForPickup": 0, "inTransit": 0, "delivered": 0, "completed": 0, "cancelled": 0, "other": 0, "revenue": 0.0}
     order_rows = []
     order_ids = []
