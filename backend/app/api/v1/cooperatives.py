@@ -1234,6 +1234,237 @@ async def _create_cooperative_system_message(cooperative_id: ObjectId, content: 
     })
 
 
+
+class CooperativeContributionUpdate(BaseModel):
+    status: str = Field(..., pattern="^(accepted|preparing|ready_for_pickup|collected|received|quality_passed|quality_failed|completed|shortage_reported)$")
+    actualQuantityKg: float | None = Field(default=None, ge=0, le=10000000)
+    notes: str | None = Field(default=None, max_length=1000)
+
+
+class CooperativeSettlementRequest(BaseModel):
+    buyerPaidAmount: float = Field(..., ge=0, le=100000000000)
+    sharedCosts: float = Field(default=0, ge=0, le=100000000000)
+    cooperativeFee: float = Field(default=0, ge=0, le=100000000000)
+    notes: str | None = Field(default=None, max_length=1000)
+
+
+async def _cooperative_member_or_403(cid: ObjectId, uid: ObjectId):
+    member = await member_repo.find_one({"cooperativeId": cid, "userId": uid, "status": "active", "deletedAt": None})
+    if not member:
+        raise HTTPException(403, "Only active cooperative members can access this order")
+    coop = await cooperative_repo.find_one({"_id": cid, "status": "active", "deletedAt": None})
+    if not coop:
+        raise HTTPException(404, "Cooperative not found")
+    return member, coop
+
+
+@router.get("/{cooperative_id}/orders")
+async def cooperative_orders(cooperative_id: str, current_user: dict = Depends(get_current_user)):
+    """Order workspace with one independently tracked row per farmer contribution."""
+    _require_farmer(current_user)
+    cid = _oid(cooperative_id, "cooperative id")
+    uid = _oid(current_user["_id"], "farmer id")
+    membership, coop = await _cooperative_member_or_403(cid, uid)
+    orders = await b2b_order_repo.find_many({"cooperativeId": cid, "deletedAt": None}, limit=1000, sort=[("createdAt", -1)])
+    rows = []
+    for order in orders:
+        order_id = order["_id"]
+        allocations = order.get("supplyAllocations") or []
+        contribution_rows = await cooperative_contribution_repo.find_many({"cooperativeId": cid, "orderId": order_id, "deletedAt": None}, limit=500)
+        existing_keys = {str(x.get("farmerId")) + "|" + str(x.get("productId")) for x in contribution_rows}
+        # Backfill contribution tracking for older cooperative B2B orders.
+        for line in allocations:
+            farmer_id = str(line.get("farmerId") or "")
+            product_id = str(line.get("productId") or "")
+            key = farmer_id + "|" + product_id
+            if not farmer_id or key in existing_keys:
+                continue
+            contribution = {
+                "cooperativeId": cid, "orderId": order_id,
+                "orderNumber": order.get("orderNumber"), "farmerId": ObjectId(farmer_id),
+                "productId": ObjectId(product_id) if ObjectId.is_valid(product_id) else product_id,
+                "productName": line.get("productName") or order.get("productName") or "Product",
+                "assignedQuantityKg": float(line.get("quantityKg") or 0),
+                "actualQuantityKg": 0.0, "acceptedQuantityKg": 0.0,
+                "status": "assigned", "qualityStatus": "pending",
+                "createdAt": datetime.utcnow(), "updatedAt": datetime.utcnow(), "deletedAt": None,
+            }
+            new_id = await cooperative_contribution_repo.create(contribution)
+            if new_id:
+                contribution_rows.append({**contribution, "_id": ObjectId(new_id)})
+                existing_keys.add(key)
+        farmer_ids = list({x.get("farmerId") for x in contribution_rows if isinstance(x.get("farmerId"), ObjectId)})
+        farmers = await user_repo.find_many({"_id": {"$in": farmer_ids}}, limit=500) if farmer_ids else []
+        names = {str(x["_id"]): (f"{x.get('firstName','')} {x.get('lastName','')}".strip() or x.get("email") or "Farmer") for x in farmers}
+        visible = [x for x in contribution_rows if str(x.get("farmerId")) == str(uid)] if membership.get("role") != "manager" else contribution_rows
+        contributions = [{
+            "id": str(x["_id"]), "farmerId": str(x.get("farmerId")),
+            "farmerName": names.get(str(x.get("farmerId")), "Farmer"),
+            "productId": str(x.get("productId")), "productName": x.get("productName") or "Product",
+            "assignedQuantityKg": float(x.get("assignedQuantityKg") or 0),
+            "actualQuantityKg": float(x.get("actualQuantityKg") or 0),
+            "acceptedQuantityKg": float(x.get("acceptedQuantityKg") or 0),
+            "status": x.get("status") or "assigned", "qualityStatus": x.get("qualityStatus") or "pending",
+            "notes": x.get("notes") or "", "isMine": str(x.get("farmerId")) == str(uid),
+        } for x in visible]
+        all_contributions = contribution_rows
+        rows.append({
+            "id": str(order_id), "orderNumber": order.get("orderNumber") or str(order_id),
+            "businessName": order.get("businessName") or (order.get("businessInfo") or {}).get("businessName") or "Business buyer",
+            "productName": order.get("productName") or "Multiple products",
+            "requiredQuantityKg": float(order.get("quantityKg") or order.get("requiredQuantityKg") or sum(float(x.get("quantityKg") or 0) for x in allocations)),
+            "totalAmount": float(order.get("totalAmount") or 0),
+            "status": order.get("orderStatus") or order.get("status") or "pending",
+            "deliveryDate": order.get("deliveryDate") or order.get("businessDeliveryDate"),
+            "contributions": contributions,
+            "allContributionCount": len(all_contributions),
+            "allAssignedKg": round(sum(float(x.get("assignedQuantityKg") or 0) for x in all_contributions), 3),
+            "allCollectedKg": round(sum(float(x.get("actualQuantityKg") or 0) for x in all_contributions), 3),
+            "allAcceptedKg": round(sum(float(x.get("acceptedQuantityKg") or 0) for x in all_contributions), 3),
+            "isManager": str(coop.get("managerId")) == str(uid),
+        })
+    return {"success": True, "data": {"orders": rows, "role": membership.get("role")}}
+
+
+@router.patch("/{cooperative_id}/orders/{order_id}/contributions/{contribution_id}")
+async def update_cooperative_contribution(cooperative_id: str, order_id: str, contribution_id: str, data: CooperativeContributionUpdate, current_user: dict = Depends(get_current_user)):
+    _require_farmer(current_user)
+    cid, oid, contribution_oid = _oid(cooperative_id, "cooperative id"), _oid(order_id, "order id"), _oid(contribution_id, "contribution id")
+    uid = _oid(current_user["_id"], "farmer id")
+    member, coop = await _cooperative_member_or_403(cid, uid)
+    contribution = await cooperative_contribution_repo.find_one({"_id": contribution_oid, "cooperativeId": cid, "orderId": oid, "deletedAt": None})
+    if not contribution:
+        raise HTTPException(404, "Farmer contribution not found")
+    is_manager = str(coop.get("managerId")) == str(uid)
+    is_owner = str(contribution.get("farmerId")) == str(uid)
+    if not (is_manager or is_owner):
+        raise HTTPException(403, "Only the assigned farmer or cooperative manager can update this contribution")
+    if not is_manager and data.status not in {"accepted", "preparing", "ready_for_pickup", "shortage_reported"}:
+        raise HTTPException(403, "Only the cooperative manager or warehouse workflow can record collection and quality results")
+    if data.status == "shortage_reported" and data.actualQuantityKg is None:
+        raise HTTPException(400, "Enter the quantity you can actually supply")
+    if data.actualQuantityKg is not None and data.actualQuantityKg > float(contribution.get("assignedQuantityKg") or 0):
+        raise HTTPException(400, "Actual quantity cannot exceed the assigned quantity")
+    values = {"status": data.status, "updatedAt": datetime.utcnow()}
+    if data.actualQuantityKg is not None:
+        values["actualQuantityKg"] = round(data.actualQuantityKg, 3)
+    if data.notes is not None:
+        values["notes"] = data.notes.strip()
+    if data.status == "quality_passed":
+        values["qualityStatus"] = "passed"
+        values["acceptedQuantityKg"] = round(float(data.actualQuantityKg if data.actualQuantityKg is not None else contribution.get("actualQuantityKg") or 0), 3)
+    elif data.status == "quality_failed":
+        values["qualityStatus"] = "failed"
+        values["acceptedQuantityKg"] = 0.0
+    elif data.status == "collected":
+        values["collectedAt"] = datetime.utcnow()
+    updated = await cooperative_contribution_repo.update({"_id": contribution_oid, "cooperativeId": cid, "orderId": oid}, values)
+    if not updated:
+        raise HTTPException(409, "Contribution changed. Refresh and retry.")
+    farmer = await user_repo.find_one({"_id": contribution.get("farmerId")})
+    farmer_name = f"{(farmer or {}).get('firstName','')} {(farmer or {}).get('lastName','')}".strip() or "Farmer"
+    await _create_cooperative_system_message(cid, f"{farmer_name}: {data.status.replace('_',' ')} for order {order_id}.")
+    return {"success": True, "data": {"id": contribution_id, **values}, "message": "Contribution progress updated"}
+
+
+@router.get("/{cooperative_id}/orders/{order_id}/settlement")
+async def cooperative_order_settlement(cooperative_id: str, order_id: str, current_user: dict = Depends(get_current_user)):
+    _require_farmer(current_user)
+    cid, oid = _oid(cooperative_id, "cooperative id"), _oid(order_id, "order id")
+    uid = _oid(current_user["_id"], "farmer id")
+    member, coop = await _cooperative_member_or_403(cid, uid)
+    order = await b2b_order_repo.find_one({"_id": oid, "cooperativeId": cid, "deletedAt": None})
+    if not order:
+        raise HTTPException(404, "Cooperative B2B order not found")
+    rows = await cooperative_contribution_repo.find_many({"cooperativeId": cid, "orderId": oid, "deletedAt": None}, limit=500)
+    farmers = await user_repo.find_many({"_id": {"$in": list({x["farmerId"] for x in rows if isinstance(x.get("farmerId"), ObjectId)})}}, limit=500) if rows else []
+    names = {str(x["_id"]): (f"{x.get('firstName','')} {x.get('lastName','')}".strip() or "Farmer") for x in farmers}
+    result = []
+    for row in rows:
+        if member.get("role") != "manager" and str(row.get("farmerId")) != str(uid):
+            continue
+        accepted = float(row.get("acceptedQuantityKg") or 0)
+        unit_price = float(row.get("unitPricePerKg") or 0)
+        gross = round(accepted * unit_price, 2)
+        result.append({"farmerId": str(row.get("farmerId")), "farmerName": names.get(str(row.get("farmerId")), "Farmer"), "acceptedQuantityKg": accepted, "unitPricePerKg": unit_price, "grossAmount": gross, "payoutStatus": row.get("payoutStatus") or "awaiting_settlement"})
+    settlement = await cooperative_settlement_repo.find_one({"cooperativeId": cid, "orderId": oid, "deletedAt": None})
+    return {"success": True, "data": {"orderId": order_id, "orderNumber": order.get("orderNumber"), "buyerPaidAmount": float((settlement or {}).get("buyerPaidAmount") or 0), "sharedCosts": float((settlement or {}).get("sharedCosts") or 0), "cooperativeFee": float((settlement or {}).get("cooperativeFee") or 0), "farmers": result, "status": (settlement or {}).get("status") or "awaiting_buyer_payment"}}
+
+
+@router.post("/{cooperative_id}/orders/{order_id}/settlement")
+async def create_cooperative_order_settlement(cooperative_id: str, order_id: str, data: CooperativeSettlementRequest, current_user: dict = Depends(get_current_user)):
+    _require_farmer(current_user)
+    cid, oid = _oid(cooperative_id, "cooperative id"), _oid(order_id, "order id")
+    uid = _oid(current_user["_id"], "farmer id")
+    _, coop = await _cooperative_member_or_403(cid, uid)
+    if str(coop.get("managerId")) != str(uid):
+        raise HTTPException(403, "Only the cooperative manager can prepare settlement")
+    order = await b2b_order_repo.find_one({"_id": oid, "cooperativeId": cid, "deletedAt": None})
+    if not order:
+        raise HTTPException(404, "Cooperative B2B order not found")
+    rows = await cooperative_contribution_repo.find_many({"cooperativeId": cid, "orderId": oid, "deletedAt": None}, limit=500)
+    if not rows or any(x.get("qualityStatus") not in {"passed"} for x in rows):
+        raise HTTPException(409, "Every farmer contribution must pass warehouse quality verification before settlement")
+    accepted_total = sum(float(x.get("acceptedQuantityKg") or 0) for x in rows)
+    if accepted_total <= 0:
+        raise HTTPException(409, "There is no accepted quantity to settle")
+    if data.sharedCosts + data.cooperativeFee > data.buyerPaidAmount:
+        raise HTTPException(400, "Costs and cooperative fee cannot exceed buyer payment")
+    payout_pool = round(data.buyerPaidAmount - data.sharedCosts - data.cooperativeFee, 2)
+    weighted = []
+    for row in rows:
+        accepted = float(row.get("acceptedQuantityKg") or 0)
+        agreed_rate = float(row.get("unitPricePerKg") or 0)
+        weighted.append((row, accepted, agreed_rate))
+    if any(rate <= 0 for _, qty, rate in weighted if qty > 0):
+        raise HTTPException(409, "A contribution is missing its agreed farmer price. Set contribution rates before settlement.")
+    base_total = sum(qty * rate for _, qty, rate in weighted)
+    if base_total <= 0:
+        raise HTTPException(409, "Farmer payout basis is missing")
+    payouts = []
+    for row, qty, rate in weighted:
+        amount = round(payout_pool * ((qty * rate) / base_total), 2)
+        payouts.append({"contributionId": str(row["_id"]), "farmerId": str(row.get("farmerId")), "acceptedQuantityKg": qty, "unitPricePerKg": rate, "grossAmount": round(qty * rate, 2), "payoutAmount": amount, "payoutStatus": "pending"})
+    settlement_doc = {
+        "cooperativeId": cid, "orderId": oid, "orderNumber": order.get("orderNumber"),
+        "buyerPaidAmount": round(data.buyerPaidAmount, 2), "sharedCosts": round(data.sharedCosts, 2),
+        "cooperativeFee": round(data.cooperativeFee, 2), "payoutPool": payout_pool,
+        "payouts": payouts, "status": "prepared", "notes": data.notes,
+        "createdBy": uid, "createdAt": datetime.utcnow(), "updatedAt": datetime.utcnow(), "deletedAt": None,
+    }
+    existing = await cooperative_settlement_repo.find_one({"cooperativeId": cid, "orderId": oid, "deletedAt": None})
+    if existing:
+        await cooperative_settlement_repo.update({"_id": existing["_id"]}, settlement_doc)
+        settlement_id = str(existing["_id"])
+    else:
+        settlement_id = await cooperative_settlement_repo.create(settlement_doc)
+    await _create_cooperative_system_message(cid, f"Manager prepared farmer payment settlement for order {order.get('orderNumber') or order_id}.")
+    return {"success": True, "data": {"id": settlement_id, "status": "prepared", "payoutPool": payout_pool, "payouts": payouts}, "message": "Farmer-wise settlement prepared. Payout transfers must be verified and recorded separately."}
+
+
+@router.patch("/{cooperative_id}/orders/{order_id}/settlement/{farmer_id}/paid")
+async def mark_cooperative_farmer_paid(cooperative_id: str, order_id: str, farmer_id: str, current_user: dict = Depends(get_current_user)):
+    _require_farmer(current_user)
+    cid, oid, fid = _oid(cooperative_id, "cooperative id"), _oid(order_id, "order id"), _oid(farmer_id, "farmer id")
+    uid = _oid(current_user["_id"], "farmer id")
+    _, coop = await _cooperative_member_or_403(cid, uid)
+    if str(coop.get("managerId")) != str(uid):
+        raise HTTPException(403, "Only the cooperative manager can record farmer payout")
+    settlement = await cooperative_settlement_repo.find_one({"cooperativeId": cid, "orderId": oid, "deletedAt": None})
+    if not settlement or settlement.get("status") not in {"prepared", "partially_paid"}:
+        raise HTTPException(409, "Prepare the settlement before recording payouts")
+    payouts = settlement.get("payouts") or []
+    target = next((x for x in payouts if str(x.get("farmerId")) == str(fid)), None)
+    if not target:
+        raise HTTPException(404, "Farmer payout not found")
+    target["payoutStatus"] = "paid"
+    target["paidAt"] = datetime.utcnow()
+    paid_count = sum(1 for x in payouts if x.get("payoutStatus") == "paid")
+    new_status = "paid" if paid_count == len(payouts) else "partially_paid"
+    await cooperative_settlement_repo.update({"_id": settlement["_id"]}, {"payouts": payouts, "status": new_status, "updatedAt": datetime.utcnow()})
+    return {"success": True, "data": {"farmerId": farmer_id, "payoutAmount": target.get("payoutAmount"), "payoutStatus": "paid", "settlementStatus": new_status}, "message": "Payout marked paid. Verify the actual bank/UPI transfer separately."}
+
+
 @router.get("/{cooperative_id}/messages")
 async def list_cooperative_messages(
     cooperative_id: str,
