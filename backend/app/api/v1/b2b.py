@@ -1481,6 +1481,10 @@ async def _build_order(rfq: Dict[str, Any], offer: Dict[str, Any], qty: float, a
         "businessUserId": rfq.get("businessUserId"),
         "businessProfileId": rfq.get("businessProfileId"),
         "farmerId": offer.get("farmerId"),
+        # Set only for genuinely collective fulfilment (multiple farmer contributions).
+        "cooperativeId": offer.get("cooperativeId") if len(offer.get("supplyAllocations") or []) > 1 else None,
+        "supplyAllocations": offer.get("supplyAllocations") or [],
+        "fulfillmentMode": "cooperative" if len(offer.get("supplyAllocations") or []) > 1 else "individual",
         "offerId": offer["_id"],
         "productName": offer.get("productName"),
         "category": rfq.get("category"),
@@ -1991,15 +1995,21 @@ async def submit_offer(
 
     qty = data.availableQuantityKg or data.minOrderKg or _rfq_quantity(rfq)
     ceiling = rfq.get("priceCeilingPerKg") or rfq.get("budgetMaxPerKg")
-    cooperative = await _cooperative_context(str(current_user["_id"]))
-    cooperative_supply = await _cooperative_can_supply(cooperative["_id"], rfq.get("productName")) if cooperative else {"canSupply": False, "availableKg": 0, "rows": []}
-    if cooperative and cooperative_supply["availableKg"] >= float(qty):
+    # Prefer direct fulfilment whenever this farmer can meet the full requirement.
+    # Use the cooperative only when the individual farmer is short and the active
+    # cooperative members together can cover the requested B2B quantity.
+    individual_supply = await _farmer_can_supply(str(current_user["_id"]), rfq.get("productName"))
+    cooperative = None
+    cooperative_supply = {"canSupply": False, "availableKg": 0, "rows": []}
+    if float(individual_supply.get("availableKg") or 0) < float(qty):
+        cooperative = await _cooperative_context(str(current_user["_id"]))
+        cooperative_supply = await _cooperative_can_supply(cooperative["_id"], rfq.get("productName")) if cooperative else cooperative_supply
+    if cooperative and float(cooperative_supply.get("availableKg") or 0) >= float(qty):
         supply_allocations = _build_cooperative_allocations(cooperative_supply["rows"], float(qty))
-    else:
-        individual_supply = await _farmer_can_supply(str(current_user["_id"]), rfq.get("productName"))
-        if float(qty) > float(individual_supply["availableKg"]):
-            raise HTTPException(status_code=400, detail="Requested offer quantity exceeds your available supply")
+    elif float(qty) <= float(individual_supply.get("availableKg") or 0):
         supply_allocations = [{"farmerId": str(current_user["_id"]), "productId": individual_supply.get("productId"), "productName": rfq.get("productName"), "quantityKg": float(qty)}]
+    else:
+        raise HTTPException(status_code=400, detail="Your available stock is insufficient and your cooperative cannot cover the full B2B quantity")
     if not supply_allocations:
         raise HTTPException(status_code=400, detail="Unable to allocate the requested quantity from available supply")
     offer = {
