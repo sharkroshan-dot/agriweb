@@ -35,6 +35,7 @@ import { Input } from "../../../components/ui/input";
 import { Badge } from "../../../components/ui/badge";
 import { Select, SelectContent, SelectItem } from "../../../components/ui/select";
 import toast from "react-hot-toast";
+import { FarmerQualityPanel } from "../quality/page";
 
 interface Batch {
   id: string;
@@ -330,6 +331,8 @@ export default function FarmerBatchesPage() {
           </Card>
         ))}
       </section>
+
+      <FarmerQualityPanel />
 
       {showForm && (
         <Card className="overflow-hidden border-slate-200 shadow-sm">
