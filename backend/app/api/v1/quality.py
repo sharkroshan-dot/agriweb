@@ -331,6 +331,10 @@ async def inspection_queue(current_user: dict = Depends(get_current_user)):
             {"inspectionStatus": {"$in": ["pending", "in_progress", "evidence_submitted"]}},
             {"evidenceSubmittedAt": {"$exists": True}},
             {"verificationStatus": VERIFICATION_STATUS_EVIDENCE},
+            # Recover legacy evidence records even when their status markers
+            # were not written by an older client/version.
+            {"photos.0": {"$exists": True}},
+            {"videos.0": {"$exists": True}},
         ],
     }
     warehouse = None
@@ -351,8 +355,26 @@ async def inspection_queue(current_user: dict = Depends(get_current_user)):
     rank = {"critical": 0, "urgent": 1, "normal": 2}
     queue = []
     for rec in records:
-        batch = await batch_repo.find_one({"_id": rec.get("batchId"), "deletedAt": None})
+        # Older inspection records may store batchId as a string while newer
+        # records use BSON ObjectId. Resolve both forms so valid evidence is
+        # not silently omitted from the warehouse queue.
+        batch_id = rec.get("batchId")
+        batch = None
+        if isinstance(batch_id, ObjectId):
+            batch = await batch_repo.find_one({"_id": batch_id, "deletedAt": None})
+            if not batch:
+                batch = await batch_repo.find_one({"_id": str(batch_id), "deletedAt": None})
+        elif batch_id is not None:
+            batch_id_text = str(batch_id).strip()
+            if ObjectId.is_valid(batch_id_text):
+                batch = await batch_repo.find_one({"_id": ObjectId(batch_id_text), "deletedAt": None})
+            if not batch:
+                batch = await batch_repo.find_one({"_id": batch_id_text, "deletedAt": None})
         if not batch:
+            logger.warning(
+                "Skipping quality inspection %s: linked batch %s was not found",
+                rec.get("_id"), batch_id
+            )
             continue
 
         if warehouse:
@@ -388,8 +410,7 @@ async def inspection_queue(current_user: dict = Depends(get_current_user)):
         inspection_status = rec.get("inspectionStatus")
         evidence_exists = bool(rec.get("photos") or rec.get("videos"))
         has_submission_marker = bool(rec.get("evidenceSubmittedAt")) or (
-            rec.get("verificationStatus") == VERIFICATION_STATUS_EVIDENCE
-            and evidence_exists
+            evidence_exists
             and inspection_status not in ("completed", "approved", "rejected")
         )
         if inspection_status not in ("pending", "in_progress", "evidence_submitted"):
