@@ -2331,6 +2331,42 @@ async def accept_offer_batch(
                     )
                     if claim.modified_count != 1:
                         raise HTTPException(status_code=409, detail="An offer was accepted concurrently; the whole batch was rolled back")
+                # Reserve each farmer's contributed cooperative inventory in the same
+                # transaction as RFQ acceptance and B2B order creation.
+                cooperative_inventory_collection = db["cooperative_inventory"]
+                for accepted_offer, accepted_qty, _ in order_specs:
+                    if not accepted_offer.get("cooperativeId") or len(accepted_offer.get("supplyAllocations") or []) <= 1:
+                        continue
+                    allocated_total = 0.0
+                    for line in accepted_offer.get("supplyAllocations") or []:
+                        farmer_id = str(line.get("farmerId") or "")
+                        product_id = str(line.get("productId") or "")
+                        line_qty = round(float(line.get("quantityKg") or 0), 3)
+                        if not ObjectId.is_valid(farmer_id) or not ObjectId.is_valid(product_id) or line_qty <= 0:
+                            raise HTTPException(status_code=409, detail="Cooperative contribution allocation is invalid; no order was created")
+                        reserved = await cooperative_inventory_collection.update_one(
+                            {
+                                "cooperativeId": accepted_offer["cooperativeId"],
+                                "farmerId": ObjectId(farmer_id),
+                                "productId": ObjectId(product_id),
+                                "status": "active",
+                                "deletedAt": None,
+                                "$expr": {"$gte": [
+                                    {"$subtract": [
+                                        {"$ifNull": ["$availableQuantityKg", 0]},
+                                        {"$ifNull": ["$reservedQuantityKg", 0]},
+                                    ]},
+                                    line_qty,
+                                ]},
+                            },
+                            {"$inc": {"reservedQuantityKg": line_qty}, "$set": {"updatedAt": now}},
+                            session=session,
+                        )
+                        if reserved.modified_count != 1:
+                            raise HTTPException(status_code=409, detail=f"Cooperative stock changed for {line.get('productName') or 'a product'}; refresh the quote and retry")
+                        allocated_total += line_qty
+                    if abs(allocated_total - accepted_qty) > 0.02:
+                        raise HTTPException(status_code=409, detail="Cooperative farmer allocations do not match the accepted B2B order quantity")
                 if order_docs:
                     await order_repo.collection.insert_many(order_docs, ordered=True, session=session)
                 # A recurring RFQ creates one pending supply agreement per accepted farmer quote.
