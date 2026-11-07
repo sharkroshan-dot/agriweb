@@ -117,6 +117,13 @@ export default function FarmerCooperativePage(){
         const activePlans = plans.filter((plan: any) => !plan.isCancelled && !["cancelled", "canceled", "rejected", "deleted"].includes(String(plan.status || "").toLowerCase()));
         const cancelledPlans = plans.filter((plan: any) => plan.isCancelled || ["cancelled", "canceled", "rejected", "deleted"].includes(String(plan.status || "").toLowerCase()));
         const needsUpdate = activePlans.filter((plan: any) => String(plan.status || "").toLowerCase() === "harvest_update_required");
+        const visiblePlans = plans.filter((plan: any) => {
+          const cancelled = Boolean(plan.isCancelled) || ["cancelled", "canceled", "rejected", "deleted"].includes(String(plan.status || "").toLowerCase());
+          const needs = String(plan.status || "").toLowerCase() === "harvest_update_required";
+          const matchesStatus = productionStatus === "all" || (productionStatus === "cancelled" ? cancelled : productionStatus === "attention" ? needs : !cancelled);
+          const q = productionSearch.trim().toLowerCase();
+          return matchesStatus && (!q || String(plan.cropName || "").toLowerCase().includes(q) || String(plan.farmerName || "").toLowerCase().includes(q));
+        });
         return <>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <Metric icon={Sprout} label="Expected harvest" value={`${Number(dash.production?.expectedKg || 0).toLocaleString()} kg`} />
@@ -138,15 +145,7 @@ export default function FarmerCooperativePage(){
               <Input value={productionSearch} onChange={e=>setProductionSearch(e.target.value)} placeholder="Search crop or farmer…" aria-label="Search production plans"/>
               <select value={productionStatus} onChange={e=>setProductionStatus(e.target.value)} className="h-10 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700"><option value="active">Active plans</option><option value="all">All plans</option><option value="attention">Needs harvest update</option><option value="cancelled">Cancelled plans</option></select>
             </div>
-            {(() => {
-              const visiblePlans = plans.filter((plan:any) => {
-                const cancelled = Boolean(plan.isCancelled) || ["cancelled","canceled","rejected","deleted"].includes(String(plan.status||"").toLowerCase());
-                const needs = String(plan.status||"").toLowerCase()==="harvest_update_required";
-                const matchesStatus = productionStatus==="all" || (productionStatus==="cancelled" ? cancelled : productionStatus==="attention" ? needs : !cancelled);
-                const q=productionSearch.trim().toLowerCase();
-                return matchesStatus && (!q || String(plan.cropName||"").toLowerCase().includes(q) || String(plan.farmerName||"").toLowerCase().includes(q));
-              });
-              return visiblePlans.length ? <div className="divide-y divide-slate-100">
+            {visiblePlans.length ? <div className="divide-y divide-slate-100">
               {visiblePlans.map((plan: any) => {
                 const expected = Number(plan.expectedQuantityKg || 0);
                 const actual = Number(plan.actualQuantityKg || 0);
@@ -163,8 +162,7 @@ export default function FarmerCooperativePage(){
                   <div><div className="flex items-center justify-between text-xs"><span className="font-medium text-slate-600">Harvest progress</span><span className="font-semibold tabular-nums text-slate-800">{Math.round(percent)}%</span></div><div className="mt-2 h-2.5 overflow-hidden rounded-full bg-slate-100"><div className={"h-full rounded-full "+(needsHarvestUpdate ? "bg-amber-500" : "bg-emerald-600")} style={{width:percent+"%"}}/></div></div>
                 </div>;
               })}
-            </div> : <EmptyState title="No matching production plans" description="Try changing the search or status filter, or ask members to create a production plan."/>;
-            })()}
+            </div> : <EmptyState title="No matching production plans" description="Try changing the search or status filter, or ask members to create a production plan"/>}
           </section>
           {cancelledPlans.length > 0 && <details className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white"><summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 text-sm font-medium text-slate-700"><span>Cancelled plans</span><Badge variant="outline">{cancelledPlans.length}</Badge></summary><div className="divide-y divide-slate-100 border-t border-slate-100">{cancelledPlans.map((plan: any)=><div key={plan.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-3"><div><p className="font-medium capitalize text-slate-800">{plan.cropName || "Crop"}</p><p className="mt-0.5 text-xs text-slate-500">Cancelled plan · Target {Number(plan.expectedQuantityKg||0).toLocaleString()} kg</p></div><Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-600">Cancelled</Badge></div>)}</div></details>}
         </>;
