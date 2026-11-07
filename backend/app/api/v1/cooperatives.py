@@ -1215,8 +1215,14 @@ async def cancel_b2b_supply_allocation(
         raise HTTPException(404, "B2B allocation not found")
     if allocation.get("reservationStatus") == "released" or allocation.get("status") == "cancelled":
         return {"success": True, "data": {"id": allocation_id, "status": "cancelled", "reservationStatus": "released", "alreadyCancelled": True}}
-    if allocation.get("reservationStatus") != "active":
-        raise HTTPException(409, "This allocation is not an active stock reservation")
+    # Claim the cancellation before releasing stock so concurrent requests
+    # cannot release the same reservation twice.
+    claimed = await cooperative_allocation_repo.update(
+        {"_id": aid, "cooperativeId": cid, "reservationStatus": "active"},
+        {"reservationStatus": "releasing"},
+    )
+    if not claimed:
+        raise HTTPException(409, "This allocation is already being cancelled or is no longer active")
 
     released = []
     for line in allocation.get("allocations", []):
@@ -1227,17 +1233,26 @@ async def cancel_b2b_supply_allocation(
         if not await inventory_repository.atomic_release(product_id, quantity):
             for prior in reversed(released):
                 await inventory_repository.atomic_reserve(prior["productId"], prior["quantityKg"])
-            raise HTTPException(409, "Stock release could not be completed safely. No cancellation was recorded; please retry.")
+            await cooperative_allocation_repo.update(
+                {"_id": aid, "cooperativeId": cid, "reservationStatus": "releasing"},
+                {"reservationStatus": "active"},
+            )
+            raise HTTPException(409, "Stock release could not be completed safely. Reservation restored; please retry.")
+
         released.append({"productId": product_id, "quantityKg": quantity})
 
     updated = await cooperative_allocation_repo.update(
-        {"_id": aid, "cooperativeId": cid, "reservationStatus": "active"},
+        {"_id": aid, "cooperativeId": cid, "reservationStatus": "releasing"},
         {"status": "cancelled", "reservationStatus": "released", "cancelledAt": datetime.utcnow()},
     )
     if not updated:
         for prior in reversed(released):
             await inventory_repository.atomic_reserve(prior["productId"], prior["quantityKg"])
-        raise HTTPException(409, "Allocation status changed during cancellation. Please refresh and retry.")
+        await cooperative_allocation_repo.update(
+            {"_id": aid, "cooperativeId": cid, "reservationStatus": "releasing"},
+            {"reservationStatus": "active"},
+        )
+        raise HTTPException(409, "Allocation status changed during cancellation. Stock reservation was restored.")
     released_total = round(sum(x["quantityKg"] for x in released), 3)
     await _create_cooperative_system_message(cid, f"A B2B allocation was cancelled and {released_total} kg was returned to available cooperative stock.")
     return {"success": True, "data": {"id": allocation_id, "status": "cancelled", "reservationStatus": "released", "releasedQuantityKg": released_total}}
