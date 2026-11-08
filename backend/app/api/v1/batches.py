@@ -136,17 +136,50 @@ def _serialize_batch(batch: dict) -> dict:
     return batch
 
 
-async def _next_lot_number() -> str:
-    """Build LOT-YYYYMMDD-NNN with a per-day counter."""
+def _alphabetic_lot_suffix(index: int) -> str:
+    """Convert zero-based index to A..Z, AA..AZ, BA..."""
+    result = ""
+    value = index + 1
+    while value:
+        value, remainder = divmod(value - 1, 26)
+        result = chr(65 + remainder) + result
+    return result
+
+
+async def _next_lot_number(product_id: Optional[ObjectId] = None) -> str:
+    """Return a new lot ID; restocks reuse the product's root plus A/B/C suffixes."""
+    if product_id:
+        product_batches = await batch_repo.find_many(
+            {"productId": product_id, "deletedAt": None, "status": {"$ne": BATCH_CANCELLED}},
+            limit=500,
+            sort=[("createdAt", 1)],
+        )
+        if product_batches:
+            first_number = str(product_batches[0].get("lotNumber") or "")
+            # Strip only trailing alphabetic restock suffixes.
+            root = __import__("re").sub(r"[A-Z]+$", "", first_number)
+            if root:
+                used = {
+                    str(item.get("lotNumber") or "")[len(root):]
+                    for item in product_batches
+                    if str(item.get("lotNumber") or "").startswith(root)
+                }
+                suffix_index = 0
+                while _alphabetic_lot_suffix(suffix_index) in used:
+                    suffix_index += 1
+                return f"{root}{_alphabetic_lot_suffix(suffix_index)}"
+
     day = datetime.utcnow().strftime("%Y%m%d")
     prefix = f"LOT-{day}-"
-    existing = await batch_repo.find_many({"lotNumber": {"$regex": f"^{prefix}"}}, limit=1, sort=[("createdAt", -1)])
+    existing = await batch_repo.find_many(
+        {"lotNumber": {"$regex": f"^{prefix}\\d{{3}}[A-Z]*$"}},
+        limit=1000,
+        sort=[("createdAt", -1)],
+    )
+    used_numbers = {str(item.get("lotNumber") or "") for item in existing}
     seq = 1
-    if existing:
-        try:
-            seq = int(str(existing[0].get("lotNumber", "")).split("-")[-1]) + 1
-        except Exception:
-            seq = 1
+    while f"{prefix}{seq:03d}" in used_numbers:
+        seq += 1
     return f"{prefix}{seq:03d}"
 
 
@@ -187,17 +220,6 @@ async def create_batch(data: BatchCreate, current_user: dict = Depends(get_curre
         product = await product_repository.get_by_id(data.productId)
         if not product or str(product.get("farmerId")) != str(current_user["_id"]):
             raise HTTPException(status_code=404, detail="Product not found")
-        existing_product_batch = await batch_repo.find_one({
-            "productId": product_id,
-            "deletedAt": None,
-            "status": {"$ne": BATCH_CANCELLED},
-        })
-        if existing_product_batch:
-            raise HTTPException(
-                status_code=409,
-                detail=f"Product already has batch {existing_product_batch.get('lotNumber')}. One product can have only one batch.",
-            )
-
     if not data.sourceHarvestPlanId:
         # Product-created harvest links are authoritative when present.
         linked_plan_id = product.get("sourceHarvestPlanId")
@@ -257,7 +279,7 @@ async def create_batch(data: BatchCreate, current_user: dict = Depends(get_curre
     storage = data.storageType if data.storageType in STORAGE_TYPES else "normal"
     shelf = effective_shelf_life_days(master_crop, storage, data.shelfLifeDays)
     harvest = _to_naive_utc(harvest_plan.get("harvestedAt")) or datetime.utcnow()
-    lot_number = await _next_lot_number()
+    lot_number = await _next_lot_number(product_id)
 
     batch = {
         "farmerId": ObjectId(current_user["_id"]),
@@ -455,6 +477,34 @@ async def convert_batch_to_inventory(
     if not product or str(product.get("farmerId")) != str(current_user["_id"]):
         raise HTTPException(status_code=404, detail="Product not found")
 
+    # If the farmer links this batch to a product only after inspection,
+    # assign the next alphabetic restock suffix at the moment of linking.
+    existing_product_batches = await batch_repo.find_many(
+        {
+            "productId": pid,
+            "_id": {"$ne": oid},
+            "deletedAt": None,
+            "status": {"$ne": BATCH_CANCELLED},
+        },
+        limit=500,
+        sort=[("createdAt", 1)],
+    )
+    lot_number = batch.get("lotNumber")
+    if existing_product_batches:
+        first_number = str(existing_product_batches[0].get("lotNumber") or "")
+        import re
+        root = re.sub(r"[A-Z]+$", "", first_number)
+        if root:
+            used = {
+                str(item.get("lotNumber") or "")[len(root):]
+                for item in existing_product_batches
+                if str(item.get("lotNumber") or "").startswith(root)
+            }
+            suffix_index = 0
+            while _alphabetic_lot_suffix(suffix_index) in used:
+                suffix_index += 1
+            lot_number = f"{root}{_alphabetic_lot_suffix(suffix_index)}"
+
     qty_kg = float(batch.get("remainingKg") or 0)
     current_qty = int(product.get("quantity") or 0)
     updated = await product_repository.update_product(
@@ -478,12 +528,18 @@ async def convert_batch_to_inventory(
         {"_id": oid},
         {
             "productId": pid,
+            "lotNumber": lot_number,
             "status": BATCH_LISTED,
             "remainingKg": 0.0,
             "convertedAt": datetime.utcnow(),
         },
     )
 
+    # Keep the inspection record's lot reference in sync with any restock suffix.
+    await quality_inspection_repo.update(
+        {"batchId": oid},
+        {"lotNumber": lot_number, "updatedAt": datetime.utcnow()},
+    )
     refreshed = await batch_repo.find_one({"_id": oid})
     return {"success": True, "data": _serialize_batch(refreshed)}
 
