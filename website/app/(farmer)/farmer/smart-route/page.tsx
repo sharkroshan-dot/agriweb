@@ -171,7 +171,7 @@ export default function SmartRoutePage() {
   ];
 
   const handleOptimize = () => {
-    toast.promise(refetch(), {
+    toast.promise(selectedOrderIds.length ? selectedRouteQuery.refetch() : refetch(), {
       loading: "Recomputing optimal route with AI 2-opt…",
       success: "Route re-optimized!",
       error: "Failed to optimize route",
@@ -242,8 +242,8 @@ export default function SmartRoutePage() {
             <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500">Review the optimized stop sequence, travel estimate and delivery earnings before starting your route.</p>
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
-            <Button variant="outline" onClick={handleOptimize} disabled={isLoading}><RotateCw className="mr-2 h-4 w-4" /> Re-optimize</Button>
-            <Button asChild className="bg-emerald-600 hover:bg-emerald-700"><Link href={`/farmer/route?orderIds=${encodeURIComponent(selectedOrderIds.join(","))}`}><Play className="mr-2 h-4 w-4" /> Start delivery</Link></Button>
+            <Button variant="outline" onClick={handleOptimize} disabled={isLoading || selectedOrderIds.length === 0}><RotateCw className="mr-2 h-4 w-4" /> Re-optimize</Button>
+            <Button asChild disabled={selectedOrderIds.length === 0 || stops.length === 0} className="bg-emerald-600 hover:bg-emerald-700"><Link href={`/farmer/route?orderIds=${encodeURIComponent(selectedOrderIds.join(","))}`}><Play className="mr-2 h-4 w-4" /> Start delivery</Link></Button>
           </div>
         </div>
       </section>
@@ -570,7 +570,7 @@ export default function SmartRoutePage() {
 
           <div className="mt-6 flex flex-col-reverse gap-2 border-t pt-4 sm:flex-row sm:justify-end">
             <Button asChild>
-              <Link href={`/farmer/route${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`}>
+              <Link href={`/farmer/route?orderIds=${encodeURIComponent(selectedOrderIds.join(","))}`}>
                 <Play className="mr-2 h-4 w-4" />
                 Start delivery
               </Link>
