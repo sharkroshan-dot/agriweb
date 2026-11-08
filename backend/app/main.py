@@ -12,6 +12,7 @@ from bson import ObjectId
 import fastapi.encoders as _fastapi_encoders
 
 from app.core.config import settings
+from app.core.upload_storage import get_upload_directory
 from app.core.logging import setup_logging
 from app.core.exceptions import setup_exception_handlers
 from app.database.mongodb import MongoDB
@@ -202,8 +203,8 @@ async def swagger_ui_oauth2_redirect():
         return get_swagger_ui_oauth2_redirect_html()
 
 # Serve uploaded files
-os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")
+UPLOAD_DIRECTORY = get_upload_directory()
+app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIRECTORY), check_dir=True), name="uploads")
 
 # Rate limiting (per-IP, stricter on auth endpoints).
 # Register before CORS so CORS remains the outermost middleware and browser
