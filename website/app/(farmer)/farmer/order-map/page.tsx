@@ -63,14 +63,6 @@ const DELIVERY_STATE_LABEL: Record<string, string> = {
   delivered: "Completed",
 };
 
-const DELIVERED_WINDOWS = [
-  { value: "today", label: "Today" },
-  { value: "week", label: "Week" },
-  { value: "month", label: "Month" },
-  { value: "year", label: "Year" },
-  { value: "all", label: "All" },
-] as const;
-
 const formatRelativeTime = (iso?: string) => {
   if (!iso) return "";
   const time = new Date(iso).getTime();
@@ -344,8 +336,6 @@ export default function FarmerOrderMapPage() {
   const within: any[] = asArray(data?.withinRadius);
   const outside: any[] = asArray(data?.outsideRadius);
   const unlocated: any[] = asArray(data?.unlocated);
-  const delivered: any[] = asArray(data?.delivered);
-  const longDistanceOrders: any[] = asArray(data?.longDistanceOrders);
   const summary = data?.summary || {};
   const farm = data?.farm;
   const partners: any[] = asArray(data?.partners);
@@ -1338,14 +1328,6 @@ export default function FarmerOrderMapPage() {
                   </div>
                 </div>
               )}
-              <Select value={deliveredWindow} onValueChange={setDeliveredWindow}>
-                <SelectTrigger className="h-9 w-[120px] bg-white text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {DELIVERED_WINDOWS.map((w) => <SelectItem key={w.value} value={w.value}>{w.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
               {selfDeliveryMethod === "radius" && (
                 <>
                   <Button size="sm" variant={mapFilterMode === "all" ? "default" : "outline"} onClick={showAllMapOrders}>
@@ -1407,97 +1389,6 @@ export default function FarmerOrderMapPage() {
                 </ul>
               </div>
             )}
-          </CardContent>
-        </Card>
-      )}
-
-      {longDistanceOrders.length > 0 && (
-        <Card className="border-violet-200 shadow-sm">
-          <CardHeader className="border-b bg-violet-50/60">
-            <CardTitle className="flex items-center gap-2 text-violet-950">
-              <Truck className="h-5 w-5 text-violet-700" />
-              Long-Distance Orders — Warehouse Transfer
-              <Badge variant="outline" className="border-violet-300 text-violet-800">
-                {longDistanceOrders.length}
-              </Badge>
-            </CardTitle>
-            <CardDescription className="text-violet-900">
-              These orders have already been classified as long distance. Find their warehouse allocations and the current handoff status here, even after they leave the fresh-selection map.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3 p-4">
-            {longDistanceOrders.map((stop: any) => {
-              const allocations = asArray(stop.warehouseAllocations);
-              const transferStatus = String(stop.transferStatus || stop.deliveryDecisionStatus || "warehouse_transfer_pending")
-                .replace(/_/g, " ");
-              const hubName = stop.finalLocalHub?.name || stop.nearbyFulfillmentLocation?.name;
-              return (
-                <div key={getStopId(stop)} className="rounded-xl border border-violet-200 bg-white p-4">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0">
-                      <p className="text-sm font-bold text-slate-950">
-                        Order #{stop.orderNumber || getStopId(stop)}
-                      </p>
-                      <p className="mt-1 text-sm text-slate-700">{getCustomerDisplayName(stop)}</p>
-                      <p className="mt-1 text-xs text-slate-500">{formatAddress(stop)}</p>
-                      <p className="mt-2 text-xs text-slate-600">
-                        {stop.product || "Items"} · {stop.quantityKg ?? stop.quantity ?? 0} kg
-                        {stop.distance != null ? ` · ${Number(stop.distance).toFixed(1)} km from farm` : ""}
-                      </p>
-                    </div>
-                    <div className="flex shrink-0 flex-wrap gap-2">
-                      <Badge variant="outline" className="border-violet-300 text-violet-800">Long Distance</Badge>
-                      <Badge variant={stop.routeSetupError ? "destructive" : "warning"}>{transferStatus}</Badge>
-                    </div>
-                  </div>
-
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                    <div className="rounded-lg bg-violet-50 p-3">
-                      <p className="text-xs font-semibold text-violet-950">Warehouse allocation</p>
-                      <p className="mt-1 text-sm text-violet-900">
-                        {Number(stop.warehouseCount || allocations.length) > 0
-                          ? `${Number(stop.warehouseCount || allocations.length)} warehouse(s) assigned`
-                          : "Warehouse allocation is still pending"}
-                      </p>
-                      {allocations.length > 0 ? (
-                        <ul className="mt-2 space-y-1 text-xs text-violet-900">
-                          {allocations.map((allocation: any, index: number) => (
-                            <li key={String(allocation.warehouseId || index)}>
-                              <span className="font-medium">{allocation.warehouseName || "Warehouse"}</span>
-                              {" · "}{allocation.productName || "Product"}
-                              {" · "}{Number(allocation.quantity || 0)} {allocation.unit || "kg"}
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <p className="mt-1 text-xs text-violet-800">
-                          {stop.routeSetupError || "Waiting for available warehouse capacity and transfer setup."}
-                        </p>
-                      )}
-                    </div>
-                    <div className="rounded-lg bg-slate-50 p-3">
-                      <p className="text-xs font-semibold text-slate-900">Next handoff</p>
-                      <p className="mt-1 text-sm text-slate-800">
-                        {stop.consolidationWarehouseName
-                          ? `Consolidation: ${stop.consolidationWarehouseName}`
-                          : "Warehouse consolidation"}
-                      </p>
-                      <p className="mt-1 text-xs text-slate-600">
-                        Local hub: {hubName || "Pending hub assignment"}
-                      </p>
-                      <p className="mt-1 text-xs text-slate-600">
-                        Next: Warehouse(s) → Consolidation → Local Hub → Delivery Partner → Customer
-                      </p>
-                    </div>
-                  </div>
-                  {stop.routeSetupError && (
-                    <p className="mt-3 rounded-lg border border-red-200 bg-red-50 p-2 text-xs text-red-800">
-                      Logistics setup needs attention: {String(stop.routeSetupError)}
-                    </p>
-                  )}
-                </div>
-              );
-            })}
           </CardContent>
         </Card>
       )}
@@ -2311,41 +2202,6 @@ export default function FarmerOrderMapPage() {
           </CardContent>
         </Card>
       )}
-
-      <Card>
-        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <CardTitle className="text-slate-600">
-              Delivered{" "}
-              <span className="text-muted-foreground">({delivered.length})</span>{" "}
-              <span className="text-sm font-normal text-muted-foreground">
-                · {DELIVERED_WINDOWS.find((w) => w.value === deliveredWindow)?.label}
-              </span>
-            </CardTitle>
-            <CardDescription>
-              Orders already delivered within the selected time window. Use the filter in the header to change the window for the whole page.
-            </CardDescription>
-          </div>
-        </CardHeader>
-        <CardContent className="max-h-[320px] space-y-3 overflow-y-auto">
-          {delivered.length === 0 ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">
-              No delivered orders in this window yet.
-            </p>
-          ) : (
-            delivered.map((stop, index) => (
-              <OrderCard
-                key={getStopId(stop)}
-                stop={stop}
-                index={index + 1}
-                selected={selectedRouteIds.includes(getStopId(stop))}
-                onSelect={() => setSelectedStopId(getStopId(stop))}
-                readOnly
-              />
-            ))
-          )}
-        </CardContent>
-      </Card>
 
       <Dialog open={capacityEditorOpen} onOpenChange={(v) => !v && setCapacityEditorOpen(false)}>
         <DialogContent>
