@@ -1153,7 +1153,7 @@ export default function FarmerOrderMapPage() {
 
   return (
     <div className="min-h-full space-y-4 bg-slate-50/40 pb-8">
-      <DeliveryWorkflowNav current="order-map" />
+      <DeliveryWorkflowNav current="order-map" hideCalendar />
       {mapLoadError && (
         <Card className="border-red-200 bg-red-50">
           <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
