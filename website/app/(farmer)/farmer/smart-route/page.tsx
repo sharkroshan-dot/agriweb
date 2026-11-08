@@ -191,7 +191,7 @@ export default function SmartRoutePage() {
       <div className="space-y-6">
       <DeliveryWorkflowNav current="smart-route" hideCalendar />
         <div className="h-8 w-64 animate-pulse rounded bg-gray-200" />
-        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-base font-semibold text-slate-900">Available orders for your route</h2><p className="mt-1 text-xs text-slate-500">Select only the orders you can deliver on this trip. Unselected orders stay available for your next route.</p></div><div className="flex flex-wrap items-center gap-2"><Badge variant="outline">{availableStops.length} available</Badge><Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">{selectedOrderIds.length} selected</Badge><Button size="sm" variant="outline" onClick={() => setSelectedOrderIds(availableStops.map((stop) => stop.orderId))}>Select all</Button><Button size="sm" variant="ghost" onClick={() => setSelectedOrderIds([])}>Clear</Button></div></div><div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">{availableStops.map((stop) => { const checked = selectedOrderIds.includes(stop.orderId); return <label key={stop.orderId} className={cn("flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors", checked ? "border-emerald-300 bg-emerald-50/60" : "border-slate-200 hover:border-slate-300")}><input type="checkbox" className="mt-1 h-4 w-4 accent-emerald-600" checked={checked} onChange={(event) => setSelectedOrderIds((current) => event.target.checked ? [...current, stop.orderId] : current.filter((id) => id !== stop.orderId))}/><span className="min-w-0 flex-1"><span className="flex items-center justify-between gap-2"><span className="truncate text-sm font-semibold text-slate-900">#{stop.orderNumber}</span><span className="text-xs font-medium text-emerald-700">{formatPrice(stop.total)}</span></span><span className="mt-1 block truncate text-xs text-slate-700">{stop.customerName}</span><span className="mt-1 block text-xs text-slate-500">{(stop.items || []).map((item) => item.name + " (" + item.quantity + ")").join(", ")}</span><span className="mt-1 block truncate text-[11px] text-slate-500">{stop.address}{stop.city ? ", " + stop.city : ""}</span><span className="mt-1 block text-[11px] text-slate-500">{stop.deliveryWindow} · {Number(stop.distance || 0).toFixed(1)} km</span></span></label>; })}</div></section>{selectedOrderIds.length === 0 && <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center"><Route className="mx-auto h-7 w-7 text-slate-400"/><p className="mt-2 text-sm font-semibold text-slate-800">Select orders to build your route</p><p className="mt-1 text-xs text-slate-500">Your optimized map, stop sequence and estimates will appear here.</p></div>}{selectedOrderIds.length > 0 && selectedRouteQuery.isLoading && <div className="h-24 animate-pulse rounded-xl bg-slate-100"/>}{selectedOrderIds.length > 0 && !selectedRouteQuery.isLoading && stops.length > 0 && <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
           {[1, 2, 3, 4, 5, 6].map((i) => (
             <div key={i} className="h-24 animate-pulse rounded-lg bg-gray-200" />
           ))}
@@ -248,7 +248,21 @@ export default function SmartRoutePage() {
         </div>
       </section>
 
-      <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div><h2 className="text-base font-semibold text-slate-900">Available orders for your route</h2><p className="mt-1 text-xs text-slate-500">Select only the orders you can deliver on this trip. Unselected orders stay available for your next route.</p></div>
+          <div className="flex flex-wrap items-center gap-2"><Badge variant="outline">{availableStops.length} available</Badge><Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">{selectedOrderIds.length} selected</Badge><Button size="sm" variant="outline" onClick={() => setSelectedOrderIds(availableStops.map((stop) => stop.orderId))}>Select all</Button><Button size="sm" variant="ghost" onClick={() => setSelectedOrderIds([])}>Clear</Button></div>
+        </div>
+        <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+          {availableStops.map((stop) => { const checked = selectedOrderIds.includes(stop.orderId); return <label key={stop.orderId} className={cn("flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors", checked ? "border-emerald-300 bg-emerald-50/60" : "border-slate-200 hover:border-slate-300")}>
+            <input type="checkbox" className="mt-1 h-4 w-4 accent-emerald-600" checked={checked} onChange={(event) => setSelectedOrderIds((current) => event.target.checked ? [...current, stop.orderId] : current.filter((id) => id !== stop.orderId))}/>
+            <span className="min-w-0 flex-1"><span className="flex items-center justify-between gap-2"><span className="truncate text-sm font-semibold text-slate-900">#{stop.orderNumber}</span><span className="text-xs font-medium text-emerald-700">{formatPrice(stop.total)}</span></span><span className="mt-1 block truncate text-xs text-slate-700">{stop.customerName}</span><span className="mt-1 block text-xs text-slate-500">{(stop.items || []).map((item) => item.name + " (" + item.quantity + ")").join(", ")}</span><span className="mt-1 block truncate text-[11px] text-slate-500">{stop.address}{stop.city ? ", " + stop.city : ""}</span><span className="mt-1 block text-[11px] text-slate-500">{stop.deliveryWindow} · {Number(stop.distance || 0).toFixed(1)} km</span></span>
+          </label>; })}
+        </div>
+      </section>
+      {selectedOrderIds.length === 0 && <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center"><Route className="mx-auto h-7 w-7 text-slate-400"/><p className="mt-2 text-sm font-semibold text-slate-800">Select orders to build your route</p><p className="mt-1 text-xs text-slate-500">Your optimized map, stop sequence and estimates will appear after selection.</p></div>}
+      {selectedOrderIds.length > 0 && selectedRouteQuery.isLoading && <div className="h-24 animate-pulse rounded-xl bg-slate-100"/>}
+      {selectedOrderIds.length > 0 && !selectedRouteQuery.isLoading && stops.length > 0 &&       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
         <Card className="border-slate-200 shadow-sm">
           <CardContent className="flex items-center gap-3 p-4">
             <div className="rounded-xl bg-blue-50 p-3"><Route className="h-5 w-5 text-blue-600" /></div><div><p className="text-xl font-bold text-slate-900">{summary?.totalDistance ?? 0} km</p><p className="text-xs text-slate-500">Optimized distance</p></div>
@@ -280,6 +294,7 @@ export default function SmartRoutePage() {
           </CardContent>
         </Card>
       </div>
+      </div>}
 
       {selectedOrderIds.length > 0 && savings && (
         <Card
@@ -434,6 +449,7 @@ export default function SmartRoutePage() {
         </Card>
       )}
 
+      {selectedOrderIds.length > 0 && stops.length > 0 && (
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -463,8 +479,9 @@ export default function SmartRoutePage() {
           </div>
         </CardContent>
       </Card>
+      )}
 
-      <Card>
+      {selectedOrderIds.length > 0 && stops.length > 0 && <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Navigation className="h-5 w-5 text-emerald-600" />
@@ -560,7 +577,7 @@ export default function SmartRoutePage() {
             </Button>
           </div>
         </CardContent>
-      </Card>
+      </Card>}
     </div>
   );
 }
