@@ -37,7 +37,6 @@ import { cn, formatPrice } from "../../../lib/utils";
 import { api } from "../../../lib/api/client";
 import { Map } from "../../../components/shared/map";
 import toast from "react-hot-toast";
-import { FarmerPageHeader } from "../../../components/farmer/farmer-page-header";
 
 interface Stop {
   orderId: string;
@@ -188,9 +187,9 @@ export default function SmartRoutePage() {
   if (isLoading) {
     return (
       <div className="space-y-6">
-      <DeliveryWorkflowNav current="smart-route" />
+      <DeliveryWorkflowNav current="smart-route" hideCalendar />
         <div className="h-8 w-64 animate-pulse rounded bg-gray-200" />
-        <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
           {[1, 2, 3, 4, 5, 6].map((i) => (
             <div key={i} className="h-24 animate-pulse rounded-lg bg-gray-200" />
           ))}
@@ -203,11 +202,13 @@ export default function SmartRoutePage() {
 
   if (!stops.length) {
     return (
-      <div className="space-y-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="space-y-4">
+        <DeliveryWorkflowNav current="smart-route" hideCalendar />
+        <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-3xl font-bold">Smart Route</h1>
-            <p className="text-gray-500">{dateStr}</p>
+            <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700"><Sparkles className="h-3.5 w-3.5" /> DELIVERY OPTIMIZATION</div>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900">Smart Route Planner</h1>
+            <p className="mt-1 text-sm text-slate-500">{dateStr} · Plan and review your farmer self-delivery route.</p>
           </div>
         </div>
         <div className="flex flex-col items-center justify-center rounded-lg border border-dashed p-12 text-center">
@@ -216,14 +217,7 @@ export default function SmartRoutePage() {
           <p className="mt-2 text-sm text-gray-500">
             Orders appear here once they are ready for delivery or pickup.
           </p>
-          <div className="mt-4 flex gap-3">
-            <Button asChild>
-              <Link href={`/farmer/delivery-calendar${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`}>View Delivery Calendar</Link>
-            </Button>
-            <Button asChild variant="outline">
-              <Link href={`/farmer/route${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`}>Route Planning</Link>
-            </Button>
-          </div>
+          <div className="mt-4 flex flex-wrap gap-3"><Button asChild variant="outline"><Link href="/farmer/order-map">Back to Order Map</Link></Button><Button asChild><Link href="/farmer/route">Open Delivery Route</Link></Button></div>
         </div>
       </div>
     );
@@ -234,62 +228,53 @@ export default function SmartRoutePage() {
 
   return (
     <div className="space-y-6">
-      <FarmerPageHeader title="Smart route" description={`Optimise today’s delivery sequence for ${dateStr}. Review distance, time and net earnings before launching.`}>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={handleOptimize}>
-            <RotateCw className="mr-2 h-4 w-4" />
-            Optimize Route
-          </Button>
-          <Button asChild>
-            <Link href={`/farmer/route${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`}>
-              <Play className="mr-2 h-4 w-4" />
-              Launch Route
-            </Link>
-          </Button>
+      <DeliveryWorkflowNav current="smart-route" hideCalendar />
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="min-w-0">
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50"><Sparkles className="mr-1.5 h-3.5 w-3.5" /> Smart delivery planning</Badge>
+              <Badge variant="outline" className="text-slate-500">{dateStr}</Badge>
+            </div>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Smart Route Planner</h1>
+            <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500">Review the optimized stop sequence, travel estimate and delivery earnings before starting your route.</p>
+          </div>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <Button variant="outline" onClick={handleOptimize} disabled={isLoading}><RotateCw className="mr-2 h-4 w-4" /> Re-optimize</Button>
+            <Button asChild className="bg-emerald-600 hover:bg-emerald-700"><Link href={`/farmer/route${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`}><Play className="mr-2 h-4 w-4" /> Start delivery</Link></Button>
+          </div>
         </div>
-      </FarmerPageHeader>
+      </section>
 
       <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
-        <Card>
-          <CardContent className="p-4 text-center">
-            <Route className="mx-auto h-5 w-5 text-blue-600" />
-            <p className="mt-2 text-2xl font-bold">{summary?.totalDistance ?? 0} km</p>
-            <p className="text-xs text-gray-500">Optimized Distance</p>
+        <Card className="border-slate-200 shadow-sm">
+          <CardContent className="flex items-center gap-3 p-4">
+            <div className="rounded-xl bg-blue-50 p-3"><Route className="h-5 w-5 text-blue-600" /></div><div><p className="text-xl font-bold text-slate-900">{summary?.totalDistance ?? 0} km</p><p className="text-xs text-slate-500">Optimized distance</p></div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="p-4 text-center">
-            <Clock className="mx-auto h-5 w-5 text-amber-600" />
-            <p className="mt-2 text-2xl font-bold">{Math.round(summary?.estimatedTime ?? 0)} min</p>
-            <p className="text-xs text-gray-500">Est. Time</p>
+        <Card className="border-slate-200 shadow-sm">
+          <CardContent className="flex items-center gap-3 p-4">
+            <div className="rounded-xl bg-amber-50 p-3"><Clock className="h-5 w-5 text-amber-600" /></div><div><p className="text-xl font-bold text-slate-900">{Math.round(summary?.estimatedTime ?? 0)} min</p><p className="text-xs text-slate-500">Estimated time</p></div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="p-4 text-center">
-            <Wallet className="mx-auto h-5 w-5 text-orange-600" />
-            <p className="mt-2 text-2xl font-bold">{formatPrice(summary?.fuelCost)}</p>
-            <p className="text-xs text-gray-500">Fuel Cost</p>
+        <Card className="border-slate-200 shadow-sm">
+          <CardContent className="flex items-center gap-3 p-4">
+            <div className="rounded-xl bg-orange-50 p-3"><Wallet className="h-5 w-5 text-orange-600" /></div><div><p className="text-xl font-bold text-slate-900">{formatPrice(summary?.fuelCost)}</p><p className="text-xs text-slate-500">Estimated fuel cost</p></div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="p-4 text-center">
-            <DollarSign className="mx-auto h-5 w-5 text-emerald-600" />
-            <p className="mt-2 text-2xl font-bold">{formatPrice(summary?.expectedIncome)}</p>
-            <p className="text-xs text-gray-500">Expected Income</p>
+        <Card className="border-slate-200 shadow-sm">
+          <CardContent className="flex items-center gap-3 p-4">
+            <div className="rounded-xl bg-emerald-50 p-3"><DollarSign className="h-5 w-5 text-emerald-600" /></div><div><p className="text-xl font-bold text-slate-900">{formatPrice(summary?.expectedIncome)}</p><p className="text-xs text-slate-500">Expected income</p></div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="p-4 text-center">
-            <TrendingUp className="mx-auto h-5 w-5 text-green-600" />
-            <p className="mt-2 text-2xl font-bold">{formatPrice(summary?.netIncome)}</p>
-            <p className="text-xs text-gray-500">Net Profit</p>
+        <Card className="border-slate-200 shadow-sm">
+          <CardContent className="flex items-center gap-3 p-4">
+            <div className="rounded-xl bg-green-50 p-3"><TrendingUp className="h-5 w-5 text-green-600" /></div><div><p className="text-xl font-bold text-slate-900">{formatPrice(summary?.netIncome)}</p><p className="text-xs text-slate-500">Net profit</p></div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="p-4 text-center">
-            <Users className="mx-auto h-5 w-5 text-indigo-600" />
-            <p className="mt-2 text-2xl font-bold">{summary?.customersCount}</p>
-            <p className="text-xs text-gray-500">Customers</p>
+        <Card className="border-slate-200 shadow-sm">
+          <CardContent className="flex items-center gap-3 p-4">
+            <div className="rounded-xl bg-indigo-50 p-3"><Users className="h-5 w-5 text-indigo-600" /></div><div><p className="text-xl font-bold text-slate-900">{summary?.customersCount ?? 0}</p><p className="text-xs text-slate-500">Customers</p></div>
           </CardContent>
         </Card>
       </div>
@@ -408,10 +393,10 @@ export default function SmartRoutePage() {
 
       {mapMarkers.length > 0 && (
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
+          <CardHeader className="border-b bg-white py-4">
+            <CardTitle className="flex items-center gap-2 text-base">
               <Navigation className="h-5 w-5 text-emerald-600" />
-              Route Map
+              Route overview
             </CardTitle>
             <CardDescription>
               Optimized driving order from {origin?.name ?? "your farm"} — follow the blue line.
@@ -564,11 +549,11 @@ export default function SmartRoutePage() {
             </div>
           </div>
 
-          <div className="mt-6 flex justify-end">
+          <div className="mt-6 flex flex-col-reverse gap-2 border-t pt-4 sm:flex-row sm:justify-end">
             <Button asChild>
               <Link href={`/farmer/route${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`}>
                 <Play className="mr-2 h-4 w-4" />
-                Go to Route Planning to start delivery
+                Start delivery
               </Link>
             </Button>
           </div>
