@@ -205,19 +205,12 @@ export default function FarmerBatchesPage() {
     });
   }, [batches, searchQuery, activeFilter]);
 
-  // Batch creation is one-to-one with a product. Once a product has a batch,
-  // it must never appear again in the batch-creation selector.
-  const productsWithBatches = new Set(
-    batches.map((batch) => batch.productId).filter(Boolean).map((id) => String(id))
-  );
+  // A marketplace product can have many harvest lots over time.
+  // Only the harvest event itself is one-to-one with a batch.
+  const batchEligibleProducts = products;
   const harvestPlansWithBatches = new Set(
     batches.map((batch) => batch.sourceHarvestPlanId).filter(Boolean).map((id) => String(id))
   );
-  const batchEligibleProducts = products.filter((product) => {
-    const productId = String(product._id);
-    const sourcePlanId = String(product.sourceHarvestPlanId || "");
-    return !productsWithBatches.has(productId) && !harvestPlansWithBatches.has(sourcePlanId);
-  });
   const availableHarvests = harvestedPlans
     .filter((plan) => {
       const id = String(plan.id || plan._id || "");
@@ -347,7 +340,7 @@ export default function FarmerBatchesPage() {
           <CardHeader className="border-b border-slate-100 bg-slate-50/60">
             <CardTitle className="text-base font-semibold text-slate-950">Create batch from harvested crop</CardTitle>
             <CardDescription>
-              Select a completed harvest to create its traceable batch. The marketplace product can be linked after quality approval.
+              Select a completed harvest to create a new traceable lot. You can add this lot to an existing marketplace product after quality approval.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -586,8 +579,8 @@ export default function FarmerBatchesPage() {
                           <td colSpan={8} className="px-4 py-4">
                             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                               <div>
-                                <p className="text-sm font-semibold text-slate-900">Link {batch.lotNumber} to a marketplace product</p>
-                                <p className="mt-1 text-xs text-slate-600">Choose the product that should receive this approved batch inventory.</p>
+                                <p className="text-sm font-semibold text-slate-900">Restock a marketplace product with {batch.lotNumber}</p>
+                                <p className="mt-1 text-xs text-slate-600">Choose the existing product to restock. Each additional harvest is tracked as a separate lot (001, 001A, 001B…).</p>
                               </div>
                               <div className="flex flex-wrap items-center gap-2">
                                 <Select value={converting.productId} onValueChange={(value) => setConverting({ batchId: batch.id, productId: value })}>
