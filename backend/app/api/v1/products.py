@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
 from typing import List, Optional
 from datetime import datetime, timedelta
 from app.api.v1.auth import get_current_user
+from app.core.upload_storage import get_upload_directory
 from app.schemas.product import (
     ProductResponse, ProductCreate, ProductUpdate,
     CategoryResponse, CategoryCreate, CategoryUpdate,
@@ -220,7 +221,6 @@ async def create_product(
             )
 
     from app.core.config import settings
-from app.core.upload_storage import get_upload_directory
     if not settings.DEBUG:
         from app.services.farmer_service import FarmerService
         farmer = await FarmerService.get_farmer_profile(str(current_user["_id"]))
