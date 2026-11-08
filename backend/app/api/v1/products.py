@@ -220,6 +220,7 @@ async def create_product(
             )
 
     from app.core.config import settings
+from app.core.upload_storage import get_upload_directory
     if not settings.DEBUG:
         from app.services.farmer_service import FarmerService
         farmer = await FarmerService.get_farmer_profile(str(current_user["_id"]))
@@ -787,8 +788,7 @@ async def upload_file(
     """Upload a file (product image, avatar, etc.)."""
     from app.utils.file_security import validate_upload, UploadValidationError
 
-    upload_dir = settings.UPLOAD_DIR
-    os.makedirs(upload_dir, exist_ok=True)
+    upload_dir = get_upload_directory()
 
     content = await file.read()
     try:
@@ -807,5 +807,5 @@ async def upload_file(
     with open(filepath, "wb") as f:
         f.write(content)
 
-    url = f"/uploads/{filename}"
+    url = f"{settings.PUBLIC_BASE_URL.rstrip('/')}/uploads/{filename}"
     return {"success": True, "data": {"url": url, "filename": filename}}
