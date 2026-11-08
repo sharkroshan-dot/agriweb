@@ -273,7 +273,7 @@ export default function SmartRoutePage() {
             <div className="rounded-xl bg-indigo-50 p-3"><Users className="h-5 w-5 text-indigo-600" /></div><div><p className="text-xl font-bold text-slate-900">{summary?.customersCount ?? 0}</p><p className="text-xs text-slate-500">Customers</p></div>
           </CardContent>
         </Card>
-      </div>}
+      </div>
 
       {savings && (
         <Card
