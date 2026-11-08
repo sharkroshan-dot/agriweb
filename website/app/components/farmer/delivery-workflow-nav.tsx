@@ -13,13 +13,14 @@ const steps = [
   { id: "route" as const, label: "Route", href: "/farmer/route", icon: RouteIcon },
 ];
 
-export function DeliveryWorkflowNav({ current }: { current: DeliveryWorkflowStep }) {
-  const currentIndex = steps.findIndex((step) => step.id === current);
+export function DeliveryWorkflowNav({ current, hideCalendar = false }: { current: DeliveryWorkflowStep; hideCalendar?: boolean }) {
+  const visibleSteps = hideCalendar ? steps.filter((step) => step.id !== "calendar") : steps;
+  const currentIndex = visibleSteps.findIndex((step) => step.id === current);
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
       <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-1">
-        {steps.map((step, index) => {
+        {visibleSteps.map((step, index) => {
           const Icon = step.icon;
           const active = step.id === current;
           const completed = index < currentIndex;
