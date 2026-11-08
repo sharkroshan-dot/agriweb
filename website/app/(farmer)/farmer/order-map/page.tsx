@@ -1401,16 +1401,13 @@ export default function FarmerOrderMapPage() {
               Orders Confirmed
             </CardTitle>
             <CardDescription className="text-blue-800">
-              {confirmedOrderIds.length} confirmed order{confirmedOrderIds.length === 1 ? "" : "s"} are now available in the Delivery Calendar and Smart Route. Choose either path; both continue to the same Route page.
+              {confirmedOrderIds.length} order{confirmedOrderIds.length === 1 ? "" : "s"} confirmed for delivery planning. Continue to Smart Route to review the route and start the next delivery step. The Delivery Calendar remains a separate date-based schedule view.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-wrap items-center gap-2">
-            <Badge variant="success" className="gap-1.5"><CalendarDays className="h-3.5 w-3.5" />Delivery Calendar Updated</Badge>
-            <Button variant="outline" onClick={() => { window.location.href = `/farmer/delivery-calendar?orderIds=${encodeURIComponent(confirmedOrderIds.join(","))}`; }}>
-              <CalendarDays className="mr-1.5 h-4 w-4" />View Delivery Calendar
-            </Button>
+            <Badge variant="success" className="gap-1.5"><CalendarDays className="h-3.5 w-3.5" />Delivery schedule updated</Badge>
             <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={() => { window.location.href = `/farmer/smart-route?orderIds=${encodeURIComponent(confirmedOrderIds.join(","))}`; }}>
-              <Sparkles className="mr-1.5 h-4 w-4" />Find Smart Route
+              <Sparkles className="mr-1.5 h-4 w-4" />Continue to Smart Route
             </Button>
           </CardContent>
         </Card>
