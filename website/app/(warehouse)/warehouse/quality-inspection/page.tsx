@@ -27,6 +27,32 @@ type Inspection = {
   };
 };
 
+/**
+ * Upload APIs may return either an absolute URL or a path such as
+ * /uploads/evidence-file.jpg. Resolve relative media paths against the
+ * backend origin, not the Next.js website origin (localhost:3000).
+ */
+function resolveEvidenceMediaUrl(value: unknown): string {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  if (/^(https?:|blob:|data:)/i.test(raw)) return raw;
+
+  const configuredApiUrl =
+    process.env.NEXT_PUBLIC_API_URL ||
+    process.env.API_URL ||
+    "http://localhost:8000/api/v1";
+
+  let backendOrigin = "http://localhost:8000";
+  try {
+    backendOrigin = new URL(configuredApiUrl, window.location.origin).origin;
+  } catch {
+    // Keep the local backend fallback for malformed or relative config values.
+  }
+
+  const normalizedPath = raw.startsWith("/") ? raw : `/${raw}`;
+  return new URL(normalizedPath, backendOrigin).toString();
+}
+
 export default function WarehouseQualityInspectionPage() {
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState<Inspection | null>(null);
@@ -339,8 +365,49 @@ export default function WarehouseQualityInspectionPage() {
                 </div>
                 <div className="rounded-xl border p-4 space-y-3">
                   <div><p className="font-semibold">Farmer-submitted evidence</p><p className="text-xs text-muted-foreground">Review these photos and videos before recording your decision.</p></div>
-                  {(selected as any).photos?.length ? <div className="grid grid-cols-2 gap-3">{(selected as any).photos.map((url: string, index: number) => <a key={url + index} href={url} target="_blank" rel="noreferrer"><img src={url} alt={"Farmer evidence " + (index + 1)} className="h-36 w-full rounded-lg border object-cover" /></a>)}</div> : <p className="text-sm text-muted-foreground">No photos submitted.</p>}
-                  {(selected as any).videos?.length ? <div className="space-y-2">{(selected as any).videos.map((url: string, index: number) => <video key={url + index} src={url} controls playsInline className="max-h-64 w-full rounded-lg border" />)}</div> : <p className="text-sm text-muted-foreground">No videos submitted.</p>}
+                  {(selected as any).photos?.length ? (
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      {(selected as any).photos.map((storedUrl: string, index: number) => {
+                        const mediaUrl = resolveEvidenceMediaUrl(storedUrl);
+                        return (
+                          <a key={storedUrl + index} href={mediaUrl} target="_blank" rel="noreferrer" className="group block overflow-hidden rounded-xl border bg-slate-50">
+                            <img
+                              src={mediaUrl}
+                              alt={`Farmer evidence ${index + 1}`}
+                              loading="lazy"
+                              className="h-56 w-full bg-slate-100 object-contain transition-transform group-hover:scale-[1.02]"
+                              onError={(event) => {
+                                event.currentTarget.style.display = "none";
+                                const fallback = event.currentTarget.nextElementSibling as HTMLElement | null;
+                                if (fallback) fallback.classList.remove("hidden");
+                              }}
+                            />
+                            <div className="hidden min-h-32 items-center justify-center gap-2 p-4 text-center text-sm text-rose-700">
+                              <span>Image could not be loaded.</span>
+                              <span className="text-xs text-slate-500">Check that the backend upload URL is accessible.</span>
+                            </div>
+                            <p className="border-t bg-white px-3 py-2 text-xs text-slate-500">Photo {index + 1} · Open full size</p>
+                          </a>
+                        );
+                      })}
+                    </div>
+                  ) : <p className="text-sm text-muted-foreground">No photos submitted.</p>}
+                  {(selected as any).videos?.length ? (
+                    <div className="space-y-3">
+                      {(selected as any).videos.map((storedUrl: string, index: number) => (
+                        <div key={storedUrl + index} className="overflow-hidden rounded-xl border bg-black">
+                          <video
+                            src={resolveEvidenceMediaUrl(storedUrl)}
+                            controls
+                            playsInline
+                            preload="metadata"
+                            className="max-h-80 w-full"
+                          />
+                          <p className="bg-white px-3 py-2 text-xs text-slate-500">Farmer video {index + 1}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : <p className="text-sm text-muted-foreground">No videos submitted.</p>}
                   {(selected as any).evidenceNotes && <p className="rounded-md bg-muted/50 p-3 text-sm">{(selected as any).evidenceNotes}</p>}
                   <p className="text-xs text-muted-foreground">Submitted: {(selected as any).evidenceSubmittedAt ? new Date((selected as any).evidenceSubmittedAt).toLocaleString() : "—"}</p>
                 </div>
