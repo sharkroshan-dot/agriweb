@@ -102,24 +102,25 @@ export function DemandHeatmapView() {
   const modeMeta = MODES.find((m) => m.value === mode) ?? MODES[0];
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
+    <div className="mx-auto w-full max-w-[1600px] space-y-6 pb-8">
+      <div className="rounded-2xl border border-emerald-100 bg-gradient-to-r from-white via-emerald-50/60 to-teal-50/40 p-5 shadow-sm sm:p-6">
+        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">Farmer intelligence</div>
+        <h1 className="flex items-center gap-3 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
           <MapPin className="h-6 w-6 text-emerald-600" /> Where should I sell?
         </h1>
-        <p className="text-gray-500">
-          See where buyers want your produce, and where demand is growing.
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+          See where buyers need your produce, compare demand opportunities and choose the best locations to sell.
         </p>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
+      <Card className="overflow-hidden rounded-2xl border-slate-200 shadow-sm">
+        <CardHeader className="border-b border-slate-100 bg-slate-50/70 pb-4">
+          <CardTitle className="flex items-center gap-2 text-base font-semibold text-slate-900">
             <Search className="h-5 w-5 text-emerald-600" /> Pick your produce
           </CardTitle>
           <CardDescription>Choose what you grow and where you want to sell.</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-5 p-5 sm:p-6">
           {summary.confidence != null && (
             <Card className="border-emerald-200 bg-emerald-50/40">
               <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
@@ -129,9 +130,9 @@ export function DemandHeatmapView() {
             </Card>
           )}
 
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-3">
             <div className="space-y-1">
-              <label className="text-xs font-medium text-gray-500">Where do you want to sell?</label>
+              <label className="mb-1 block text-xs font-semibold text-slate-600">Where do you want to sell?</label>
               <Select value={state} onValueChange={(v) => setState(v)}>
                 <SelectContent>
                   {STATES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
@@ -159,14 +160,16 @@ export function DemandHeatmapView() {
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Demand view</p>
+            <div className="flex flex-wrap gap-2">
             {MODES.map((m) => (
               <button
                 key={m.value}
                 type="button"
                 onClick={() => setMode(m.value)}
                 className={cn(
-                  "rounded-full border px-3 py-1.5 text-sm font-medium transition-colors",
+                  "rounded-xl border px-3.5 py-2 text-sm font-medium transition-all",
                   mode === m.value
                     ? "border-emerald-600 bg-emerald-600 text-white"
                     : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
@@ -176,14 +179,17 @@ export function DemandHeatmapView() {
               </button>
             ))}
           </div>
-          <div className="flex flex-wrap gap-2">
+          </div>
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Buyer segment</p>
+            <div className="flex flex-wrap gap-2">
             {BUYERS.map((b) => (
               <button
                 key={b.value}
                 type="button"
                 onClick={() => setBuyer(b.value)}
                 className={cn(
-                  "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                  "rounded-xl border px-3.5 py-2 text-xs font-semibold transition-all",
                   buyer === b.value
                     ? "border-slate-800 bg-slate-800 text-white"
                     : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
@@ -194,10 +200,13 @@ export function DemandHeatmapView() {
             ))}
           </div>
 
-          <Button onClick={() => mutation.mutate()} disabled={mutation.isPending} className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700">
+          <div className="flex flex-col gap-2 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs text-slate-500">Demand results update using your selected filters.</p>
+          <Button onClick={() => mutation.mutate()} disabled={mutation.isPending} className="w-full rounded-xl bg-emerald-700 px-6 shadow-sm hover:bg-emerald-800 sm:w-auto">
             {mutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
             {mutation.isPending ? "Finding demand..." : "Show demand"}
           </Button>
+          </div>
         </CardContent>
       </Card>
 
@@ -221,8 +230,8 @@ export function DemandHeatmapView() {
             </div>
           )}
 
-          <div className="grid gap-3 sm:grid-cols-3">
-            <Card>
+          <div className="grid gap-4 md:grid-cols-3">
+            <Card className="rounded-2xl border-slate-200 shadow-sm">
               <CardContent className="p-5">
                 <p className="text-xs text-gray-500">Expected demand · {data.periodLabel}</p>
                 <p className="mt-1 text-3xl font-bold text-emerald-600">{fmt(Number(summary.predictedDemandKg) || 0)}</p>
@@ -254,7 +263,7 @@ export function DemandHeatmapView() {
             </Card>
           )}
 
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-3">
             <Card>
               <CardContent className="flex items-center justify-between p-4">
                 <span className="text-sm font-medium text-gray-700">🏠 Households</span>
@@ -280,9 +289,9 @@ export function DemandHeatmapView() {
               <MapPin className="h-5 w-5 text-emerald-600" /> Demand by area
               <span className="text-sm font-normal text-gray-400">· {modeMeta.emoji} {modeMeta.label}</span>
             </h2>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
               {locations.map((l: any, i: number) => (
-                <div key={`${l.location}-${i}`} className={cn("rounded-xl border p-4", heatClass(l))}>
+                <div key={`${l.location}-${i}`} className={cn("rounded-2xl border p-5 shadow-sm transition-shadow hover:shadow-md", heatClass(l))}>
                   <div className="flex items-center justify-between gap-2">
                     <p className="font-semibold text-gray-900">{l.location}</p>
                     <Badge className={cn("border", labelStyles[l.demandLabel] ?? labelStyles.low)}>
@@ -315,9 +324,9 @@ export function DemandHeatmapView() {
               <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold">
                 <Sparkles className="h-5 w-5 text-emerald-600" /> Best places to sell
               </h2>
-              <div className="space-y-3">
+              <div className="grid gap-4 xl:grid-cols-2">
                 {rankedAreas.map((a: any) => (
-                  <Card key={a.rank} className={cn(a.rank === 1 && "border-emerald-300 bg-gradient-to-br from-emerald-50/60 to-teal-50/30")}>
+                  <Card key={a.rank} className={cn("rounded-2xl border-slate-200 shadow-sm", a.rank === 1 && "border-emerald-300 bg-gradient-to-br from-emerald-50/60 to-teal-50/30")}>
                     <CardContent className="p-4">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex items-center gap-3">
@@ -362,7 +371,7 @@ export function DemandHeatmapView() {
       )}
 
       {!mutation.data && !mutation.isPending && !mutation.isError && (
-        <Card>
+        <Card className="rounded-2xl border-dashed border-slate-300 bg-slate-50/70 shadow-none">
           <CardContent className="flex flex-col items-center py-16 text-center">
             <div className="grid h-24 w-24 grid-cols-2 overflow-hidden rounded-lg">
               <div className="bg-emerald-200" />
