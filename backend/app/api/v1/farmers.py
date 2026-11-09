@@ -818,6 +818,9 @@ async def get_delivery_calendar(
         "deliveryType": DeliveryType.DELIVERY.value,
         # Include legacy farmer orders created before fulfillmentMethod was stored.
         "$or": [
+            # Current FARM_DIRECT enum value used by OrderService.
+            {"fulfillmentMethod": "farm_direct"},
+            # Older records and transitional values.
             {"fulfillmentMethod": "farmer"},
             {"fulfillmentMethod": {"$exists": False}},
             {"fulfillmentMethod": None},
