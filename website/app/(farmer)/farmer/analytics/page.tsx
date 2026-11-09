@@ -188,41 +188,6 @@ export default function FarmerAnalyticsPage() {
         ))}
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card className="rounded-2xl border-emerald-200/80 bg-gradient-to-br from-emerald-50/60 to-white shadow-sm">
-          <CardContent className="p-5 sm:p-6">
-            <div className="flex items-center gap-2 text-emerald-600">
-              <Wallet className="h-5 w-5" />
-              <p className="text-sm text-gray-500">💰 Money in your wallet</p>
-            </div>
-            <p className="mt-2 text-3xl font-extrabold text-emerald-700">{formatPrice(data.walletBalance ?? 0)}</p>
-            <p className="mt-1 text-xs text-gray-400">Ready to spend or withdraw</p>
-          </CardContent>
-        </Card>
-        <Card className="rounded-2xl border-amber-200/80 bg-gradient-to-br from-amber-50/60 to-white shadow-sm">
-          <CardContent className="p-5 sm:p-6">
-            <div className="flex items-center gap-2 text-amber-600">
-              <Banknote className="h-5 w-5" />
-              <p className="text-sm text-gray-500">⏳ Coming to you</p>
-            </div>
-            <p className="mt-2 text-3xl font-extrabold text-amber-700">{formatPrice(data.pendingEarnings ?? 0)}</p>
-            <p className="mt-1 text-xs text-gray-400">Earned but not paid out yet</p>
-          </CardContent>
-        </Card>
-        <Card className="rounded-2xl border-violet-200/80 bg-gradient-to-br from-violet-50/60 to-white shadow-sm">
-          <CardContent className="p-5 sm:p-6">
-            <div className="flex items-center gap-2 text-violet-600">
-              <Star className="h-5 w-5" />
-              <p className="text-sm text-gray-500">⭐ Customer rating</p>
-            </div>
-            <p className="mt-2 text-3xl font-extrabold text-violet-700">
-              {Number(data.avgRating ?? 0) > 0 ? `${Number(data.avgRating).toFixed(1)} / 5` : "—"}
-              <span className="ml-2 text-sm font-normal text-gray-400">({data.reviewCount ?? 0} reviews)</span>
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {[
           { label: "Harvest plans", value: harvest.harvestPlans ?? data.harvestPlans ?? 0, emoji: "🌱" },
