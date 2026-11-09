@@ -36,6 +36,7 @@ export default function FarmerProductsPage() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [activeTab, setActiveTab] = useState<"products" | "stock" | "restocking">("products");
   const [restockQty, setRestockQty] = useState<Record<string, string>>({});
+  const [restockSearch, setRestockSearch] = useState("");
   const queryClient = useQueryClient();
 
   const { data: productsData, isLoading, isError, error, refetch, isFetching } = useQuery({
@@ -59,6 +60,12 @@ export default function FarmerProductsPage() {
     reserved_stock: item.reserved_stock ?? 0,
     sold_stock: item.sold_stock ?? 0,
   })).sort((a: any, b: any) => Number(a.available_stock) - Number(b.available_stock));
+  const filteredRestockItems = inventoryItems.filter((item: any) => {
+    const query = restockSearch.trim().toLocaleLowerCase();
+    if (!query) return true;
+    return [item.product_name, item.product_id, item.product_slug]
+      .some((value) => String(value || "").toLocaleLowerCase().includes(query));
+  });
   const restockMutation = useMutation({
     mutationFn: (payload: { productId: string; quantity: number }) => api.put(`/products/${payload.productId}/inventory`, { quantity: payload.quantity, operation: "restock" }),
     onSuccess: () => {
@@ -315,9 +322,17 @@ export default function FarmerProductsPage() {
         <div className="rounded-2xl border border-blue-100 bg-blue-50/70 p-4"><div className="flex items-start gap-3"><PackagePlus className="mt-0.5 h-5 w-5 shrink-0 text-blue-700" /><div><h3 className="text-sm font-semibold text-blue-950">Restock your products</h3><p className="mt-1 text-sm text-blue-800">Enter the additional quantity harvested or received. Stock is updated after the server confirms the restock.</p></div></div></div>
         <Card className="overflow-hidden border-slate-200 shadow-sm">
           <CardContent className="p-0">
-            <div className="border-b border-slate-100 p-4"><h3 className="font-semibold text-slate-900">Products needing attention</h3><p className="mt-1 text-xs text-slate-500">Lowest available stock is listed first</p></div>
-            {inventoryLoading ? <div className="p-10 text-center text-sm text-slate-500">Loading products…</div> : inventoryItems.length === 0 ? <div className="p-10 text-center text-sm text-slate-500">No products available to restock.</div> : <div className="divide-y divide-slate-100">
-              {inventoryItems.map((item: any) => <div key={item.product_id} className="flex flex-col gap-3 p-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-col gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div><h3 className="font-semibold text-slate-900">Products needing attention</h3><p className="mt-1 text-xs text-slate-500">Sorted by available stock: lowest to highest</p></div>
+              <div className="relative w-full sm:max-w-xs">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <Input value={restockSearch} onChange={(e) => setRestockSearch(e.target.value)} placeholder="Search product name or ID..." aria-label="Search products to restock" className="h-10 rounded-xl border-slate-200 bg-slate-50 pl-9 pr-9 focus:bg-white" />
+                {restockSearch && <button type="button" onClick={() => setRestockSearch("")} aria-label="Clear restock search" className="absolute right-3 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700"><X className="h-4 w-4" /></button>}
+              </div>
+            </div>
+            <div className="px-4 pt-3 text-xs text-slate-500">{filteredRestockItems.length} of {inventoryItems.length} products · lowest stock first</div>
+            {inventoryLoading ? <div className="p-10 text-center text-sm text-slate-500">Loading products…</div> : inventoryItems.length === 0 ? <div className="p-10 text-center text-sm text-slate-500">No products available to restock.</div> : filteredRestockItems.length === 0 ? <div className="p-10 text-center"><Search className="mx-auto h-7 w-7 text-slate-300" /><p className="mt-2 text-sm font-medium text-slate-800">No matching products</p><p className="mt-1 text-xs text-slate-500">Try another product name or ID.</p><Button variant="outline" size="sm" className="mt-3" onClick={() => setRestockSearch("")}>Clear search</Button></div> : <div className="divide-y divide-slate-100">
+              {filteredRestockItems.map((item: any) => <div key={item.product_id} className="flex flex-col gap-3 p-4 lg:flex-row lg:items-center lg:justify-between">
                 <div className="flex min-w-0 items-center gap-3"><div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-slate-100">{/* eslint-disable-next-line @next/next/no-img-element */}<img src={item.images?.[0] || "/images/placeholder-product.jpg"} alt={item.product_name || "Product"} className="h-full w-full object-cover" /></div><div className="min-w-0"><p className="truncate text-sm font-semibold text-slate-900">{item.product_name || item.product_id}</p><p className="mt-1 text-xs text-slate-500">Current available: <strong className="text-slate-800">{item.available_stock} {item.unit || "kg"}</strong></p></div></div>
                 <div className="flex w-full items-center gap-2 lg:w-auto"><Input type="number" min="0.01" step="0.01" placeholder="Quantity to add" aria-label={`Restock quantity for ${item.product_name || "product"}`} value={restockQty[item.product_id] || ""} onChange={(e) => setRestockQty((prev) => ({ ...prev, [item.product_id]: e.target.value }))} className="h-10 min-w-0 lg:w-44" /><Button className="h-10 shrink-0 bg-emerald-700 hover:bg-emerald-800" disabled={restockMutation.isPending} onClick={() => submitRestock(item.product_id)}>{restockMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PackagePlus className="mr-2 h-4 w-4" />}Add stock</Button></div>
               </div>)}
