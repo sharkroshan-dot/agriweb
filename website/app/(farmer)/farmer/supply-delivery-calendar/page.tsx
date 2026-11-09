@@ -56,21 +56,22 @@ export default function FarmerSupplyDeliveryCalendarPage() {
         <CardContent className="space-y-4 p-3 sm:p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="icon" onClick={() => setMonthCursor(new Date(monthCursor.getFullYear(), monthCursor.getMonth()-1,1))}><ChevronLeft className="h-4 w-4" /></Button>
-              <h2 className="min-w-[150px] text-center text-lg font-semibold">{monthCursor.toLocaleDateString("en-IN", { month: "long", year: "numeric" })}</h2>
-              <Button variant="outline" size="icon" onClick={() => setMonthCursor(new Date(monthCursor.getFullYear(), monthCursor.getMonth()+1,1))}><ChevronRight className="h-4 w-4" /></Button>
-              <Button variant="ghost" size="sm" onClick={() => { setMonthCursor(new Date(new Date().getFullYear(),new Date().getMonth(),1)); setSelectedDate(toKey(new Date())); }}>Today</Button>
+              <Button variant="outline" size="icon" onClick={() => moveCalendar(-1)} aria-label="Previous period"><ChevronLeft className="h-4 w-4" /></Button>
+              <h2 className="min-w-[190px] text-center text-lg font-semibold">{calendarTitle}</h2>
+              <Button variant="outline" size="icon" onClick={() => moveCalendar(1)} aria-label="Next period"><ChevronRight className="h-4 w-4" /></Button>
+              <Button variant="ghost" size="sm" onClick={() => { const today = new Date(); setMonthCursor(new Date(today.getFullYear(),today.getMonth(),1)); setSelectedDate(toKey(today)); }}>Today</Button>
+              <div className="ml-1 flex rounded-lg border border-slate-200 bg-slate-50 p-1">{["month","week","day"].map((v) => <Button key={v} size="sm" variant={calendarView===v?"default":"ghost"} className={calendarView===v?"bg-emerald-700 text-white hover:bg-emerald-800":"capitalize"} onClick={() => setCalendarView(v)}>{v[0].toUpperCase()+v.slice(1)}</Button>)}</div>
             </div>
             <div className="flex flex-wrap gap-2">
               {["all","supply","delivery"].map((v) => <Button key={v} size="sm" variant={eventFilter===v?"default":"outline"} className={eventFilter===v?"bg-emerald-700 hover:bg-emerald-800":""} onClick={() => setEventFilter(v)}>{v==="all"?"All events":v==="supply"?"Supply only":"Delivery only"}</Button>)}
             </div>
           </div>
-          <div className="grid grid-cols-7 border-l border-t border-slate-200">
-            {["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map((d) => <div key={d} className="border-b border-r border-slate-200 bg-slate-50 py-2 text-center text-xs font-semibold text-slate-600">{d}</div>)}
-            {calendarCells.map((date) => {
+          <div className={cn("grid border-l border-t border-slate-200", calendarView === "day" ? "grid-cols-1" : "grid-cols-7")}>
+            {calendarView !== "day" && ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map((d) => <div key={d} className="border-b border-r border-slate-200 bg-slate-50 py-2 text-center text-xs font-semibold text-slate-600">{d}</div>)}
+            {visibleCalendarDays.map((date) => {
               const key = toKey(date);
               const events = allEvents.filter((e) => e.key === key && (eventFilter === "all" || e.kind === eventFilter));
-              return <button key={key} type="button" onClick={() => setSelectedDate(key)} className={cn("min-h-[86px] min-w-0 border-b border-r border-slate-200 p-1.5 text-left transition hover:bg-emerald-50 sm:min-h-[104px] sm:p-2", date.getMonth() !== monthCursor.getMonth() && "bg-slate-50/70 text-slate-400", selectedDate === key && "bg-emerald-50 ring-2 ring-inset ring-emerald-600")}>
+              return <button key={key} type="button" onClick={() => setSelectedDate(key)} className={cn("min-h-[86px] min-w-0 border-b border-r border-slate-200 p-1.5 text-left transition hover:bg-emerald-50 sm:min-h-[104px] sm:p-2", calendarView === "day" && "min-h-[220px] p-4", calendarView === "month" && date.getMonth() !== monthCursor.getMonth() && "bg-slate-50/70 text-slate-400", selectedDate === key && "bg-emerald-50 ring-2 ring-inset ring-emerald-600")}>
                 <span className="text-xs font-semibold">{date.getDate()}</span>
                 <div className="mt-1 space-y-1">{events.slice(0,2).map((e, i) => <span key={i} className={cn("block truncate rounded px-1 py-0.5 text-[9px] font-semibold sm:text-[10px]", e.kind === "supply" ? "bg-emerald-100 text-emerald-800" : "bg-blue-100 text-blue-800")}>{e.kind === "supply" ? "Supply" : "Delivery"} · {e.title}</span>)}{events.length > 2 && <span className="text-[9px] text-slate-500">+{events.length-2} more</span>}</div>
               </button>;
