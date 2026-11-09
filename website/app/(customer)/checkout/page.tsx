@@ -160,8 +160,9 @@ export default function CheckoutPage() {
     }),
     enabled: Boolean(selectedCheckoutAddress?.city) && items.length > 0 && status === "authenticated",
   });
+  const checkoutCartWeightKg = items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
   const checkoutSlots = (checkoutSlotsData?.data?.slots || []).filter((slot: any) => {
-    if (slot.status !== "open") return false;
+    if (slot.status !== "open" || Number(slot.remainingCapacityKg ?? slot.maxCapacityKg ?? 0) <= 0) return false;
     const slotDate = new Date(slot.date).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
     return slotDate === deliveryDate;
   });
@@ -852,7 +853,7 @@ export default function CheckoutPage() {
                 <CalendarClock className="h-5 w-5 text-emerald-600" /> Farmer Delivery Slots
               </CardTitle>
               <CardDescription>
-                Choose a published delivery batch for your selected delivery date. Your order will be linked to that farmer's batch.
+                Choose a delivery batch with enough remaining kilogram capacity for your cart.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -871,18 +872,25 @@ export default function CheckoutPage() {
                       type="button"
                       key={slot.id}
                       onClick={() => {
+                        if (checkoutCartWeightKg > Number(slot.remainingCapacityKg ?? slot.maxCapacityKg ?? 0)) {
+                          toast.error("This slot has only " + Number(slot.remainingCapacityKg ?? 0).toFixed(2) + " kg remaining.");
+                          return;
+                        }
                         setSelectedDeliverySlotId(slot.id);
                         setDeliveryTimeSlot(slot.startTime);
                       }}
-                      className={`rounded-xl border p-4 text-left transition ${selectedDeliverySlotId === slot.id ? "border-emerald-600 bg-emerald-50 ring-2 ring-emerald-100" : "border-slate-200 hover:border-emerald-300"}`}
+                      disabled={checkoutCartWeightKg > Number(slot.remainingCapacityKg ?? slot.maxCapacityKg ?? 0)}
+                      className={`rounded-xl border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${selectedDeliverySlotId === slot.id ? "border-emerald-600 bg-emerald-50 ring-2 ring-emerald-100" : "border-slate-200 hover:border-emerald-300"}`}
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-semibold text-slate-900">{slot.area}</span>
-                        <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700">{Math.max(0, Number(slot.maxOrders || 0) - Number(slot.bookings || 0))} spaces</span>
+                        <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700">{Number(slot.remainingCapacityKg ?? 0).toFixed(2)} kg left</span>
                       </div>
                       <p className="mt-2 text-sm text-slate-600">{slot.startTime} – {slot.endTime}</p>
                       <p className="mt-1 text-xs text-slate-500">{slot.farmerInfo?.farmName || slot.farmerInfo?.name || "Local farmer"} · {slot.distanceKm ? `${slot.distanceKm} km away` : `${slot.radiusKm} km coverage`}</p>
                       <p className="mt-2 text-sm font-medium text-emerald-700">Delivery fee: ₹{Number(slot.deliveryFee || 0).toFixed(2)}</p>
+                      <p className="mt-1 text-xs text-slate-500">{Number(slot.bookedCapacityKg || 0).toFixed(2)} kg booked of {Number(slot.maxCapacityKg || 0).toFixed(2)} kg · Your cart: {checkoutCartWeightKg.toFixed(2)} kg</p>
+                      {checkoutCartWeightKg > Number(slot.remainingCapacityKg ?? 0) && <p className="mt-1 text-xs font-medium text-rose-600">Not enough capacity for your cart</p>}
                     </button>
                   ))}
                 </div>
