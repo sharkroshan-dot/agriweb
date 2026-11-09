@@ -114,7 +114,7 @@ export default function FarmerCouponsPage() {
       </section>
     }
 
-    {formOpen && <CreateForm products={products} offer={editingOffer} coupon={editingCoupon} onClose={()=>setFormOpen(false)} onSaved={()=>{setFormOpen(false);qc.invalidateQueries({queryKey:["farmerOffersCoupons"]})}} />}
+    {formOpen && <CreateForm products={products} offer={editingOffer} coupon={editingCoupon} initialKind={tab} onClose={()=>setFormOpen(false)} onSaved={()=>{setFormOpen(false);qc.invalidateQueries({queryKey:["farmerOffersCoupons"]})}} />}
   </div>;
 }
 
@@ -145,9 +145,9 @@ function CouponList({title, rows, onEdit, onDelete}: any) {
   </CardContent></Card>
 }
 
-function CreateForm({products, offer, coupon, onClose, onSaved}: any) {
+function CreateForm({products, offer, coupon, initialKind, onClose, onSaved}: any) {
   const isCoupon = !!coupon;
-  const [kind,setKind] = useState<"offer"|"coupon">(isCoupon?"coupon":"offer");
+  const [kind,setKind] = useState<"offer"|"coupon">(isCoupon?"coupon":initialKind || "offer");
   const [form,setForm] = useState<any>(offer || coupon || { productId: products[0]?.id || "", name:"", code:"", description:"", discountType:"percentage", discountValue:10, minQuantity:1, minOrderValue:0, startAt:new Date().toISOString().slice(0,16), endAt:"", expiresAt:"", eligibility:"all" });
   const [saving,setSaving]=useState(false);
   const save=async()=>{try{
