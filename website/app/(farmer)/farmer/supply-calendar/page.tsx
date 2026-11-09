@@ -522,7 +522,7 @@ export function FarmerSupplyCalendarContent(props: { compact?: boolean; selected
   };
 
   return (
-    <div className="w-full min-w-0 space-y-5 pb-8">
+    <div className={cn("w-full min-w-0", compact ? "space-y-3 pb-0" : "space-y-5 pb-8")}>
       {!compact && <FarmerPageHeader
         eyebrow="Farm planning & supply"
         title="Supply Calendar"
@@ -683,9 +683,9 @@ export function FarmerSupplyCalendarContent(props: { compact?: boolean; selected
           </CardContent>
         </Card>
 
-        <aside className="grid min-w-0 grid-cols-1 items-start gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          <Card className="border-slate-200 shadow-sm">
-            <CardContent className="space-y-2.5 p-3">
+        <aside className={cn("grid min-w-0 items-start gap-3", compact ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1 sm:grid-cols-2 xl:grid-cols-3")}>
+          <Card className="h-full border-slate-200 shadow-sm">
+            <CardContent className="space-y-3 p-4">
               <div className="flex items-start justify-between gap-2">
                 <div><p className="text-[10px] font-bold uppercase tracking-[0.12em] text-emerald-700">Selected date</p><h2 className="mt-1 text-lg font-bold text-slate-950">{selected.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" })}</h2></div>
                 {selectedDate === dateKey(new Date()) && <Badge className="border border-emerald-200 bg-emerald-50 text-emerald-800">Today</Badge>}
