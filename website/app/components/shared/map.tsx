@@ -264,7 +264,8 @@ export function Map({
       const inst = mapInstanceRef.current;
       const l = libsRef.current;
       if (!inst || !l) return;
-      const stops = stopsRef.current.filter(Boolean);
+      const markerStops = stopsRef.current.filter(Boolean);
+      const stops = route.length >= 2 ? route.filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng)) : markerStops;
       if (stops.length === 0) return;
       const user = userPosRef.current;
 
