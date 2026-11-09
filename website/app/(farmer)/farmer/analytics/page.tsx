@@ -172,38 +172,14 @@ export default function FarmerAnalyticsPage() {
         </Card>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {SUMMARY_CARDS.map(({ key, label, emoji, color, format }) => (
-          <Card key={key} className="rounded-2xl border-slate-200/80 shadow-sm transition-shadow hover:shadow-md">
-            <CardContent className="p-5 sm:p-6">
-              <div className="flex items-start justify-between">
-                <div className="space-y-1">
-                  <p className="text-3xl">{emoji}</p>
-                  <p className="mt-1 text-3xl font-extrabold text-slate-900">{format(data[key])}</p>
-                  <p className="text-sm text-gray-500">{label}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {[
-          { label: "Harvest plans", value: harvest.harvestPlans ?? data.harvestPlans ?? 0, emoji: "🌱" },
-          { label: "Upcoming harvests", value: harvest.upcomingHarvests ?? data.upcomingHarvests ?? 0, emoji: "📅" },
-          { label: "Pre-orders booked", value: harvest.preOrders ?? data.preOrders ?? 0, emoji: "🛒" },
-          { label: "Customers interested", value: harvest.notifyMe ?? data.notifyMe ?? 0, emoji: "🔔" },
-        ].map((s) => (
-          <Card key={s.label}>
-            <CardContent className="p-5 sm:p-6">
-              <p className="text-3xl">{s.emoji}</p>
-              <p className="mt-1 text-3xl font-extrabold text-slate-900">{s.value}</p>
-              <p className="text-sm text-gray-500">{s.label}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      <Card className="rounded-2xl border-slate-200/80 shadow-sm">
+        <CardContent className="grid grid-cols-2 gap-4 p-4 sm:grid-cols-4">
+          <div><p className="text-xs text-slate-500">Harvest plans</p><p className="mt-1 text-xl font-bold text-slate-900">{harvest.harvestPlans ?? data.harvestPlans ?? 0}</p></div>
+          <div><p className="text-xs text-slate-500">Upcoming harvests</p><p className="mt-1 text-xl font-bold text-slate-900">{harvest.upcomingHarvests ?? data.upcomingHarvests ?? 0}</p></div>
+          <div><p className="text-xs text-slate-500">Pre-orders booked</p><p className="mt-1 text-xl font-bold text-slate-900">{harvest.preOrders ?? data.preOrders ?? 0}</p></div>
+          <div><p className="text-xs text-slate-500">Customers interested</p><p className="mt-1 text-xl font-bold text-slate-900">{harvest.notifyMe ?? data.notifyMe ?? 0}</p></div>
+        </CardContent>
+      </Card>
 
       <Card className="rounded-2xl border-slate-200/80 shadow-sm">
         <CardHeader className="pb-2"><CardTitle className="text-base">Monthly sales trend</CardTitle><CardDescription>Revenue grouped by month from your customer order history.</CardDescription></CardHeader>
