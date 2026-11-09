@@ -403,13 +403,13 @@ export default function FarmerAnalyticsPage() {
           <CardContent>
             <div className="h-[280px] w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={revenueTrend.length > 0 ? revenueTrend : [{ name: "No data", revenue: 0, orders: 0 }]}>
+                <LineChart data={revenueTrend}>
                   <CartesianGrid stroke="#e2e8f0" strokeDasharray="4 4" vertical={false} />
                   <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: "#64748b", fontSize: 12 }} />
                   <YAxis axisLine={false} tickLine={false} tick={{ fill: "#64748b", fontSize: 12 }} />
                   <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e2e8f0", boxShadow: "0 8px 24px rgba(15,23,42,0.08)" }} />
                   <Line type="monotone" dataKey="revenue" name="Revenue" stroke="#059669" strokeWidth={3} dot={false} activeDot={{ r: 5 }} />
-                  <Line type="monotone" dataKey="orders" name="Orders" stroke="#3b82f6" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+                  
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -425,8 +425,8 @@ export default function FarmerAnalyticsPage() {
             <div className="h-[280px] w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie data={categoryData.length > 0 ? categoryData : [{ name: "No data", value: 1 }]} dataKey="value" cx="50%" cy="50%" outerRadius={80} label>
-                    {(categoryData.length > 0 ? categoryData : [{ name: "No data", value: 1 }]).map((entry: any, index: number) => (
+                  <Pie data={categoryData} dataKey="value" cx="50%" cy="50%" outerRadius={80} label>
+                    {categoryData.map((entry: any, index: number) => (
                       <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                     ))}
                   </Pie>
@@ -447,7 +447,7 @@ export default function FarmerAnalyticsPage() {
           <CardContent>
             <div className="h-[280px] w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={orderStatus.length > 0 ? orderStatus : [{ name: "No data", count: 1 }]}>
+                <BarChart data={orderStatus}>
                   <CartesianGrid stroke="#e2e8f0" strokeDasharray="4 4" vertical={false} />
                   <XAxis dataKey="name" tickFormatter={(v: string) => v.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())} />
                   <YAxis allowDecimals={false} axisLine={false} tickLine={false} tick={{ fill: "#64748b", fontSize: 12 }} />
