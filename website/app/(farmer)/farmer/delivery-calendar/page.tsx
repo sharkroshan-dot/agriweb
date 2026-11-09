@@ -302,7 +302,7 @@ export function FarmerDeliveryCalendarContent() {
         </div>
       </FarmerPageHeader>
 
-      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_240px]">
+      <div className="flex min-w-0 flex-col gap-4">
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <Button variant="ghost" size="icon" onClick={goPrev}>
@@ -636,7 +636,7 @@ export function FarmerDeliveryCalendarContent() {
         </div>
 
         <aside className="grid min-w-0 grid-cols-1 items-start gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <Card>
+          <Card className="sm:col-span-2 xl:col-span-2">
             <CardHeader className="pb-2">
               <CardTitle className="text-base">Calendar Summary · {selectedSummaryLabel}</CardTitle>
             </CardHeader>
