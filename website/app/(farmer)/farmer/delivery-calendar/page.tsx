@@ -302,7 +302,7 @@ export function FarmerDeliveryCalendarContent() {
         </div>
       </FarmerPageHeader>
 
-      <div className="grid gap-6 lg:grid-cols-[1fr,320px]">
+      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <Button variant="ghost" size="icon" onClick={goPrev}>
@@ -346,12 +346,12 @@ export function FarmerDeliveryCalendarContent() {
                 </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <div className="grid min-w-[910px] grid-cols-7 gap-3">
+                  <div className="grid min-w-[840px] grid-cols-7 gap-2">
                     {DAYS.map((day, dayIndex) => (
                       <div key={day} className="space-y-2">
                         <div
                           className={cn(
-                            "rounded-lg p-3 text-center",
+                            "rounded-lg p-2 text-center",
                             isToday(dates[dayIndex]) ? "bg-emerald-100" : "bg-gray-50"
                           )}
                         >
@@ -372,7 +372,7 @@ export function FarmerDeliveryCalendarContent() {
                               key={slot.label}
                               onClick={() => setSelectedSlot({ day, time: slot.label, date: dateKey(dates[dayIndex]) })}
                               className={cn(
-                                "w-full rounded-lg border p-3 text-left transition-all",
+                                "w-full rounded-lg border p-2 text-left transition-all",
                                 count > 0
                                   ? slot.color
                                   : "border-dashed border-gray-200 bg-white hover:bg-gray-50",
@@ -635,12 +635,12 @@ export function FarmerDeliveryCalendarContent() {
           )}
         </div>
 
-        <div className="space-y-4">
+        <aside className="sticky top-20 max-h-[calc(100vh-6rem)] space-y-3 overflow-y-auto overscroll-contain pr-1">
           <Card>
-            <CardHeader>
+            <CardHeader className="pb-2">
               <CardTitle className="text-base">Calendar Summary · {selectedSummaryLabel}</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-2.5">
               <div className="flex items-center justify-between border-b pb-3">
                 <div className="flex items-center gap-2 text-sm text-gray-500">
                   <Truck className="h-4 w-4" />
@@ -689,9 +689,9 @@ export function FarmerDeliveryCalendarContent() {
             </CardContent>
           </Card>
 
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-3 gap-1.5">
             <Card className="bg-emerald-50 border-emerald-200">
-              <CardContent className="p-4 text-center">
+              <CardContent className="p-2.5 text-center">
                 <p className="text-2xl font-bold text-emerald-600">
                   {selectedDateDeliveries.length}
                 </p>
@@ -707,7 +707,7 @@ export function FarmerDeliveryCalendarContent() {
               </CardContent>
             </Card>
             <Card className="bg-violet-50 border-violet-200">
-              <CardContent className="p-3 text-center">
+              <CardContent className="p-2.5 text-center">
                 <p className="text-2xl font-bold text-violet-600">{uniqueSelectedDayLocations}</p>
                 <p className="text-[10px] text-violet-700">Locations</p>
               </CardContent>
@@ -720,7 +720,7 @@ export function FarmerDeliveryCalendarContent() {
               View Optimized Route
             </Link>
           </Button>
-        </div>
+        </aside>
       </div>
     </div>
   );
