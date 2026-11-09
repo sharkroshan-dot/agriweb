@@ -42,9 +42,10 @@ function formatCustomerDate(value?: string | Date | null) {
 
 export default function FarmerCustomersPage() {
   const [searchQuery, setSearchQuery] = useState("");
+  const [period, setPeriod] = useState<"today" | "week" | "month" | "year" | "all">("all");
   const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
-    queryKey: ["farmerCustomers"],
-    queryFn: () => api.get("/farmers/me/customers"),
+    queryKey: ["farmerCustomers", period],
+    queryFn: () => api.get("/farmers/me/customers", { params: { period } }),
     refetchOnWindowFocus: true,
   });
 
@@ -54,17 +55,20 @@ export default function FarmerCustomersPage() {
   );
 
   const stats = useMemo(() => {
-    const totalOrders = customers.reduce((sum: number, customer: any) => sum + Number(customer.orderCount || 0), 0);
-    const totalSpent = customers.reduce((sum: number, customer: any) => sum + Number(customer.totalSpent || 0), 0);
-    const repeatCustomers = customers.filter((customer: any) => Number(customer.orderCount || 0) > 1).length;
+    const lifetimeOrders = customers.reduce((sum: number, customer: any) => sum + Number(customer.orderCount || 0), 0);
+    const lifetimeSpend = customers.reduce((sum: number, customer: any) => sum + Number(customer.totalSpent || 0), 0);
+    const lifetimeRepeat = customers.filter((customer: any) => Number(customer.orderCount || 0) > 1).length;
+    const periodStats = data?.data?.stats;
+    const totalOrders = Number(periodStats?.ordersReceived ?? lifetimeOrders);
+    const totalSpent = Number(periodStats?.totalCustomerSpend ?? lifetimeSpend);
     return {
       totalCustomers: customers.length,
       totalOrders,
       totalSpent,
-      repeatCustomers,
+      repeatCustomers: Number(periodStats?.repeatCustomers ?? lifetimeRepeat),
       averageOrderValue: totalOrders > 0 ? totalSpent / totalOrders : 0,
     };
-  }, [customers]);
+  }, [customers, data]);
 
   const visibleCustomers = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -97,6 +101,28 @@ export default function FarmerCustomersPage() {
           Refresh
         </Button>
       </FarmerPageHeader>
+
+      <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+        <div>
+          <h2 className="text-sm font-semibold text-slate-900">Customer performance</h2>
+          <p className="text-xs text-slate-500">Select a period for orders, repeat customers and spending</p>
+        </div>
+        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Customer metrics period">
+          {([
+            ["today", "Today"],
+            ["week", "This week"],
+            ["month", "This month"],
+            ["year", "This year"],
+            ["all", "All time"],
+          ] as const).map(([value, label]) => (
+            <Button key={value} type="button" size="sm" variant={period === value ? "default" : "outline"}
+              className={period === value ? "bg-emerald-700 text-white hover:bg-emerald-800" : "border-slate-200"}
+              onClick={() => setPeriod(value)} aria-pressed={period === value}>
+              {label}
+            </Button>
+          ))}
+        </div>
+      </section>
 
       <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         {[
