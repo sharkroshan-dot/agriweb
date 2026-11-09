@@ -102,14 +102,14 @@ export function DemandHeatmapView() {
   const modeMeta = MODES.find((m) => m.value === mode) ?? MODES[0];
 
   return (
-    <div className="mx-auto w-full max-w-[1600px] space-y-6 pb-8">
+    <div className="w-full min-w-0 space-y-6 pb-8">
       <div className="rounded-2xl border border-emerald-100 bg-gradient-to-r from-white via-emerald-50/60 to-teal-50/40 p-5 shadow-sm sm:p-6">
         <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">Farmer intelligence</div>
         <h1 className="flex items-center gap-3 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
-          <MapPin className="h-6 w-6 text-emerald-600" /> Where should I sell?
+          <MapPin className="h-6 w-6 text-emerald-600" /> Demand Heatmap
         </h1>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-          See where buyers need your produce, compare demand opportunities and choose the best locations to sell.
+          Explore buyer demand by location, compare demand levels and discover the best markets for your produce.
         </p>
       </div>
 
