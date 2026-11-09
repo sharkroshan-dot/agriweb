@@ -185,6 +185,13 @@ export default function FarmerAnalyticsPage() {
         </Card>
       )}
 
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Card className="rounded-2xl border-slate-200/80 shadow-sm"><CardContent className="flex items-center justify-between p-4"><div><p className="text-xs font-medium text-slate-500">Total revenue</p><p className="mt-1 text-2xl font-bold tracking-tight text-slate-900">{formatPrice(data.totalRevenue ?? 0)}</p></div><span className="rounded-xl bg-emerald-50 p-3 text-emerald-700"><Banknote className="h-5 w-5" /></span></CardContent></Card>
+        <Card className="rounded-2xl border-slate-200/80 shadow-sm"><CardContent className="flex items-center justify-between p-4"><div><p className="text-xs font-medium text-slate-500">Orders received</p><p className="mt-1 text-2xl font-bold tracking-tight text-slate-900">{data.totalOrders ?? 0}</p></div><span className="rounded-xl bg-sky-50 p-3 text-sky-700"><TrendingUp className="h-5 w-5" /></span></CardContent></Card>
+        <Card className="rounded-2xl border-slate-200/80 shadow-sm"><CardContent className="flex items-center justify-between p-4"><div><p className="text-xs font-medium text-slate-500">Average order value</p><p className="mt-1 text-2xl font-bold tracking-tight text-slate-900">{formatPrice(data.averageOrderValue ?? 0)}</p></div><span className="rounded-xl bg-violet-50 p-3 text-violet-700"><Wallet className="h-5 w-5" /></span></CardContent></Card>
+        <Card className="rounded-2xl border-slate-200/80 shadow-sm"><CardContent className="flex items-center justify-between p-4"><div><p className="text-xs font-medium text-slate-500">Delivered orders</p><p className="mt-1 text-2xl font-bold tracking-tight text-slate-900">{data.deliveredOrders ?? 0}</p></div><span className="rounded-xl bg-amber-50 p-3 text-amber-700"><Star className="h-5 w-5" /></span></CardContent></Card>
+      </div>
+
       <Card className="rounded-2xl border-slate-200/80 shadow-sm">
         <CardContent className="grid grid-cols-2 gap-4 p-4 sm:grid-cols-4">
           <div><p className="text-xs text-slate-500">Harvest plans</p><p className="mt-1 text-xl font-bold text-slate-900">{harvest.harvestPlans ?? data.harvestPlans ?? 0}</p></div>
