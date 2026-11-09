@@ -574,11 +574,49 @@ async def get_my_products(
 
 @router.get("/me/customers")
 async def get_my_customers(
+    period: str = Query("all", pattern="^(today|week|month|year|all)$"),
     current_user: dict = Depends(get_current_user),
 ):
+    """Return lifetime customer cards and date-filtered customer KPIs."""
     _ensure_farmer(current_user)
     farmer_id = str(current_user["_id"])
     orders = await order_repository.get_by_farmer(farmer_id, 0, 1000)
+
+    now = datetime.utcnow()
+    if period == "today":
+        period_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    elif period == "week":
+        period_start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    elif period == "month":
+        period_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    elif period == "year":
+        period_start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+    else:
+        period_start = None
+
+    def parse_order_date(value):
+        if isinstance(value, datetime):
+            return value.replace(tzinfo=None) if value.tzinfo else value
+        if isinstance(value, str):
+            try:
+                return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
+            except ValueError:
+                return None
+        return None
+
+    period_orders = []
+    for order in orders:
+        order_date = parse_order_date(order.get("orderDate") or order.get("createdAt"))
+        if period_start is None or (order_date is not None and order_date >= period_start):
+            period_orders.append(order)
+
+    period_customer_counts = Counter(str(order.get("customerId")) for order in period_orders if order.get("customerId"))
+    period_stats = {
+        "ordersReceived": len(period_orders),
+        "repeatCustomers": sum(1 for count in period_customer_counts.values() if count > 1),
+        "totalCustomerSpend": round(sum(float(order.get("totalAmount") or 0) for order in period_orders), 2),
+    }
+
     customer_map = {}
     for order in orders:
         cid = str(order["customerId"])
@@ -605,7 +643,7 @@ async def get_my_customers(
             customers.append(info)
 
     customers.sort(key=lambda c: c["orderCount"], reverse=True)
-    return {"success": True, "data": {"customers": customers}}
+    return {"success": True, "data": {"customers": customers, "stats": period_stats, "period": period}}
 
 
 @router.get("/me/reviews")
