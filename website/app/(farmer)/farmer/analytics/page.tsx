@@ -10,6 +10,11 @@ import {
   Sparkles,
   TrendingDown,
   TrendingUp,
+  Download,
+  Printer,
+  Users,
+  RefreshCw,
+  AlertCircle,
 } from "lucide-react";
 import {
   Card,
@@ -59,10 +64,42 @@ const SUMMARY_CARDS = [
   { key: "deliveredOrders", label: "Delivered to customers", emoji: "✅", color: "text-amber-600", format: (v: any) => `${v ?? 0}` },
 ];
 
+
+function exportAnalyticsCsv(data: any, range: string) {
+  const rows: any[][] = [
+    ["Metric", "Value"],
+    ["Total revenue", data.totalRevenue ?? 0],
+    ["Total orders", data.totalOrders ?? 0],
+    ["Average order value", data.averageOrderValue ?? 0],
+    ["Delivered orders", data.deliveredOrders ?? 0],
+    ["Wallet balance", data.walletBalance ?? 0],
+    ["Pending earnings", data.pendingEarnings ?? 0],
+    [],
+    ["Revenue trend", "Revenue", "Orders"],
+    ...(data.revenueTrend ?? []).map((x: any) => [x.name ?? x.label ?? "", x.revenue ?? 0, x.orders ?? 0]),
+    [],
+    ["Top products", "Revenue", "Quantity", "Orders"],
+    ...(data.topProducts ?? []).map((x: any) => [x.name ?? "", x.revenue ?? 0, x.quantity ?? x.unitsSold ?? 0, x.orders ?? x.orderCount ?? 0]),
+    [],
+    ["Stock", "Remaining", "Reserved"],
+    ...(data.productStock ?? []).map((x: any) => [x.name ?? "", x.remaining ?? 0, x.reserved ?? 0]),
+    [],
+    ["Customer trend", "Customers", "Revenue"],
+    ...(data.customerInsights?.monthlyTrend ?? []).map((x: any) => [x.month ?? "", x.customers ?? 0, x.revenue ?? 0]),
+  ];
+  const csv = rows.map((row) => row.map((cell) => '"' + String(cell ?? "").replace(/"/g, '""') + '"').join(",")).join("\r\n");
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = "agriconnect-analytics-" + range + ".csv";
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function FarmerAnalyticsPage() {
   const [range, setRange] = useState<"7d" | "30d" | "90d">("30d");
 
-  const { data: metrics, isLoading } = useQuery({
+  const { data: metrics, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ["farmerAnalytics", range],
     queryFn: () => api.get(`/farmers/me/analytics?range=${range}`),
   });
@@ -87,6 +124,9 @@ export default function FarmerAnalyticsPage() {
   const aiInsights = (aiInsightsData as any)?.data ?? {};
   const aiDemand = aiInsights.demand ?? [];
   const aiPricing = aiInsights.pricing ?? [];
+  const customerInsights = data.customerInsights ?? {};
+  const customerTrend = customerInsights.monthlyTrend ?? [];
+  const lowStock = productStock.filter((p: any) => Number(p.remaining ?? 0) <= 5);
 
   if (isLoading) {
     return <div className="space-y-4"><div className="h-12 w-48 animate-pulse rounded bg-gray-200" /><div className="h-80 animate-pulse rounded bg-gray-200" /></div>;
@@ -96,9 +136,14 @@ export default function FarmerAnalyticsPage() {
     <div className="w-full min-w-0 space-y-6 pb-8">
       <FarmerPageHeader title="Farm analytics" description="Use demand, sales and fulfilment trends to decide what to grow, stock and deliver next.">
         <div className="flex items-center gap-2">
-          {[("7d" as const), ("30d" as const), ("90d" as const)].map((r) => (
-            <Button key={r} variant={range === r ? "default" : "outline"} size="sm" onClick={() => setRange(r)}>{r}</Button>
-          ))}
+          <div className="flex rounded-xl border border-slate-200 bg-slate-50 p-1">
+            {[("7d" as const), ("30d" as const), ("90d" as const)].map((r) => (
+              <Button key={r} variant={range === r ? "default" : "ghost"} size="sm" className={cn("h-8 rounded-lg px-3 text-xs", range === r ? "bg-emerald-700 text-white hover:bg-emerald-800" : "text-slate-600")} onClick={() => setRange(r)}>{r === "7d" ? "7 days" : r === "30d" ? "30 days" : "90 days"}</Button>
+            ))}
+          </div>
+          <Button onClick={() => exportAnalyticsCsv(data, range)} variant="outline" size="sm"><Download className="mr-2 h-4 w-4" /> Export CSV</Button>
+          <Button onClick={() => window.print()} variant="outline" size="sm"><Printer className="mr-2 h-4 w-4" /> Print / PDF</Button>
+          <Button onClick={() => refetch()} disabled={isFetching} variant="outline" size="sm"><RefreshCw className={cn("mr-2 h-4 w-4", isFetching && "animate-spin")} /> Refresh</Button>
         </div>
       </FarmerPageHeader>
 
