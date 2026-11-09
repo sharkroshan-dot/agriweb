@@ -50,8 +50,12 @@ interface Stop {
   status: string;
   items: { name: string; quantity: number }[];
   total: number;
-  distance: number;
+  distance: number | null;
+  legDurationMinutes?: number | null;
   deliveryWindow: string;
+  priority?: number;
+  priorityLabel?: string;
+  priorityReason?: string;
 }
 
 interface Summary {
@@ -66,6 +70,8 @@ interface Summary {
   customersCount: number;
   savings: { distance: number; time: number; fuel: number };
   algorithm: string;
+  distanceMethod?: "road_network" | "straight_line_estimate";
+  unlocatedStops?: number;
   profitability?: {
     revenue: number;
     fuelCost: number;
@@ -112,7 +118,7 @@ function SequenceBar({ stops }: { stops: Stop[] }) {
 }
 
 export default function SmartRoutePage() {
-  const { data: routeData, isLoading, refetch } = useQuery({ queryKey: ["smartRoute"], queryFn: () => api.get("/farmers/me/smart-route") });
+  const { data: routeData, isLoading, isError, error, refetch, isFetching } = useQuery({ queryKey: ["smartRoute"], queryFn: () => api.get("/farmers/me/smart-route"), retry: 1 });
 
   const { data: aiInsightsData } = useQuery({
     queryKey: ["farmerAiInsightsRoute"],
@@ -139,6 +145,11 @@ export default function SmartRoutePage() {
     : locatedStops.length > 0
       ? { lat: locatedStops[0].lat as number, lng: locatedStops[0].lng as number }
       : undefined;
+  const routePath = [
+    ...(hasOriginCoords ? [{ lat: origin!.lat as number, lng: origin!.lng as number }] : []),
+    ...locatedStops.map((stop) => ({ lat: stop.lat as number, lng: stop.lng as number })),
+    ...(hasOriginCoords && locatedStops.length ? [{ lat: origin!.lat as number, lng: origin!.lng as number }] : []),
+  ];
   const mapMarkers = [
     ...(hasOriginCoords
       ? [{
@@ -194,6 +205,18 @@ export default function SmartRoutePage() {
     );
   }
 
+  if (isError) {
+    return (
+      <div className="space-y-4">
+        <DeliveryWorkflowNav current="smart-route" hideCalendar />
+        <Card className="border-red-200">
+          <CardHeader><CardTitle className="text-red-700">Could not calculate your Smart Route</CardTitle><CardDescription>{(error as Error)?.message || "The route service or order data could not be loaded."}</CardDescription></CardHeader>
+          <CardContent><Button onClick={() => refetch()} disabled={isFetching}><RotateCw className="mr-2 h-4 w-4" /> Try again</Button></CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   if (!stops.length) {
     return (
       <div className="space-y-4">
@@ -209,7 +232,7 @@ export default function SmartRoutePage() {
           <Sparkles className="h-12 w-12 text-gray-300" />
           <h3 className="mt-4 text-lg font-semibold text-gray-900">No route to optimize</h3>
           <p className="mt-2 text-sm text-gray-500">
-            Orders appear here once they are ready for delivery or pickup.
+            Confirm farmer self-delivery for packed orders in Order Map. Eligible orders appear here automatically. Partner-assigned, pickup and completed orders are not included.
           </p>
           <div className="mt-4 flex flex-wrap gap-3"><Button asChild variant="outline"><Link href="/farmer/order-map">Back to Order Map</Link></Button><Button asChild><Link href="/farmer/route">Open Delivery Route</Link></Button></div>
         </div>
@@ -243,12 +266,12 @@ export default function SmartRoutePage() {
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
         <Card className="border-slate-200 shadow-sm">
           <CardContent className="flex items-center gap-3 p-4">
-            <div className="rounded-xl bg-blue-50 p-3"><Route className="h-5 w-5 text-blue-600" /></div><div><p className="text-xl font-bold text-slate-900">{summary?.totalDistance ?? 0} km</p><p className="text-xs text-slate-500">Optimized distance</p></div>
+            <div className="rounded-xl bg-blue-50 p-3"><Route className="h-5 w-5 text-blue-600" /></div><div><p className="text-xl font-bold text-slate-900">{summary?.totalDistance ?? 0} km</p><p className="text-xs text-slate-500">Total round-trip distance</p></div>
           </CardContent>
         </Card>
         <Card className="border-slate-200 shadow-sm">
           <CardContent className="flex items-center gap-3 p-4">
-            <div className="rounded-xl bg-amber-50 p-3"><Clock className="h-5 w-5 text-amber-600" /></div><div><p className="text-xl font-bold text-slate-900">{Math.round(summary?.estimatedTime ?? 0)} min</p><p className="text-xs text-slate-500">Estimated time</p></div>
+            <div className="rounded-xl bg-amber-50 p-3"><Clock className="h-5 w-5 text-amber-600" /></div><div><p className="text-xl font-bold text-slate-900">{Math.round(summary?.estimatedTime ?? 0)} min</p><p className="text-xs text-slate-500">Driving + stop time</p></div>
           </CardContent>
         </Card>
         <Card className="border-slate-200 shadow-sm">
@@ -272,6 +295,14 @@ export default function SmartRoutePage() {
           </CardContent>
         </Card>
       </div>
+
+      {summary && (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <Badge variant="outline">{summary.distanceMethod === "road_network" ? "Road-network distances" : "Straight-line estimate"}</Badge>
+          <span className="text-slate-500">{summary.algorithm}</span>
+          {(summary.unlocatedStops ?? unlocatedCount) > 0 && <Badge variant="warning">{summary.unlocatedStops ?? unlocatedCount} stop(s) need location details</Badge>}
+        </div>
+      )}
 
       {savings && (
         <Card
@@ -403,6 +434,7 @@ export default function SmartRoutePage() {
                 zoom={12}
                 height="420px"
                 markers={mapMarkers}
+                route={routePath}
                 className="rounded-xl border"
               />
             ) : (
@@ -507,7 +539,7 @@ export default function SmartRoutePage() {
                         <Badge variant="warning" className="text-xs">Medium risk</Badge>
                       )}
                       <Badge variant="outline" className="text-xs">
-                        +{stop.distance} km
+                        {stop.distance == null ? "Distance unavailable" : `+${stop.distance} km`}
                       </Badge>
                     </div>
                   </div>
@@ -528,6 +560,8 @@ export default function SmartRoutePage() {
                       <Clock className="h-3 w-3" />
                       {stop.deliveryWindow}
                     </span>
+                    {stop.legDurationMinutes != null && <span className="text-slate-500">{stop.legDurationMinutes} min from previous stop</span>}
+                    {stop.priorityLabel && stop.priorityLabel !== "normal" && <Badge variant="outline">{stop.priorityLabel} priority</Badge>}
                     <span className="font-medium text-gray-700">{formatPrice(stop.total)}</span>
                   </div>
                 </div>
