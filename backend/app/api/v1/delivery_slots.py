@@ -138,6 +138,54 @@ async def get_farmer_slots(
     return {"success": True, "data": {"slots": slots, "count": len(slots)}}
 
 
+@router.get("/farmer/slots/{slot_id}/bookings")
+async def get_farmer_slot_bookings(
+    slot_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Return customer reservations and linked orders for a farmer-owned slot."""
+    if current_user.get("role") != "farmer":
+        raise HTTPException(status_code=403, detail="Only farmers can view slot bookings")
+    if not ObjectId.is_valid(slot_id):
+        raise HTTPException(status_code=404, detail="Delivery slot not found")
+    slot = await slot_repo.find_one({"_id": ObjectId(slot_id), "deletedAt": None})
+    if not slot:
+        raise HTTPException(status_code=404, detail="Delivery slot not found")
+    if str(slot.get("farmerId")) != str(current_user["_id"]):
+        raise HTTPException(status_code=403, detail="Not your delivery slot")
+
+    bookings = await booking_repo.find_many(
+        {"slotId": ObjectId(slot_id), "status": {"$in": ["joined", "order_linked"]}, "deletedAt": None},
+        sort=[("createdAt", 1)],
+        limit=500,
+    )
+    order_repo = BaseRepository("orders")
+    result = []
+    for booking in bookings:
+        order = await order_repo.get_by_id(str(booking.get("orderId"))) if booking.get("orderId") else None
+        customer = await user_repository.get_by_id(str(booking.get("customerId")))
+        result.append({
+            "id": str(booking["_id"]),
+            "status": booking.get("status"),
+            "createdAt": booking.get("createdAt"),
+            "deliveryFee": booking.get("deliveryFee", 0),
+            "orderId": str(order.get("_id")) if order else None,
+            "orderNumber": (order or {}).get("orderNumber"),
+            "orderStatus": (order or {}).get("orderStatus"),
+            "totalAmount": (order or {}).get("totalAmount"),
+            "items": [
+                {"productName": item.get("productName"), "quantity": item.get("quantity")}
+                for item in ((order or {}).get("items") or [])
+            ],
+            "customer": {
+                "name": f"{(customer or {}).get('firstName', '')} {(customer or {}).get('lastName', '')}".strip() or "Customer",
+                "phone": (customer or {}).get("phone"),
+            },
+            "deliveryAddress": (order or {}).get("deliveryAddress") or {},
+        })
+    return {"success": True, "data": {"bookings": result, "count": len(result)}}
+
+
 @router.put("/slots/{slot_id}")
 async def update_delivery_slot(
     slot_id: str,
