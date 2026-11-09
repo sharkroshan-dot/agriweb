@@ -115,7 +115,7 @@ export default function FarmerCouponsPage() {
       </section>
     }
 
-    {formOpen && <CreateForm products={products} productsLoading={productsLoading} productsError={productsError} refetchProducts={refetchProducts} offer={editingOffer} coupon={editingCoupon} initialKind={tab} onClose={()=>setFormOpen(false)} onSaved={()=>{setFormOpen(false);qc.invalidateQueries({queryKey:["farmerOffersCoupons"]})}} />}
+    {formOpen && <CreateForm key={`${tab}-${editingOffer?.id || "new"}-${editingCoupon?.id || "new"}`} products={products} productsLoading={productsLoading} productsError={productsError} refetchProducts={refetchProducts} offer={editingOffer} coupon={editingCoupon} initialKind={tab} onClose={()=>setFormOpen(false)} onSaved={()=>{setFormOpen(false);qc.invalidateQueries({queryKey:["farmerOffersCoupons"]})}} />}
   </div>;
 }
 
