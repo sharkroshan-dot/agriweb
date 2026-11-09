@@ -153,28 +153,61 @@ async def _farm_name(farmer_id) -> str:
 # ================== SUSTAINABILITY / IMPACT ==================
 
 @router.get("/me")
-async def get_my_impact(current_user: dict = Depends(get_current_user)):
-    """Local-impact dashboard computed from the caller's verified orders.
+async def get_my_impact(
+    start_date: Optional[str] = Query(default=None, description="Inclusive date in YYYY-MM-DD format"),
+    end_date: Optional[str] = Query(default=None, description="Inclusive date in YYYY-MM-DD format"),
+    current_user: dict = Depends(get_current_user),
+):
+    """Verified impact metrics with optional date filtering.
 
-    Only delivered/picked-up orders count. Metrics are computed from real
-    order data (spend, distinct farmers, deliveries) - no unverifiable claims.
+    Main impact figures include completed/delivered orders only. In-progress
+    orders are reported separately and never mixed into completed impact.
     """
     user_id = str(current_user["_id"])
     role = current_user.get("role")
-
     statuses = ["delivered", "picked_up"]
+
+    try:
+        date_filter = {}
+        if start_date:
+            date_filter["$gte"] = datetime.strptime(start_date, "%Y-%m-%d")
+        if end_date:
+            date_filter["$lt"] = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
+        if start_date and end_date and start_date > end_date:
+            raise HTTPException(status_code=400, detail="Start date must be on or before end date")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Dates must use YYYY-MM-DD format")
+
+    base_filter = {"orderStatus": {"$in": statuses}, "deletedAt": None}
+    if date_filter:
+        base_filter["createdAt"] = date_filter
+
     if role == "customer":
         orders = await order_repository.find_many(
-            {"customerId": ObjectId(user_id), "orderStatus": {"$in": statuses}, "deletedAt": None},
-            limit=1000,
+            {**base_filter, "customerId": ObjectId(user_id)}, limit=5000,
         )
     elif role == "farmer":
         orders = await order_repository.find_many(
-            {"farmerId": ObjectId(user_id), "orderStatus": {"$in": statuses}, "deletedAt": None},
-            limit=1000,
+            {**base_filter, "farmerId": ObjectId(user_id)}, limit=5000,
         )
     else:
         raise HTTPException(status_code=403, detail="Impact dashboard is available for customers and farmers")
+
+    pending_orders = []
+    all_completed_orders = []
+    if role == "farmer":
+        pending_orders = await order_repository.find_many(
+            {
+                "farmerId": ObjectId(user_id),
+                "orderStatus": {"$in": ["confirmed", "preparing", "quality_check", "ready_for_pickup", "dispatched", "in_transit"]},
+                "deletedAt": None,
+            },
+            limit=5000,
+        )
+        all_completed_orders = await order_repository.find_many(
+            {"farmerId": ObjectId(user_id), "orderStatus": {"$in": statuses}, "deletedAt": None},
+            limit=5000,
+        )
 
     total_spent = 0.0
     order_count = len(orders or [])
@@ -251,9 +284,41 @@ async def get_my_impact(current_user: dict = Depends(get_current_user)):
         if not saved_distance and local_deliveries:
             saved_distance = local_deliveries * 4.0  # conservative per-delivery km estimate
 
+    unique_customers = set()
+    period_customer_orders = {}
+    for order in orders or []:
+        customer_id = str(order.get("customerId") or "")
+        if role == "farmer" and customer_id:
+            unique_customers.add(customer_id)
+            period_customer_orders[customer_id] = period_customer_orders.get(customer_id, 0) + 1
+
+    first_completed_by_customer = {}
+    if role == "farmer":
+        for order in all_completed_orders or []:
+            customer_id = str(order.get("customerId") or "")
+            created_at = order.get("createdAt") or order.get("orderDate")
+            if customer_id and created_at:
+                previous = first_completed_by_customer.get(customer_id)
+                if previous is None or created_at < previous:
+                    first_completed_by_customer[customer_id] = created_at
+
+    repeat_customers = sum(1 for count in period_customer_orders.values() if count > 1)
+    new_customers = 0
+    for customer_id in unique_customers:
+        first_order_date = first_completed_by_customer.get(customer_id)
+        if first_order_date and (not start_date or first_order_date.strftime("%Y-%m-%d") >= start_date) and (not end_date or first_order_date.strftime("%Y-%m-%d") <= end_date):
+            new_customers += 1
+
+    recorded_distance = sum(float(order.get("distanceKm") or 0) for order in (orders or []))
     data = {
         "role": role,
         "orders": order_count,
+        "uniqueCustomers": len(unique_customers) if role == "farmer" else None,
+        "newCustomers": new_customers if role == "farmer" else None,
+        "repeatCustomers": repeat_customers if role == "farmer" else None,
+        "ordersInProgress": len(pending_orders) if role == "farmer" else 0,
+        "recordedDeliveryDistanceKm": _round2(recorded_distance) if role == "farmer" else None,
+        "averageDeliveryDistanceKm": _round2(recorded_distance / local_deliveries) if role == "farmer" and local_deliveries else 0,
         "totalSpent": _round2(total_spent),
         "farmersSupported": len(farmer_ids),
         "localDeliveries": local_deliveries,
