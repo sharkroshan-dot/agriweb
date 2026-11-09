@@ -1,6 +1,5 @@
 "use client";
 import { DeliveryWorkflowNav } from "../../../components/farmer/delivery-workflow-nav";
-import { useSearchParams } from "next/navigation";
 
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
@@ -113,7 +112,6 @@ function SequenceBar({ stops }: { stops: Stop[] }) {
 }
 
 export default function SmartRoutePage() {
-  const searchParams = useSearchParams();
   const { data: routeData, isLoading, refetch } = useQuery({ queryKey: ["smartRoute"], queryFn: () => api.get("/farmers/me/smart-route") });
 
   const { data: aiInsightsData } = useQuery({
@@ -549,7 +547,7 @@ export default function SmartRoutePage() {
 
           <div className="mt-6 flex flex-col-reverse gap-2 border-t pt-4 sm:flex-row sm:justify-end">
             <Button asChild>
-              <Link href={`/farmer/route?orderIds=${encodeURIComponent(selectedOrderIds.join(","))}`}>
+              <Link href={`/farmer/route?orderIds=${encodeURIComponent(stops.map((stop) => stop.orderId).join(","))}`}>
                 <Play className="mr-2 h-4 w-4" />
                 Start delivery
               </Link>
