@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import StreamingResponse
 from typing import Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 import asyncio
 
 from pydantic import BaseModel, Field
@@ -582,17 +583,18 @@ async def get_my_customers(
     farmer_id = str(current_user["_id"])
     orders = await order_repository.get_by_farmer(farmer_id, 0, 1000)
 
-    now = datetime.utcnow()
+    now = datetime.now(ZoneInfo("Asia/Kolkata"))
     if period == "today":
-        period_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        local_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     elif period == "week":
-        period_start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+        local_start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
     elif period == "month":
-        period_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        local_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     elif period == "year":
-        period_start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+        local_start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
     else:
-        period_start = None
+        local_start = None
+    period_start = local_start.astimezone(timezone.utc).replace(tzinfo=None) if local_start else None
 
     def parse_order_date(value):
         if isinstance(value, datetime):
