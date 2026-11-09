@@ -151,7 +151,7 @@ export default function DeliveryCalendarPage() {
   const [weekOffset, setWeekOffset] = useState(0);
   const [monthOffset, setMonthOffset] = useState(0);
   const [dayOffset, setDayOffset] = useState(0);
-  const [selectedSlot, setSelectedSlot] = useState<{ day: string; time: string } | null>(null);
+  const [selectedSlot, setSelectedSlot] = useState<{ day: string; time: string; date: string } | null>(null);
   const dates = weekDates(weekOffset);
 
   const { data: calendarData, isLoading } = useQuery({
@@ -210,7 +210,7 @@ export default function DeliveryCalendarPage() {
 
   const selectedSlotData = selectedSlot
     ? slots.find(
-        (s: any) => s.day === selectedSlot.day && s.timeSlot === selectedSlot.time
+        (s: any) => (s.dateKey || s.date) === selectedSlot.date && s.timeSlot === selectedSlot.time
       )
     : null;
 
@@ -316,7 +316,7 @@ export default function DeliveryCalendarPage() {
                           return (
                             <button
                               key={slot.label}
-                              onClick={() => setSelectedSlot({ day, time: slot.label })}
+                              onClick={() => setSelectedSlot({ day, time: slot.label, date: dateKey(dates[dayIndex]) })}
                               className={cn(
                                 "w-full rounded-lg border p-3 text-left transition-all",
                                 count > 0
@@ -374,7 +374,7 @@ export default function DeliveryCalendarPage() {
                   <CardHeader className="flex flex-row items-center justify-between">
                     <div>
                       <CardTitle className="text-base">
-                        {selectedSlotData.day} · {selectedSlotData.timeSlot}
+                        {selectedSlotData.date} · {selectedSlotData.day} · {selectedSlotData.timeSlot}
                       </CardTitle>
                       <CardDescription>
                         Delivery slot details
