@@ -244,12 +244,25 @@ export default function DeliveryCalendarPage() {
   const weekDateKeys = new Set(dates.map(dateKey));
   const visibleWeekSlots = slots.filter((slot: any) => weekDateKeys.has(slot.dateKey || slot.date));
   const visibleWeekDeliveries = visibleWeekSlots.flatMap((slot: any) => slot.deliveries ?? []);
-  const uniqueWeekCustomers = new Set(
-    visibleWeekDeliveries.map((delivery: any) => String(delivery.customerName || "").trim().toLowerCase()).filter(Boolean)
+  // These three cards describe the date currently selected in the calendar,
+  // not the whole visible week. Use normalized values to avoid duplicate counts
+  // caused only by capitalization or extra spaces.
+  const normalizeSummaryValue = (value: unknown) =>
+    String(value || "").normalize("NFKC").trim().toLowerCase().replace(/\\s+/g, " ");
+  const uniqueSelectedDayCustomers = new Set(
+    selectedDateDeliveries
+      .map((delivery: any) => normalizeSummaryValue(delivery.customerName))
+      .filter(Boolean)
   ).size;
-  const locationKey = (delivery: any) =>
-    String(delivery.landmark || delivery.address || delivery.city || "").trim().toLowerCase().replace(/\\s+/g, " ");
-  const uniqueWeekLocations = new Set(visibleWeekDeliveries.map(locationKey).filter(Boolean)).size;
+  const locationKey = (delivery: any) => {
+    const landmark = normalizeSummaryValue(delivery.landmark || delivery.nearbyLandmark || delivery.landmarkName);
+    const address = normalizeSummaryValue(delivery.address || delivery.addressLine1);
+    const city = normalizeSummaryValue(delivery.city);
+    return landmark || address || city;
+  };
+  const uniqueSelectedDayLocations = new Set(
+    selectedDateDeliveries.map(locationKey).filter(Boolean)
+  ).size;
   const selectedSummaryLabel = selectedSlot
     ? new Date(`${selectedSlot.date}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
     : selectedDate.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
@@ -680,22 +693,22 @@ export default function DeliveryCalendarPage() {
             <Card className="bg-emerald-50 border-emerald-200">
               <CardContent className="p-4 text-center">
                 <p className="text-2xl font-bold text-emerald-600">
-                  {visibleWeekDeliveries.length}
+                  {selectedDateDeliveries.length}
                 </p>
-                <p className="text-xs text-emerald-700">Weekly Deliveries</p>
+                <p className="text-[10px] text-emerald-700">Daily Deliveries</p>
               </CardContent>
             </Card>
             <Card className="bg-blue-50 border-blue-200">
               <CardContent className="p-4 text-center">
                 <p className="text-2xl font-bold text-blue-600">
-                  {uniqueWeekCustomers}
+                  {uniqueSelectedDayCustomers}
                 </p>
                 <p className="text-[10px] text-blue-700">Unique Customers</p>
               </CardContent>
             </Card>
             <Card className="bg-violet-50 border-violet-200">
               <CardContent className="p-3 text-center">
-                <p className="text-2xl font-bold text-violet-600">{uniqueWeekLocations}</p>
+                <p className="text-2xl font-bold text-violet-600">{uniqueSelectedDayLocations}</p>
                 <p className="text-[10px] text-violet-700">Locations</p>
               </CardContent>
             </Card>
