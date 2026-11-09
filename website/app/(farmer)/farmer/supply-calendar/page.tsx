@@ -544,7 +544,7 @@ export function FarmerSupplyCalendarContent() {
         <Metric label="Orders ready for pickup" value={ordersReadyForPickup.length} hint="Packed and awaiting collection" icon={Boxes} tone="bg-orange-50 text-orange-700" />
       </section>
 
-      <section className="grid min-w-0 items-start gap-4 2xl:grid-cols-[minmax(0,1fr)_300px]">
+      <section className="grid min-w-0 items-start gap-4 2xl:grid-cols-[minmax(0,1fr)_260px]">
         <Card className="min-w-0 overflow-hidden border-slate-200 shadow-sm">
           <CardContent className="space-y-4 p-3 sm:p-4">
             <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
@@ -582,7 +582,7 @@ export function FarmerSupplyCalendarContent() {
 
             {isLoading ? (
               <div className="grid grid-cols-7 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200">
-                {Array.from({ length: 35 }, (_, index) => <div key={index} className="h-20 animate-pulse bg-white" />)}
+                {Array.from({ length: 35 }, (_, index) => <div key={index} className="h-[72px] animate-pulse bg-white" />)}
               </div>
             ) : isError ? (
               <div className="flex items-center gap-3 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800"><AlertCircle className="h-5 w-5 shrink-0" />Could not load your harvest plans. Refresh to try again.</div>
@@ -606,7 +606,7 @@ export function FarmerSupplyCalendarContent() {
                       <div key={day} className={cn("py-3.5 text-center text-xs font-extrabold uppercase tracking-[0.14em]", index === 0 || index === 6 ? "bg-emerald-50/70 text-emerald-800" : "text-slate-600")}>{day}</div>
                     ))}
                   </div>
-                  <div className={cn("grid grid-cols-7 overflow-hidden rounded-b-xl border-x border-b border-slate-200", view === "week" ? "auto-rows-[128px]" : "auto-rows-[88px]")}>
+                  <div className={cn("grid grid-cols-7 overflow-hidden rounded-b-xl border-x border-b border-slate-200", view === "week" ? "auto-rows-[108px]" : "auto-rows-[72px]")}>
                     {visibleDates.map(date => {
                       const key = dateKey(date);
                       const dayEntries = filteredEntries
@@ -724,6 +724,10 @@ export function FarmerSupplyCalendarContent() {
               <Button asChild className="w-full bg-emerald-700 text-white hover:bg-emerald-800"><Link href="/farmer/harvest-planner"><Plus className="mr-2 h-4 w-4" />Manage harvest plans</Link></Button>
             </CardContent>
           </Card>
+          <details className="group rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-sm font-semibold text-slate-800 [&::-webkit-details-marker]:hidden"><span>More planning information</span><span className="text-xs font-normal text-slate-500">Upcoming · demand · actions · alerts</span></summary>
+            <div className="mt-3 space-y-3">
+
 
           <Card className="border-slate-200 shadow-sm">
             <CardContent className="space-y-3 p-4">
@@ -819,6 +823,9 @@ export function FarmerSupplyCalendarContent() {
               <div className="min-w-0"><p className="text-sm font-semibold text-emerald-950">Plan your next harvest</p><p className="mt-1 text-xs leading-5 text-emerald-900/70">Add expected harvest dates and quantities. Your plans will appear here automatically.</p><Link href="/farmer/harvest-planner" className="mt-2 inline-flex items-center text-xs font-bold text-emerald-800 hover:underline">Go to Harvest Planner <ArrowUpRight className="ml-1 h-3 w-3" /></Link></div>
             </CardContent>
           </Card>
+        
+            </div>
+          </details>
         </aside>
       </section>
 
