@@ -1193,7 +1193,7 @@ async def update_order_delivery_slot(
             requested_date = datetime.fromisoformat(body.deliveryDate.replace("Z", "+00:00")).replace(tzinfo=None)
         except ValueError:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="deliveryDate must be ISO format YYYY-MM-DD")
-    elif deadline:
+    else:
         weekday_index = _CALENDAR_DAYS.index(day)
         today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
         days_ahead = (weekday_index - today.weekday()) % 7
@@ -1209,6 +1209,8 @@ async def update_order_delivery_slot(
 
     ok = await order_repository.update_order_field(order_id, "deliveryDay", day)
     ok = await order_repository.update_order_field(order_id, "deliveryTimeSlot", time_slot) and ok
+    if requested_date:
+        ok = await order_repository.update_order_field(order_id, "deliveryDate", requested_date.date().isoformat()) and ok
     if not ok:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Failed to update delivery slot")
     return {"success": True, "message": "Delivery slot updated"}
