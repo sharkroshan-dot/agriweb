@@ -40,10 +40,20 @@ class DeliverySlotCreate(BaseModel):
     startTime: str
     endTime: str
     radiusKm: int = Field(10, ge=1, le=100)
-    maxOrders: int = Field(25, ge=1, le=500)
+    maxCapacityKg: float = Field(5, gt=0, le=100000)
     cutoffTime: Optional[datetime] = None
     deliveryFee: float = Field(0, ge=0)
     notes: Optional[str] = None
+
+
+async def _booked_capacity(slot_id: ObjectId) -> float:
+    """Sum kilograms reserved by active customer bookings for a slot."""
+    rows = await booking_repo.find_many({
+        "slotId": slot_id,
+        "status": {"$in": ["joined", "order_linked"]},
+        "deletedAt": None,
+    }, limit=10000)
+    return round(sum(float(row.get("capacityKg", 0) or 0) for row in rows), 3)
 
 
 async def _slot_status(slot: dict) -> str:
@@ -53,12 +63,9 @@ async def _slot_status(slot: dict) -> str:
     cutoff = slot.get("cutoffTime")
     if cutoff and cutoff < datetime.utcnow():
         return "closed"
-    bookings = await booking_repo.count({
-        "slotId": slot["_id"],
-        "status": {"$in": ["joined", "order_linked"]},
-        "deletedAt": None,
-    })
-    if bookings >= int(slot.get("maxOrders", 25)):
+    capacity = float(slot.get("maxCapacityKg", 0) or 0)
+    booked = await _booked_capacity(slot["_id"])
+    if capacity > 0 and booked >= capacity:
         return SLOT_FULL
     return SLOT_OPEN
 
@@ -104,7 +111,8 @@ async def create_delivery_slot(
         "startTime": data.startTime,
         "endTime": data.endTime,
         "radiusKm": data.radiusKm,
-        "maxOrders": data.maxOrders,
+        "maxCapacityKg": data.maxCapacityKg,
+        "bookedCapacityKg": 0.0,
         "cutoffTime": data.cutoffTime,
         "deliveryFee": data.deliveryFee,
         "notes": data.notes,
@@ -134,7 +142,8 @@ async def get_farmer_slots(
     for s in slots:
         _serialize_slot(s)
         s["status"] = await _slot_status(s)
-        s["bookings"] = await booking_repo.count({"slotId": s["_id"], "status": {"$in": ["joined", "order_linked"]}, "deletedAt": None})
+        s["bookedCapacityKg"] = await _booked_capacity(s["_id"])
+        s["remainingCapacityKg"] = round(max(0.0, float(s.get("maxCapacityKg", 0)) - s["bookedCapacityKg"]), 3)
     return {"success": True, "data": {"slots": slots, "count": len(slots)}}
 
 
@@ -416,9 +425,9 @@ async def join_delivery_slot(
     if cutoff and cutoff < datetime.utcnow():
         raise HTTPException(status_code=400, detail="Cutoff time has passed for this slot")
 
-    bookings = await booking_repo.count({"slotId": ObjectId(slot_id), "status": {"$in": ["joined", "order_linked"]}, "deletedAt": None})
-    if bookings >= int(slot.get("maxOrders", 25)):
-        raise HTTPException(status_code=400, detail="This delivery slot is full")
+    booked_capacity = await _booked_capacity(ObjectId(slot_id))
+    if booked_capacity >= float(slot.get("maxCapacityKg", 0) or 0):
+        raise HTTPException(status_code=400, detail="This delivery slot has no remaining delivery capacity")
 
     existing = await booking_repo.find_one({
         "slotId": ObjectId(slot_id),
