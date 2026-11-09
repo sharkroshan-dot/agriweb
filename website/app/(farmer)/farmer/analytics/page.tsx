@@ -127,6 +127,7 @@ export default function FarmerAnalyticsPage() {
   const customerInsights = data.customerInsights ?? {};
   const customerTrend = customerInsights.monthlyTrend ?? [];
   const lowStock = productStock.filter((p: any) => Number(p.remaining ?? 0) <= 5);
+  const hasSalesData = Number(data.totalOrders ?? 0) > 0 || Number(data.totalRevenue ?? 0) > 0;
 
   if (isLoading) {
     return <div className="space-y-4"><div className="h-12 w-48 animate-pulse rounded bg-gray-200" /><div className="h-80 animate-pulse rounded bg-gray-200" /></div>;
@@ -146,6 +147,15 @@ export default function FarmerAnalyticsPage() {
           <Button onClick={() => refetch()} disabled={isFetching} variant="outline" size="sm"><RefreshCw className={cn("mr-2 h-4 w-4", isFetching && "animate-spin")} /> Refresh</Button>
         </div>
       </FarmerPageHeader>
+
+      {!hasSalesData && (
+        <Card className="rounded-2xl border-dashed border-emerald-200 bg-emerald-50/40 shadow-none">
+          <CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
+            <div><p className="font-semibold text-slate-900">Your analytics journey starts with your first order</p><p className="mt-1 text-sm text-slate-600">Add products, keep stock updated and share your listings. Sales, customer trends and forecasts will appear here as data becomes available.</p></div>
+            <a href="/farmer/products" className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-emerald-700 px-4 text-sm font-semibold text-white hover:bg-emerald-800">Manage products</a>
+          </CardContent>
+        </Card>
+      )}
 
       {insights.length > 0 && (
         <Card className="border-emerald-200 bg-gradient-to-br from-emerald-50/70 to-green-50/40">
