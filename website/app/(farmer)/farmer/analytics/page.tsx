@@ -137,7 +137,7 @@ export default function FarmerAnalyticsPage() {
   return (
     <div className="w-full min-w-0 space-y-6 pb-8">
       <FarmerPageHeader title="Farm analytics" description="Use demand, sales and fulfilment trends to decide what to grow, stock and deliver next.">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <div className="flex rounded-xl border border-slate-200 bg-slate-50 p-1">
             {[("7d" as const), ("30d" as const), ("90d" as const)].map((r) => (
               <Button key={r} variant={range === r ? "default" : "ghost"} size="sm" className={cn("h-8 rounded-lg px-3 text-xs", range === r ? "bg-emerald-700 text-white hover:bg-emerald-800" : "text-slate-600")} onClick={() => setRange(r)}>{r === "7d" ? "7 days" : r === "30d" ? "30 days" : "90 days"}</Button>
