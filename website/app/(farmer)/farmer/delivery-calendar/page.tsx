@@ -224,6 +224,36 @@ export default function DeliveryCalendarPage() {
     .join(",");
   const routeQuery = selectedRouteOrderIds || workflowOrderIds;
   const selectedRouteHref = `/farmer/smart-route${routeQuery ? `?orderIds=${encodeURIComponent(routeQuery)}` : ""}`;
+  // Sidebar summary follows the date selected in the calendar, rather than
+  // the API's all-time totals. Weekly cards use only the currently visible week.
+  const selectedSummaryDate = selectedSlot?.date || dateKey(selectedDate);
+  const selectedDateSlots = slots.filter(
+    (slot: any) => (slot.dateKey || slot.date) === selectedSummaryDate
+  );
+  const selectedDateDeliveries = selectedDateSlots.flatMap((slot: any) => slot.deliveries ?? []);
+  const selectedDayDistance = selectedDateSlots.reduce(
+    (sum: number, slot: any) => sum + Number(slot.distanceKm || 0), 0
+  );
+  const selectedDayIncome = selectedDateSlots.reduce(
+    (sum: number, slot: any) => sum + Number(slot.income || 0), 0
+  );
+  const selectedDayMinutes = selectedDateSlots.reduce(
+    (sum: number, slot: any) => sum + Number(slot.estimatedMinutes || 0), 0
+  );
+  const selectedDayFuelCost = selectedDayDistance * Number((calendarData as any)?.capacity?.fuelCostPerKm || 4.5);
+  const weekDateKeys = new Set(dates.map(dateKey));
+  const visibleWeekSlots = slots.filter((slot: any) => weekDateKeys.has(slot.dateKey || slot.date));
+  const visibleWeekDeliveries = visibleWeekSlots.flatMap((slot: any) => slot.deliveries ?? []);
+  const uniqueWeekCustomers = new Set(
+    visibleWeekDeliveries.map((delivery: any) => String(delivery.customerName || "").trim().toLowerCase()).filter(Boolean)
+  ).size;
+  const locationKey = (delivery: any) =>
+    String(delivery.landmark || delivery.address || delivery.city || "").trim().toLowerCase().replace(/\\s+/g, " ");
+  const uniqueWeekLocations = new Set(visibleWeekDeliveries.map(locationKey).filter(Boolean)).size;
+  const selectedSummaryLabel = selectedSlot
+    ? new Date(`${selectedSlot.date}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+    : selectedDate.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+
 
   if (isLoading) {
     return (
@@ -595,7 +625,7 @@ export default function DeliveryCalendarPage() {
         <div className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Calendar Summary</CardTitle>
+              <CardTitle className="text-base">Calendar Summary · {selectedSummaryLabel}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between border-b pb-3">
@@ -604,7 +634,7 @@ export default function DeliveryCalendarPage() {
                   Deliveries
                 </div>
                 <span className="font-semibold">
-                  {summary.totalDeliveries || 0}
+                  {selectedDateDeliveries.length}
                 </span>
               </div>
               <div className="flex items-center justify-between border-b pb-3">
@@ -613,7 +643,7 @@ export default function DeliveryCalendarPage() {
                   Distance
                 </div>
                 <span className="font-semibold">
-                  {summary.totalDistance || "0 km"}
+                  {selectedDayDistance.toFixed(2)} km
                 </span>
               </div>
               <div className="flex items-center justify-between border-b pb-3">
@@ -622,7 +652,7 @@ export default function DeliveryCalendarPage() {
                   Fuel Cost
                 </div>
                 <span className="font-semibold">
-                  {formatPrice(summary.fuelCost || 0)}
+                  {formatPrice(selectedDayFuelCost)}
                 </span>
               </div>
               <div className="flex items-center justify-between border-b pb-3">
@@ -631,7 +661,7 @@ export default function DeliveryCalendarPage() {
                   Expected Income
                 </div>
                 <span className="font-semibold text-emerald-600">
-                  {formatPrice(summary.expectedIncome || 0)}
+                  {formatPrice(selectedDayIncome)}
                 </span>
               </div>
               <div className="flex items-center justify-between">
@@ -640,20 +670,17 @@ export default function DeliveryCalendarPage() {
                   Est. Time
                 </div>
                 <span className="font-semibold">
-                  {summary.estimatedTime || "0 hrs"}
+                  {selectedDayMinutes >= 60 ? `${Math.floor(selectedDayMinutes / 60)} hrs ${selectedDayMinutes % 60} min` : `${selectedDayMinutes} min`}
                 </span>
               </div>
             </CardContent>
           </Card>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-2">
             <Card className="bg-emerald-50 border-emerald-200">
               <CardContent className="p-4 text-center">
                 <p className="text-2xl font-bold text-emerald-600">
-                  {slots.reduce(
-                    (sum: number, s: any) => sum + (s.count || 0),
-                    0
-                  ) || 0}
+                  {visibleWeekDeliveries.length}
                 </p>
                 <p className="text-xs text-emerald-700">Weekly Deliveries</p>
               </CardContent>
@@ -661,11 +688,15 @@ export default function DeliveryCalendarPage() {
             <Card className="bg-blue-50 border-blue-200">
               <CardContent className="p-4 text-center">
                 <p className="text-2xl font-bold text-blue-600">
-                  {new Set(
-                    slots.flatMap((s: any) => s.deliveries?.map((d: any) => d.customerName) || [])
-                  ).size || 0}
+                  {uniqueWeekCustomers}
                 </p>
-                <p className="text-xs text-blue-700">Unique Customers</p>
+                <p className="text-[10px] text-blue-700">Unique Customers</p>
+              </CardContent>
+            </Card>
+            <Card className="bg-violet-50 border-violet-200">
+              <CardContent className="p-3 text-center">
+                <p className="text-2xl font-bold text-violet-600">{uniqueWeekLocations}</p>
+                <p className="text-[10px] text-violet-700">Locations</p>
               </CardContent>
             </Card>
           </div>
