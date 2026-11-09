@@ -170,7 +170,6 @@ export default function FarmerAnalyticsPage() {
             <div className="grid gap-2 md:grid-cols-2">
               {insights.map((i: any, idx: number) => (
                 <div key={idx} className="flex items-start gap-3 rounded-lg border bg-white p-3">
-                  <span className="text-xl">{i.emoji}</span>
                   <div>
                     <p className="font-medium">{i.title}</p>
                     <p className="text-sm text-gray-500">{i.message}</p>
@@ -348,7 +347,7 @@ export default function FarmerAnalyticsPage() {
       <div className="grid gap-6 lg:grid-cols-2">
         <Card className="rounded-2xl border-slate-200/80 shadow-sm">
           <CardHeader>
-            <CardTitle>📈 Your earnings over time</CardTitle>
+            <CardTitle>Revenue trend</CardTitle>
             <CardDescription>How much you earned in this period</CardDescription>
           </CardHeader>
           <CardContent>
@@ -369,7 +368,7 @@ export default function FarmerAnalyticsPage() {
 
         <Card className="rounded-2xl border-slate-200/80 shadow-sm">
           <CardHeader>
-            <CardTitle>🍎 Where your sales come from</CardTitle>
+            <CardTitle>Sales by product category</CardTitle>
             <CardDescription>Which crops customers buy the most</CardDescription>
           </CardHeader>
           <CardContent>
@@ -392,7 +391,7 @@ export default function FarmerAnalyticsPage() {
       <div className="grid gap-6 lg:grid-cols-2">
         <Card className="rounded-2xl border-slate-200/80 shadow-sm">
           <CardHeader>
-            <CardTitle>🚚 Where your orders stand</CardTitle>
+            <CardTitle>Order status breakdown</CardTitle>
             <CardDescription>Pending, shipped or delivered</CardDescription>
           </CardHeader>
           <CardContent>
@@ -416,7 +415,7 @@ export default function FarmerAnalyticsPage() {
 
         <Card className="rounded-2xl border-slate-200/80 shadow-sm">
           <CardHeader>
-            <CardTitle>🥇 Your best sellers</CardTitle>
+            <CardTitle>Top-selling products</CardTitle>
             <CardDescription>Products that earned you the most</CardDescription>
           </CardHeader>
           <CardContent>
@@ -440,12 +439,12 @@ export default function FarmerAnalyticsPage() {
                       </div>
                       <div>
                         <p className="font-medium">{p.name}</p>
-                        <p className="text-sm text-gray-500">{(p.unitsSold ?? p.quantity ?? 0)} units • {p.orders ?? 0} orders</p>
+                        <p className="text-sm text-gray-500">{(p.unitsSold ?? p.quantity ?? 0)} units sold • {p.orders ?? p.orderCount ?? 0} orders</p>
                       </div>
                     </div>
                     <div className="text-right">
                       <p className="font-bold text-emerald-600">{formatPrice(p.revenue ?? 0)}</p>
-                      <p className={cn("text-sm", (p.growth ?? 0) > 0 ? "text-green-600" : "text-red-600")}>{(p.growth ?? 0) > 0 ? '+' : ''}{(p.growth ?? 0)}%</p>
+                      {Number(p.growth ?? 0) !== 0 && <p className={cn("text-sm", (p.growth ?? 0) > 0 ? "text-green-600" : "text-red-600")}>{(p.growth ?? 0) > 0 ? "+" : ""}{(p.growth ?? 0)}%</p>}
                     </div>
                   </div>
                 ))
@@ -457,7 +456,7 @@ export default function FarmerAnalyticsPage() {
 
       <Card className="rounded-2xl border-slate-200/80 shadow-sm">
         <CardHeader>
-<CardTitle>📦 Stock left to sell</CardTitle>
+<CardTitle>Current product stock</CardTitle>
             <CardDescription>What you still have on hand</CardDescription>
         </CardHeader>
         <CardContent>
