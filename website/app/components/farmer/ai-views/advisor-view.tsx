@@ -32,8 +32,9 @@ const fmt = (n: number) =>
 export function AdvisorView() {
   const [period, setPeriod] = useState("30d");
   const [question, setQuestion] = useState("");
+  const [language, setLanguage] = useState("english");
   const [messages, setMessages] = useState<Array<{role: "user" | "assistant"; content: string}>>([]);
-  const chat = useMutation({ mutationFn: (message: string) => api.post("/ai/chatbot", { message, language: "english" }), onSuccess: (response: any) => { const payload = response?.data ?? response; setMessages((old) => [...old, { role: "assistant", content: payload?.reply || "No answer returned." }]); }, onError: () => setMessages((old) => [...old, { role: "assistant", content: "The advisory service is unavailable. Please try again." }]) });
+  const chat = useMutation({ mutationFn: (message: string) => api.post("/ai/chatbot", { message, language }), onSuccess: (response: any) => { const payload = response?.data ?? response; setMessages((old) => [...old, { role: "assistant", content: payload?.reply || "No answer returned." }]); }, onError: () => setMessages((old) => [...old, { role: "assistant", content: "The advisory service is unavailable. Please try again." }]) });
   const ask = () => { const message = question.trim(); if (!message || chat.isPending) return; setMessages((old) => [...old, { role: "user", content: message }]); setQuestion(""); chat.mutate(message); };
 
   const { data, isLoading, isError, refetch, isFetching } = useQuery({
@@ -81,8 +82,8 @@ export function AdvisorView() {
 
       <Card className="border-emerald-200 shadow-sm">
         <CardContent className="space-y-3 p-4">
-          <div className="flex items-center gap-2"><MessageCircle className="h-5 w-5 text-emerald-600" /><h2 className="font-semibold">Ask your Farm Advisor</h2></div>
-          <p className="text-sm text-gray-500">Ask a farming question. Include crop, location and crop age for more useful guidance.</p>
+          <div className="flex flex-wrap items-center justify-between gap-2"><div className="flex items-center gap-2"><MessageCircle className="h-5 w-5 text-emerald-600" /><h2 className="font-semibold">Ask your Farm Advisor</h2></div><select aria-label="Advisor language" value={language} onChange={(e) => setLanguage(e.target.value)} className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"><option value="english">English</option><option value="tamil">தமிழ்</option><option value="hindi">हिन्दी</option></select></div>
+          <p className="text-sm text-gray-500">Ask a farming question. Include crop, location and crop age for more useful guidance.</p><div className="flex flex-wrap gap-2">{["My tomato leaves are turning yellow","How can I improve soil health?","How should I plan irrigation?","How can I manage pests safely?"].map((prompt) => <button key={prompt} type="button" onClick={() => { setQuestion(prompt); setMessages((old) => [...old, { role: "user", content: prompt }]); chat.mutate(prompt); }} disabled={chat.isPending} className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs text-emerald-800 disabled:opacity-50">{prompt}</button>)}</div>
           {messages.length > 0 && <div aria-live="polite" className="max-h-72 space-y-2 overflow-y-auto rounded-lg bg-gray-50 p-3">{messages.map((m, i) => <div key={i} className={cn("rounded-lg p-3 text-sm", m.role === "user" ? "ml-8 bg-emerald-100" : "mr-8 bg-white")}>{m.content}</div>)}{chat.isPending && <p className="text-xs text-gray-500">Preparing guidance...</p>}</div>}
           <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); ask(); }}><input value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="Ask about crops, soil, water or pests..." className="min-w-0 flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm" /><Button type="submit" disabled={!question.trim() || chat.isPending}><Send className="mr-2 h-4 w-4" />Ask</Button></form>
           <p className="text-xs text-gray-400">Current chatbot replies are general guidance, not image diagnosis or a substitute for local agricultural expertise.</p>
