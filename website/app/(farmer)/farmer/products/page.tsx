@@ -1,12 +1,14 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import Image from "next/image";
 import {
   Plus, Search, Trash2, Edit, Eye, MoreVertical, Package,
   AlertCircle, Boxes, CheckCircle2, AlertTriangle, X, RefreshCw,
+  PackagePlus, Layers, RotateCcw, ChevronRight, Loader2,
 } from "lucide-react";
 import { Card, CardContent } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
@@ -32,6 +34,9 @@ export default function FarmerProductsPage() {
   const [filterStatus, setFilterStatus] = useState("all");
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [activeTab, setActiveTab] = useState<"products" | "stock" | "restocking">("products");
+  const [restockQty, setRestockQty] = useState<Record<string, string>>({});
+  const queryClient = useQueryClient();
 
   const { data: productsData, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: ["farmerProducts", searchTerm, filterStatus],
@@ -42,6 +47,35 @@ export default function FarmerProductsPage() {
   });
 
   const products = productsData?.data?.products || [];
+  const { data: inventoryData, isLoading: inventoryLoading, refetch: refetchInventory } = useQuery({
+    queryKey: ["farmerInventorySummary"],
+    queryFn: () => api.get("/inventory/farmer/summary"),
+  });
+  const inventory = inventoryData?.data;
+  const inventoryItems = (inventory?.products || []).map((item: any) => ({
+    ...item,
+    total_stock: item.total_stock ?? item.available_stock ?? 0,
+    available_stock: item.available_stock ?? 0,
+    reserved_stock: item.reserved_stock ?? 0,
+    sold_stock: item.sold_stock ?? 0,
+  })).sort((a: any, b: any) => Number(a.available_stock) - Number(b.available_stock));
+  const restockMutation = useMutation({
+    mutationFn: (payload: { productId: string; quantity: number }) => api.put(`/products/${payload.productId}/inventory`, { quantity: payload.quantity, operation: "restock" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["farmerInventorySummary"] });
+      queryClient.invalidateQueries({ queryKey: ["farmerProducts"] });
+      toast.success("Stock updated successfully");
+    },
+    onError: (err: any) => toast.error(err?.message || "Failed to update stock"),
+  });
+  const submitRestock = (productId: string) => {
+    const quantity = Number(restockQty[productId]);
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      toast.error("Enter a quantity greater than zero");
+      return;
+    }
+    restockMutation.mutate({ productId, quantity });
+  };
   const inventorySummary = useMemo(() => ({
     total: products.length,
     active: products.filter((p: any) => p.status === "active").length,
@@ -93,6 +127,23 @@ export default function FarmerProductsPage() {
         actionIcon="plus"
       />
 
+      <section className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
+        <div className="grid grid-cols-3 gap-2" role="tablist" aria-label="Products and inventory sections">
+          {([
+            { id: "products", label: "Products", icon: Package, hint: "Manage listings" },
+            { id: "stock", label: "Stock", icon: Layers, hint: "Monitor inventory" },
+            { id: "restocking", label: "Restocking", icon: RotateCcw, hint: "Add new stock" },
+          ] as const).map((tab) => {
+            const Icon = tab.icon;
+            const active = activeTab === tab.id;
+            return <button key={tab.id} type="button" role="tab" aria-selected={active} onClick={() => setActiveTab(tab.id)} className={cn("flex min-w-0 items-center justify-center gap-2 rounded-xl px-3 py-3 text-sm font-semibold transition", active ? "bg-emerald-700 text-white shadow-sm" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900")}>
+              <Icon className="h-4 w-4 shrink-0" /><span>{tab.label}</span><span className={cn("hidden text-xs font-normal md:inline", active ? "text-emerald-100" : "text-slate-400")}>{tab.hint}</span>
+            </button>;
+          })}
+        </div>
+      </section>
+
+      {activeTab === "products" && <>
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Product overview">
         <Card className="border-slate-200 shadow-sm">
           <CardContent className="flex items-center gap-3 p-4">
@@ -238,7 +289,44 @@ export default function FarmerProductsPage() {
         </div>
       )}
 
-      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+      </>}
+
+      {activeTab === "stock" && <section className="space-y-4">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <Card className="border-slate-200 shadow-sm"><CardContent className="p-4"><p className="text-xs font-medium text-slate-500">Products tracked</p><p className="mt-1 text-2xl font-semibold text-slate-900">{inventory?.total_products ?? inventoryItems.length}</p></CardContent></Card>
+          <Card className="border-slate-200 shadow-sm"><CardContent className="p-4"><p className="text-xs font-medium text-slate-500">Total stock</p><p className="mt-1 text-2xl font-semibold text-slate-900">{inventory?.total_stock ?? "—"} kg</p></CardContent></Card>
+          <Card className="border-slate-200 shadow-sm"><CardContent className="p-4"><p className="text-xs font-medium text-slate-500">Reserved stock</p><p className="mt-1 text-2xl font-semibold text-slate-900">{inventoryItems.reduce((n: number, i: any) => n + Number(i.reserved_stock || 0), 0)} kg</p></CardContent></Card>
+          <Card className="border-slate-200 shadow-sm"><CardContent className="p-4"><p className="text-xs font-medium text-slate-500">Low / unavailable</p><p className="mt-1 text-2xl font-semibold text-amber-700">{inventoryItems.filter((i: any) => Number(i.available_stock) <= 5).length}</p></CardContent></Card>
+        </div>
+        <Card className="overflow-hidden border-slate-200 shadow-sm">
+          <CardContent className="p-0">
+            <div className="flex flex-col gap-2 border-b border-slate-100 p-4 sm:flex-row sm:items-center sm:justify-between"><div><h3 className="font-semibold text-slate-900">Stock levels</h3><p className="mt-1 text-xs text-slate-500">Available, reserved and sold quantities for each product</p></div><Button variant="outline" size="sm" onClick={() => refetchInventory()} disabled={inventoryLoading}><RefreshCw className={cn("mr-2 h-4 w-4", inventoryLoading && "animate-spin")} />Refresh stock</Button></div>
+            {inventoryLoading ? <div className="p-10 text-center text-sm text-slate-500">Loading inventory…</div> : inventoryItems.length === 0 ? <div className="p-10 text-center text-sm text-slate-500">No inventory records available yet.</div> : <div className="divide-y divide-slate-100">
+              {inventoryItems.map((item: any) => <div key={item.product_id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex min-w-0 items-center gap-3"><div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-slate-100">{/* eslint-disable-next-line @next/next/no-img-element */}<img src={item.images?.[0] || "/images/placeholder-product.jpg"} alt={item.product_name || "Product"} className="h-full w-full object-cover" /></div><div className="min-w-0"><p className="truncate text-sm font-semibold text-slate-900">{item.product_name || item.product_id}</p><Badge variant={Number(item.available_stock) <= 0 ? "destructive" : Number(item.available_stock) <= 5 ? "warning" : "success"}>{Number(item.available_stock) <= 0 ? "Out of stock" : Number(item.available_stock) <= 5 ? "Low stock" : "In stock"}</Badge></div></div>
+                <div className="grid grid-cols-3 gap-4 text-right text-xs sm:min-w-[330px]"><div><p className="text-slate-400">Available</p><p className="mt-1 font-semibold text-slate-900">{item.available_stock} {item.unit || "kg"}</p></div><div><p className="text-slate-400">Reserved</p><p className="mt-1 font-semibold text-slate-900">{item.reserved_stock} {item.unit || "kg"}</p></div><div><p className="text-slate-400">Sold</p><p className="mt-1 font-semibold text-slate-900">{item.sold_stock} {item.unit || "kg"}</p></div></div>
+              </div>)}
+            </div>}
+          </CardContent>
+        </Card>
+      </section>}
+
+      {activeTab === "restocking" && <section className="space-y-4">
+        <div className="rounded-2xl border border-blue-100 bg-blue-50/70 p-4"><div className="flex items-start gap-3"><PackagePlus className="mt-0.5 h-5 w-5 shrink-0 text-blue-700" /><div><h3 className="text-sm font-semibold text-blue-950">Restock your products</h3><p className="mt-1 text-sm text-blue-800">Enter the additional quantity harvested or received. Stock is updated after the server confirms the restock.</p></div></div></div>
+        <Card className="overflow-hidden border-slate-200 shadow-sm">
+          <CardContent className="p-0">
+            <div className="border-b border-slate-100 p-4"><h3 className="font-semibold text-slate-900">Products needing attention</h3><p className="mt-1 text-xs text-slate-500">Lowest available stock is listed first</p></div>
+            {inventoryLoading ? <div className="p-10 text-center text-sm text-slate-500">Loading products…</div> : inventoryItems.length === 0 ? <div className="p-10 text-center text-sm text-slate-500">No products available to restock.</div> : <div className="divide-y divide-slate-100">
+              {inventoryItems.map((item: any) => <div key={item.product_id} className="flex flex-col gap-3 p-4 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex min-w-0 items-center gap-3"><div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-slate-100">{/* eslint-disable-next-line @next/next/no-img-element */}<img src={item.images?.[0] || "/images/placeholder-product.jpg"} alt={item.product_name || "Product"} className="h-full w-full object-cover" /></div><div className="min-w-0"><p className="truncate text-sm font-semibold text-slate-900">{item.product_name || item.product_id}</p><p className="mt-1 text-xs text-slate-500">Current available: <strong className="text-slate-800">{item.available_stock} {item.unit || "kg"}</strong></p></div></div>
+                <div className="flex w-full items-center gap-2 lg:w-auto"><Input type="number" min="0.01" step="0.01" placeholder="Quantity to add" aria-label={`Restock quantity for ${item.product_name || "product"}`} value={restockQty[item.product_id] || ""} onChange={(e) => setRestockQty((prev) => ({ ...prev, [item.product_id]: e.target.value }))} className="h-10 min-w-0 lg:w-44" /><Button className="h-10 shrink-0 bg-emerald-700 hover:bg-emerald-800" disabled={restockMutation.isPending} onClick={() => submitRestock(item.product_id)}>{restockMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PackagePlus className="mr-2 h-4 w-4" />}Add stock</Button></div>
+              </div>)}
+            </div>}
+          </CardContent>
+        </Card>
+      </section>}
+
+            <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete product?</DialogTitle>
