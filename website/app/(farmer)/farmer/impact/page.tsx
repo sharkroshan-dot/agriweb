@@ -163,13 +163,17 @@ export default function FarmerImpactPage() {
   ].filter((s) => s.value > 0);
 
   return (
-    <div className="w-full min-w-0 space-y-6 pb-8">
-      <FarmerPageHeader
-        title="Farm Impact"
-        description="Track verified sales, customer reach, completed deliveries and produce volume."
-      />
-
-      <Card className="rounded-xl border-slate-200 shadow-sm">
+    <div className="farm-impact-print-root w-full min-w-0 space-y-6 pb-8">
+      <div className="impact-print-heading hidden">
+        <div className="text-sm font-semibold tracking-wide text-emerald-700">AGRICONNECT · FARM OPERATIONS</div>
+        <h1 className="mt-1 text-3xl font-bold text-slate-900">Farm Impact Report</h1>
+        <p className="mt-1 text-sm text-slate-600">Reporting period: {startDate} to {endDate}</p>
+        <p className="mt-1 text-xs text-slate-500">Generated on {new Date().toLocaleDateString("en-IN")}</p>
+      </div>
+      <div className="no-print">
+        <FarmerPageHeader title="Farm Impact" description="Track verified sales, customer reach, completed deliveries and produce volume." />
+      </div>
+      <Card className="no-print rounded-xl border-slate-200 shadow-sm">
         <CardContent className="flex flex-col gap-4 p-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="space-y-2">
             <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
@@ -215,7 +219,7 @@ export default function FarmerImpactPage() {
         </Card>
       )}
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="no-print flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-slate-900">Verified impact summary</h2>
           <p className="text-sm text-slate-500">Only completed and picked-up orders are included in these totals.</p>
@@ -246,12 +250,12 @@ export default function FarmerImpactPage() {
 
       <Card className="overflow-hidden rounded-2xl border-slate-200 shadow-sm">
         <CardHeader className="border-b border-slate-100 bg-slate-50/70 px-5 py-4 sm:px-6">
-          <CardTitle className="text-lg font-semibold text-slate-900">Sales &amp; orders — last 6 months</CardTitle>
+          <CardTitle className="text-lg font-semibold text-slate-900">Sales &amp; orders — selected period</CardTitle>
           <CardDescription className="mt-1 text-sm text-slate-500">Verified delivered orders per month.</CardDescription>
         </CardHeader>
         <CardContent className="p-5 sm:p-6">
           {trend.length ? (
-            <div className="h-72 w-full">
+            <div className="impact-print-chart h-72 w-full min-w-0">
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={trend} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -287,12 +291,12 @@ export default function FarmerImpactPage() {
       <div className="grid gap-5 xl:grid-cols-2">
         <Card className="overflow-hidden rounded-2xl border-slate-200 shadow-sm">
           <CardHeader className="border-b border-slate-100 bg-slate-50/70 px-5 py-4">
-            <CardTitle className="text-lg font-semibold text-slate-900">Delivered volume — last 6 months</CardTitle>
+            <CardTitle className="text-lg font-semibold text-slate-900">Delivered volume — selected period</CardTitle>
             <CardDescription className="mt-1 text-sm text-slate-500">Kilograms of produce delivered per month.</CardDescription>
           </CardHeader>
           <CardContent className="p-5">
             {trend.length ? (
-              <div className="h-64 w-full">
+              <div className="impact-print-chart impact-print-volume-chart h-64 w-full min-w-0">
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart data={trend} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -319,8 +323,8 @@ export default function FarmerImpactPage() {
           </CardHeader>
           <CardContent className="p-5">
             {pieData.length ? (
-              <div className="flex min-h-64 flex-col items-center justify-center gap-5 sm:flex-row sm:gap-8">
-                <div className="relative h-44 w-44 shrink-0">
+              <div className="impact-print-pie-layout flex min-h-64 flex-col items-center justify-center gap-5 sm:flex-row sm:gap-8">
+                <div className="impact-print-pie relative h-44 w-44 shrink-0">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie data={pieData} dataKey="value" nameKey="name" innerRadius={55} outerRadius={85} paddingAngle={3} stroke="none">
@@ -420,6 +424,41 @@ export default function FarmerImpactPage() {
       <p className="text-xs text-gray-400">
         {d.disclaimer || "Metrics are computed from delivered orders only."} No unverifiable environmental claims are made.
       </p>
+      <style jsx global>{`
+        @page { size: A4 portrait; margin: 12mm; }
+        @media print {
+          html, body { width:100% !important; height:auto !important; overflow:visible !important; background:#fff !important; -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
+          body * { visibility:hidden !important; }
+          .farm-impact-print-root, .farm-impact-print-root * { visibility:visible !important; }
+          .farm-impact-print-root { position:absolute !important; inset:0 auto auto 0 !important; width:100% !important; max-width:none !important; padding:0 !important; margin:0 !important; gap:12px !important; background:#fff !important; }
+          .farm-impact-print-root .no-print { display:none !important; }
+          .farm-impact-print-root .impact-print-heading { display:block !important; margin:0 0 12px !important; padding:0 0 10px !important; border-bottom:2px solid #0f766e !important; break-after:avoid !important; }
+          .farm-impact-print-root .grid { gap:10px !important; }
+          .farm-impact-print-root .grid.md\\:grid-cols-2, .farm-impact-print-root .grid.sm\\:grid-cols-2 { grid-template-columns:repeat(2,minmax(0,1fr)) !important; }
+          .farm-impact-print-root .grid.lg\\:grid-cols-3 { grid-template-columns:repeat(3,minmax(0,1fr)) !important; }
+          .farm-impact-print-root [class*="rounded-2xl"], .farm-impact-print-root [class*="rounded-xl"] { box-shadow:none !important; break-inside:avoid !important; page-break-inside:avoid !important; }
+          .farm-impact-print-root .impact-print-chart { display:block !important; width:100% !important; height:235px !important; min-height:235px !important; overflow:visible !important; break-inside:avoid !important; page-break-inside:avoid !important; }
+          .farm-impact-print-root .impact-print-volume-chart { height:210px !important; min-height:210px !important; }
+          .farm-impact-print-root .recharts-responsive-container { width:100% !important; height:100% !important; min-width:0 !important; overflow:visible !important; }
+          .farm-impact-print-root .recharts-wrapper, .farm-impact-print-root .recharts-surface { overflow:visible !important; }
+          .farm-impact-print-root .impact-print-pie-layout { min-height:220px !important; display:flex !important; flex-direction:row !important; align-items:center !important; justify-content:space-evenly !important; gap:18px !important; overflow:visible !important; }
+          .farm-impact-print-root .impact-print-pie { width:185px !important; height:185px !important; flex:0 0 185px !important; }
+          .farm-impact-print-root .impact-print-pie-layout > div:last-child { min-width:150px !important; flex:1 !important; }
+          .farm-impact-print-root .impact-print-pie-layout > div:last-child > div { display:flex !important; justify-content:flex-start !important; gap:8px !important; }
+          .farm-impact-print-root .impact-print-pie-layout > div:last-child > div span:last-child { margin-left:auto !important; }
+          .farm-impact-print-root .text-2xl { font-size:18px !important; line-height:1.25 !important; }
+          .farm-impact-print-root .p-6, .farm-impact-print-root .sm\\:p-6 { padding:12px !important; }
+          .farm-impact-print-root .p-5 { padding:10px !important; }
+          .farm-impact-print-root .text-xs { font-size:9px !important; }
+          .farm-impact-print-root .text-sm { font-size:10px !important; }
+          .farm-impact-print-root .text-lg { font-size:14px !important; }
+          .farm-impact-print-root .text-3xl { font-size:21px !important; }
+          .farm-impact-print-root .border-slate-200 { border-color:#dbe3e8 !important; }
+          .farm-impact-print-root svg { max-width:100% !important; }
+          .farm-impact-print-root p { orphans:2; widows:2; }
+          .farm-impact-print-root .text-gray-400 { color:#64748b !important; }
+        }
+      `}</style>
     </div>
   );
 }
