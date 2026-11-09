@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 import { useQuery } from "@tanstack/react-query";
-import { Bot, Loader2, TrendingUp, Package, Wallet, Truck, Info, Sparkles, RefreshCw } from "lucide-react";
+import { Bot, Loader2, TrendingUp, Package, Wallet, Truck, Info, Sparkles, RefreshCw, MessageCircle, Send } from "lucide-react";
 import Link from "next/link";
 import { api } from "../../../lib/api/client";
 import { cn, formatPrice } from "../../../lib/utils";
@@ -30,6 +31,10 @@ const fmt = (n: number) =>
 
 export function AdvisorView() {
   const [period, setPeriod] = useState("30d");
+  const [question, setQuestion] = useState("");
+  const [messages, setMessages] = useState<Array<{role: "user" | "assistant"; content: string}>>([]);
+  const chat = useMutation({ mutationFn: (message: string) => api.post("/ai/chatbot", { message, language: "english" }), onSuccess: (response: any) => { const payload = response?.data ?? response; setMessages((old) => [...old, { role: "assistant", content: payload?.reply || "No answer returned." }]); }, onError: () => setMessages((old) => [...old, { role: "assistant", content: "The advisory service is unavailable. Please try again." }]) });
+  const ask = () => { const message = question.trim(); if (!message || chat.isPending) return; setMessages((old) => [...old, { role: "user", content: message }]); setQuestion(""); chat.mutate(message); };
 
   const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ["farmerAdvisor", period],
@@ -74,6 +79,19 @@ export function AdvisorView() {
         </div>
       </div>
 
+      <Card className="border-emerald-200 shadow-sm">
+        <CardContent className="space-y-3 p-4">
+          <div className="flex items-center gap-2"><MessageCircle className="h-5 w-5 text-emerald-600" /><h2 className="font-semibold">Ask your Farm Advisor</h2></div>
+          <p className="text-sm text-gray-500">Ask a farming question. Include crop, location and crop age for more useful guidance.</p>
+          {messages.length > 0 && <div aria-live="polite" className="max-h-72 space-y-2 overflow-y-auto rounded-lg bg-gray-50 p-3">{messages.map((m, i) => <div key={i} className={cn("rounded-lg p-3 text-sm", m.role === "user" ? "ml-8 bg-emerald-100" : "mr-8 bg-white")}>{m.content}</div>)}{chat.isPending && <p className="text-xs text-gray-500">Preparing guidance...</p>}</div>}
+          <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); ask(); }}><input value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="Ask about crops, soil, water or pests..." className="min-w-0 flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm" /><Button type="submit" disabled={!question.trim() || chat.isPending}><Send className="mr-2 h-4 w-4" />Ask</Button></form>
+          <p className="text-xs text-gray-400">Current chatbot replies are general guidance, not image diagnosis or a substitute for local agricultural expertise.</p>
+        </CardContent>
+      </Card>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Link href="/farmer/crop-advisor" className="rounded-xl border border-gray-200 bg-white p-4 hover:border-emerald-300"><p className="font-semibold">Crop selection & field planning</p><p className="mt-1 text-sm text-gray-500">Soil, season, weather, field size and water inputs.</p></Link>
+        <Link href="/farmer/weather" className="rounded-xl border border-gray-200 bg-white p-4 hover:border-sky-300"><p className="font-semibold">Weather guidance</p><p className="mt-1 text-sm text-gray-500">Review local weather and its crop impact.</p></Link>
+      </div>
       {isLoading && (
         <Card>
           <CardContent className="flex items-center gap-3 py-10 text-gray-500">
