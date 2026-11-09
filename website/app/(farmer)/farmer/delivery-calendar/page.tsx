@@ -635,7 +635,7 @@ export function FarmerDeliveryCalendarContent() {
           )}
         </div>
 
-        <aside className="sticky top-20 max-h-[calc(100vh-6rem)] space-y-3 overflow-y-auto overscroll-contain pr-1">
+        <aside className="grid min-w-0 grid-cols-1 items-start gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-base">Calendar Summary · {selectedSummaryLabel}</CardTitle>
@@ -714,7 +714,7 @@ export function FarmerDeliveryCalendarContent() {
             </Card>
           </div>
 
-          <Button asChild className="w-full">
+          <Button asChild className="w-full xl:col-span-1">
             <Link href={selectedRouteHref}>
               <Truck className="mr-2 h-4 w-4" />
               View Optimized Route
