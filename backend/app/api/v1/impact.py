@@ -314,7 +314,7 @@ async def get_my_impact(
     # the selected period, even if they placed only one order in this period.
     repeat_customers = max(0, len(unique_customers) - new_customers)
 
-    recorded_distance = sum(float(order.get("distanceKm") or 0) for order in (orders or []))
+    recorded_distance = sum(float(order.get("distanceKm") or 0) for order in (orders or []) if order.get("deliveryType", "delivery") != "pickup")
     data = {
         "role": role,
         "orders": order_count,
