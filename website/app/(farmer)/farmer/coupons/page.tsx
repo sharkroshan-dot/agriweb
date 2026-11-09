@@ -96,9 +96,14 @@ export default function FarmerCouponsPage() {
         <BadgePercent className="h-4 w-4" /> My Coupons <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${tab === "coupons" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>{coupons.length}</span>
       </button>
     </div>
-    <div className="relative w-full sm:max-w-sm">
-      <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-      <Input className="pl-9" placeholder={tab === "offers" ? "Search offers or products..." : "Search coupon codes..."} value={search} onChange={e => setSearch(e.target.value)} />
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="relative w-full sm:max-w-sm">
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+        <Input className="pl-9" placeholder={tab === "offers" ? "Search offers or products..." : "Search coupon codes..."} value={search} onChange={e => setSearch(e.target.value)} />
+      </div>
+      <Button className="shrink-0" onClick={() => { setEditingOffer(null); setEditingCoupon(null); setFormOpen(true); }}>
+        <Plus className="mr-2 h-4 w-4" /> Create Offer &amp; Coupon
+      </Button>
     </div>
 
     {isLoading ? <div className="flex h-40 items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-emerald-600" /></div> :
