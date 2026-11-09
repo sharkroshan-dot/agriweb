@@ -743,10 +743,16 @@ class OrderService:
             # create an unrelated customer-only slot reservation.
             existing_booking = await delivery_slot_booking_repository.find_one({
                 "slotId": ObjectId(data.deliverySlotId),
-                "orderId": ObjectId(order_id),
+                "customerId": ObjectId(customer_id),
+                "status": {"$in": ["joined", "order_linked"]},
                 "deletedAt": None,
             })
-            if not existing_booking:
+            if existing_booking:
+                await delivery_slot_booking_repository.update(
+                    {"_id": existing_booking["_id"]},
+                    {"orderId": ObjectId(order_id), "status": "order_linked"},
+                )
+            else:
                 await delivery_slot_booking_repository.create({
                     "slotId": ObjectId(data.deliverySlotId),
                     "orderId": ObjectId(order_id),
