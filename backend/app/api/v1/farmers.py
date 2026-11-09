@@ -1884,7 +1884,12 @@ async def get_my_route(
             float(stop.get("distance") or 0),
         )
 
-    stops.sort(key=_route_execution_key)
+    if workflow_ids:
+        # Preserve the optimized Smart Route order during execution.
+        route_position = {str(order_id): index for index, order_id in enumerate(workflow_ids)}
+        stops.sort(key=lambda stop: route_position.get(str(stop.get("orderId")), len(route_position)))
+    else:
+        stops.sort(key=_route_execution_key)
     total_duration = round(total_distance / 25 * 60 + len(stops) * 10, 0)
     summary = {
         "totalDistance": round(total_distance, 2),
