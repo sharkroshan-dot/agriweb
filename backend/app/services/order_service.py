@@ -20,6 +20,8 @@ from app.core.config import settings
 from app.repositories.reservation_repository import reservation_repository
 from app.repositories.base_repository import BaseRepository
 from app.services.delivery_availability_service import get_delivery_service_availability, estimate_fastest_eligibility
+delivery_slot_repository = BaseRepository("delivery_slots")
+delivery_slot_booking_repository = BaseRepository("delivery_slot_bookings")
 import httpx
 import secrets
 import logging
@@ -466,6 +468,22 @@ class OrderService:
         if not farmer_id:
             raise OrderCreationError("No farmer associated with the products in this order")
         
+        selected_delivery_slot = None
+        if data.deliverySlotId:
+            if not ObjectId.is_valid(str(data.deliverySlotId)):
+                raise OrderCreationError("Invalid delivery slot selection.")
+            selected_delivery_slot = await delivery_slot_repository.get_by_id(str(data.deliverySlotId))
+            if not selected_delivery_slot or str(selected_delivery_slot.get("farmerId")) != str(farmer_id):
+                raise OrderCreationError("Selected delivery slot is not available for this farmer.")
+            if selected_delivery_slot.get("status") != "open":
+                raise OrderCreationError("Selected delivery slot is no longer open.")
+            cutoff = selected_delivery_slot.get("cutoffTime")
+            if cutoff and cutoff < datetime.utcnow():
+                raise OrderCreationError("The booking cutoff for this delivery slot has passed.")
+            slot_date = selected_delivery_slot.get("date")
+            if slot_date and data.requestedDeliveryDate and slot_date.date() != data.requestedDeliveryDate.date():
+                raise OrderCreationError("Selected delivery slot date does not match the requested delivery date.")
+
         delivery_address = None
         if data.deliveryType == DeliveryType.DELIVERY:
             if not data.deliveryAddressId:
@@ -640,7 +658,9 @@ class OrderService:
             "pickupDate": data.pickupDate,
             "pickupTimeSlot": data.pickupTimeSlot,
             "requestedDeliveryDate": effective_requested_delivery_date,
-            "deliveryTimeSlot": effective_delivery_time_slot,
+            "deliveryTimeSlot": (selected_delivery_slot.get("startTime") if selected_delivery_slot else effective_delivery_time_slot),
+            "deliverySlotId": ObjectId(data.deliverySlotId) if data.deliverySlotId else None,
+            "deliverySlotArea": selected_delivery_slot.get("area") if selected_delivery_slot else None,
             "deliverySpeed": delivery_speed,
             "deliveryAvailabilityStatus": (delivery_availability or {}).get("status"),
             "deliveryAvailabilityMessage": (delivery_availability or {}).get("message"),
@@ -703,6 +723,29 @@ class OrderService:
                 except Exception:
                     logger.exception("Failed to release checkout reservation for %s", product_id)
             raise OrderCreationError("Failed to save order to database")
+
+        if selected_delivery_slot:
+            # Link the confirmed checkout record to the published delivery batch.
+            # Booking rows are tied to the order, so repeated checkout retries do not
+            # create an unrelated customer-only slot reservation.
+            existing_booking = await delivery_slot_booking_repository.find_one({
+                "slotId": ObjectId(data.deliverySlotId),
+                "orderId": ObjectId(order_id),
+                "deletedAt": None,
+            })
+            if not existing_booking:
+                await delivery_slot_booking_repository.create({
+                    "slotId": ObjectId(data.deliverySlotId),
+                    "orderId": ObjectId(order_id),
+                    "farmerId": ObjectId(farmer_id),
+                    "customerId": ObjectId(customer_id),
+                    "status": "order_linked",
+                    "deliveryFee": selected_delivery_slot.get("deliveryFee", 0),
+                })
+            await delivery_slot_repository.update(
+                {"_id": ObjectId(data.deliverySlotId)},
+                {"lastBookingAt": datetime.utcnow()},
+            )
 
         if data.couponCode and discount > 0:
             try:
