@@ -120,8 +120,8 @@ export default function FarmerProductsPage() {
   return (
     <div className="mx-auto w-full max-w-[1600px] space-y-6 pb-8">
       <FarmerPageHeader
-        title="Products & listings"
-        description="Manage your produce, monitor stock and keep your marketplace listings up to date."
+        title="Products & Inventory"
+        description="Manage product listings, monitor available stock and restock your produce from one workspace."
         actionHref="/farmer/products/new"
         actionLabel="Add product"
         actionIcon="plus"
