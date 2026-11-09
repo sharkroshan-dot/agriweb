@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
@@ -110,9 +110,12 @@ const buildContractScheduleDates = (contract: any): string[] => {
   return dates;
 };
 
-export function FarmerSupplyCalendarContent() {
+export function FarmerSupplyCalendarContent(props: { compact?: boolean; selectedDate?: string } = {}) {
+  const compact = props.compact ?? false;
+  const sharedSelectedDate = props.selectedDate;
   const [monthCursor, setMonthCursor] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [selectedDate, setSelectedDate] = useState(() => dateKey(new Date()));
+  useEffect(() => { if (compact && sharedSelectedDate) setSelectedDate(sharedSelectedDate); }, [compact, sharedSelectedDate]);
   const [view, setView] = useState<"month" | "week" | "list">("month");
   const [cropFilter, setCropFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
