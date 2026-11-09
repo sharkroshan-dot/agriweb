@@ -395,7 +395,8 @@ async def list_available_slots(
     for s in slots:
         _serialize_slot(s)
         s["status"] = await _slot_status(s)
-        s["bookings"] = await booking_repo.count({"slotId": s["_id"], "status": {"$in": ["joined", "order_linked"]}, "deletedAt": None})
+        s["bookedCapacityKg"] = await _booked_capacity(s["_id"])
+        s["remainingCapacityKg"] = round(max(0.0, float(s.get("maxCapacityKg", 0)) - s["bookedCapacityKg"]), 3)
         if s.get("distance"):
             s["distanceKm"] = round(s["distance"] / 1000, 2)
         farm = s.pop("farm", None) or {}
