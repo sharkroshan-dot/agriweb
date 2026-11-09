@@ -29,18 +29,20 @@ import {
 import { api } from "../../../lib/api/client";
 import { formatPrice } from "../../../lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
+import { FarmerPageHeader } from "../../../components/farmer/farmer-page-header";
 
-function Stat({ icon: Icon, label, value, sub }: any) {
+function Stat({ icon: Icon, label, value, color = "text-emerald-600" }: any) {
   return (
-    <Card className="h-full rounded-2xl border-slate-200 bg-white shadow-sm transition-shadow hover:shadow-md">
-      <CardContent className="flex min-h-[116px] items-center gap-4 p-5">
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-50">
-          <Icon className="h-6 w-6 text-emerald-700" />
-        </div>
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-slate-500">{label}</p>
-          <p className="mt-1 text-2xl font-bold tracking-tight text-slate-900">{value}</p>
-          {sub ? <p className="mt-1 text-sm text-slate-500">{sub}</p> : null}
+    <Card className="h-full">
+      <CardContent className="p-6">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0 space-y-1">
+            <p className="text-sm text-gray-500">{label}</p>
+            <p className="text-2xl font-bold tracking-tight text-slate-900">{value}</p>
+          </div>
+          <div className={`shrink-0 rounded-full bg-gray-100 p-2 ${color}`}>
+            <Icon className="h-5 w-5" />
+          </div>
         </div>
       </CardContent>
     </Card>
@@ -92,25 +94,18 @@ export default function FarmerImpactPage() {
 
   return (
     <div className="w-full min-w-0 space-y-6 pb-8">
-      <div className="rounded-2xl border border-emerald-100 bg-gradient-to-r from-white via-emerald-50/60 to-teal-50/40 p-5 shadow-sm sm:p-6">
-        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">Community contribution</div>
-        <div className="flex items-center gap-3">
-          <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-100">
-            <Leaf className="h-6 w-6 text-emerald-700" />
-          </span>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Your Farm Impact</h1>
-        </div>
-        <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">See how your verified deliveries support customers and your local community, with clear sales, fulfilment and produce-volume insights.</p>
-        <p className="mt-2 text-xs font-medium text-emerald-800">Based on completed deliveries and recorded order activity</p>
-      </div>
+      <FarmerPageHeader
+        title="Farm Impact"
+        description="Track your sales, customers served, deliveries and produce volume from verified completed orders."
+      />
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        <Stat icon={IndianRupee} label="Direct sales" value={formatPrice(d.totalSpent ?? 0)} />
-        <Stat icon={Users} label="Customers served" value={d.orders ?? 0} />
-        <Stat icon={Truck} label="Local deliveries" value={d.localDeliveries ?? 0} />
-        <Stat icon={Store} label="Farm pickups" value={d.pickupOrders ?? 0} />
-        <Stat icon={MapPin} label="Community deliveries" value={d.communityDeliveries ?? 0} />
-        <Stat icon={Wheat} label="Delivered volume" value={`${d.deliveredKg ?? 0} kg`} />
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <Stat icon={IndianRupee} label="Direct sales" value={formatPrice(d.totalSpent ?? 0)} color="text-green-600" />
+        <Stat icon={Users} label="Customers served" value={d.orders ?? 0} color="text-blue-600" />
+        <Stat icon={Truck} label="Local deliveries" value={d.localDeliveries ?? 0} color="text-emerald-600" />
+        <Stat icon={Store} label="Farm pickups" value={d.pickupOrders ?? 0} color="text-purple-600" />
+        <Stat icon={MapPin} label="Community deliveries" value={d.communityDeliveries ?? 0} color="text-amber-600" />
+        <Stat icon={Wheat} label="Delivered volume" value={`${d.deliveredKg ?? 0} kg`} color="text-teal-600" />
       </div>
 
       <Card className="overflow-hidden rounded-2xl border-slate-200 shadow-sm">
