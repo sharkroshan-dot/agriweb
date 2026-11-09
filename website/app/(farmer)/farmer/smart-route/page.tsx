@@ -150,6 +150,35 @@ export default function SmartRoutePage() {
     ...locatedStops.map((stop) => ({ lat: stop.lat as number, lng: stop.lng as number })),
     ...(hasOriginCoords && locatedStops.length ? [{ lat: origin!.lat as number, lng: origin!.lng as number }] : []),
   ];
+  // Combine stops at the same physical location into one map pin.
+  // A 50 m radius handles small geocoding/GPS differences without merging
+  // genuinely different nearby delivery addresses.
+  const groupedLocatedStops: { lat: number; lng: number; stops: { stop: Stop; sequence: number }[] }[] = [];
+  const distanceBetweenMeters = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
+    const toRad = (value: number) => (value * Math.PI) / 180;
+    const dLat = toRad(b.lat - a.lat);
+    const dLng = toRad(b.lng - a.lng);
+    const h =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+    return 6371000 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+  };
+  locatedStops.forEach((stop) => {
+    const sequence = stops.findIndex((item) => item.orderId === stop.orderId) + 1;
+    const existingGroup = groupedLocatedStops.find(
+      (group) => distanceBetweenMeters(group, { lat: stop.lat as number, lng: stop.lng as number }) <= 50
+    );
+    if (existingGroup) {
+      existingGroup.stops.push({ stop, sequence });
+    } else {
+      groupedLocatedStops.push({
+        lat: stop.lat as number,
+        lng: stop.lng as number,
+        stops: [{ stop, sequence }],
+      });
+    }
+  });
+
   const mapMarkers = [
     ...(hasOriginCoords
       ? [{
@@ -162,15 +191,25 @@ export default function SmartRoutePage() {
           info: origin?.address || "Route start & end point",
         }]
       : []),
-    ...locatedStops.map((s, i) => ({
-      id: s.orderId,
-      lat: s.lat as number,
-      lng: s.lng as number,
-      title: `${i + 1}. ${s.customerName}`,
-      color: "#10B981",
-      label: String(i + 1),
-      info: `${s.address}${s.city ? `, ${s.city}` : ""} · +${s.distance} km · ${formatPrice(s.total)}`,
-    })),
+    ...groupedLocatedStops.map((group) => {
+      const orderNumbers = group.stops.map(({ sequence }) => sequence);
+      const firstStop = group.stops[0].stop;
+      const orderLabel = orderNumbers.join(", ");
+      const details = group.stops.map(({ stop, sequence }) =>
+        `#${sequence} ${stop.customerName} — ${stop.address}${stop.city ? `, ${stop.city}` : ""} — ${formatPrice(stop.total)}`
+      );
+      return {
+        id: group.stops.map(({ stop }) => stop.orderId).join(","),
+        lat: group.lat,
+        lng: group.lng,
+        title: group.stops.length > 1
+          ? `${group.stops.length} orders at the same location`
+          : `${orderNumbers[0]}. ${firstStop.customerName}`,
+        color: "#10B981",
+        label: orderLabel,
+        info: details.join("\\n"),
+      };
+    }),
   ];
 
   const handleOptimize = () => {
