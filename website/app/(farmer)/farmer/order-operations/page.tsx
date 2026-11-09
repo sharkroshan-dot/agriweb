@@ -156,7 +156,7 @@ const workflows = [
   },
 ];
 
-export default function FarmerOrderOperationsPage() {
+export function FarmerOperationsOverview() {
   const ordersQuery = useQuery({
     queryKey: ["farmerOrderOperations", "retailOrders"],
     queryFn: () => api.get("/farmers/me/orders", { params: { limit: 500 } }),
@@ -321,4 +321,8 @@ export default function FarmerOrderOperationsPage() {
       </Card>
     </div>
   );
+}
+
+export default function FarmerOrderOperationsPage() {
+  return <FarmerOperationsOverview />;
 }
