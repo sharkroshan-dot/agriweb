@@ -281,19 +281,19 @@ export function DemandHeatmapView() {
           <div className="grid gap-4 md:grid-cols-3">
             <Card className="rounded-2xl border-slate-200 shadow-sm">
               <CardContent className="p-5">
-                <p className="text-xs text-gray-500">Expected demand · {data.periodLabel}</p>
+                <p className="text-sm text-gray-600">Expected demand · {data.periodLabel}</p>
                 <p className="mt-1 text-3xl font-bold text-emerald-600">{fmt(Number(summary.predictedDemandKg) || 0)}</p>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="p-5">
-                <p className="text-xs text-gray-500">Your stock available</p>
+                <p className="text-sm text-gray-600">Your stock available</p>
                 <p className="mt-1 text-3xl font-bold">{fmt(Number(summary.supplyKg) || 0)}</p>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="p-5">
-                <p className="text-xs text-gray-500">Unmet demand (opportunity)</p>
+                <p className="text-sm text-gray-600">Unmet demand (opportunity)</p>
                 <p className={cn("mt-1 text-3xl font-bold", Number(summary.gapKg) > 0 ? "text-amber-600" : "text-gray-400")}>{fmt(Number(summary.gapKg) || 0)}</p>
               </CardContent>
             </Card>
@@ -304,8 +304,8 @@ export function DemandHeatmapView() {
               <CardContent className="flex items-start gap-3 p-4">
                 <Sparkles className="h-5 w-5 shrink-0 text-emerald-600 mt-0.5" />
                 <div>
-                  <p className="text-sm font-medium text-emerald-900">🤖 What the AI suggests</p>
-                  <p className="mt-0.5 text-sm text-emerald-700">{data.recommendations}</p>
+                  <p className="text-base font-semibold text-emerald-900">🤖 What the AI suggests</p>
+                  <p className="mt-0.5 text-base leading-7 text-emerald-800">{data.recommendations}</p>
                 </div>
               </CardContent>
             </Card>
@@ -314,42 +314,42 @@ export function DemandHeatmapView() {
           <div className="grid gap-4 md:grid-cols-3">
             <Card>
               <CardContent className="flex items-center justify-between p-4">
-                <span className="text-sm font-medium text-gray-700">🏠 Households</span>
+                <span className="text-base font-medium text-gray-700">🏠 Households</span>
                 <span className="text-lg font-bold">{fmt(Number(summary.segments?.householdKg) || 0)}</span>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="flex items-center justify-between p-4">
-                <span className="text-sm font-medium text-gray-700">🎉 Bulk & events</span>
+                <span className="text-base font-medium text-gray-700">🎉 Bulk & events</span>
                 <span className="text-lg font-bold">{fmt(Number(summary.segments?.bulkEventKg) || 0)}</span>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="flex items-center justify-between p-4">
-                <span className="text-sm font-medium text-gray-700">🏢 B2B / shops</span>
+                <span className="text-base font-medium text-gray-700">🏢 B2B / shops</span>
                 <span className="text-lg font-bold">{fmt(Number(summary.segments?.b2bKg) || 0)}</span>
               </CardContent>
             </Card>
           </div>
 
           <div>
-            <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold">
+            <h2 className="mb-3 flex items-center gap-2 text-xl font-semibold">
               <MapPin className="h-5 w-5 text-emerald-600" /> Demand by area
-              <span className="text-sm font-normal text-gray-400">· {modeMeta.emoji} {modeMeta.label}</span>
+              <span className="text-base font-normal text-gray-500">· {modeMeta.emoji} {modeMeta.label}</span>
             </h2>
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
               {locations.map((l: any, i: number) => (
                 <div key={`${l.location}-${i}`} className={cn("rounded-2xl border p-5 shadow-sm transition-shadow hover:shadow-md", heatClass(l))}>
                   <div className="flex items-center justify-between gap-2">
-                    <p className="font-semibold text-gray-900">{l.location}</p>
+                    <p className="text-base font-semibold text-gray-900">{l.location}</p>
                     <Badge className={cn("border", labelStyles[l.demandLabel] ?? labelStyles.low)}>
                       {Math.round(Number(l.demandScore) * 100)}%
                     </Badge>
                   </div>
-                  <p className="mt-2 text-2xl font-bold text-gray-900">
-                    {Number(l.modeValue).toLocaleString()} <span className="text-sm font-normal text-gray-500">{l.modeUnit}</span>
+                  <p className="mt-2 text-3xl font-bold text-gray-900">
+                    {Number(l.modeValue).toLocaleString()} <span className="text-base font-normal text-gray-600">{l.modeUnit}</span>
                   </p>
-                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-gray-600">
+                  <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-gray-600">
                     {l.distanceKm != null ? <span>📍 {Math.round(l.distanceKm)} km away</span> : <span>📍 distance n/a</span>}
                     {l.growthPct > 0 ? <span className="text-emerald-700">▲ {Math.round(l.growthPct)}%</span> : l.growthPct < 0 ? <span className="text-red-600">▼ {Math.round(l.growthPct)}%</span> : <span>steady</span>}
                     <span className={cn("ml-auto rounded-full border px-2 py-0.5", confStyles[l.confidence] ?? confStyles.low)}>{l.confidence}</span>
@@ -369,7 +369,7 @@ export function DemandHeatmapView() {
 
           {rankedAreas.length > 0 && (
             <div>
-              <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold">
+              <h2 className="mb-3 flex items-center gap-2 text-xl font-semibold">
                 <Sparkles className="h-5 w-5 text-emerald-600" /> Best places to sell
               </h2>
               <div className="grid gap-4 xl:grid-cols-2">
@@ -383,7 +383,7 @@ export function DemandHeatmapView() {
                           </div>
                           <div>
                             <p className="font-semibold text-gray-900">{a.location}</p>
-                            <p className="text-xs text-gray-500">
+                            <p className="text-sm text-gray-600">
                               {a.distanceKm != null ? `${Math.round(a.distanceKm)} km away` : "distance unknown"} · {Math.round(a.predictedDemandKg).toLocaleString()} kg expected
                             </p>
                           </div>
@@ -392,19 +392,19 @@ export function DemandHeatmapView() {
                       </div>
                       <div className="mt-3 grid gap-2 sm:grid-cols-3">
                         <div className="rounded-lg bg-white/70 p-3">
-                          <p className="text-[11px] text-gray-500">Expected demand</p>
-                          <p className="text-base font-bold">{Math.round(a.predictedDemandKg).toLocaleString()} kg</p>
+                          <p className="text-sm text-gray-600">Expected demand</p>
+                          <p className="text-lg font-bold">{Math.round(a.predictedDemandKg).toLocaleString()} kg</p>
                         </div>
                         <div className="rounded-lg bg-white/70 p-3">
                           <p className="text-[11px] text-gray-500">Unmet demand</p>
-                          <p className={cn("text-base font-bold", a.gapKg > 0 ? "text-amber-600" : "text-gray-400")}>{Math.round(a.gapKg).toLocaleString()} kg</p>
+                          <p className={cn("text-lg font-bold", a.gapKg > 0 ? "text-amber-600" : "text-gray-400")}>{Math.round(a.gapKg).toLocaleString()} kg</p>
                         </div>
                         <div className="rounded-lg bg-white/70 p-3">
                           <p className="text-[11px] text-gray-500">Try listing</p>
                           <p className="text-base font-bold text-emerald-700">{a.recommendedQuantityKg > 0 ? `~${Math.round(a.recommendedQuantityKg).toLocaleString()} kg` : "—"}</p>
                         </div>
                       </div>
-                      <ul className="mt-3 space-y-1 text-xs text-gray-600">
+                      <ul className="mt-4 space-y-2 text-sm leading-6 text-gray-700">
                         {a.reasons.map((r: string, i: number) => (
                           <li key={i} className="flex items-start gap-1.5"><span className="text-emerald-600">•</span>{r}</li>
                         ))}
