@@ -31,7 +31,9 @@ interface DeliverySlot {
   startTime: string;
   endTime: string;
   radiusKm: number;
-  maxOrders: number;
+  maxCapacityKg: number;
+  bookedCapacityKg?: number;
+  remainingCapacityKg?: number;
   deliveryFee: number;
   status: string;
   bookings?: number;
@@ -47,7 +49,7 @@ export default function FarmerDeliverySlotsPage() {
     startTime: "07:00",
     endTime: "10:00",
     radiusKm: "10",
-    maxOrders: "25",
+    maxCapacityKg: "5",
     deliveryFee: "0",
     notes: "",
   });
@@ -142,7 +144,7 @@ export default function FarmerDeliverySlotsPage() {
       lng: areaCoordMap[s.area.trim()].lng,
       title: s.area,
       color: "#059669",
-      info: `${formatDate(s.date)} • ${s.startTime} – ${s.endTime} · ${s.bookings ?? 0}/${s.maxOrders} joined`,
+      info: `${formatDate(s.date)} • ${s.startTime} – ${s.endTime} · ${Number(s.bookedCapacityKg || 0).toFixed(1)}/${s.maxCapacityKg} kg joined`,
     }));
   const selectedCircle =
     selectedSlot && areaCoordMap[selectedSlot.area.trim()]
@@ -196,8 +198,9 @@ export default function FarmerDeliverySlotsPage() {
               <Input type="number" min={1} value={form.radiusKm} onChange={(e) => setForm({ ...form, radiusKm: e.target.value })} />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-medium text-gray-500">Max orders</label>
-              <Input type="number" min={1} value={form.maxOrders} onChange={(e) => setForm({ ...form, maxOrders: e.target.value })} />
+              <label className="text-xs font-medium text-gray-500">Maximum delivery capacity (kg) *</label>
+              <Input type="number" min={0.1} step="0.1" value={form.maxCapacityKg} onChange={(e) => setForm({ ...form, maxCapacityKg: e.target.value })} />
+              <p className="text-xs text-gray-400">Total weight you can deliver in this time slot.</p>
             </div>
             <div className="space-y-1">
               <label className="text-xs font-medium text-gray-500">Delivery fee (₹)</label>
@@ -266,7 +269,7 @@ export default function FarmerDeliverySlotsPage() {
                     startTime: form.startTime,
                     endTime: form.endTime,
                     radiusKm: Number(form.radiusKm),
-                    maxOrders: Number(form.maxOrders),
+                    maxCapacityKg: Number(form.maxCapacityKg),
                     deliveryFee: Number(form.deliveryFee),
                     notes: form.notes || null,
                   })
