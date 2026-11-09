@@ -214,6 +214,17 @@ export default function DeliveryCalendarPage() {
       )
     : null;
 
+  // Route only the orders belonging to the date/slot the farmer selected.
+  const selectedRouteDeliveries = selectedSlotData?.deliveries?.length
+    ? selectedSlotData.deliveries
+    : selectedDaySlots.flatMap((slot: any) => slot.data?.deliveries ?? []);
+  const selectedRouteOrderIds = selectedRouteDeliveries
+    .map((delivery: any) => delivery.orderId || delivery.id)
+    .filter(Boolean)
+    .join(",");
+  const routeQuery = selectedRouteOrderIds || workflowOrderIds;
+  const selectedRouteHref = `/farmer/smart-route${routeQuery ? `?orderIds=${encodeURIComponent(routeQuery)}` : ""}`;
+
   if (isLoading) {
     return (
       <div className="space-y-6">
@@ -429,7 +440,7 @@ export default function DeliveryCalendarPage() {
                       ) : (
                         <p className="text-sm text-gray-500">No deliveries in this slot</p>
                       )}
-                      <Button size="sm" className="mt-2" onClick={() => router.push(`/farmer/smart-route${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`)}>
+                      <Button size="sm" className="mt-2" onClick={() => router.push(selectedRouteHref)}>
                         <Truck className="mr-2 h-4 w-4" />
                         View Route
                       </Button>
@@ -573,7 +584,7 @@ export default function DeliveryCalendarPage() {
                   </Card>
                 );
               })}
-              <Button size="sm" onClick={() => router.push(`/farmer/smart-route${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`)}>
+              <Button size="sm" onClick={() => router.push(selectedRouteHref)}>
                 <Truck className="mr-2 h-4 w-4" />
                 Smart Route
               </Button>
@@ -660,7 +671,7 @@ export default function DeliveryCalendarPage() {
           </div>
 
           <Button asChild className="w-full">
-            <Link href={`/farmer/smart-route${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`}>
+            <Link href={selectedRouteHref}>
               <Truck className="mr-2 h-4 w-4" />
               View Optimized Route
             </Link>
