@@ -544,7 +544,7 @@ export function FarmerSupplyCalendarContent() {
         <Metric label="Orders ready for pickup" value={ordersReadyForPickup.length} hint="Packed and awaiting collection" icon={Boxes} tone="bg-orange-50 text-orange-700" />
       </section>
 
-      <section className="grid min-w-0 items-start gap-4 2xl:grid-cols-[minmax(0,1fr)_260px]">
+      <section className="flex min-w-0 flex-col gap-4">
         <Card className="min-w-0 overflow-hidden border-slate-200 shadow-sm">
           <CardContent className="space-y-4 p-3 sm:p-4">
             <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
@@ -680,7 +680,7 @@ export function FarmerSupplyCalendarContent() {
           </CardContent>
         </Card>
 
-        <aside className="sticky top-20 max-h-[calc(100vh-6rem)] space-y-3 overflow-y-auto overscroll-contain pr-1">
+        <aside className="grid min-w-0 grid-cols-1 items-start gap-3 sm:grid-cols-2 xl:grid-cols-3">
           <Card className="border-slate-200 shadow-sm">
             <CardContent className="space-y-2.5 p-3">
               <div className="flex items-start justify-between gap-2">
