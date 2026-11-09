@@ -480,6 +480,13 @@ class OrderService:
             cutoff = selected_delivery_slot.get("cutoffTime")
             if cutoff and cutoff < datetime.utcnow():
                 raise OrderCreationError("The booking cutoff for this delivery slot has passed.")
+            active_slot_bookings = await delivery_slot_booking_repository.count({
+                "slotId": ObjectId(data.deliverySlotId),
+                "status": {"$in": ["joined", "order_linked"]},
+                "deletedAt": None,
+            })
+            if active_slot_bookings >= int(selected_delivery_slot.get("maxOrders", 25)):
+                raise OrderCreationError("This delivery slot has reached its booking capacity. Please choose another slot.")
             slot_date = selected_delivery_slot.get("date")
             if slot_date and data.requestedDeliveryDate and slot_date.date() != data.requestedDeliveryDate.date():
                 raise OrderCreationError("Selected delivery slot date does not match the requested delivery date.")
@@ -626,6 +633,12 @@ class OrderService:
             next_available = delivery_availability.get("nextServiceAt")
             effective_requested_delivery_date = next_available
             effective_delivery_time_slot = "next_available"
+
+        if selected_delivery_slot:
+            # A farmer-published slot is an explicit delivery commitment and
+            # takes precedence over generic partner next-service suggestions.
+            effective_requested_delivery_date = selected_delivery_slot.get("date")
+            effective_delivery_time_slot = selected_delivery_slot.get("startTime")
 
         order_data = {
             "customerId": ObjectId(customer_id),
