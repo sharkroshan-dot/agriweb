@@ -37,14 +37,15 @@ export default function FarmerCouponsPage() {
     queryFn: () => api.get("/farmer-offers/mine"),
     retry: 1,
   });
-  const { data: productData } = useQuery({
+  const { data: productData, isLoading: productsLoading, isError: productsError, refetch: refetchProducts } = useQuery({
     queryKey: ["farmerOfferProducts"],
-    queryFn: () => api.get("/farmer-offers/products"),
+    queryFn: () => api.get("/farmers/me/products", { params: { status: "active", limit: 100 } }),
+    retry: 1,
   });
 
   const offers: Offer[] = data?.data?.offers || [];
   const coupons: Coupon[] = data?.data?.coupons || [];
-  const products: Product[] = productData?.data?.products || [];
+  const products: Product[] = productData?.data?.products ?? productData?.products ?? [];
 
   const removeOffer = useMutation({
     mutationFn: (id: string) => api.delete(`/farmer-offers/offers/${id}`),
@@ -114,7 +115,7 @@ export default function FarmerCouponsPage() {
       </section>
     }
 
-    {formOpen && <CreateForm products={products} offer={editingOffer} coupon={editingCoupon} initialKind={tab} onClose={()=>setFormOpen(false)} onSaved={()=>{setFormOpen(false);qc.invalidateQueries({queryKey:["farmerOffersCoupons"]})}} />}
+    {formOpen && <CreateForm products={products} productsLoading={productsLoading} productsError={productsError} refetchProducts={refetchProducts} offer={editingOffer} coupon={editingCoupon} initialKind={tab} onClose={()=>setFormOpen(false)} onSaved={()=>{setFormOpen(false);qc.invalidateQueries({queryKey:["farmerOffersCoupons"]})}} />}
   </div>;
 }
 
@@ -145,7 +146,7 @@ function CouponList({title, rows, onEdit, onDelete}: any) {
   </CardContent></Card>
 }
 
-function CreateForm({products, offer, coupon, initialKind, onClose, onSaved}: any) {
+function CreateForm({products, productsLoading, productsError, refetchProducts, offer, coupon, initialKind, onClose, onSaved}: any) {
   const isCoupon = !!coupon;
   const [kind,setKind] = useState<"offer"|"coupon">(isCoupon?"coupon":initialKind || "offer");
   const [form,setForm] = useState<any>(offer || coupon || { productId: products[0]?.id || "", name:"", code:"", description:"", discountType:"percentage", discountValue:10, minQuantity:1, minOrderValue:0, startAt:new Date().toISOString().slice(0,16), endAt:"", expiresAt:"", eligibility:"all" });
@@ -166,7 +167,7 @@ function CreateForm({products, offer, coupon, initialKind, onClose, onSaved}: an
   }catch(e:any){toast.error(e?.response?.data?.detail || e?.message || "Unable to save");}finally{setSaving(false)}};
   return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"><Card className="max-h-[90vh] w-full max-w-2xl overflow-auto"><CardHeader><CardTitle>{offer?"Edit Offer":coupon?"Edit Coupon":kind==="offer"?"Create Offer":"Create Coupon"}</CardTitle><CardDescription>{kind === "offer" ? "Configure an automatic discount for one of your products." : "Create a code customers can enter at checkout."}</CardDescription></CardHeader><CardContent className="space-y-4">
     {!offer&&!coupon&&<div className="flex gap-2"><Button variant={kind==="offer"?"default":"outline"} onClick={()=>setKind("offer")}>Offer</Button><Button variant={kind==="coupon"?"default":"outline"} onClick={()=>setKind("coupon")}>Coupon</Button></div>}
-    {kind==="offer"?<><select className="w-full rounded-md border p-2" value={form.productId} onChange={e=>setForm({...form,productId:e.target.value})}><option value="">Select Product</option>{products.map((p:any)=><option key={p.id} value={p.id}>{p.name}</option>)}</select><Input placeholder="Offer name" value={form.name||""} onChange={e=>setForm({...form,name:e.target.value})}/></>:<><Input placeholder="Coupon code" value={form.code||""} onChange={e=>setForm({...form,code:e.target.value.toUpperCase()})}/><Input placeholder="Description" value={form.description||""} onChange={e=>setForm({...form,description:e.target.value})}/></>}
+    {kind==="offer"?<><div className="space-y-1"><label className="text-xs font-medium text-slate-600">Your active products</label><select className="w-full rounded-md border border-slate-300 bg-white p-2.5 text-sm" value={form.productId || ""} disabled={productsLoading || products.length===0} onChange={e=>setForm({...form,productId:e.target.value})}><option value="">{productsLoading?"Loading your products...":products.length===0?"No active products available":"Select one of your products"}</option>{products.map((p:any)=><option key={p.id} value={p.id}>{p.name} · ₹{Number(p.price||0).toLocaleString("en-IN")}/{p.unit||"kg"}</option>)}</select>{productsError?<div className="flex items-center justify-between text-xs text-red-600"><span>Could not load your products.</span><button type="button" className="underline" onClick={()=>refetchProducts()}>Try again</button></div>:products.length===0&&!productsLoading?<p className="text-xs text-amber-700">Add and activate a product in Products &amp; Inventory before creating a product offer.</p>:<p className="text-xs text-slate-500">{products.length} active product{products.length===1?"":"s"} from your farmer account.</p>}</div><Input placeholder="Offer name" value={form.name||""} onChange={e=>setForm({...form,name:e.target.value})}/></>:<><Input placeholder="Coupon code" value={form.code||""} onChange={e=>setForm({...form,code:e.target.value.toUpperCase()})}/><Input placeholder="Description" value={form.description||""} onChange={e=>setForm({...form,description:e.target.value})}/></>}
     <div className="grid gap-3 sm:grid-cols-2"><select className="rounded-md border p-2" value={form.discountType} onChange={e=>setForm({...form,discountType:e.target.value})}><option value="percentage">Discount %</option><option value="fixed">Fixed ₹</option></select><Input type="number" min="0.01" placeholder="Discount value" value={form.discountValue} onChange={e=>setForm({...form,discountValue:Number(e.target.value)})}/></div>
     <div className="grid gap-3 sm:grid-cols-2"><Input type="number" min="0" placeholder="Minimum Quantity" value={form.minQuantity??0} onChange={e=>setForm({...form,minQuantity:Number(e.target.value)})}/><Input type="number" min="0" placeholder="Minimum Order ₹" value={form.minOrderValue??0} onChange={e=>setForm({...form,minOrderValue:Number(e.target.value)})}/></div>
     {kind==="offer"?<div className="grid gap-3 sm:grid-cols-2"><Input type="datetime-local" value={form.startAt?.slice(0,16)||""} onChange={e=>setForm({...form,startAt:e.target.value})}/><Input type="datetime-local" value={form.endAt?.slice(0,16)||""} onChange={e=>setForm({...form,endAt:e.target.value})}/></div>:<div className="grid gap-3 sm:grid-cols-2"><label className="space-y-1 text-xs font-medium text-slate-600">Starts at<Input type="datetime-local" value={form.startAt?.slice(0,16)||""} onChange={e=>setForm({...form,startAt:e.target.value})}/></label><label className="space-y-1 text-xs font-medium text-slate-600">Expires at<Input type="datetime-local" value={form.expiresAt?.slice(0,16)||""} onChange={e=>setForm({...form,expiresAt:e.target.value || null})}/></label></div><div className="grid gap-3 sm:grid-cols-2"><label className="space-y-1 text-xs font-medium text-slate-600">Maximum discount (₹, optional)<Input type="number" min="0" placeholder="No limit" value={form.maxDiscount ?? ""} onChange={e=>setForm({...form,maxDiscount:e.target.value===""?null:Number(e.target.value)})}/></label><label className="space-y-1 text-xs font-medium text-slate-600">Total usage limit (optional)<Input type="number" min="1" placeholder="Unlimited" value={form.usageLimit ?? ""} onChange={e=>setForm({...form,usageLimit:e.target.value===""?null:Number(e.target.value)})}/></label></div>}
