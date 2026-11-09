@@ -532,9 +532,9 @@ export function FarmerSupplyCalendarContent(props: { compact?: boolean; selected
             <Link href="/farmer/harvest-planner"><Plus className="mr-2 h-4 w-4" />Add harvest plan</Link>
           </Button>
         }
-      />
+      />}
 
-      <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+      {!compact && <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         <Metric label="Total planned supply" value={monthSupplyKg.toLocaleString("en-IN")} unit="kg" hint={monthLabel} icon={Boxes} tone="bg-emerald-50 text-emerald-700" />
         <Metric label="Harvested quantity" value={totalHarvestedPlansKg.toLocaleString("en-IN")} unit="kg" hint="Recorded actual harvest" icon={Sprout} tone="bg-blue-50 text-blue-700" />
         <Metric label="Pending harvest" value={pendingFarmerHarvestKg.toLocaleString("en-IN")} unit="kg" hint="Expected from open harvest plans" icon={Wheat} tone="bg-amber-50 text-amber-700" />
@@ -545,7 +545,7 @@ export function FarmerSupplyCalendarContent(props: { compact?: boolean; selected
         <Metric label="Active contracts" value={activeContracts.length} hint="Recurring supply agreements" icon={CalendarDays} tone="bg-violet-50 text-violet-700" />
         <Metric label="Orders awaiting preparation" value={ordersAwaitingPreparation.length} hint="Farmer action required" icon={PackageCheck} tone="bg-emerald-50 text-emerald-700" />
         <Metric label="Orders ready for pickup" value={ordersReadyForPickup.length} hint="Packed and awaiting collection" icon={Boxes} tone="bg-orange-50 text-orange-700" />
-      </section>
+      </section>}
 
       <section className="flex min-w-0 flex-col gap-4">
         <Card className={cn("min-w-0 overflow-hidden border-slate-200 shadow-sm", compact && "hidden")}>
