@@ -1,7 +1,7 @@
 "use client";
 import { DeliveryWorkflowNav } from "../../../components/farmer/delivery-workflow-nav";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -142,7 +142,9 @@ function DeliveryRow({ d }: { d: any }) {
   );
 }
 
-export function FarmerDeliveryCalendarContent() {
+export function FarmerDeliveryCalendarContent(props: { compact?: boolean; selectedDate?: string } = {}) {
+  const compact = props.compact ?? false;
+  const sharedSelectedDate = props.selectedDate;
   const router = useRouter();
   const searchParams = useSearchParams();
   const workflowOrderIds = searchParams.get("orderIds") || "";
@@ -151,6 +153,7 @@ export function FarmerDeliveryCalendarContent() {
   const [weekOffset, setWeekOffset] = useState(0);
   const [monthOffset, setMonthOffset] = useState(0);
   const [dayOffset, setDayOffset] = useState(0);
+  useEffect(() => { if (compact && sharedSelectedDate) { const target = new Date(sharedSelectedDate + "T00:00:00"); const today = new Date(); const base = new Date(today.getFullYear(), today.getMonth(), today.getDate()); setDayOffset(Math.round((target.getTime() - base.getTime()) / 86400000)); } }, [compact, sharedSelectedDate]);
   const [selectedSlot, setSelectedSlot] = useState<{ day: string; time: string; date: string } | null>(null);
   const dates = weekDates(weekOffset);
 
@@ -271,7 +274,7 @@ export function FarmerDeliveryCalendarContent() {
   if (isLoading) {
     return (
       <div className="space-y-6">
-      <DeliveryWorkflowNav current="calendar" />
+      {!compact && <DeliveryWorkflowNav current="calendar" />}
         <div className="h-8 w-64 animate-pulse rounded bg-gray-200" />
         <div className="h-32 animate-pulse rounded-lg bg-gray-200" />
         <div className="h-96 animate-pulse rounded-lg bg-gray-200" />
@@ -281,7 +284,7 @@ export function FarmerDeliveryCalendarContent() {
 
   return (
     <div className="space-y-6">
-      <FarmerPageHeader title="Delivery calendar" description="See upcoming customer commitments, time slots and partner handoffs before planning the route." actionHref="/farmer/delivery-schedule/new" actionLabel="Schedule delivery" actionIcon="plus">
+      {!compact && <FarmerPageHeader title="Delivery calendar" description="See upcoming customer commitments, time slots and partner handoffs before planning the route." actionHref="/farmer/delivery-schedule/new" actionLabel="Schedule delivery" actionIcon="plus">
         <div className="flex items-center gap-2">
           <div className="flex rounded-lg border p-1">
             {(["month", "week", "day"] as const).map((mode) => (
@@ -300,10 +303,10 @@ export function FarmerDeliveryCalendarContent() {
             ))}
           </div>
         </div>
-      </FarmerPageHeader>
+      </FarmerPageHeader>}
 
       <div className="flex min-w-0 flex-col gap-4">
-        <div className="space-y-4">
+        <div className={cn("space-y-4", compact && "hidden")}>
           <div className="flex items-center justify-between">
             <Button variant="ghost" size="icon" onClick={goPrev}>
               <ChevronLeft className="h-5 w-5" />
