@@ -42,6 +42,7 @@ interface Stop {
   orderNumber: string;
   customerName: string;
   address: string;
+  landmark?: string;
   city: string;
   lat: number | null;
   lng: number | null;
@@ -198,15 +199,17 @@ export default function SmartRoutePage() {
       const details = group.stops.map(({ stop, sequence }) =>
         `#${sequence} ${stop.customerName} — ${stop.address}${stop.city ? `, ${stop.city}` : ""} — ${formatPrice(stop.total)}`
       );
+      const landmark = firstStop.landmark || firstStop.address || firstStop.city || "Delivery location";
       return {
         id: group.stops.map(({ stop }) => stop.orderId).join(","),
         lat: group.lat,
         lng: group.lng,
         title: group.stops.length > 1
-          ? `${group.stops.length} orders at the same location`
+          ? `${group.stops.length} customer orders · ${landmark}`
           : `${orderNumbers[0]}. ${firstStop.customerName}`,
         color: "#10B981",
         label: orderLabel,
+        displayLabel: `${landmark} · Orders: ${orderLabel}`,
         info: details.join("\\n"),
       };
     }),
