@@ -129,8 +129,8 @@ export default function FarmerAnalyticsPage() {
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {SUMMARY_CARDS.map(({ key, label, emoji, color, format }) => (
-          <Card key={key}>
-            <CardContent className="p-6">
+          <Card key={key} className="rounded-2xl border-slate-200/80 shadow-sm transition-shadow hover:shadow-md">
+            <CardContent className="p-5 sm:p-6">
               <div className="flex items-start justify-between">
                 <div className="space-y-1">
                   <p className="text-3xl">{emoji}</p>
@@ -144,8 +144,8 @@ export default function FarmerAnalyticsPage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <Card className="border-emerald-200 bg-gradient-to-br from-emerald-50/60 to-white">
-          <CardContent className="p-6">
+        <Card className="rounded-2xl border-emerald-200/80 bg-gradient-to-br from-emerald-50/60 to-white shadow-sm">
+          <CardContent className="p-5 sm:p-6">
             <div className="flex items-center gap-2 text-emerald-600">
               <Wallet className="h-5 w-5" />
               <p className="text-sm text-gray-500">💰 Money in your wallet</p>
@@ -154,8 +154,8 @@ export default function FarmerAnalyticsPage() {
             <p className="mt-1 text-xs text-gray-400">Ready to spend or withdraw</p>
           </CardContent>
         </Card>
-        <Card className="border-amber-200 bg-gradient-to-br from-amber-50/60 to-white">
-          <CardContent className="p-6">
+        <Card className="rounded-2xl border-amber-200/80 bg-gradient-to-br from-amber-50/60 to-white shadow-sm">
+          <CardContent className="p-5 sm:p-6">
             <div className="flex items-center gap-2 text-amber-600">
               <Banknote className="h-5 w-5" />
               <p className="text-sm text-gray-500">⏳ Coming to you</p>
@@ -164,8 +164,8 @@ export default function FarmerAnalyticsPage() {
             <p className="mt-1 text-xs text-gray-400">Earned but not paid out yet</p>
           </CardContent>
         </Card>
-        <Card className="border-violet-200 bg-gradient-to-br from-violet-50/60 to-white">
-          <CardContent className="p-6">
+        <Card className="rounded-2xl border-violet-200/80 bg-gradient-to-br from-violet-50/60 to-white shadow-sm">
+          <CardContent className="p-5 sm:p-6">
             <div className="flex items-center gap-2 text-violet-600">
               <Star className="h-5 w-5" />
               <p className="text-sm text-gray-500">⭐ Customer rating</p>
@@ -186,7 +186,7 @@ export default function FarmerAnalyticsPage() {
           { label: "Customers interested", value: harvest.notifyMe ?? data.notifyMe ?? 0, emoji: "🔔" },
         ].map((s) => (
           <Card key={s.label}>
-            <CardContent className="p-6">
+            <CardContent className="p-5 sm:p-6">
               <p className="text-3xl">{s.emoji}</p>
               <p className="mt-1 text-3xl font-extrabold text-slate-900">{s.value}</p>
               <p className="text-sm text-gray-500">{s.label}</p>
@@ -301,34 +301,34 @@ export default function FarmerAnalyticsPage() {
       )}
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
+        <Card className="rounded-2xl border-slate-200/80 shadow-sm">
           <CardHeader>
             <CardTitle>📈 Your earnings over time</CardTitle>
             <CardDescription>How much you earned in this period</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="h-[300px]">
+            <div className="h-[280px] w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={revenueTrend.length > 0 ? revenueTrend : [{ name: "No data", revenue: 0, orders: 0 }]}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="name" />
-                  <YAxis />
-                  <Tooltip />
-                  <Line type="monotone" dataKey="revenue" stroke="#22c55e" strokeWidth={2} />
-                  <Line type="monotone" dataKey="orders" stroke="#3b82f6" strokeWidth={2} />
+                  <CartesianGrid stroke="#e2e8f0" strokeDasharray="4 4" vertical={false} />
+                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: "#64748b", fontSize: 12 }} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fill: "#64748b", fontSize: 12 }} />
+                  <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e2e8f0", boxShadow: "0 8px 24px rgba(15,23,42,0.08)" }} />
+                  <Line type="monotone" dataKey="revenue" name="Revenue" stroke="#059669" strokeWidth={3} dot={false} activeDot={{ r: 5 }} />
+                  <Line type="monotone" dataKey="orders" name="Orders" stroke="#3b82f6" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="rounded-2xl border-slate-200/80 shadow-sm">
           <CardHeader>
             <CardTitle>🍎 Where your sales come from</CardTitle>
             <CardDescription>Which crops customers buy the most</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="h-[300px]">
+            <div className="h-[280px] w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie data={categoryData.length > 0 ? categoryData : [{ name: "No data", value: 1 }]} dataKey="value" cx="50%" cy="50%" outerRadius={80} label>
@@ -336,7 +336,7 @@ export default function FarmerAnalyticsPage() {
                       <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                     ))}
                   </Pie>
-                  <Tooltip />
+                  <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e2e8f0", boxShadow: "0 8px 24px rgba(15,23,42,0.08)" }} />
                 </PieChart>
               </ResponsiveContainer>
             </div>
@@ -345,20 +345,20 @@ export default function FarmerAnalyticsPage() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
+        <Card className="rounded-2xl border-slate-200/80 shadow-sm">
           <CardHeader>
             <CardTitle>🚚 Where your orders stand</CardTitle>
             <CardDescription>Pending, shipped or delivered</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="h-[300px]">
+            <div className="h-[280px] w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={orderStatus.length > 0 ? orderStatus : [{ name: "No data", count: 1 }]}>
-                  <CartesianGrid strokeDasharray="3 3" />
+                  <CartesianGrid stroke="#e2e8f0" strokeDasharray="4 4" vertical={false} />
                   <XAxis dataKey="name" tickFormatter={(v: string) => v.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())} />
-                  <YAxis allowDecimals={false} />
-                  <Tooltip />
-                  <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                  <YAxis allowDecimals={false} axisLine={false} tickLine={false} tick={{ fill: "#64748b", fontSize: 12 }} />
+                  <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e2e8f0", boxShadow: "0 8px 24px rgba(15,23,42,0.08)" }} />
+                  <Bar dataKey="count" name="Orders" fill="#0f9f6e" radius={[6, 6, 0, 0]}>
                     {orderStatus.map((entry: any) => (
                       <Cell key={entry.name} fill={STATUS_COLORS[entry.name] ?? "#94a3b8"} />
                     ))}
@@ -369,7 +369,7 @@ export default function FarmerAnalyticsPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="rounded-2xl border-slate-200/80 shadow-sm">
           <CardHeader>
             <CardTitle>🥇 Your best sellers</CardTitle>
             <CardDescription>Products that earned you the most</CardDescription>
@@ -410,7 +410,7 @@ export default function FarmerAnalyticsPage() {
         </Card>
       </div>
 
-      <Card>
+      <Card className="rounded-2xl border-slate-200/80 shadow-sm">
         <CardHeader>
 <CardTitle>📦 Stock left to sell</CardTitle>
             <CardDescription>What you still have on hand</CardDescription>
