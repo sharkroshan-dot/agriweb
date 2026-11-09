@@ -130,7 +130,11 @@ export default function FarmerAnalyticsPage() {
   const hasSalesData = Number(data.totalOrders ?? 0) > 0 || Number(data.totalRevenue ?? 0) > 0;
 
   if (isLoading) {
-    return <div className="space-y-4"><div className="h-12 w-48 animate-pulse rounded bg-gray-200" /><div className="h-80 animate-pulse rounded bg-gray-200" /></div>;
+    return <div className="w-full min-w-0 space-y-6 animate-pulse"><div className="h-20 rounded-2xl bg-slate-100" /><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-28 rounded-2xl bg-slate-100" />)}</div><div className="grid gap-4 xl:grid-cols-2">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-64 rounded-2xl bg-slate-100" />)}</div></div>;
+  }
+
+  if (isError) {
+    return <div className="w-full min-w-0 space-y-4"><FarmerPageHeader title="Farm analytics" description="Understand your sales, customers, stock and farm performance." /><Card className="rounded-2xl border-red-200 bg-red-50/50 shadow-none"><CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-start gap-3"><AlertCircle className="mt-0.5 h-5 w-5 text-red-600" /><div><p className="font-semibold text-slate-900">Analytics could not be loaded</p><p className="mt-1 text-sm text-slate-600">Check your connection and try again. Your farm data has not been changed.</p></div></div><Button onClick={() => refetch()} disabled={isFetching}><RefreshCw className={cn("mr-2 h-4 w-4", isFetching && "animate-spin")} /> Try again</Button></CardContent></Card></div>;
   }
 
   return (
