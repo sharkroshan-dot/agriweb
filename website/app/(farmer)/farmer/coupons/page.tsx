@@ -94,7 +94,7 @@ export default function FarmerCouponsPage() {
       <button onClick={() => setTab("coupons")} className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition ${tab === "coupons" ? "bg-emerald-600 text-white shadow-sm" : "text-slate-600 hover:bg-white/70 hover:text-emerald-700"}`}>
         <BadgePercent className="h-4 w-4" /> My Coupons <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${tab === "coupons" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>{coupons.length}</span>
       </button>
-      <Button className="ml-2" onClick={() => { setEditingOffer(null); setEditingCoupon(null); setFormOpen(true); }}><Plus className="mr-2 h-4 w-4" /> Create Offer</Button>
+      <Button className="ml-2" onClick={() => { setEditingOffer(null); setEditingCoupon(null); setFormOpen(true); }}><Plus className="mr-2 h-4 w-4" /> Create {tab === "offers" ? "Offer" : "Coupon"}</Button>
     </div>
     <div className="relative w-full sm:max-w-sm">
       <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -157,8 +157,10 @@ function CreateForm({products, offer, coupon, onClose, onSaved}: any) {
       const payload={...form,startAt:new Date(form.startAt).toISOString(),endAt:new Date(form.endAt).toISOString()};
       await api[offer?"put":"post"](offer?`/farmer-offers/offers/${offer.id}`:"/farmer-offers/offers",payload);
     } else {
-      if(!form.code) throw new Error("Coupon code is required");
-      await api[coupon?"put":"post"](coupon?`/farmer-offers/coupons/${coupon.id}`:"/farmer-offers/coupons",{...form,startAt:form.startAt?new Date(form.startAt).toISOString():null});
+      if(!form.code || form.code.trim().length < 3) throw new Error("Coupon code must contain at least 3 characters");
+      if(form.discountType === "percentage" && (Number(form.discountValue) <= 0 || Number(form.discountValue) > 100)) throw new Error("Percentage discount must be between 0 and 100");
+      if(form.startAt && form.expiresAt && new Date(form.expiresAt) <= new Date(form.startAt)) throw new Error("Expiry must be after the start date");
+      await api[coupon?"put":"post"](coupon?`/farmer-offers/coupons/${coupon.id}`:"/farmer-offers/coupons",{...form,code:form.code.trim().toUpperCase(),startAt:form.startAt?new Date(form.startAt).toISOString():null,expiresAt:form.expiresAt?new Date(form.expiresAt).toISOString():null});
     }
     toast.success(kind==="offer"?"Offer saved":"Coupon saved"); onSaved();
   }catch(e:any){toast.error(e?.response?.data?.detail || e?.message || "Unable to save");}finally{setSaving(false)}};
