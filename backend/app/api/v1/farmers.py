@@ -808,27 +808,29 @@ async def get_delivery_calendar(
     capacity = await _get_delivery_capacity(farmer_id)
     calendar_statuses = [
         "pending", "confirmed", "processing", "ready_for_delivery",
-        "ready_for_pickup", "delivered", "completed", "picked_up",
+        "ready_for_pickup", "dispatched", "in_transit",
+        "delivered", "completed", "picked_up",
     ]
     workflow_ids = _parse_workflow_order_ids(orderIds)
     calendar_query = {
         "farmerId": ObjectId(farmer_id),
         "orderStatus": {"$in": calendar_statuses},
         "deletedAt": None,
-        "deliveryType": DeliveryType.DELIVERY.value,
-        # Include legacy farmer orders created before fulfillmentMethod was stored.
-        "$or": [
-            # Current FARM_DIRECT enum value used by OrderService.
-            {"fulfillmentMethod": "farm_direct"},
-            # Older records and transitional values.
-            {"fulfillmentMethod": "farmer"},
-            {"fulfillmentMethod": {"$exists": False}},
-            {"fulfillmentMethod": None},
-        ],
+        # Older order documents may not have deliveryType or fulfillmentMethod.
+        # Resolve those legacy defaults in Python after fetching by farmer.
+    }
     }
     if workflow_ids:
         calendar_query["_id"] = {"$in": workflow_ids}
     orders = await order_repository.find_many(calendar_query) or []
+    # Legacy orders can omit deliveryType/fulfillmentMethod. Treat a missing
+    # deliveryType as normal delivery, and keep only farmer-direct fulfilment.
+    orders = [
+        order for order in orders
+        if str(order.get("deliveryType") or DeliveryType.DELIVERY.value) != DeliveryType.PICKUP.value
+        and str(order.get("fulfillmentMethod") or FulfillmentMethod.FARM_DIRECT.value)
+            == FulfillmentMethod.FARM_DIRECT.value
+    ]
     farm = await _get_farm_origin(farmer_id)
 
     def _calendar_date_value(value):
@@ -870,10 +872,22 @@ async def get_delivery_calendar(
                 if scheduled_date is not None:
                     break
         if scheduled_date is None and status_value in ("delivered", "completed", "picked_up"):
-            for field in ("updatedAt", "createdAt"):
-                scheduled_date = _calendar_date_value(order.get(field))
-                if scheduled_date is not None:
-                    break
+            # Older status transitions may have only been recorded in history.
+            history = order.get("statusHistory") or []
+            completion_events = [
+                event for event in history
+                if str(event.get("status") or "").lower() in ("delivered", "completed", "picked_up")
+            ]
+            if completion_events:
+                completion_events.sort(
+                    key=lambda event: _calendar_date_value(event.get("timestamp")) or datetime.min.date()
+                )
+                scheduled_date = _calendar_date_value(completion_events[-1].get("timestamp"))
+            if scheduled_date is None:
+                for field in ("updatedAt", "createdAt"):
+                    scheduled_date = _calendar_date_value(order.get(field))
+                    if scheduled_date is not None:
+                        break
         if scheduled_date is None:
             legacy_day = order.get("deliveryDay")
             if legacy_day in _CALENDAR_DAYS:
