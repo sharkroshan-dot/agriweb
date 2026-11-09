@@ -3,6 +3,7 @@ import { DeliveryWorkflowNav } from "../../../components/farmer/delivery-workflo
 
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   MapPin,
   Navigation,
@@ -119,7 +120,14 @@ function SequenceBar({ stops }: { stops: Stop[] }) {
 }
 
 export default function SmartRoutePage() {
-  const { data: routeData, isLoading, isError, error, refetch, isFetching } = useQuery({ queryKey: ["smartRoute"], queryFn: () => api.get("/farmers/me/smart-route"), retry: 1 });
+  const searchParams = useSearchParams();
+  const orderIds = searchParams.get("orderIds") || "";
+  const routeQuery = orderIds ? `?orderIds=${encodeURIComponent(orderIds)}` : "";
+  const { data: routeData, isLoading, isError, error, refetch, isFetching } = useQuery({
+    queryKey: ["smartRoute", orderIds],
+    queryFn: () => api.get(`/farmers/me/smart-route${routeQuery}`),
+    retry: 1,
+  });
 
   const { data: aiInsightsData } = useQuery({
     queryKey: ["farmerAiInsightsRoute"],
