@@ -467,7 +467,7 @@ export default function CheckoutPage() {
         requestedDeliveryDate: new Date(`${deliveryDate}T00:00:00`).toISOString(),
         idempotencyKey: idempotencyKeyRef.current,
         deliveryTimeSlot,
-        deliverySlotId: selectedDeliverySlotId || undefined,
+        deliverySlotId: selectedCheckoutSlot?.id || undefined,
         deliverySpeed: selectedDeliverySpeed,
       };
 
