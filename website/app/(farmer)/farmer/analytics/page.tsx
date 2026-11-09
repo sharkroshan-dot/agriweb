@@ -373,7 +373,7 @@ export default function FarmerAnalyticsPage() {
             <CardDescription>Which crops customers buy the most</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="h-[280px] w-full">
+            {categoryData.length > 0 ? <div className="h-[260px] w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie data={categoryData} dataKey="value" cx="50%" cy="50%" outerRadius={80} label>
@@ -384,7 +384,7 @@ export default function FarmerAnalyticsPage() {
                   <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e2e8f0", boxShadow: "0 8px 24px rgba(15,23,42,0.08)" }} />
                 </PieChart>
               </ResponsiveContainer>
-            </div>
+            </div> : <div className="flex h-[260px] items-center justify-center rounded-xl border border-dashed border-slate-200 px-6 text-center text-sm text-slate-500">Category breakdown will appear after your products receive sales.</div>}
           </CardContent>
         </Card>
       </div>
