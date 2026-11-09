@@ -17,6 +17,7 @@ export default function FarmerSupplyDeliveryCalendarPage() {
   const [selectedDate, setSelectedDate] = useState(toKey(new Date()));
   const [monthCursor, setMonthCursor] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [eventFilter, setEventFilter] = useState("all");
+  const [calendarView, setCalendarView] = useState("month");
   const { data: plansData } = useQuery({ queryKey: ["farmerSupplyCalendarFromHarvestPlans"], queryFn: () => api.get("/harvests/farmer/plans") });
   const { data: deliveryData } = useQuery({ queryKey: ["deliveryCalendar"], queryFn: () => api.get("/farmers/me/delivery-calendar") });
   const plans = plansData?.data?.plans || [];
@@ -26,6 +27,16 @@ export default function FarmerSupplyDeliveryCalendarPage() {
   const allEvents = [...supplyEvents, ...deliveryEvents];
   const firstDay = new Date(monthCursor.getFullYear(), monthCursor.getMonth(), 1);
   const calendarCells = Array.from({ length: 42 }, (_, i) => new Date(monthCursor.getFullYear(), monthCursor.getMonth(), i - firstDay.getDay() + 1));
+  const selectedDateObject = new Date(selectedDate + "T00:00:00");
+  const weekStart = new Date(selectedDateObject);
+  weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+  const weekCells = Array.from({ length: 7 }, (_, i) => new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + i));
+  const visibleCalendarDays = calendarView === "month" ? calendarCells : calendarView === "week" ? weekCells : [selectedDateObject];
+  const calendarTitle = calendarView === "month" ? monthCursor.toLocaleDateString("en-IN", { month: "long", year: "numeric" }) : calendarView === "week" ? weekCells[0].toLocaleDateString("en-IN", { day: "numeric", month: "short" }) + " – " + weekCells[6].toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : selectedDateObject.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const moveCalendar = (direction: number) => {
+    if (calendarView === "month") { const next = new Date(monthCursor.getFullYear(), monthCursor.getMonth() + direction, 1); setMonthCursor(next); setSelectedDate(toKey(next)); }
+    else { const next = new Date(selectedDateObject); next.setDate(next.getDate() + direction * (calendarView === "week" ? 7 : 1)); setSelectedDate(toKey(next)); setMonthCursor(new Date(next.getFullYear(), next.getMonth(), 1)); }
+  };
   const selectedSupplyEvents = allEvents.filter((e: any) => e.key === selectedDate && e.kind === "supply");
   const selectedDeliveryEvents = allEvents.filter((e: any) => e.key === selectedDate && e.kind === "delivery");
 
