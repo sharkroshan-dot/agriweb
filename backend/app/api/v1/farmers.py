@@ -918,15 +918,29 @@ async def get_smart_route(
     orderIds: Optional[str] = Query(None),
     current_user: dict = Depends(get_current_user),
 ):
-    """Get farmer's AI-optimized route with cost & savings analysis."""
+    """Return a road-distance-aware route for confirmed farmer self-delivery orders."""
     _ensure_farmer(current_user)
     farmer_id = str(current_user["_id"])
     origin = await _get_farm_origin(farmer_id)
+    if not _valid_coord(origin.get("lat"), origin.get("lng")) and origin.get("address"):
+        coords = await _geocode(origin["address"])
+        if coords:
+            origin["lat"], origin["lng"] = coords
+
     workflow_ids = _parse_workflow_order_ids(orderIds)
-    smart_route_query = {"farmerId": ObjectId(farmer_id), "orderStatus": {"$in": _ACTIVE_DELIVERY_STATUSES}, "deletedAt": None, "deliveryType": DeliveryType.DELIVERY.value, "fulfillmentMethod": "farmer", "fulfillmentStage": {"$in": ["packed", "dispatched"]}, "deliveryResponsibility": "farmer", "selfDelivery": True}
-    if workflow_ids: smart_route_query["_id"] = {"$in": workflow_ids}
-    orders = await order_repository.find_many(smart_route_query)
-    orders = orders or []
+    smart_route_query = {
+        "farmerId": ObjectId(farmer_id),
+        "orderStatus": {"$in": _ACTIVE_DELIVERY_STATUSES},
+        "deletedAt": None,
+        "deliveryType": DeliveryType.DELIVERY.value,
+        "fulfillmentMethod": "farmer",
+        "fulfillmentStage": {"$in": ["packed", "dispatched"]},
+        "deliveryResponsibility": "farmer",
+        "selfDelivery": True,
+    }
+    if workflow_ids:
+        smart_route_query["_id"] = {"$in": workflow_ids}
+    orders = await order_repository.find_many(smart_route_query) or []
 
     raw_stops = []
     for order in orders:
@@ -938,20 +952,22 @@ async def get_smart_route(
             logger.warning("Could not refresh smart-route freshness priority for order %s", order.get("_id"), exc_info=True)
         oid = str(order["_id"])
         addr = order.get("deliveryAddress", {}) or {}
-        order_items = order.get("items", []) or []
         lat, lng = await _stop_coords(addr, oid)
         raw_stops.append({
             "orderId": oid,
             "orderNumber": order.get("orderNumber", ""),
             "customerName": order.get("customerName", "Customer"),
-            "address": addr.get("address") or addr.get("addressLine1") or "Pickup at farm",
+            "address": addr.get("address") or addr.get("addressLine1") or "Delivery address",
             "city": addr.get("city", ""),
             "lat": lat,
             "lng": lng,
             "deliveryType": order.get("deliveryType", "delivery"),
             "timeSlot": order.get("deliveryTimeSlot", "Morning"),
             "status": order.get("orderStatus", "ready_for_delivery"),
-            "items": [{"name": i.get("productName", i.get("name", "Item")), "quantity": i.get("quantity", 1)} for i in order_items],
+            "items": [
+                {"name": item.get("productName", item.get("name", "Item")), "quantity": item.get("quantity", 1)}
+                for item in (order.get("items", []) or [])
+            ],
             "total": float(order.get("totalAmount", 0) or 0),
             "deliveryCharge": float(order.get("deliveryCharge", 0) or 0),
             "deliveryWindow": f"{order.get('deliveryTimeSlot', 'Morning')} ({order.get('deliveryDay', 'Today')})",
@@ -965,31 +981,83 @@ async def get_smart_route(
             "shelfLifeDays": order.get("shelfLifeDays"),
         })
 
-    # Compare naive (as recorded) ordering vs optimized ordering
-    naive_distance = _route_total_distance(origin, raw_stops)
-    optimized_stops, algorithm_label = _optimize_stops_ai(origin, raw_stops)
-    _assign_stop_distances(origin, optimized_stops)
-    optimized_distance = _route_total_distance(origin, optimized_stops)
+    located = [s for s in raw_stops if _valid_coord(s.get("lat"), s.get("lng"))]
+    unlocated = [s for s in raw_stops if not _valid_coord(s.get("lat"), s.get("lng"))]
+    road_matrix = None
+    road_durations = None
+    optimized_located = []
+    distance_method = "straight_line_estimate"
+    algorithm_label = "Straight-line estimate; route order by nearest neighbour + 2-opt"
+    total_distance = 0.0
+    estimated_drive_minutes = 0.0
+
+    if _valid_coord(origin.get("lat"), origin.get("lng")) and located:
+        points = [origin] + located
+        matrix_result = await _get_osrm_route_matrix(points)
+        if matrix_result:
+            road_matrix, road_durations = matrix_result
+            optimized_located = _optimize_stop_indices(road_matrix, located)
+            distance_method = "road_network"
+            algorithm_label = "Road-network route optimization (OSRM driving distance + 2-opt)"
+            route_indices = [0] + [located.index(stop) + 1 for stop in optimized_located] + [0]
+            total_distance = sum(road_matrix[a][b] for a, b in zip(route_indices, route_indices[1:])) / 1000.0
+            estimated_drive_minutes = sum(road_durations[a][b] for a, b in zip(route_indices, route_indices[1:])) / 60.0
+            previous_index = 0
+            for stop in optimized_located:
+                current_index = located.index(stop) + 1
+                stop["distance"] = round(road_matrix[previous_index][current_index] / 1000.0, 2)
+                stop["legDurationMinutes"] = round(road_durations[previous_index][current_index] / 60.0)
+                previous_index = current_index
+        else:
+            optimized_located = _optimize_stops(origin, located)
+            _assign_stop_distances(origin, optimized_located)
+            total_distance = _route_total_distance(origin, optimized_located)
+            algorithm_label = "Straight-line estimate; road routing service unavailable"
+    else:
+        optimized_located = _optimize_stops(origin, located)
+        _assign_stop_distances(origin, optimized_located)
+        total_distance = _route_total_distance(origin, optimized_located)
+        if not located:
+            algorithm_label = "No geocoded delivery stops; distances unavailable"
+
+    optimized_stops = optimized_located + unlocated
+    for stop in unlocated:
+        stop["distance"] = None
+        stop["legDurationMinutes"] = None
+
+    # Keep urgency/deadline order ahead of normal orders, while optimizing
+    # geography within each urgency tier. The optimizer preserves this ordering.
+    if len(optimized_stops) > 1:
+        def urgency_key(stop):
+            deadline = stop.get("deliveryDeadline")
+            deadline_value = deadline.timestamp() if isinstance(deadline, datetime) else float("inf")
+            return (-int(stop.get("priority", 1) or 1), deadline_value)
+        optimized_stops = sorted(optimized_stops, key=urgency_key) if not road_matrix else optimized_stops
 
     capacity = await _get_delivery_capacity(farmer_id)
     fuel_cost_per_km = float(capacity.get("fuelCostPerKm") or 4.5)
-    total_distance = optimized_distance
     fuel_cost = round(total_distance * fuel_cost_per_km, 2)
     expected_income = round(sum(s["total"] for s in optimized_stops), 2)
-    est_time_min = round(total_distance / 25 * 60 + len(optimized_stops) * 10, 0)
-    savings_distance = round(max(0.0, naive_distance - optimized_distance), 2)
+    if distance_method == "road_network":
+        est_time_min = round(estimated_drive_minutes + len(optimized_stops) * 10)
+    else:
+        est_time_min = round(total_distance / 25 * 60 + len(optimized_stops) * 10) if total_distance else 0
+
+    # Compare against the original database order, using the same road matrix
+    # when all stops are geocoded; otherwise retain the explicitly labelled estimate.
+    naive_distance = _route_total_distance(origin, raw_stops)
+    if road_matrix and len(located) == len(raw_stops):
+        naive_indices = [0] + [located.index(stop) + 1 for stop in raw_stops] + [0]
+        naive_distance = sum(road_matrix[a][b] for a, b in zip(naive_indices, naive_indices[1:])) / 1000.0
+
+    savings_distance = round(max(0.0, naive_distance - total_distance), 2)
     savings = {
         "distance": savings_distance,
-        "time": round(savings_distance / 25 * 60, 0),
+        "time": round(savings_distance / 25 * 60),
         "fuel": round(savings_distance * fuel_cost_per_km, 2),
     }
-
-    # Self-delivery vs handing every stop to a delivery partner: partner cost
-    # uses the same earnings model as marketplace jobs (delivery charge when
-    # present, otherwise distance-based estimate).
     partner_handoff_cost = round(
-        sum(job_earnings({"deliveryCharge": s.get("deliveryCharge", 0)}, s.get("distance") or 0) for s in optimized_stops),
-        2,
+        sum(job_earnings({"deliveryCharge": s.get("deliveryCharge", 0)}, s.get("distance") or 0) for s in optimized_stops), 2
     )
     self_net = round(expected_income - fuel_cost, 2)
     partner_net = round(expected_income - partner_handoff_cost, 2)
@@ -1011,6 +1079,8 @@ async def get_smart_route(
         "netIncome": round(expected_income - fuel_cost, 2),
         "customersCount": len(set(s["customerName"] for s in optimized_stops)),
         "savings": savings,
+        "distanceMethod": distance_method,
+        "unlocatedStops": len(unlocated),
         "profitability": {
             "revenue": expected_income,
             "fuelCost": fuel_cost,
@@ -1190,6 +1260,72 @@ async def _get_farm_origin(farmer_id: str) -> dict:
         if coords:
             farm["lat"], farm["lng"] = coords
     return farm
+
+
+async def _get_osrm_route_matrix(points: list):
+    """Fetch a road distance/duration matrix from the public OSRM driving service.
+
+    Coordinates are sent in OSRM's required longitude,latitude order. Returns
+    (distance_matrix_metres, duration_matrix_seconds), or None on any failure.
+    """
+    if len(points) < 2 or len(points) > 51:
+        return None
+    if any(not _valid_coord(p.get("lat"), p.get("lng")) for p in points):
+        return None
+    coordinates = ";".join(f"{float(p['lng'])},{float(p['lat'])}" for p in points)
+    url = f"https://router.project-osrm.org/table/v1/driving/{coordinates}"
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.get(url, params={"annotations": "distance,duration"})
+            response.raise_for_status()
+            payload = response.json()
+        distances = payload.get("distances")
+        durations = payload.get("durations")
+        if payload.get("code") != "Ok" or not distances or not durations:
+            return None
+        size = len(points)
+        if len(distances) != size or len(durations) != size:
+            return None
+        if any(len(row) != size for row in distances) or any(len(row) != size for row in durations):
+            return None
+        if any(value is None for row in distances for value in row):
+            return None
+        if any(value is None for row in durations for value in row):
+            return None
+        return distances, durations
+    except Exception:
+        logger.warning("OSRM road matrix request failed; using labelled straight-line estimates", exc_info=True)
+        return None
+
+
+def _optimize_stop_indices(distance_matrix: list, stops: list) -> list:
+    """Nearest-neighbour + 2-opt using road-network distances, starting at farm.
+
+    Matrix index 0 is the farm; stop i is matrix index i+1. Return stop objects.
+    """
+    remaining = list(range(1, len(stops) + 1))
+    route = [0]
+    while remaining:
+        current = route[-1]
+        next_index = min(remaining, key=lambda idx: distance_matrix[current][idx])
+        route.append(next_index)
+        remaining.remove(next_index)
+    route.append(0)
+
+    # 2-opt: reverse a segment whenever it shortens the full round trip.
+    improved = True
+    while improved:
+        improved = False
+        for i in range(1, len(route) - 2):
+            for j in range(i + 1, len(route) - 1):
+                a, b = route[i - 1], route[i]
+                c, d = route[j], route[j + 1]
+                old_cost = distance_matrix[a][b] + distance_matrix[c][d]
+                new_cost = distance_matrix[a][c] + distance_matrix[b][d]
+                if new_cost + 1.0 < old_cost:
+                    route[i:j + 1] = reversed(route[i:j + 1])
+                    improved = True
+    return [stops[idx - 1] for idx in route[1:-1]]
 
 
 def _route_total_distance(origin: dict, stops: list) -> float:
