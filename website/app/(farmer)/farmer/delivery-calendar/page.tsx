@@ -142,7 +142,7 @@ function DeliveryRow({ d }: { d: any }) {
   );
 }
 
-export default function DeliveryCalendarPage() {
+export function FarmerDeliveryCalendarContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const workflowOrderIds = searchParams.get("orderIds") || "";
@@ -724,4 +724,9 @@ export default function DeliveryCalendarPage() {
       </div>
     </div>
   );
+}
+
+
+export default function DeliveryCalendarPage() {
+  return <FarmerDeliveryCalendarContent />;
 }
