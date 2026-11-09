@@ -58,7 +58,7 @@ export function AdvisorView() {
       : <span className="text-gray-400">—</span>;
 
   return (
-    <div className="mx-auto w-full max-w-[1600px] space-y-6 pb-8">
+    <div className="w-full min-w-0 space-y-6 pb-8">
       <div className="flex flex-col gap-4 relative overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-br from-white via-emerald-50/80 to-teal-50/70 p-6 shadow-sm sm:p-7 sm:flex-row sm:items-center sm:justify-between sm:p-6">
         <div>
           <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-white/80 px-3 py-1 text-[11px] font-semibold tracking-wider text-emerald-700">FARM INTELLIGENCE</div>
