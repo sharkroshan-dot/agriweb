@@ -802,25 +802,46 @@ async def get_delivery_calendar(
     orderIds: Optional[str] = Query(None),
     current_user: dict = Depends(get_current_user),
 ):
-    """Get farmer's delivery calendar with weekly slots.
-
-    Slots are aggregated by (delivery day, time slot) so the calendar can
-    show the number of deliveries per cell plus the list of orders in it.
-    Partner-handled orders are included and flagged so each cell can show a
-    self/partner split, estimated workload and an overload warning when the
-    farmer's own share exceeds their delivery capacity for one run.
-    """
+    """Return date-specific current and historical farmer delivery calendar entries."""
     _ensure_farmer(current_user)
     farmer_id = str(current_user["_id"])
     capacity = await _get_delivery_capacity(farmer_id)
-    active_statuses = ["pending", "confirmed", "processing", "ready_for_delivery", "ready_for_pickup"]
+    calendar_statuses = [
+        "pending", "confirmed", "processing", "ready_for_delivery",
+        "ready_for_pickup", "delivered", "completed", "picked_up",
+    ]
     workflow_ids = _parse_workflow_order_ids(orderIds)
-    calendar_query = {"farmerId": ObjectId(farmer_id), "orderStatus": {"$in": active_statuses}, "deletedAt": None, "deliveryType": DeliveryType.DELIVERY.value, "fulfillmentMethod": "farmer", "fulfillmentStage": {"$in": ["packed", "dispatched"]}, "deliveryResponsibility": "farmer", "selfDelivery": True}
-    if workflow_ids: calendar_query["_id"] = {"$in": workflow_ids}
-    orders = await order_repository.find_many(calendar_query)
-    orders = orders or []
+    calendar_query = {
+        "farmerId": ObjectId(farmer_id),
+        "orderStatus": {"$in": calendar_statuses},
+        "deletedAt": None,
+        "deliveryType": DeliveryType.DELIVERY.value,
+        "fulfillmentMethod": "farmer",
+    }
+    if workflow_ids:
+        calendar_query["_id"] = {"$in": workflow_ids}
+    orders = await order_repository.find_many(calendar_query) or []
     farm = await _get_farm_origin(farmer_id)
 
+    def _calendar_date_value(value):
+        if isinstance(value, datetime):
+            return value.date()
+        if hasattr(value, "year") and hasattr(value, "month") and hasattr(value, "day"):
+            try:
+                return value
+            except Exception:
+                return None
+        if isinstance(value, str) and value.strip():
+            try:
+                return datetime.fromisoformat(value.strip().replace("Z", "+00:00")).date()
+            except (TypeError, ValueError):
+                try:
+                    return datetime.strptime(value.strip()[:10], "%Y-%m-%d").date()
+                except (TypeError, ValueError):
+                    return None
+        return None
+
+    today = datetime.utcnow().date()
     groups: dict[tuple[str, str], list] = {}
     total_distance = 0.0
     total_revenue = 0.0
@@ -828,16 +849,45 @@ async def get_delivery_calendar(
     partner_total = 0
     for order in orders:
         oid = str(order["_id"])
+        status_value = str(order.get("orderStatus") or "").lower()
+        is_partnered = bool(order.get("deliveryPartnerId")) or order.get("deliveryResponsibility") == "delivery_partner"
+
+        # Prefer the scheduled date, then the actual completion timestamp for
+        # historical orders. Older active orders only stored a weekday, so
+        # map those to the next matching calendar date as a compatibility fallback.
+        scheduled_date = _calendar_date_value(order.get("deliveryDate"))
+        if scheduled_date is None:
+            for field in ("deliveredAt", "completedAt", "pickedUpAt", "actualDeliveryDate"):
+                scheduled_date = _calendar_date_value(order.get(field))
+                if scheduled_date is not None:
+                    break
+        if scheduled_date is None and status_value in ("delivered", "completed", "picked_up"):
+            for field in ("updatedAt", "createdAt"):
+                scheduled_date = _calendar_date_value(order.get(field))
+                if scheduled_date is not None:
+                    break
+        if scheduled_date is None:
+            legacy_day = order.get("deliveryDay")
+            if legacy_day in _CALENDAR_DAYS:
+                target_weekday = _CALENDAR_DAYS.index(legacy_day)
+                scheduled_date = today + timedelta(days=(target_weekday - today.weekday()) % 7)
+            else:
+                scheduled_date = _calendar_date_value(order.get("createdAt")) or today
+
+        day = scheduled_date.strftime("%A")
+        date_key = scheduled_date.isoformat()
+        time_slot = order.get("deliveryTimeSlot") or "Morning"
+        if time_slot not in _CALENDAR_SLOT_ORDER:
+            time_slot = "Morning"
+
         try:
             await calculate_order_delivery_priority(order, persist=True)
         except Exception:
             logger.warning("Could not refresh calendar freshness priority for order %s", oid, exc_info=True)
-        is_partnered = bool(order.get("deliveryPartnerId"))
-        day = order.get("deliveryDay") or order.get("createdAt", datetime.utcnow()).strftime("%A")
-        time_slot = order.get("deliveryTimeSlot") or "Morning"
+
         addr = order.get("deliveryAddress", {}) or {}
         dist = 0.0
-        if order.get("deliveryType", "delivery") != DeliveryType.PICKUP.value and farm.get("lat") is not None:
+        if farm.get("lat") is not None:
             lat, lng = await _stop_coords(addr, oid)
             if lat is not None:
                 dist = _haversine_km(farm["lat"], farm["lng"], lat, lng)
@@ -847,37 +897,39 @@ async def get_delivery_calendar(
             partner_total += 1
         else:
             self_total += 1
-        if day in _CALENDAR_DAYS:
-            delivery = {
-                "id": oid,
-                "orderId": oid,
-                "customerName": order.get("customerName", "Customer"),
-                "address": addr.get("address") or addr.get("addressLine1") or "Pickup at farm",
-                "items": len(order.get("items", []) or []),
-                "total": float(order.get("totalAmount", 0) or 0),
-                "status": order.get("orderStatus", "pending"),
-                "distance": round(dist, 2),
-                "deliveryType": order.get("deliveryType", "delivery"),
-                "assignment": "partner" if is_partnered else "self",
-                "isCOD": str(order.get("paymentMethod", "") or "").lower() == "cash",
-                "priority": int(order.get("priority", 1) or 1),
-                "priorityLabel": order.get("priorityLabel") or "normal",
-                "priorityReason": order.get("priorityReason") or "",
-                "deliveryDeadline": order.get("deliveryDeadline"),
-                "deliveryHoursRemaining": order.get("deliveryHoursRemaining"),
-                "freshnessDeadline": order.get("freshnessDeadline"),
-                "shelfLifeDays": order.get("shelfLifeDays"),
-            }
-            groups.setdefault((day, time_slot), []).append(delivery)
+
+        delivery = {
+            "id": oid,
+            "orderId": oid,
+            "customerName": order.get("customerName", "Customer"),
+            "address": addr.get("address") or addr.get("addressLine1") or "Delivery address",
+            "items": len(order.get("items", []) or []),
+            "total": float(order.get("totalAmount", 0) or 0),
+            "status": order.get("orderStatus", "pending"),
+            "distance": round(dist, 2),
+            "deliveryType": order.get("deliveryType", "delivery"),
+            "assignment": "partner" if is_partnered else "self",
+            "isCOD": str(order.get("paymentMethod", "") or "").lower() == "cash",
+            "priority": int(order.get("priority", 1) or 1),
+            "priorityLabel": order.get("priorityLabel") or "normal",
+            "priorityReason": order.get("priorityReason") or "",
+            "deliveryDeadline": order.get("deliveryDeadline"),
+            "deliveryHoursRemaining": order.get("deliveryHoursRemaining"),
+            "freshnessDeadline": order.get("freshnessDeadline"),
+            "shelfLifeDays": order.get("shelfLifeDays"),
+        }
+        groups.setdefault((date_key, time_slot), []).append(delivery)
 
     slots = []
-    for (day, time_slot), items in groups.items():
+    for (date_key, time_slot), items in groups.items():
         cell_distance = round(sum(float(d["distance"] or 0) for d in items), 2)
         cell_self = sum(1 for d in items if d["assignment"] == "self")
         cell_partner = len(items) - cell_self
         cell_minutes = round(cell_distance / 25 * 60 + max(0, cell_self - 1) * 10 + cell_partner * 5)
         slots.append({
-            "day": day,
+            "date": date_key,
+            "dateKey": date_key,
+            "day": datetime.strptime(date_key, "%Y-%m-%d").strftime("%A"),
             "timeSlot": time_slot,
             "count": len(items),
             "selfCount": cell_self,
@@ -885,12 +937,10 @@ async def get_delivery_calendar(
             "distanceKm": cell_distance,
             "estimatedMinutes": cell_minutes,
             "income": round(sum(float(d.get("total") or 0) for d in items), 2),
-            # A slot is overloaded when the farmer's own share alone exceeds
-            # the orders they can handle in one delivery run.
             "overloaded": cell_self > int(capacity.get("maxOrders") or 20),
             "deliveries": items,
         })
-    slots.sort(key=lambda s: (_CALENDAR_DAYS.index(s["day"]) if s["day"] in _CALENDAR_DAYS else 99, _CALENDAR_SLOT_ORDER.get(s["timeSlot"], 99)))
+    slots.sort(key=lambda s: (s["dateKey"], _CALENDAR_SLOT_ORDER.get(s["timeSlot"], 99)))
 
     fuel_cost_per_km = float(capacity.get("fuelCostPerKm") or 4.5)
     fuel_cost = round(total_distance * fuel_cost_per_km, 2)
