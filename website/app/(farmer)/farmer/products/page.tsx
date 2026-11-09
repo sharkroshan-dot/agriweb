@@ -121,26 +121,18 @@ export default function FarmerProductsPage() {
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-            <div className="relative min-w-0 flex-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <Input
-                placeholder="Search by product name or category..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="h-11 rounded-xl border-slate-200 bg-slate-50 pl-9 pr-10 focus:bg-white"
-              />
-              {searchTerm && <button type="button" onClick={() => setSearchTerm("")} aria-label="Clear search" className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700"><X className="h-4 w-4" /></button>}
-            </div>
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-sm text-slate-500">{products.length} {products.length === 1 ? "product" : "products"} found</p>
-              <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching} className="h-10 rounded-xl">
-                <RefreshCw className={cn("mr-2 h-4 w-4", isFetching && "animate-spin")} /> Refresh
-              </Button>
-            </div>
+        <div className="flex flex-col gap-3 2xl:flex-row 2xl:items-center">
+          <div className="relative min-w-0 flex-1 2xl:max-w-sm">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <Input
+              placeholder="Search products..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="h-10 rounded-xl border-slate-200 bg-slate-50 pl-9 pr-10 focus:bg-white"
+            />
+            {searchTerm && <button type="button" onClick={() => setSearchTerm("")} aria-label="Clear search" className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700"><X className="h-4 w-4" /></button>}
           </div>
-          <div className="flex gap-2 overflow-x-auto pb-1" role="group" aria-label="Filter products by status">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2" role="group" aria-label="Filter products by status">
             {statusFilters.map((filter) => (
               <Button
                 key={filter.value}
@@ -148,11 +140,17 @@ export default function FarmerProductsPage() {
                 variant={filterStatus === filter.value ? "default" : "outline"}
                 size="sm"
                 onClick={() => setFilterStatus(filter.value)}
-                className={cn("h-9 shrink-0 rounded-full px-4", filterStatus === filter.value && "bg-emerald-700 text-white hover:bg-emerald-800")}
+                className={cn("h-9 shrink-0 rounded-full px-3", filterStatus === filter.value && "bg-emerald-700 text-white hover:bg-emerald-800")}
               >
                 {filter.label}
               </Button>
             ))}
+          </div>
+          <div className="flex shrink-0 items-center justify-between gap-3 border-t border-slate-100 pt-2 2xl:border-0 2xl:pt-0">
+            <p className="whitespace-nowrap text-xs text-slate-500">{products.length} found</p>
+            <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching} className="h-9 rounded-xl">
+              <RefreshCw className={cn("mr-2 h-4 w-4", isFetching && "animate-spin")} /> Refresh
+            </Button>
           </div>
         </div>
       </section>
