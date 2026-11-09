@@ -61,8 +61,9 @@ export function AdvisorView() {
     <div className="mx-auto w-full max-w-[1500px] space-y-6 pb-10">
       <div className="flex flex-col gap-4 relative overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-br from-white via-emerald-50/80 to-teal-50/70 p-6 shadow-sm sm:p-7 sm:flex-row sm:items-center sm:justify-between sm:p-6">
         <div>
+          <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-white/80 px-3 py-1 text-[11px] font-semibold tracking-wider text-emerald-700">FARM INTELLIGENCE</div>
           <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
-            <Bot className="h-6 w-6 text-emerald-600" /> AI Farm Advisor
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100"><Bot className="h-6 w-6 text-emerald-700" /></span> AI Farm Advisor
           </h1>
           <p className="text-gray-500">
             Practical crop guidance and clear insights from your AgriConnect farm activity.
