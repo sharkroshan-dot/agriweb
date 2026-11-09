@@ -480,13 +480,21 @@ class OrderService:
             cutoff = selected_delivery_slot.get("cutoffTime")
             if cutoff and cutoff < datetime.utcnow():
                 raise OrderCreationError("The booking cutoff for this delivery slot has passed.")
-            active_slot_bookings = await delivery_slot_booking_repository.count({
+            requested_capacity_kg = round(sum(float(item.quantity or 0) for item in data.items), 3)
+            if requested_capacity_kg <= 0:
+                raise OrderCreationError("Order quantity must be greater than zero to reserve a delivery slot.")
+            active_slot_bookings = await delivery_slot_booking_repository.find_many({
                 "slotId": ObjectId(data.deliverySlotId),
                 "status": {"$in": ["joined", "order_linked"]},
                 "deletedAt": None,
-            })
-            if active_slot_bookings >= int(selected_delivery_slot.get("maxOrders", 25)):
-                raise OrderCreationError("This delivery slot has reached its booking capacity. Please choose another slot.")
+            }, limit=10000)
+            booked_capacity_kg = sum(float(booking.get("capacityKg", 0) or 0) for booking in active_slot_bookings)
+            max_capacity_kg = float(selected_delivery_slot.get("maxCapacityKg", 0) or 0)
+            if max_capacity_kg <= 0 or booked_capacity_kg + requested_capacity_kg > max_capacity_kg + 1e-9:
+                remaining_kg = max(0.0, max_capacity_kg - booked_capacity_kg)
+                raise OrderCreationError(
+                    f"DELIVERY_SLOT_CAPACITY|{remaining_kg:g}|{requested_capacity_kg:g}"
+                )
             slot_date = selected_delivery_slot.get("date")
             if slot_date and data.requestedDeliveryDate and slot_date.date() != data.requestedDeliveryDate.date():
                 raise OrderCreationError("Selected delivery slot date does not match the requested delivery date.")
@@ -750,7 +758,7 @@ class OrderService:
             if existing_booking:
                 await delivery_slot_booking_repository.update(
                     {"_id": existing_booking["_id"]},
-                    {"orderId": ObjectId(order_id), "status": "order_linked"},
+                    {"orderId": ObjectId(order_id), "status": "order_linked", "capacityKg": requested_capacity_kg},
                 )
             else:
                 await delivery_slot_booking_repository.create({
@@ -759,6 +767,7 @@ class OrderService:
                     "farmerId": ObjectId(farmer_id),
                     "customerId": ObjectId(customer_id),
                     "status": "order_linked",
+                    "capacityKg": requested_capacity_kg,
                     "deliveryFee": selected_delivery_slot.get("deliveryFee", 0),
                 })
             await delivery_slot_repository.update(
