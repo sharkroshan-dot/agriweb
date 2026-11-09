@@ -523,7 +523,7 @@ export function FarmerSupplyCalendarContent(props: { compact?: boolean; selected
 
   return (
     <div className="w-full min-w-0 space-y-5 pb-8">
-      <FarmerPageHeader
+      {!compact && <FarmerPageHeader
         eyebrow="Farm planning & supply"
         title="Supply Calendar"
         description="Plan harvests, track farm pickups and warehouse movements, and keep business and customer deliveries on schedule."
