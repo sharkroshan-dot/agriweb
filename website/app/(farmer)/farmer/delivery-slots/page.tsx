@@ -322,7 +322,7 @@ export default function FarmerDeliverySlotsPage() {
                     ) : slot.status === "cancelled" ? (
                       <Badge variant="destructive">Cancelled</Badge>
                     ) : (
-                      <Badge variant="outline">{slot.bookings ?? 0}/{slot.maxOrders}</Badge>
+                      <Badge variant="outline">{Number(slot.remainingCapacityKg ?? 0).toFixed(2)} kg left</Badge>
                     )}
                   </div>
                   <CardDescription className="flex items-center gap-1">
@@ -330,6 +330,16 @@ export default function FarmerDeliverySlotsPage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
+                  <div className="rounded-lg bg-emerald-50 p-3">
+                    <div className="mb-1 flex items-center justify-between text-xs font-medium text-emerald-800">
+                      <span>Delivery capacity used</span>
+                      <span>{Number(slot.bookedCapacityKg ?? 0).toFixed(2)} / {Number(slot.maxCapacityKg ?? 0).toFixed(2)} kg</span>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-emerald-100">
+                      <div className="h-full rounded-full bg-emerald-600" style={{ width: `${Math.min(100, Number(slot.maxCapacityKg) > 0 ? Number(slot.bookedCapacityKg || 0) / Number(slot.maxCapacityKg) * 100 : 0)}%` }} />
+                    </div>
+                    <p className="mt-1 text-xs text-emerald-700">{Number(slot.remainingCapacityKg ?? 0).toFixed(2)} kg remaining</p>
+                  </div>
                   <div className="grid grid-cols-2 gap-2 text-sm text-gray-600">
                     <div className="flex items-center gap-2">
                       <MapPin className="h-4 w-4 text-emerald-600" />
@@ -337,7 +347,7 @@ export default function FarmerDeliverySlotsPage() {
                     </div>
                     <div className="flex items-center gap-2">
                       <Users className="h-4 w-4 text-emerald-600" />
-                      {slot.bookings ?? 0} joined
+                      {Number(slot.bookedCapacityKg ?? 0).toFixed(2)} / {Number(slot.maxCapacityKg ?? 0).toFixed(2)} kg booked
                     </div>
                     <div className="flex items-center gap-2">
                       <IndianRupee className="h-4 w-4 text-emerald-600" />
