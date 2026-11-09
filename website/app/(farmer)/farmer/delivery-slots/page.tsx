@@ -127,6 +127,13 @@ export default function FarmerDeliverySlotsPage() {
 
   const previewRadius = Math.max(1, Number(form.radiusKm) || 10);
   const selectedSlot = slots.find((s: DeliverySlot) => s.id === selectedSlotId) || null;
+  const { data: selectedSlotBookingsData, isLoading: selectedSlotBookingsLoading } = useQuery({
+    queryKey: ["farmerDeliverySlotBookings", selectedSlotId],
+    queryFn: () => api.get(`/delivery-slots/farmer/slots/${selectedSlotId}/bookings`),
+    enabled: Boolean(selectedSlotId),
+  });
+  const selectedSlotBookings = selectedSlotBookingsData?.data?.bookings || [];
+
   const slotMarkers = slots
     .filter((s: DeliverySlot) => areaCoordMap[s.area.trim()])
     .map((s: DeliverySlot) => ({
@@ -355,6 +362,43 @@ export default function FarmerDeliverySlotsPage() {
               </Card>
             ))}
           </div>
+
+          {selectedSlot && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Customer bookings · {selectedSlot.area}</CardTitle>
+                <CardDescription>
+                  {selectedSlotBookings.length} customer reservation(s) linked to this delivery batch.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {selectedSlotBookingsLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-gray-500"><Loader2 className="h-4 w-4 animate-spin"/> Loading bookings…</div>
+                ) : selectedSlotBookings.length === 0 ? (
+                  <p className="text-sm text-gray-500">No customers have booked this slot yet.</p>
+                ) : selectedSlotBookings.map((booking: any) => (
+                  <div key={booking.id} className="rounded-xl border p-3">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <p className="font-semibold text-slate-900">{booking.customer?.name || "Customer"}</p>
+                        <p className="text-xs text-slate-500">{booking.customer?.phone || "Phone not provided"}</p>
+                      </div>
+                      <Badge variant={booking.orderId ? "default" : "outline"}>{booking.orderId ? (booking.orderStatus || "Order linked") : "Slot joined · no order yet"}</Badge>
+                    </div>
+                    {booking.orderNumber && <p className="mt-2 text-xs text-slate-600">Order: {booking.orderNumber}</p>}
+                    <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-600">
+                      {(booking.items || []).map((item: any, index: number) => (
+                        <span key={index} className="rounded-full bg-slate-100 px-2 py-1">{item.productName} · {item.quantity}</span>
+                      ))}
+                    </div>
+                    {booking.deliveryAddress?.addressLine1 && (
+                      <p className="mt-2 text-xs text-slate-500">{booking.deliveryAddress.addressLine1}, {booking.deliveryAddress.city || ""}</p>
+                    )}
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
 
           {slotMarkers.length > 0 && (
             <Card>
