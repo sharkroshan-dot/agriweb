@@ -1028,6 +1028,7 @@ async def get_smart_route(
             "orderNumber": order.get("orderNumber", ""),
             "customerName": order.get("customerName", "Customer"),
             "address": addr.get("address") or addr.get("addressLine1") or "Delivery address",
+            "landmark": addr.get("landmark") or addr.get("nearbyLandmark") or addr.get("landmarkName") or "",
             "city": addr.get("city", ""),
             "lat": lat,
             "lng": lng,
