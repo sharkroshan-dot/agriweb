@@ -110,7 +110,7 @@ const buildContractScheduleDates = (contract: any): string[] => {
   return dates;
 };
 
-export default function FarmerSupplyCalendarPage() {
+export function FarmerSupplyCalendarContent() {
   const [monthCursor, setMonthCursor] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [selectedDate, setSelectedDate] = useState(() => dateKey(new Date()));
   const [view, setView] = useState<"month" | "week" | "list">("month");
@@ -854,4 +854,9 @@ export default function FarmerSupplyCalendarPage() {
       )}
     </div>
   );
+}
+
+
+export default function FarmerSupplyCalendarPage() {
+  return <FarmerSupplyCalendarContent />;
 }
