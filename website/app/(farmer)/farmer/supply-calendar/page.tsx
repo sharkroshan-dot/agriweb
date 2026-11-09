@@ -539,8 +539,8 @@ export function FarmerSupplyCalendarContent(props: { compact?: boolean; selected
         <Metric label="Harvested quantity" value={totalHarvestedPlansKg.toLocaleString("en-IN")} unit="kg" hint="Recorded actual harvest" icon={Sprout} tone="bg-blue-50 text-blue-700" />
         <Metric label="Pending harvest" value={pendingFarmerHarvestKg.toLocaleString("en-IN")} unit="kg" hint="Expected from open harvest plans" icon={Wheat} tone="bg-amber-50 text-amber-700" />
         <Metric label="Completed deliveries" value={completedDeliveries.length} hint="Retail and B2B orders" icon={Truck} tone="bg-violet-50 text-violet-700" />
-      </section>
-      <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+      </section>}
+      {!compact && <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         <Metric label="Deliveries & pickups" value={deliveryCount} hint="Scheduled this month" icon={Truck} tone="bg-sky-50 text-sky-700" />
         <Metric label="Active contracts" value={activeContracts.length} hint="Recurring supply agreements" icon={CalendarDays} tone="bg-violet-50 text-violet-700" />
         <Metric label="Orders awaiting preparation" value={ordersAwaitingPreparation.length} hint="Farmer action required" icon={PackageCheck} tone="bg-emerald-50 text-emerald-700" />
