@@ -32,15 +32,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../..
 
 function Stat({ icon: Icon, label, value, sub }: any) {
   return (
-    <Card>
-      <CardContent className="flex items-start gap-3 p-5">
-        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50">
-          <Icon className="h-6 w-6 text-emerald-600" />
+    <Card className="h-full rounded-2xl border-slate-200 bg-white shadow-sm transition-shadow hover:shadow-md">
+      <CardContent className="flex min-h-[116px] items-center gap-4 p-5">
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-50">
+          <Icon className="h-6 w-6 text-emerald-700" />
         </div>
-        <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-gray-400">{label}</p>
-          <p className="text-xl font-bold text-gray-800">{value}</p>
-          {sub ? <p className="text-xs text-gray-500">{sub}</p> : null}
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-slate-500">{label}</p>
+          <p className="mt-1 text-2xl font-bold tracking-tight text-slate-900">{value}</p>
+          {sub ? <p className="mt-1 text-sm text-slate-500">{sub}</p> : null}
         </div>
       </CardContent>
     </Card>
@@ -91,16 +91,20 @@ export default function FarmerImpactPage() {
   ].filter((s) => s.value > 0);
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center gap-2">
-          <Leaf className="h-6 w-6 text-emerald-600" />
-          <h1 className="text-2xl font-bold">Your Farm Impact</h1>
+    <div className="w-full min-w-0 space-y-6 pb-8">
+      <div className="rounded-2xl border border-emerald-100 bg-gradient-to-r from-white via-emerald-50/60 to-teal-50/40 p-5 shadow-sm sm:p-6">
+        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">Community contribution</div>
+        <div className="flex items-center gap-3">
+          <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-100">
+            <Leaf className="h-6 w-6 text-emerald-700" />
+          </span>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Your Farm Impact</h1>
         </div>
-        <p className="text-gray-500">How your farm serves the local community - from verified delivered orders.</p>
+        <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">See how your verified deliveries support customers and your local community, with clear sales, fulfilment and produce-volume insights.</p>
+        <p className="mt-2 text-xs font-medium text-emerald-800">Based on completed deliveries and recorded order activity</p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <Stat icon={IndianRupee} label="Direct sales" value={formatPrice(d.totalSpent ?? 0)} />
         <Stat icon={Users} label="Customers served" value={d.orders ?? 0} />
         <Stat icon={Truck} label="Local deliveries" value={d.localDeliveries ?? 0} />
@@ -109,14 +113,14 @@ export default function FarmerImpactPage() {
         <Stat icon={Wheat} label="Delivered volume" value={`${d.deliveredKg ?? 0} kg`} />
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Sales &amp; orders — last 6 months</CardTitle>
-          <CardDescription>Verified delivered orders per month.</CardDescription>
+      <Card className="overflow-hidden rounded-2xl border-slate-200 shadow-sm">
+        <CardHeader className="border-b border-slate-100 bg-slate-50/70 px-5 py-4 sm:px-6">
+          <CardTitle className="text-lg font-semibold text-slate-900">Sales &amp; orders — last 6 months</CardTitle>
+          <CardDescription className="mt-1 text-sm text-slate-500">Verified delivered orders per month.</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-5 sm:p-6">
           {trend.length ? (
-            <div className="h-64">
+            <div className="h-72 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={trend} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -149,15 +153,15 @@ export default function FarmerImpactPage() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Delivered volume — last 6 months</CardTitle>
-            <CardDescription>Kilograms of produce delivered per month.</CardDescription>
+      <div className="grid gap-5 xl:grid-cols-2">
+        <Card className="overflow-hidden rounded-2xl border-slate-200 shadow-sm">
+          <CardHeader className="border-b border-slate-100 bg-slate-50/70 px-5 py-4">
+            <CardTitle className="text-lg font-semibold text-slate-900">Delivered volume — last 6 months</CardTitle>
+            <CardDescription className="mt-1 text-sm text-slate-500">Kilograms of produce delivered per month.</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-5">
             {trend.length ? (
-              <div className="h-56">
+              <div className="h-64 w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart data={trend} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -177,14 +181,14 @@ export default function FarmerImpactPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">How your orders were fulfilled</CardTitle>
-            <CardDescription>Share of local deliveries, farm pickups and community deliveries.</CardDescription>
+        <Card className="overflow-hidden rounded-2xl border-slate-200 shadow-sm">
+          <CardHeader className="border-b border-slate-100 bg-slate-50/70 px-5 py-4">
+            <CardTitle className="text-lg font-semibold text-slate-900">How your orders were fulfilled</CardTitle>
+            <CardDescription className="mt-1 text-sm text-slate-500">Share of local deliveries, farm pickups and community deliveries.</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-5">
             {pieData.length ? (
-              <div className="flex h-56 flex-col items-center justify-center gap-2 sm:flex-row sm:gap-6">
+              <div className="flex min-h-64 flex-col items-center justify-center gap-5 sm:flex-row sm:gap-8">
                 <div className="relative h-44 w-44 shrink-0">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
@@ -198,7 +202,7 @@ export default function FarmerImpactPage() {
                   </ResponsiveContainer>
                   <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
                     <p className="text-2xl font-bold text-gray-800">{pieData.reduce((a, s) => a + s.value, 0)}</p>
-                    <p className="text-xs text-gray-400">orders</p>
+                    <p className="text-sm leading-6 text-slate-500">orders</p>
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -218,18 +222,18 @@ export default function FarmerImpactPage() {
         </Card>
       </div>
 
-      <Card>
-        <CardContent className="flex items-center justify-between gap-3 p-5">
+      <Card className="rounded-2xl border-emerald-200 bg-gradient-to-r from-emerald-50/70 to-white shadow-sm">
+        <CardContent className="flex flex-wrap items-center justify-between gap-4 p-5 sm:p-6">
           <div className="flex items-center gap-3">
             <Sparkles className="h-5 w-5 text-emerald-600" />
             <div>
-              <p className="font-medium">Estimated delivery distance saved</p>
-              <p className="text-xs text-gray-500">
+              <p className="text-base font-semibold text-slate-900">Estimated delivery distance saved</p>
+              <p className="mt-1 text-sm leading-6 text-slate-600">
                 Conservative estimate from local delivery routes instead of longer farm-pickup alternatives.
               </p>
             </div>
           </div>
-          <p className="text-2xl font-bold text-emerald-600">{d.estimatedDistanceSavedKm ?? 0} km</p>
+          <p className="text-3xl font-bold tracking-tight text-emerald-700">{d.estimatedDistanceSavedKm ?? 0} km</p>
         </CardContent>
       </Card>
 
