@@ -273,7 +273,7 @@ export function FarmerDeliveryCalendarContent(props: { compact?: boolean; select
 
   if (isLoading) {
     return (
-      <div className="space-y-6">
+      <div className={cn(compact ? "space-y-3" : "space-y-6")}>
       {!compact && <DeliveryWorkflowNav current="calendar" />}
         <div className="h-8 w-64 animate-pulse rounded bg-gray-200" />
         <div className="h-32 animate-pulse rounded-lg bg-gray-200" />
@@ -638,8 +638,8 @@ export function FarmerDeliveryCalendarContent(props: { compact?: boolean; select
           )}
         </div>
 
-        <aside className="grid min-w-0 grid-cols-1 items-start gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <Card className="sm:col-span-2 xl:col-span-2">
+        <aside className={cn("grid min-w-0 items-start gap-3", compact ? "grid-cols-2" : "grid-cols-1 sm:grid-cols-2 xl:grid-cols-4")}>
+          <Card className={cn(compact ? "col-span-2" : "sm:col-span-2 xl:col-span-2")}>
             <CardHeader className="pb-2">
               <CardTitle className="text-base">Calendar Summary · {selectedSummaryLabel}</CardTitle>
             </CardHeader>
@@ -692,7 +692,7 @@ export function FarmerDeliveryCalendarContent(props: { compact?: boolean; select
             </CardContent>
           </Card>
 
-          <div className="grid grid-cols-3 gap-1.5">
+          <div className={cn("grid grid-cols-3 gap-2", compact && "col-span-2")}>
             <Card className="bg-emerald-50 border-emerald-200">
               <CardContent className="p-2.5 text-center">
                 <p className="text-2xl font-bold text-emerald-600">
@@ -717,7 +717,7 @@ export function FarmerDeliveryCalendarContent(props: { compact?: boolean; select
             </Card>
           </div>
 
-          <Button asChild className="w-full xl:col-span-1">
+          <Button asChild className={cn("w-full", compact && "col-span-2")}>
             <Link href={selectedRouteHref}>
               <Truck className="mr-2 h-4 w-4" />
               View Optimized Route
