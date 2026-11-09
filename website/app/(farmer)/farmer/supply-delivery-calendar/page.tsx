@@ -11,11 +11,9 @@ import { api } from "../../../lib/api/client";
 import { Card, CardContent } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
 
-type CalendarTab = "supply" | "delivery";
 const toKey = (d: Date) => d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
 
 export default function FarmerSupplyDeliveryCalendarPage() {
-  const [activeTab, setActiveTab] = useState<CalendarTab>("supply");
   const [selectedDate, setSelectedDate] = useState(toKey(new Date()));
   const [monthCursor, setMonthCursor] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [eventFilter, setEventFilter] = useState("all");
@@ -41,42 +39,8 @@ export default function FarmerSupplyDeliveryCalendarPage() {
       <FarmerPageHeader
         eyebrow="Farm planning & logistics"
         title="Supply & Delivery Calendar"
-        description="Switch between supply planning and delivery scheduling in one workspace. Each workflow keeps its own records and actions."
+        description="View supply and delivery commitments together, then manage each workflow in its own information panel."
       />
-      <section className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" role="tablist" aria-label="Calendar sections">
-          {tabs.map((tab) => {
-            const Icon = tab.icon;
-            const selected = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                role="tab"
-                aria-selected={selected}
-                onClick={() => setActiveTab(tab.id)}
-                className={cn(
-                  "flex min-w-0 items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors",
-                  selected
-                    ? "border-emerald-700 bg-emerald-700 text-white shadow-sm"
-                    : "border-transparent bg-slate-50 text-slate-700 hover:border-slate-200 hover:bg-slate-100"
-                )}
-              >
-                <span className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-lg", selected ? "bg-white/15" : "bg-white text-emerald-700")}>
-                  <Icon className="h-5 w-5" />
-                </span>
-                <span className="min-w-0">
-                  <span className="block text-sm font-semibold">{tab.label}</span>
-                  <span className={cn("mt-0.5 block truncate text-xs", selected ? "text-emerald-100" : "text-slate-500")}>{tab.description}</span>
-                </span>
-                {selected && <span className="ml-auto text-xs font-semibold">Selected</span>}
-              </button>
-            );
-          })}
-        </div>
-      </section>
-
-
       <Card className="overflow-hidden border-slate-200 shadow-sm">
         <CardContent className="space-y-4 p-3 sm:p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -106,12 +70,12 @@ export default function FarmerSupplyDeliveryCalendarPage() {
       </Card>
       <div className="grid min-w-0 gap-4 xl:grid-cols-2">
         <section className="min-w-0 space-y-3 rounded-2xl border border-emerald-200 bg-white p-3 shadow-sm sm:p-4">
-          <div className="flex flex-wrap items-center justify-between gap-2"><div className="flex items-center gap-2"><Sprout className="h-5 w-5 text-emerald-700" /><div><h2 className="font-semibold text-slate-900">Supply Contract & Supply Information</h2><p className="text-xs text-slate-500">{selectedDate}</p></div></div><Button size="sm" variant="outline" onClick={() => setActiveTab("supply")}>Open supply workflow</Button></div>
+          <div className="flex flex-wrap items-center justify-between gap-2"><div className="flex items-center gap-2"><Sprout className="h-5 w-5 text-emerald-700" /><div><h2 className="font-semibold text-slate-900">Supply Contract & Supply Information</h2><p className="text-xs text-slate-500">{selectedDate}</p></div></div></div>
           {selectedSupplyEvents.length ? selectedSupplyEvents.map((e, i) => <div key={i} className="flex items-center justify-between rounded-lg bg-emerald-50 p-3 text-sm"><span className="font-medium text-emerald-900">{e.title}</span><span className="text-emerald-800">{e.quantity} kg</span></div>) : <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-500">No supply events for this date.</p>}
           <FarmerSupplyCalendarContent compact selectedDate={selectedDate} />
         </section>
         <section className="min-w-0 space-y-3 rounded-2xl border border-blue-200 bg-white p-3 shadow-sm sm:p-4">
-          <div className="flex flex-wrap items-center justify-between gap-2"><div className="flex items-center gap-2"><Truck className="h-5 w-5 text-blue-700" /><div><h2 className="font-semibold text-slate-900">Delivery Calendar Information</h2><p className="text-xs text-slate-500">{selectedDate}</p></div></div><Button size="sm" variant="outline" onClick={() => setActiveTab("delivery")}>Open delivery workflow</Button></div>
+          <div className="flex flex-wrap items-center justify-between gap-2"><div className="flex items-center gap-2"><Truck className="h-5 w-5 text-blue-700" /><div><h2 className="font-semibold text-slate-900">Delivery Calendar Information</h2><p className="text-xs text-slate-500">{selectedDate}</p></div></div></div>
           {selectedDeliveryEvents.length ? selectedDeliveryEvents.map((e, i) => <div key={i} className="flex items-center justify-between rounded-lg bg-blue-50 p-3 text-sm"><span className="font-medium text-blue-900">{e.title}</span><span className="text-blue-800">{e.quantity} deliveries</span></div>) : <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-500">No delivery events for this date.</p>}
           <FarmerDeliveryCalendarContent compact selectedDate={selectedDate} />
         </section>
