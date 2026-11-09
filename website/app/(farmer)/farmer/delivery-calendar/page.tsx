@@ -162,16 +162,23 @@ export default function DeliveryCalendarPage() {
   const slots = (calendarData as any)?.slots ?? [];
   const summary = (calendarData as any)?.summary ?? {};
 
+  const dateKey = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+
   const countForDate = (date: Date) =>
     slots
-      .filter((s: any) => s.day === dayName(date))
+      .filter((s: any) => (s.dateKey || s.date) === dateKey(date))
       .reduce((sum: number, s: any) => sum + (s.count || 0), 0);
 
   const selectedDate = addDays(new Date(), dayOffset);
   const selectedDaySlots = TIME_SLOTS.map((slot) => ({
     ...slot,
     data: slots.find(
-      (s: any) => s.day === dayName(selectedDate) && s.timeSlot === slot.label
+      (s: any) => (s.dateKey || s.date) === dateKey(selectedDate) && s.timeSlot === slot.label
     ),
   }));
 
@@ -301,7 +308,7 @@ export default function DeliveryCalendarPage() {
                         </div>
                         {TIME_SLOTS.map((slot) => {
                           const slotData = slots.find(
-                            (s: any) => s.day === day && s.timeSlot === slot.label
+                            (s: any) => (s.dateKey || s.date) === dateKey(dates[dayIndex]) && s.timeSlot === slot.label
                           );
                           const count = slotData?.count || 0;
                           const selfCt = slotData?.selfCount ?? count;
@@ -491,8 +498,8 @@ export default function DeliveryCalendarPage() {
                 </div>
                 <p className="mt-3 flex items-center gap-1 text-xs text-gray-400">
                   <Info className="h-3 w-3" />
-                  Counts repeat weekly based on each order's scheduled delivery day. Click a date
-                  for its full day plan.
+                  Counts are shown for the exact date assigned to each order. Click a date
+                  to view its delivery plan.
                 </p>
               </CardContent>
             </Card>
@@ -577,7 +584,7 @@ export default function DeliveryCalendarPage() {
         <div className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Today's Summary</CardTitle>
+              <CardTitle className="text-base">Calendar Summary</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between border-b pb-3">
