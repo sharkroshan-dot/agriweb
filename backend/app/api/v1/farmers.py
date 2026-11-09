@@ -819,7 +819,6 @@ async def get_delivery_calendar(
         # Older order documents may not have deliveryType or fulfillmentMethod.
         # Resolve those legacy defaults in Python after fetching by farmer.
     }
-    }
     if workflow_ids:
         calendar_query["_id"] = {"$in": workflow_ids}
     orders = await order_repository.find_many(calendar_query) or []
