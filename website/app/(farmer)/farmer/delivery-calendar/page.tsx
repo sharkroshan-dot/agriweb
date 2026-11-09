@@ -302,7 +302,7 @@ export function FarmerDeliveryCalendarContent() {
         </div>
       </FarmerPageHeader>
 
-      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
+      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_240px]">
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <Button variant="ghost" size="icon" onClick={goPrev}>
@@ -346,7 +346,7 @@ export function FarmerDeliveryCalendarContent() {
                 </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <div className="grid min-w-[840px] grid-cols-7 gap-2">
+                  <div className="grid min-w-[760px] grid-cols-7 gap-1.5">
                     {DAYS.map((day, dayIndex) => (
                       <div key={day} className="space-y-2">
                         <div
@@ -516,7 +516,7 @@ export function FarmerDeliveryCalendarContent() {
                         }}
                         title={`${date.toLocaleDateString("en-IN", { day: "numeric", month: "short" })} — click for day view`}
                         className={cn(
-                          "flex h-20 flex-col items-center rounded-lg border p-2 transition-colors",
+                          "flex h-16 flex-col items-center rounded-lg border p-2 transition-colors",
                           count > 0
                             ? "border-emerald-200 bg-emerald-50 hover:bg-emerald-100"
                             : "border-dashed border-gray-200 bg-white hover:bg-gray-50",
