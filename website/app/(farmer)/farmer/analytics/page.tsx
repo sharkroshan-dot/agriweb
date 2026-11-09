@@ -93,7 +93,7 @@ export default function FarmerAnalyticsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="w-full min-w-0 space-y-6 pb-8">
       <FarmerPageHeader title="Farm analytics" description="Use demand, sales and fulfilment trends to decide what to grow, stock and deliver next.">
         <div className="flex items-center gap-2">
           {[("7d" as const), ("30d" as const), ("90d" as const)].map((r) => (
