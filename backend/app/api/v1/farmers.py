@@ -816,7 +816,12 @@ async def get_delivery_calendar(
         "orderStatus": {"$in": calendar_statuses},
         "deletedAt": None,
         "deliveryType": DeliveryType.DELIVERY.value,
-        "fulfillmentMethod": "farmer",
+        # Include legacy farmer orders created before fulfillmentMethod was stored.
+        "$or": [
+            {"fulfillmentMethod": "farmer"},
+            {"fulfillmentMethod": {"$exists": False}},
+            {"fulfillmentMethod": None},
+        ],
     }
     if workflow_ids:
         calendar_query["_id"] = {"$in": workflow_ids}
