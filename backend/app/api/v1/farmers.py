@@ -828,8 +828,7 @@ async def get_delivery_calendar(
     orders = [
         order for order in orders
         if str(order.get("deliveryType") or DeliveryType.DELIVERY.value) != DeliveryType.PICKUP.value
-        and str(order.get("fulfillmentMethod") or FulfillmentMethod.FARM_DIRECT.value)
-            == FulfillmentMethod.FARM_DIRECT.value
+        and str(order.get("fulfillmentMethod") or "farmer") == "farmer"
     ]
     farm = await _get_farm_origin(farmer_id)
 
