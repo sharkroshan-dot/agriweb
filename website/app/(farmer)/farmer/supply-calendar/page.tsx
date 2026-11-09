@@ -548,7 +548,7 @@ export function FarmerSupplyCalendarContent(props: { compact?: boolean; selected
       </section>
 
       <section className="flex min-w-0 flex-col gap-4">
-        <Card className="min-w-0 overflow-hidden border-slate-200 shadow-sm">
+        <Card className={cn("min-w-0 overflow-hidden border-slate-200 shadow-sm", compact && "hidden")}>
           <CardContent className="space-y-4 p-3 sm:p-4">
             <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
               <div className="flex flex-wrap items-center gap-2">
