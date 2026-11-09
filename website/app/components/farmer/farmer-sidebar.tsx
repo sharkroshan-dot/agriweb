@@ -76,8 +76,7 @@ const navGroups = [
   {
     label: "Products & Inventory",
     items: [
-      { name: "My Products", href: "/farmer/products", icon: Package },
-      { name: "Stock & Restocking", href: "/farmer/restock", icon: PackagePlus },
+      { name: "Products & Inventory", href: "/farmer/products", icon: Package },
       { name: "Farm Baskets", href: "/farmer/farm-baskets", icon: ShoppingBasket },
       { name: "Harvest Calendar", href: "/farmer/harvests", icon: Sprout },
       { name: "Harvest Planner", href: "/farmer/harvest-planner", icon: CalendarClock },
