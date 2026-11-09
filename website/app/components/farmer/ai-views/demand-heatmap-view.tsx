@@ -113,34 +113,63 @@ export function DemandHeatmapView() {
         </p>
       </div>
 
-      <Card className="overflow-hidden rounded-2xl border-slate-200 shadow-sm">
-        <CardHeader className="border-b border-slate-100 bg-slate-50/70 pb-4">
-          <CardTitle className="flex items-center gap-2 text-base font-semibold text-slate-900">
-            <Search className="h-5 w-5 text-emerald-600" /> Pick your produce
-          </CardTitle>
-          <CardDescription>Choose what you grow and where you want to sell.</CardDescription>
+      <Card className="overflow-hidden rounded-2xl border-slate-200 bg-white shadow-sm">
+        <CardHeader className="border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white px-5 py-4 sm:px-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-base font-semibold text-slate-900">
+                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-100">
+                  <Search className="h-4 w-4 text-emerald-700" />
+                </span>
+                Pick your produce
+              </CardTitle>
+              <CardDescription className="mt-1.5">
+                Set your market, choose your produce and select the period you want to explore.
+              </CardDescription>
+            </div>
+            <Badge variant="outline" className="border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-700">
+              3 simple steps
+            </Badge>
+          </div>
         </CardHeader>
-        <CardContent className="space-y-5 p-5 sm:p-6">
+
+        <CardContent className="space-y-6 p-5 sm:p-6">
           {summary.confidence != null && (
-            <Card className="border-emerald-200 bg-emerald-50/40">
+            <Card className="border-emerald-200 bg-emerald-50/50 shadow-none">
               <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
-                <div><p className="text-xs text-emerald-700">Forecast confidence</p><p className="text-lg font-semibold text-emerald-900">{Math.round(Number(summary.confidence) <= 1 ? Number(summary.confidence) * 100 : Number(summary.confidence))}%</p></div>
-                <p className="max-w-xl text-xs leading-5 text-emerald-800">{summary.confidenceReason || "Confidence reflects the available historical demand signal for this selection."}</p>
+                <div>
+                  <p className="text-xs font-medium text-emerald-700">Forecast confidence</p>
+                  <p className="text-lg font-semibold text-emerald-900">
+                    {Math.round(Number(summary.confidence) <= 1 ? Number(summary.confidence) * 100 : Number(summary.confidence))}%
+                  </p>
+                </div>
+                <p className="max-w-xl text-xs leading-5 text-emerald-800">
+                  {summary.confidenceReason || "Confidence reflects the available historical demand signal for this selection."}
+                </p>
               </CardContent>
             </Card>
           )}
 
-          <div className="grid gap-4 md:grid-cols-3">
-            <div className="space-y-1">
-              <label className="mb-1 block text-xs font-semibold text-slate-600">Where do you want to sell?</label>
+          <div className="grid gap-4 lg:grid-cols-3">
+            <div className="rounded-xl border border-slate-200 bg-white p-4 transition-colors focus-within:border-emerald-300 focus-within:ring-2 focus-within:ring-emerald-100">
+              <div className="mb-3 flex items-center gap-2">
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100 text-xs font-bold text-emerald-700">1</span>
+                <label className="text-sm font-semibold text-slate-800">Selling location</label>
+              </div>
+              <p className="mb-2 text-xs leading-5 text-slate-500">Choose the state where you want to find buyers.</p>
               <Select value={state} onValueChange={(v) => setState(v)}>
                 <SelectContent>
                   {STATES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-gray-500">What do you grow?</label>
+
+            <div className="rounded-xl border border-slate-200 bg-white p-4 transition-colors focus-within:border-emerald-300 focus-within:ring-2 focus-within:ring-emerald-100">
+              <div className="mb-3 flex items-center gap-2">
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100 text-xs font-bold text-emerald-700">2</span>
+                <label className="text-sm font-semibold text-slate-800">Your produce</label>
+              </div>
+              <p className="mb-2 text-xs leading-5 text-slate-500">Select a crop or view demand for all your produce.</p>
               <Select value={product} onValueChange={(v) => setProduct(v)}>
                 <SelectContent>
                   <SelectItem value="all">All my produce</SelectItem>
@@ -150,8 +179,13 @@ export function DemandHeatmapView() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-gray-500">For when?</label>
+
+            <div className="rounded-xl border border-slate-200 bg-white p-4 transition-colors focus-within:border-emerald-300 focus-within:ring-2 focus-within:ring-emerald-100">
+              <div className="mb-3 flex items-center gap-2">
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100 text-xs font-bold text-emerald-700">3</span>
+                <label className="text-sm font-semibold text-slate-800">Demand period</label>
+              </div>
+              <p className="mb-2 text-xs leading-5 text-slate-500">Choose when you plan to sell your produce.</p>
               <Select value={period} onValueChange={(v) => setPeriod(v)}>
                 <SelectContent>
                   {PERIODS.map((p) => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
@@ -160,53 +194,65 @@ export function DemandHeatmapView() {
             </div>
           </div>
 
-          <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Demand view</p>
+          <div className="space-y-3">
+            <div>
+              <p className="text-sm font-semibold text-slate-800">What demand would you like to explore?</p>
+              <p className="mt-1 text-xs text-slate-500">Choose one view to focus the demand analysis.</p>
+            </div>
             <div className="flex flex-wrap gap-2">
-            {MODES.map((m) => (
-              <button
-                key={m.value}
-                type="button"
-                onClick={() => setMode(m.value)}
-                className={cn(
-                  "rounded-xl border px-3.5 py-2 text-sm font-medium transition-all",
-                  mode === m.value
-                    ? "border-emerald-600 bg-emerald-600 text-white"
-                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                )}
-              >
-                {m.emoji} {m.label}
-              </button>
-            ))}
-          </div>
-          </div>
-          <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Buyer segment</p>
-            <div className="flex flex-wrap gap-2">
-            {BUYERS.map((b) => (
-              <button
-                key={b.value}
-                type="button"
-                onClick={() => setBuyer(b.value)}
-                className={cn(
-                  "rounded-xl border px-3.5 py-2 text-xs font-semibold transition-all",
-                  buyer === b.value
-                    ? "border-slate-800 bg-slate-800 text-white"
-                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                )}
-              >
-                {b.label}
-              </button>
-            ))}
+              {MODES.map((m) => (
+                <button
+                  key={m.value}
+                  type="button"
+                  aria-pressed={mode === m.value}
+                  onClick={() => setMode(m.value)}
+                  className={cn(
+                    "rounded-xl border px-3.5 py-2.5 text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2",
+                    mode === m.value
+                      ? "border-emerald-700 bg-emerald-700 text-white shadow-sm"
+                      : "border-slate-200 bg-white text-slate-600 hover:border-emerald-200 hover:bg-emerald-50/60 hover:text-emerald-800"
+                  )}
+                >
+                  {m.emoji} {m.label}
+                </button>
+              ))}
             </div>
           </div>
 
-          <div className="flex flex-col gap-2 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs text-slate-500">Demand results update using your selected filters.</p>
-          <Button onClick={() => mutation.mutate()} disabled={mutation.isPending} className="w-full rounded-xl bg-emerald-700 px-6 shadow-sm hover:bg-emerald-800 sm:w-auto">
-            {mutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
-            {mutation.isPending ? "Finding demand..." : "Show demand"}
-          </Button>
+          <div className="space-y-3">
+            <div>
+              <p className="text-sm font-semibold text-slate-800">Which buyers should we include?</p>
+              <p className="mt-1 text-xs text-slate-500">Filter demand by the type of customer.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {BUYERS.map((b) => (
+                <button
+                  key={b.value}
+                  type="button"
+                  aria-pressed={buyer === b.value}
+                  onClick={() => setBuyer(b.value)}
+                  className={cn(
+                    "rounded-xl border px-3.5 py-2 text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2",
+                    buyer === b.value
+                      ? "border-slate-800 bg-slate-800 text-white shadow-sm"
+                      : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+                  )}
+                >
+                  {b.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-3 rounded-xl border border-emerald-100 bg-emerald-50/50 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-slate-800">Ready to explore demand?</p>
+              <p className="mt-1 text-xs text-slate-600">Your results will use the location, produce and buyer filters selected above.</p>
+            </div>
+            <Button onClick={() => mutation.mutate()} disabled={mutation.isPending} className="w-full rounded-xl bg-emerald-700 px-6 shadow-sm hover:bg-emerald-800 sm:w-auto">
+              {mutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
+              {mutation.isPending ? "Finding demand..." : "Show demand"}
+            </Button>
           </div>
         </CardContent>
       </Card>
