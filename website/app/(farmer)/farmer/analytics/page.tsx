@@ -163,9 +163,9 @@ export default function FarmerAnalyticsPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Lightbulb className="h-5 w-5 text-emerald-600" />
-              💡 Your farm at a glance
+              Farm insights and recommended actions
             </CardTitle>
-            <CardDescription>Simple tips to help your farm grow.</CardDescription>
+            <CardDescription>Practical actions based on your sales, stock, customer feedback and harvest activity.</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="grid gap-2 md:grid-cols-2">
