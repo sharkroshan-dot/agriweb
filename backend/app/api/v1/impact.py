@@ -302,12 +302,14 @@ async def get_my_impact(
                 if previous is None or created_at < previous:
                     first_completed_by_customer[customer_id] = created_at
 
-    repeat_customers = sum(1 for count in period_customer_orders.values() if count > 1)
     new_customers = 0
     for customer_id in unique_customers:
         first_order_date = first_completed_by_customer.get(customer_id)
         if first_order_date and (not start_date or first_order_date.strftime("%Y-%m-%d") >= start_date) and (not end_date or first_order_date.strftime("%Y-%m-%d") <= end_date):
             new_customers += 1
+    # A repeat customer is someone whose first-ever completed order predates
+    # the selected period, even if they placed only one order in this period.
+    repeat_customers = max(0, len(unique_customers) - new_customers)
 
     recorded_distance = sum(float(order.get("distanceKm") or 0) for order in (orders or []))
     data = {
