@@ -3,14 +3,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import {
-  Leaf,
   IndianRupee,
   Users,
   Truck,
   Store,
   MapPin,
   Wheat,
-  Loader2,
   Sparkles,
   CalendarDays,
   Download,
@@ -103,7 +101,7 @@ function downloadImpactCsv(data: any, startDate: string, endDate: string) {
   link.href = url;
   link.download = `farm-impact-${startDate}-to-${endDate}.csv`;
   link.click();
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 export default function FarmerImpactPage() {
