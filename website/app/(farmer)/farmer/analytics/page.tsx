@@ -59,12 +59,7 @@ const STATUS_COLORS: Record<string, string> = {
   cancelled: "#ef4444",
 };
 
-const SUMMARY_CARDS = [
-  { key: "totalRevenue", label: "Total earned", emoji: "💰", color: "text-emerald-600", format: (v: any) => formatPrice(v ?? 0) },
-  { key: "totalOrders", label: "Orders placed", emoji: "🧺", color: "text-blue-600", format: (v: any) => `${v ?? 0}` },
-  { key: "averageOrderValue", label: "Average order size", emoji: "🛒", color: "text-purple-600", format: (v: any) => formatPrice(v ?? 0) },
-  { key: "deliveredOrders", label: "Delivered to customers", emoji: "✅", color: "text-amber-600", format: (v: any) => `${v ?? 0}` },
-];
+
 
 
 function exportAnalyticsCsv(data: any, range: string) {
