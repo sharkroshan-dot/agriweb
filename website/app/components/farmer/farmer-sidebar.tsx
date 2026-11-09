@@ -69,7 +69,7 @@ const navGroups = [
       { name: "Order Map", href: "/farmer/order-map", icon: MapPin },
       { name: "Smart Route Planner", href: "/farmer/smart-route", icon: Map },
       { name: "My Delivery Route", href: "/farmer/route", icon: Truck },
-      { name: "Delivery Calendar", href: "/farmer/delivery-calendar", icon: Calendar },
+      { name: "Supply & Delivery Calendar", href: "/farmer/supply-delivery-calendar", icon: Calendar },
       { name: "Delivery Slots", href: "/farmer/delivery-slots", icon: CalendarClock },
     ],
   },
@@ -80,7 +80,7 @@ const navGroups = [
       { name: "Farm Baskets", href: "/farmer/farm-baskets", icon: ShoppingBasket },
       { name: "Harvest Calendar", href: "/farmer/harvests", icon: Sprout },
       { name: "Harvest Planner", href: "/farmer/harvest-planner", icon: CalendarClock },
-      { name: "Supply Calendar", href: "/farmer/supply-calendar", icon: Boxes },
+      
     ],
   },
   {
