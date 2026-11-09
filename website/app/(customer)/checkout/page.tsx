@@ -107,6 +107,7 @@ export default function CheckoutPage() {
   const [isEstimatingFee, setIsEstimatingFee] = useState(false);
   const [deliveryDate, setDeliveryDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [deliveryTimeSlot, setDeliveryTimeSlot] = useState("morning");
+  const [selectedDeliverySlotId, setSelectedDeliverySlotId] = useState("");
   const [selectedDeliverySpeed, setSelectedDeliverySpeed] = useState<"fastest_30m" | "standard">("standard");
   const [couponCode, setCouponCode] = useState("");
   const [couponDiscount, setCouponDiscount] = useState(0);
@@ -150,6 +151,21 @@ export default function CheckoutPage() {
   );
 
   const estimatedDeliveryAddressId = selectedAddressId || defaultAddress?.id;
+
+  const selectedCheckoutAddress = addresses.find((address) => address.id === estimatedDeliveryAddressId);
+  const { data: checkoutSlotsData, isLoading: checkoutSlotsLoading } = useQuery({
+    queryKey: ["checkout-delivery-slots", selectedCheckoutAddress?.city, deliveryDate],
+    queryFn: () => api.get("/delivery-slots/available", {
+      params: { area: selectedCheckoutAddress?.city || "", radius: 100 },
+    }),
+    enabled: Boolean(selectedCheckoutAddress?.city) && items.length > 0 && status === "authenticated",
+  });
+  const checkoutSlots = (checkoutSlotsData?.data?.slots || []).filter((slot: any) => {
+    if (slot.status !== "open") return false;
+    const slotDate = new Date(slot.date).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+    return slotDate === deliveryDate;
+  });
+  const selectedCheckoutSlot = checkoutSlots.find((slot: any) => slot.id === selectedDeliverySlotId);
 
   useEffect(() => {
     if (!estimatedDeliveryAddressId || items.length === 0) {
@@ -451,6 +467,7 @@ export default function CheckoutPage() {
         requestedDeliveryDate: new Date(`${deliveryDate}T00:00:00`).toISOString(),
         idempotencyKey: idempotencyKeyRef.current,
         deliveryTimeSlot,
+        deliverySlotId: selectedDeliverySlotId || undefined,
         deliverySpeed: selectedDeliverySpeed,
       };
 
@@ -825,6 +842,57 @@ export default function CheckoutPage() {
                     </p>
                   </div>
                 )}
+            </CardContent>
+          </Card>
+
+          {/* Farmer-published delivery slot selection */}
+          <Card className="border-emerald-200">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <CalendarClock className="h-5 w-5 text-emerald-600" /> Farmer Delivery Slots
+              </CardTitle>
+              <CardDescription>
+                Choose a published delivery batch for your selected delivery date. Your order will be linked to that farmer's batch.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {!selectedCheckoutAddress?.city ? (
+                <p className="text-sm text-slate-500">Select a delivery address to find matching delivery slots.</p>
+              ) : checkoutSlotsLoading ? (
+                <div className="flex items-center gap-2 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin"/> Finding available slots…</div>
+              ) : checkoutSlots.length === 0 ? (
+                <div className="rounded-xl border border-dashed p-4 text-sm text-slate-500">
+                  No farmer-published slots are available for {selectedCheckoutAddress.city} on this date. You can continue with standard delivery.
+                </div>
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {checkoutSlots.map((slot: any) => (
+                    <button
+                      type="button"
+                      key={slot.id}
+                      onClick={() => {
+                        setSelectedDeliverySlotId(slot.id);
+                        setDeliveryTimeSlot(slot.startTime);
+                      }}
+                      className={`rounded-xl border p-4 text-left transition ${selectedDeliverySlotId === slot.id ? "border-emerald-600 bg-emerald-50 ring-2 ring-emerald-100" : "border-slate-200 hover:border-emerald-300"}`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-semibold text-slate-900">{slot.area}</span>
+                        <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700">{Math.max(0, Number(slot.maxOrders || 0) - Number(slot.bookings || 0))} spaces</span>
+                      </div>
+                      <p className="mt-2 text-sm text-slate-600">{slot.startTime} – {slot.endTime}</p>
+                      <p className="mt-1 text-xs text-slate-500">{slot.farmerInfo?.farmName || slot.farmerInfo?.name || "Local farmer"} · {slot.distanceKm ? `${slot.distanceKm} km away` : `${slot.radiusKm} km coverage`}</p>
+                      <p className="mt-2 text-sm font-medium text-emerald-700">Delivery fee: ₹{Number(slot.deliveryFee || 0).toFixed(2)}</p>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {selectedCheckoutSlot && (
+                <div className="flex items-center justify-between rounded-lg bg-emerald-50 p-3 text-sm">
+                  <span className="text-emerald-800">Selected: {selectedCheckoutSlot.area}, {selectedCheckoutSlot.startTime}–{selectedCheckoutSlot.endTime}</span>
+                  <Button type="button" size="sm" variant="ghost" onClick={() => setSelectedDeliverySlotId("")}>Remove</Button>
+                </div>
+              )}
             </CardContent>
           </Card>
 
