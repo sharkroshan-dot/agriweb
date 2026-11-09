@@ -46,14 +46,14 @@ export default function FarmerSupplyDeliveryCalendarPage() {
   ];
 
   return (
-    <div className="mx-auto w-full max-w-[1600px] space-y-5 pb-8">
+    <div className="mx-auto w-full max-w-none space-y-4 pb-8">
       <FarmerPageHeader
         eyebrow="Farm planning & logistics"
         title="Supply & Delivery Calendar"
         description="View supply and delivery commitments together, then manage each workflow in its own information panel."
       />
-      <Card className="overflow-hidden border-slate-200 shadow-sm">
-        <CardContent className="space-y-4 p-3 sm:p-4">
+      <Card className="overflow-hidden rounded-2xl border-slate-200 shadow-sm">
+        <CardContent className="space-y-4 p-4 sm:p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <Button variant="outline" size="icon" onClick={() => moveCalendar(-1)} aria-label="Previous period"><ChevronLeft className="h-4 w-4" /></Button>
@@ -66,27 +66,27 @@ export default function FarmerSupplyDeliveryCalendarPage() {
               {["all","supply","delivery"].map((v) => <Button key={v} size="sm" variant={eventFilter===v?"default":"outline"} className={eventFilter===v?"bg-emerald-700 hover:bg-emerald-800":""} onClick={() => setEventFilter(v)}>{v==="all"?"All events":v==="supply"?"Supply only":"Delivery only"}</Button>)}
             </div>
           </div>
-          <div className={cn("grid border-l border-t border-slate-200", calendarView === "day" ? "grid-cols-1" : "grid-cols-7")}>
+          <div className={cn("grid overflow-hidden rounded-xl border-l border-t border-slate-200", calendarView === "day" ? "grid-cols-1" : "grid-cols-7")}>
             {calendarView !== "day" && ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map((d) => <div key={d} className="border-b border-r border-slate-200 bg-slate-50 py-2 text-center text-xs font-semibold text-slate-600">{d}</div>)}
             {visibleCalendarDays.map((date) => {
               const key = toKey(date);
               const events = allEvents.filter((e) => e.key === key && (eventFilter === "all" || e.kind === eventFilter));
-              return <button key={key} type="button" onClick={() => setSelectedDate(key)} className={cn("min-h-[86px] min-w-0 border-b border-r border-slate-200 p-1.5 text-left transition hover:bg-emerald-50 sm:min-h-[104px] sm:p-2", calendarView === "day" && "min-h-[220px] p-4", calendarView === "month" && date.getMonth() !== monthCursor.getMonth() && "bg-slate-50/70 text-slate-400", selectedDate === key && "bg-emerald-50 ring-2 ring-inset ring-emerald-600")}>
+              return <button key={key} type="button" onClick={() => setSelectedDate(key)} className={cn("min-h-[100px] min-w-0 border-b border-r border-slate-200 bg-white p-2 text-left transition hover:bg-emerald-50 sm:min-h-[116px] sm:p-2.5", calendarView === "day" && "min-h-[220px] p-4", calendarView === "month" && date.getMonth() !== monthCursor.getMonth() && "bg-slate-50/70 text-slate-400", selectedDate === key && "bg-emerald-50 ring-2 ring-inset ring-emerald-600")}>
                 <span className="text-xs font-semibold">{date.getDate()}</span>
-                <div className="mt-1 space-y-1">{events.slice(0,2).map((e, i) => <span key={i} className={cn("block truncate rounded px-1 py-0.5 text-[9px] font-semibold sm:text-[10px]", e.kind === "supply" ? "bg-emerald-100 text-emerald-800" : "bg-blue-100 text-blue-800")}>{e.kind === "supply" ? "Supply" : "Delivery"} · {e.title}</span>)}{events.length > 2 && <span className="text-[9px] text-slate-500">+{events.length-2} more</span>}</div>
+                <div className="mt-1 space-y-1">{events.slice(0,2).map((e, i) => <span key={i} className={cn("block truncate rounded-md px-1.5 py-1 text-[10px] font-semibold leading-4 sm:text-[11px]", e.kind === "supply" ? "bg-emerald-100 text-emerald-800" : "bg-blue-100 text-blue-800")}>{e.kind === "supply" ? "Supply" : "Delivery"} · {e.title}</span>)}{events.length > 2 && <span className="text-[9px] text-slate-500">+{events.length-2} more</span>}</div>
               </button>;
             })}
           </div>
           <div className="flex flex-wrap items-center gap-4 border-t border-slate-100 pt-3 text-xs"><span className="font-semibold text-slate-600">Legend:</span><span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-emerald-500" />Supply / harvest</span><span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-blue-500" />Customer / business delivery</span><span className="text-slate-500">{allEvents.filter((e) => e.key === selectedDate).length} events on selected date</span></div>
         </CardContent>
       </Card>
-      <div className="grid min-w-0 gap-4 xl:grid-cols-2">
-        <section className="min-w-0 space-y-3 rounded-2xl border border-emerald-200 bg-white p-3 shadow-sm sm:p-4">
+      <div className="grid min-w-0 grid-cols-1 gap-5">
+        <section className="min-w-0 space-y-4 rounded-2xl border border-emerald-200 bg-white p-4 shadow-sm sm:p-5">
           <div className="flex flex-wrap items-center justify-between gap-2"><div className="flex items-center gap-2"><Sprout className="h-5 w-5 text-emerald-700" /><div><h2 className="font-semibold text-slate-900">Supply Contract & Supply Information</h2><p className="text-xs text-slate-500">{selectedDate}</p></div></div></div>
           {selectedSupplyEvents.length ? selectedSupplyEvents.map((e, i) => <div key={i} className="flex items-center justify-between rounded-lg bg-emerald-50 p-3 text-sm"><span className="font-medium text-emerald-900">{e.title}</span><span className="text-emerald-800">{e.quantity} kg</span></div>) : <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-500">No supply events for this date.</p>}
           <FarmerSupplyCalendarContent compact selectedDate={selectedDate} />
         </section>
-        <section className="min-w-0 space-y-3 rounded-2xl border border-blue-200 bg-white p-3 shadow-sm sm:p-4">
+        <section className="min-w-0 space-y-4 rounded-2xl border border-blue-200 bg-white p-4 shadow-sm sm:p-5">
           <div className="flex flex-wrap items-center justify-between gap-2"><div className="flex items-center gap-2"><Truck className="h-5 w-5 text-blue-700" /><div><h2 className="font-semibold text-slate-900">Delivery Calendar Information</h2><p className="text-xs text-slate-500">{selectedDate}</p></div></div></div>
           {selectedDeliveryEvents.length ? selectedDeliveryEvents.map((e, i) => <div key={i} className="flex items-center justify-between rounded-lg bg-blue-50 p-3 text-sm"><span className="font-medium text-blue-900">{e.title}</span><span className="text-blue-800">{e.quantity} deliveries</span></div>) : <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-500">No delivery events for this date.</p>}
           <FarmerDeliveryCalendarContent compact selectedDate={selectedDate} />
