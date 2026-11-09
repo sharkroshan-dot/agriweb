@@ -19,6 +19,17 @@ export default function FarmerSupplyDeliveryCalendarPage() {
   const [selectedDate, setSelectedDate] = useState(toKey(new Date()));
   const [monthCursor, setMonthCursor] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [eventFilter, setEventFilter] = useState("all");
+  const { data: plansData } = useQuery({ queryKey: ["farmerSupplyCalendarFromHarvestPlans"], queryFn: () => api.get("/harvests/farmer/plans") });
+  const { data: deliveryData } = useQuery({ queryKey: ["deliveryCalendar"], queryFn: () => api.get("/farmers/me/delivery-calendar") });
+  const plans = plansData?.data?.plans || [];
+  const deliverySlots = (deliveryData as any)?.slots || [];
+  const supplyEvents = useMemo(() => plans.map((p: any) => ({ key: toKey(new Date(p.expectedHarvestDate || p.harvestDate || p.harvestedAt)), title: p.cropName || "Harvest", quantity: Number(p.expectedQuantityKg || p.actualQuantityKg || 0), kind: "supply" })).filter((e: any) => e.key !== "NaN-NaN-NaN"), [plans]);
+  const deliveryEvents = useMemo(() => deliverySlots.map((slot: any) => ({ key: String(slot.dateKey || slot.date || "").slice(0,10), title: slot.timeSlot || "Delivery", quantity: Number(slot.count || 0), kind: "delivery" })), [deliverySlots]);
+  const allEvents = [...supplyEvents, ...deliveryEvents];
+  const firstDay = new Date(monthCursor.getFullYear(), monthCursor.getMonth(), 1);
+  const calendarCells = Array.from({ length: 42 }, (_, i) => new Date(monthCursor.getFullYear(), monthCursor.getMonth(), i - firstDay.getDay() + 1));
+  const selectedSupplyEvents = allEvents.filter((e: any) => e.key === selectedDate && e.kind === "supply");
+  const selectedDeliveryEvents = allEvents.filter((e: any) => e.key === selectedDate && e.kind === "delivery");
 
   const tabs = [
     { id: "supply" as const, label: "Supply Calendar", description: "Harvest plans and supply workflow", icon: Sprout },
