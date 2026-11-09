@@ -1,16 +1,24 @@
 "use client";
 
-import { useState } from "react";
-import { Sprout, Truck } from "lucide-react";
+import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Sprout, Truck, ChevronLeft, ChevronRight } from "lucide-react";
 import { FarmerPageHeader } from "../../../components/farmer/farmer-page-header";
 import { FarmerSupplyCalendarContent } from "../supply-calendar/page";
 import { FarmerDeliveryCalendarContent } from "../delivery-calendar/page";
 import { cn } from "../../../lib/utils";
+import { api } from "../../../lib/api/client";
+import { Card, CardContent } from "../../../components/ui/card";
+import { Button } from "../../../components/ui/button";
 
 type CalendarTab = "supply" | "delivery";
+const toKey = (d: Date) => d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
 
 export default function FarmerSupplyDeliveryCalendarPage() {
   const [activeTab, setActiveTab] = useState<CalendarTab>("supply");
+  const [selectedDate, setSelectedDate] = useState(toKey(new Date()));
+  const [monthCursor, setMonthCursor] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+  const [eventFilter, setEventFilter] = useState("all");
 
   const tabs = [
     { id: "supply" as const, label: "Supply Calendar", description: "Harvest plans and supply workflow", icon: Sprout },
