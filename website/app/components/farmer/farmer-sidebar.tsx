@@ -106,6 +106,7 @@ const navGroups = [
     label: "Insights & Planning",
     items: [
       { name: "Analytics", href: "/farmer/analytics", icon: BarChart },
+      { name: "AI Farm Assistant", href: "/farmer/ai-farm-assistant", icon: Bot },
       { name: "Demand Heatmap", href: "/farmer/demand-heatmap", icon: Flame },
       { name: "AI Predictions", href: "/farmer/ai-predictions", icon: Bot },
       { name: "Farm Impact", href: "/farmer/impact", icon: Leaf },
