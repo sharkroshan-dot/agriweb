@@ -59,25 +59,30 @@ export default function FarmerSupplyDeliveryCalendarPage() {
       </section>
 
       {activeTab === "overview" && (
-        <div className="space-y-6">
-          <section className="rounded-xl border border-emerald-100 bg-emerald-50/60 px-4 py-3">
-            <div className="flex items-start gap-3">
-              <CalendarDays className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" />
-              <div>
-                <p className="text-sm font-semibold text-emerald-950">Combined calendar workspace</p>
-                <p className="mt-1 text-xs leading-5 text-emerald-800">Both existing calendars are shown below. Supply records and delivery records remain independent; use the tabs above to focus on either workflow.</p>
-              </div>
+        <section className="grid gap-4 xl:grid-cols-2">
+          <button type="button" onClick={() => setActiveTab("supply")} className="group rounded-2xl border border-emerald-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-400 hover:shadow-md">
+            <div className="flex items-start justify-between gap-3">
+              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><Sprout className="h-5 w-5" /></span>
+              <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">Open supply</span>
             </div>
-          </section>
-          <div className="space-y-3">
-            <div className="flex items-center gap-2"><Sprout className="h-5 w-5 text-emerald-700" /><h2 className="text-lg font-semibold text-slate-900">Supply calendar</h2></div>
-            <FarmerSupplyCalendarContent />
+            <h2 className="mt-4 text-lg font-semibold text-slate-900">Supply calendar</h2>
+            <p className="mt-1 max-w-xl text-sm leading-6 text-slate-500">Harvest plans, pre-harvest schedules, batch and quality progress, supply orders, recurring contracts, planning gaps and farmer action alerts.</p>
+            <span className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-emerald-700">View supply schedule <span aria-hidden="true">→</span></span>
+          </button>
+          <button type="button" onClick={() => setActiveTab("delivery")} className="group rounded-2xl border border-blue-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-blue-400 hover:shadow-md">
+            <div className="flex items-start justify-between gap-3">
+              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-700"><Truck className="h-5 w-5" /></span>
+              <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-800">Open delivery</span>
+            </div>
+            <h2 className="mt-4 text-lg font-semibold text-slate-900">Delivery calendar</h2>
+            <p className="mt-1 max-w-xl text-sm leading-6 text-slate-500">Customer and business delivery slots, self and partner assignments, route workload, distance, expected income, fuel estimates and optimized route actions.</p>
+            <span className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-blue-700">View delivery schedule <span aria-hidden="true">→</span></span>
+          </button>
+          <div className="xl:col-span-2 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
+            <Layers className="h-4 w-4 text-slate-500" />
+            <span>One calendar workspace · two independent data sources · original actions and workflows preserved</span>
           </div>
-          <div className="space-y-3">
-            <div className="flex items-center gap-2"><Truck className="h-5 w-5 text-blue-700" /><h2 className="text-lg font-semibold text-slate-900">Delivery calendar</h2></div>
-            <FarmerDeliveryCalendarContent />
-          </div>
-        </div>
+        </section>
       )}
 
       {activeTab === "supply" && <FarmerSupplyCalendarContent />}
