@@ -94,7 +94,7 @@ function downloadImpactCsv(data: any, startDate: string, endDate: string) {
     ["Month", "Sales", "Orders", "Delivered volume (kg)"],
     ...(data.monthlyTrend || []).map((item: any) => [item.label, item.sales ?? 0, item.orders ?? 0, item.kg ?? 0]),
   ];
-  const csv = rows.map((row) => row.map((value) => `"${String(value ?? "").replace(/"/g, '""')}"`).join(",")).join("\\n");
+  const csv = rows.map((row) => row.map((value) => `"${String(value ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
