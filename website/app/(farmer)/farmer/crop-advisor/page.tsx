@@ -17,7 +17,7 @@ const SOIL_TYPES = ["loamy", "clay", "sandy", "black"];
 const SEASONS = ["kharif", "rabi", "summer"];
 
 
-export default function FarmerCropAdvisorPage() {
+export function FarmerCropAdvisorContent() {
   const [form, setForm] = useState({
     soilType: "loamy",
     location: "",
@@ -566,3 +566,6 @@ export default function FarmerCropAdvisorPage() {
     </div>
   );
 }
+
+
+export default function FarmerCropAdvisorPage() { return <FarmerCropAdvisorContent />; }
