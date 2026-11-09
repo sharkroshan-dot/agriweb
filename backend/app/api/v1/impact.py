@@ -254,16 +254,19 @@ async def get_my_impact(
         bucket["orders"] += 1
         bucket["kg"] += order_kg
 
-    # Last 6 calendar months (oldest → newest), zero-filled.
+    # Monthly buckets follow the selected report period (up to 24 months).
     monthly_trend = []
-    y, m = datetime.utcnow().year, datetime.utcnow().month
-    for _ in range(6):
-        monthly_trend.append(month_buckets.get(f"{y:04d}-{m:02d}", {"label": f"{y:04d}-{m:02d}", "sales": 0.0, "orders": 0, "kg": 0.0}))
-        m -= 1
-        if m == 0:
-            y -= 1
-            m = 12
-    monthly_trend.reverse()
+    now = datetime.utcnow()
+    range_start = datetime.strptime(start_date, "%Y-%m-%d") if start_date else (now.replace(day=1) - timedelta(days=150))
+    range_end = datetime.strptime(end_date, "%Y-%m-%d") if end_date else now
+    start_month = range_start.year * 12 + range_start.month - 1
+    end_month = range_end.year * 12 + range_end.month - 1
+    start_month = max(start_month, end_month - 23)
+    for month_index in range(start_month, end_month + 1):
+        year = month_index // 12
+        month = month_index % 12 + 1
+        key = f"{year:04d}-{month:02d}"
+        monthly_trend.append(month_buckets.get(key, {"label": key, "sales": 0.0, "orders": 0, "kg": 0.0}))
 
     delivery_breakdown = {
         "local": local_deliveries,
