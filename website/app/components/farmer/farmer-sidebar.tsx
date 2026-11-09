@@ -52,7 +52,6 @@ const navGroups = [
     label: "Overview",
     items: [
       { name: "Dashboard", href: "/farmer/dashboard", icon: LayoutDashboard },
-      { name: "Operations Overview", href: "/farmer/order-operations", icon: ClipboardList },
     ],
   },
   {
