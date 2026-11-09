@@ -199,7 +199,7 @@ export function DemandHeatmapView() {
               <p className="text-sm font-semibold text-slate-800">What demand would you like to explore?</p>
               <p className="mt-1 text-xs text-slate-500">Choose one view to focus the demand analysis.</p>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
               {MODES.map((m) => (
                 <button
                   key={m.value}
@@ -207,13 +207,14 @@ export function DemandHeatmapView() {
                   aria-pressed={mode === m.value}
                   onClick={() => setMode(m.value)}
                   className={cn(
-                    "rounded-xl border px-3.5 py-2.5 text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2",
+                    "flex min-h-11 w-full items-center justify-center rounded-xl border px-3 py-2.5 text-center text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2",
                     mode === m.value
                       ? "border-emerald-700 bg-emerald-700 text-white shadow-sm"
                       : "border-slate-200 bg-white text-slate-600 hover:border-emerald-200 hover:bg-emerald-50/60 hover:text-emerald-800"
                   )}
                 >
-                  {m.emoji} {m.label}
+                  <span className="mr-1.5 shrink-0">{m.emoji}</span>
+                  <span>{m.label}</span>
                 </button>
               ))}
             </div>
@@ -224,7 +225,7 @@ export function DemandHeatmapView() {
               <p className="text-sm font-semibold text-slate-800">Which buyers should we include?</p>
               <p className="mt-1 text-xs text-slate-500">Filter demand by the type of customer.</p>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               {BUYERS.map((b) => (
                 <button
                   key={b.value}
@@ -232,7 +233,7 @@ export function DemandHeatmapView() {
                   aria-pressed={buyer === b.value}
                   onClick={() => setBuyer(b.value)}
                   className={cn(
-                    "rounded-xl border px-3.5 py-2 text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2",
+                    "flex min-h-11 w-full items-center justify-center rounded-xl border px-3 py-2 text-center text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2",
                     buyer === b.value
                       ? "border-slate-800 bg-slate-800 text-white shadow-sm"
                       : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"
