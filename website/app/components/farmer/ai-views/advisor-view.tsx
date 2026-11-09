@@ -65,7 +65,7 @@ export function AdvisorView() {
             <Bot className="h-6 w-6 text-emerald-600" /> AI Farm Advisor
           </h1>
           <p className="text-gray-500">
-            What happened, why, what happens next, and what to do about it — from your real sales data.
+            Practical crop guidance and clear insights from your AgriConnect farm activity.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -82,11 +82,11 @@ export function AdvisorView() {
 
       <Card className="overflow-hidden rounded-2xl border border-emerald-200 bg-white shadow-sm">
         <CardContent className="space-y-3 p-4">
-          <div className="flex flex-wrap items-center justify-between gap-2"><div className="flex items-center gap-2"><MessageCircle className="h-5 w-5 text-emerald-600" /><h2 className="font-semibold">Ask your Farm Advisor</h2></div><select aria-label="Advisor language" value={language} onChange={(e) => setLanguage(e.target.value)} className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"><option value="english">English</option><option value="tamil">தமிழ்</option><option value="hindi">हिन्दी</option></select></div>
-          <p className="text-sm text-gray-500">Ask a farming question. Include crop, location and crop age for more useful guidance.</p><div className="flex flex-wrap gap-2">{["My tomato leaves are turning yellow","How can I improve soil health?","How should I plan irrigation?","How can I manage pests safely?"].map((prompt) => <button key={prompt} type="button" onClick={() => { setQuestion(prompt); setMessages((old) => [...old, { role: "user", content: prompt }]); chat.mutate(prompt); }} disabled={chat.isPending} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left text-xs font-medium text-slate-700 transition hover:border-emerald-300 hover:bg-emerald-50 disabled:opacity-50">{prompt}</button>)}</div>
+          <div className="flex flex-wrap items-center justify-between gap-2"><div className="flex items-center gap-2"><MessageCircle className="h-5 w-5 text-emerald-600" /><h2 className="font-semibold text-slate-900">Ask your Farm Advisor</h2></div><select aria-label="Advisor language" value={language} onChange={(e) => setLanguage(e.target.value)} className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"><option value="english">English</option><option value="tamil">தமிழ்</option><option value="hindi">हिन्दी</option></select></div>
+          <p className="text-sm text-slate-600">Ask a farming question. Include your crop, location and crop age for more useful guidance.</p><div className="flex flex-wrap gap-2">{["My tomato leaves are turning yellow","How can I improve soil health?","How should I plan irrigation?","How can I manage pests safely?"].map((prompt) => <button key={prompt} type="button" onClick={() => { setQuestion(prompt); setMessages((old) => [...old, { role: "user", content: prompt }]); chat.mutate(prompt); }} disabled={chat.isPending} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left text-xs font-medium text-slate-700 transition hover:border-emerald-300 hover:bg-emerald-50 disabled:opacity-50">{prompt}</button>)}</div>
           {messages.length > 0 && <div aria-live="polite" className="max-h-80 space-y-3 overflow-y-auto rounded-xl border border-slate-100 bg-slate-50 p-3 sm:p-4">{messages.map((m, i) => <div key={i} className={cn("rounded-lg p-3 text-sm", m.role === "user" ? "ml-8 bg-emerald-100" : "mr-8 bg-white")}>{m.content}</div>)}{chat.isPending && <p className="text-xs text-gray-500">Preparing guidance...</p>}</div>}
           <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); ask(); }}><input value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="Ask about crops, soil, water or pests..." className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100" /><Button type="submit" disabled={!question.trim() || chat.isPending}><Send className="mr-2 h-4 w-4" />Ask</Button></form>
-          <p className="text-xs text-gray-400">Current chatbot replies are general guidance, not image diagnosis or a substitute for local agricultural expertise.</p>
+          <p className="text-xs text-slate-400">General guidance only. Confirm serious crop-health and chemical-use decisions with a qualified local agricultural expert.</p>
         </CardContent>
       </Card>
       <div className="grid gap-3 sm:grid-cols-2">
