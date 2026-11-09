@@ -416,14 +416,14 @@ async def join_delivery_slot(
     if cutoff and cutoff < datetime.utcnow():
         raise HTTPException(status_code=400, detail="Cutoff time has passed for this slot")
 
-    bookings = await booking_repo.count({"slotId": ObjectId(slot_id), "status": "joined", "deletedAt": None})
+    bookings = await booking_repo.count({"slotId": ObjectId(slot_id), "status": {"$in": ["joined", "order_linked"]}, "deletedAt": None})
     if bookings >= int(slot.get("maxOrders", 25)):
         raise HTTPException(status_code=400, detail="This delivery slot is full")
 
     existing = await booking_repo.find_one({
         "slotId": ObjectId(slot_id),
         "customerId": ObjectId(current_user["_id"]),
-        "status": "joined",
+        "status": {"$in": ["joined", "order_linked"]},
         "deletedAt": None,
     })
     if existing:
@@ -473,7 +473,7 @@ async def leave_delivery_slot(
 async def get_my_slots(current_user: dict = Depends(get_current_user)):
     """List slots the current customer has joined, with slot + farmer info."""
     pipeline = [
-        {"$match": {"customerId": ObjectId(current_user["_id"]), "status": "joined", "deletedAt": None}},
+        {"$match": {"customerId": ObjectId(current_user["_id"]), "status": {"$in": ["joined", "order_linked"]}, "deletedAt": None}},
         {"$lookup": {
             "from": "delivery_slots",
             "localField": "slotId",
