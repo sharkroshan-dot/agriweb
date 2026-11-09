@@ -240,6 +240,48 @@ export default function FarmerAnalyticsPage() {
         ))}
       </div>
 
+      <section className="grid gap-4 xl:grid-cols-2">
+        <Card className="rounded-2xl border-slate-200/80 shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base"><Users className="h-5 w-5 text-sky-700" /> Customer trends</CardTitle>
+            <CardDescription>Understand how many customers buy from your farm and how many return.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-3 gap-2">
+              <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Customers</p><p className="mt-1 text-xl font-bold text-slate-900">{customerInsights.uniqueCustomers ?? "—"}</p></div>
+              <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Repeat buyers</p><p className="mt-1 text-xl font-bold text-slate-900">{customerInsights.repeatCustomers ?? "—"}</p></div>
+              <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Repeat rate</p><p className="mt-1 text-xl font-bold text-slate-900">{customerInsights.repeatRate != null ? customerInsights.repeatRate + "%" : "—"}</p></div>
+            </div>
+            {customerTrend.length > 0 ? <div className="h-52"><ResponsiveContainer width="100%" height="100%"><LineChart data={customerTrend}><CartesianGrid stroke="#e2e8f0" strokeDasharray="4 4" vertical={false} /><XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#64748b" }} /><YAxis allowDecimals={false} axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#64748b" }} /><Tooltip /><Line type="monotone" dataKey="customers" name="Customers" stroke="#0284c7" strokeWidth={3} dot={false} /></LineChart></ResponsiveContainer></div> : <div className="rounded-xl border border-dashed border-slate-200 py-8 text-center text-sm text-slate-500">Customer trends will appear when customer order history is available.</div>}
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-2xl border-slate-200/80 shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base"><PackageCheck className="h-5 w-5 text-amber-600" /> Stock alerts</CardTitle>
+            <CardDescription>Products that may need replenishment before the next orders arrive.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {lowStock.length > 0 ? <div className="space-y-2">{lowStock.slice(0, 6).map((p: any) => <div key={p.id || p.name} className="flex items-center justify-between gap-3 rounded-xl border border-amber-100 bg-amber-50/50 p-3"><div className="min-w-0"><p className="truncate text-sm font-semibold text-slate-800">{p.name}</p><p className="text-xs text-slate-500">{p.reserved ?? 0} reserved</p></div><span className="shrink-0 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">{p.remaining ?? 0} remaining</span></div>)}</div> : <div className="rounded-xl border border-dashed border-slate-200 py-8 text-center text-sm text-slate-500">{productStock.length ? "No low-stock products right now." : "Stock alerts will appear when product stock is available."}</div>}
+          </CardContent>
+        </Card>
+      </section>
+
+      <Card className="rounded-2xl border-slate-200/80 shadow-sm">
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-base"><CircleDollarSign className="h-5 w-5 text-emerald-700" /> Revenue and cash flow</CardTitle>
+          <CardDescription>See sales revenue separately from money currently available or awaiting payout.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-xl bg-emerald-50 p-4"><p className="text-xs font-medium text-emerald-800">Sales revenue</p><p className="mt-1 text-xl font-bold text-emerald-900">{formatPrice(data.totalRevenue ?? 0)}</p></div>
+            <div className="rounded-xl bg-sky-50 p-4"><p className="text-xs font-medium text-sky-800">Wallet balance</p><p className="mt-1 text-xl font-bold text-sky-900">{formatPrice(data.walletBalance ?? 0)}</p></div>
+            <div className="rounded-xl bg-amber-50 p-4"><p className="text-xs font-medium text-amber-800">Pending payout</p><p className="mt-1 text-xl font-bold text-amber-900">{formatPrice(data.pendingEarnings ?? 0)}</p></div>
+          </div>
+          <p className="mt-3 text-xs text-slate-500">Net profit is not calculated because farm input costs, labour, packaging and transport expenses are not currently included in this analytics data. Revenue is not the same as profit.</p>
+        </CardContent>
+      </Card>
+
       {(aiDemand.length > 0 || aiPricing.length > 0) && (
         <div className="grid gap-6 lg:grid-cols-2">
           <Card className="border-emerald-200 bg-gradient-to-br from-emerald-50/60 to-violet-50/40">
