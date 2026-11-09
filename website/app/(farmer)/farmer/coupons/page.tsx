@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarDays, Loader2, Plus, Tag, Trash2, Pencil, Users, BadgePercent } from "lucide-react";
+import { CalendarDays, Loader2, Plus, Tag, Trash2, Pencil, Users, BadgePercent, Search } from "lucide-react";
 import { api } from "../../../lib/api/client";
 import { formatDate } from "../../../lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
@@ -13,7 +13,7 @@ import toast from "react-hot-toast";
 
 type Product = { id: string; name: string; price: number; unit: string };
 type Offer = { id: string; productId: string; name: string; discountType: string; discountValue: number; minQuantity: number; minOrderValue: number; startAt: string; endAt: string; eligibility: string; status: string };
-type Coupon = { id: string; code: string; description: string; discountType: string; discountValue: number; minOrderValue: number; maxDiscount?: number; expiresAt?: string; eligibility: string; status: string };
+type Coupon = { id: string; code: string; description: string; discountType: string; discountValue: number; minOrderValue: number; maxDiscount?: number; usageLimit?: number; usedCount?: number; startAt?: string; expiresAt?: string; eligibility: string; status: string };
 
 const statusOf = (start: string, end: string) => {
   const now = Date.now();
@@ -58,8 +58,8 @@ export default function FarmerCouponsPage() {
   const filteredOffers = useMemo(() => offers.map(o => ({ ...o, viewStatus: statusOf(o.startAt, o.endAt) })).filter(o => o.viewStatus === "active"), [offers]);
   const scheduledOffers = useMemo(() => offers.map(o => ({ ...o, viewStatus: statusOf(o.startAt, o.endAt) })).filter(o => o.viewStatus === "scheduled"), [offers]);
   const expiredOffers = useMemo(() => offers.map(o => ({ ...o, viewStatus: statusOf(o.startAt, o.endAt) })).filter(o => o.viewStatus === "expired"), [offers]);
-  const scheduledCoupons = coupons.filter(c => c.expiresAt && new Date(c.expiresAt).getTime() > Date.now() && c.status === "scheduled");
-  const activeCoupons = coupons.filter(c => (!c.expiresAt || new Date(c.expiresAt).getTime() >= Date.now()) && c.status === "active");
+  const scheduledCoupons = coupons.filter(c => c.status === "scheduled" || (!!c.startAt && new Date(c.startAt).getTime() > Date.now()));
+  const activeCoupons = coupons.filter(c => (!c.expiresAt || new Date(c.expiresAt).getTime() >= Date.now()) && (!c.startAt || new Date(c.startAt).getTime() <= Date.now()) && c.status === "active");
   const expiredCoupons = coupons.filter(c => c.expiresAt && new Date(c.expiresAt).getTime() < Date.now());
   const offerGroups: Record<string, Offer[]> = { active: filteredOffers, scheduled: scheduledOffers, expired: expiredOffers };
   const couponGroups: Record<string, Coupon[]> = { active: activeCoupons, scheduled: scheduledCoupons, expired: expiredCoupons };
