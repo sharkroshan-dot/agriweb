@@ -55,7 +55,7 @@ async def _slot_status(slot: dict) -> str:
         return "closed"
     bookings = await booking_repo.count({
         "slotId": slot["_id"],
-        "status": "joined",
+        "status": {"$in": ["joined", "order_linked"]},
         "deletedAt": None,
     })
     if bookings >= int(slot.get("maxOrders", 25)):
@@ -134,7 +134,7 @@ async def get_farmer_slots(
     for s in slots:
         _serialize_slot(s)
         s["status"] = await _slot_status(s)
-        s["bookings"] = await booking_repo.count({"slotId": s["_id"], "status": "joined", "deletedAt": None})
+        s["bookings"] = await booking_repo.count({"slotId": s["_id"], "status": {"$in": ["joined", "order_linked"]}, "deletedAt": None})
     return {"success": True, "data": {"slots": slots, "count": len(slots)}}
 
 
