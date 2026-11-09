@@ -544,7 +544,7 @@ export function FarmerSupplyCalendarContent() {
         <Metric label="Orders ready for pickup" value={ordersReadyForPickup.length} hint="Packed and awaiting collection" icon={Boxes} tone="bg-orange-50 text-orange-700" />
       </section>
 
-      <section className="grid min-w-0 gap-4 2xl:grid-cols-[minmax(0,1fr)_320px]">
+      <section className="grid min-w-0 items-start gap-4 2xl:grid-cols-[minmax(0,1fr)_300px]">
         <Card className="min-w-0 overflow-hidden border-slate-200 shadow-sm">
           <CardContent className="space-y-4 p-3 sm:p-4">
             <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
@@ -582,7 +582,7 @@ export function FarmerSupplyCalendarContent() {
 
             {isLoading ? (
               <div className="grid grid-cols-7 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200">
-                {Array.from({ length: 35 }, (_, index) => <div key={index} className="h-24 animate-pulse bg-white" />)}
+                {Array.from({ length: 35 }, (_, index) => <div key={index} className="h-20 animate-pulse bg-white" />)}
               </div>
             ) : isError ? (
               <div className="flex items-center gap-3 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800"><AlertCircle className="h-5 w-5 shrink-0" />Could not load your harvest plans. Refresh to try again.</div>
@@ -599,14 +599,14 @@ export function FarmerSupplyCalendarContent() {
                 )) : <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">No crop plans match these filters for {monthLabel}.</div>}
               </div>
             ) : (
-              <div className="overflow-x-auto p-3 sm:p-4">
+              <div className="overflow-x-auto p-2 sm:p-3">
                 <div className="min-w-[760px]">
                   <div className="grid grid-cols-7 overflow-hidden rounded-t-xl border border-slate-200 bg-slate-50">
                     {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day, index) => (
                       <div key={day} className={cn("py-3.5 text-center text-xs font-extrabold uppercase tracking-[0.14em]", index === 0 || index === 6 ? "bg-emerald-50/70 text-emerald-800" : "text-slate-600")}>{day}</div>
                     ))}
                   </div>
-                  <div className={cn("grid grid-cols-7 overflow-hidden rounded-b-xl border-x border-b border-slate-200", view === "week" ? "auto-rows-[176px]" : "auto-rows-[112px]")}>
+                  <div className={cn("grid grid-cols-7 overflow-hidden rounded-b-xl border-x border-b border-slate-200", view === "week" ? "auto-rows-[128px]" : "auto-rows-[88px]")}>
                     {visibleDates.map(date => {
                       const key = dateKey(date);
                       const dayEntries = filteredEntries
@@ -680,9 +680,9 @@ export function FarmerSupplyCalendarContent() {
           </CardContent>
         </Card>
 
-        <aside className="space-y-4">
+        <aside className="sticky top-20 max-h-[calc(100vh-6rem)] space-y-3 overflow-y-auto overscroll-contain pr-1">
           <Card className="border-slate-200 shadow-sm">
-            <CardContent className="space-y-3 p-4">
+            <CardContent className="space-y-2.5 p-3">
               <div className="flex items-start justify-between gap-2">
                 <div><p className="text-[10px] font-bold uppercase tracking-[0.12em] text-emerald-700">Selected date</p><h2 className="mt-1 text-lg font-bold text-slate-950">{selected.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" })}</h2></div>
                 {selectedDate === dateKey(new Date()) && <Badge className="border border-emerald-200 bg-emerald-50 text-emerald-800">Today</Badge>}
