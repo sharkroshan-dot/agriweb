@@ -240,6 +240,13 @@ export default function FarmerAnalyticsPage() {
         ))}
       </div>
 
+      <Card className="rounded-2xl border-slate-200/80 shadow-sm">
+        <CardHeader className="pb-2"><CardTitle className="text-base">Monthly sales trend</CardTitle><CardDescription>Revenue grouped by month from your customer order history.</CardDescription></CardHeader>
+        <CardContent>
+          {customerTrend.length > 0 ? <div className="h-52"><ResponsiveContainer width="100%" height="100%"><BarChart data={customerTrend}><CartesianGrid stroke="#e2e8f0" strokeDasharray="4 4" vertical={false} /><XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#64748b" }} /><YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#64748b" }} /><Tooltip /><Bar dataKey="revenue" name="Revenue" fill="#0f9f6e" radius={[6, 6, 0, 0]} /></BarChart></ResponsiveContainer></div> : <div className="rounded-xl border border-dashed border-slate-200 py-8 text-center text-sm text-slate-500">Monthly sales trends will appear after orders are recorded.</div>}
+        </CardContent>
+      </Card>
+
       <section className="grid gap-4 xl:grid-cols-2">
         <Card className="rounded-2xl border-slate-200/80 shadow-sm">
           <CardHeader className="pb-2">
