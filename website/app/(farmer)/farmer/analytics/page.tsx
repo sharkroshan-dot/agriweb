@@ -355,7 +355,7 @@ export default function FarmerAnalyticsPage() {
             <CardDescription>How much you earned in this period</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="h-[280px] w-full">
+            {revenueTrend.length > 0 ? <div className="h-[260px] w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={revenueTrend}>
                   <CartesianGrid stroke="#e2e8f0" strokeDasharray="4 4" vertical={false} />
@@ -366,7 +366,7 @@ export default function FarmerAnalyticsPage() {
                   
                 </LineChart>
               </ResponsiveContainer>
-            </div>
+            </div> : <div className="flex h-[260px] items-center justify-center rounded-xl border border-dashed border-slate-200 px-6 text-center text-sm text-slate-500">Revenue trend will appear here when orders are recorded for this period.</div>}
           </CardContent>
         </Card>
 
