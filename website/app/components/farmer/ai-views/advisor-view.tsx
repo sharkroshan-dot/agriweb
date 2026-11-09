@@ -58,8 +58,8 @@ export function AdvisorView() {
       : <span className="text-gray-400">—</span>;
 
   return (
-    <div className="mx-auto w-full max-w-[1500px] space-y-7 pb-8">
-      <div className="flex flex-col gap-4 rounded-2xl border border-emerald-100 bg-gradient-to-r from-white via-emerald-50/70 to-teal-50/60 p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-6">
+    <div className="mx-auto w-full max-w-[1500px] space-y-6 pb-10">
+      <div className="flex flex-col gap-4 relative overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-br from-white via-emerald-50/80 to-teal-50/70 p-6 shadow-sm sm:p-7 sm:flex-row sm:items-center sm:justify-between sm:p-6">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
             <Bot className="h-6 w-6 text-emerald-600" /> AI Farm Advisor
@@ -80,12 +80,12 @@ export function AdvisorView() {
         </div>
       </div>
 
-      <Card className="overflow-hidden rounded-2xl border border-emerald-200 bg-white shadow-sm">
-        <CardContent className="space-y-3 p-4">
+      <Card className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <CardContent className="space-y-4 p-5 sm:p-6">
           <div className="flex flex-wrap items-center justify-between gap-2"><div className="flex items-center gap-2"><MessageCircle className="h-5 w-5 text-emerald-600" /><h2 className="font-semibold text-slate-900">Ask your Farm Advisor</h2></div><select aria-label="Advisor language" value={language} onChange={(e) => setLanguage(e.target.value)} className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"><option value="english">English</option><option value="tamil">தமிழ்</option><option value="hindi">हिन्दी</option></select></div>
-          <p className="text-sm text-slate-600">Ask a farming question. Include your crop, location and crop age for more useful guidance.</p><div className="flex flex-wrap gap-2">{["My tomato leaves are turning yellow","How can I improve soil health?","How should I plan irrigation?","How can I manage pests safely?"].map((prompt) => <button key={prompt} type="button" onClick={() => { setQuestion(prompt); setMessages((old) => [...old, { role: "user", content: prompt }]); chat.mutate(prompt); }} disabled={chat.isPending} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left text-xs font-medium text-slate-700 transition hover:border-emerald-300 hover:bg-emerald-50 disabled:opacity-50">{prompt}</button>)}</div>
-          {messages.length > 0 && <div aria-live="polite" className="max-h-80 space-y-3 overflow-y-auto rounded-xl border border-slate-100 bg-slate-50 p-3 sm:p-4">{messages.map((m, i) => <div key={i} className={cn("rounded-lg p-3 text-sm", m.role === "user" ? "ml-8 bg-emerald-100" : "mr-8 bg-white")}>{m.content}</div>)}{chat.isPending && <p className="text-xs text-gray-500">Preparing guidance...</p>}</div>}
-          <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); ask(); }}><input value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="Ask about crops, soil, water or pests..." className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100" /><Button type="submit" disabled={!question.trim() || chat.isPending}><Send className="mr-2 h-4 w-4" />Ask</Button></form>
+          <p className="text-sm leading-6 text-slate-600">Describe what is happening on your farm. Include crop name, location, crop age and symptoms for more relevant guidance.</p><div className="flex flex-wrap gap-2">{["My tomato leaves are turning yellow","How can I improve soil health?","How should I plan irrigation?","How can I manage pests safely?"].map((prompt) => <button key={prompt} type="button" onClick={() => { setQuestion(prompt); setMessages((old) => [...old, { role: "user", content: prompt }]); chat.mutate(prompt); }} disabled={chat.isPending} className="rounded-full border border-slate-200 bg-white px-3.5 py-2 text-left text-xs font-medium text-slate-600 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800 disabled:opacity-50">{prompt}</button>)}</div>
+          {messages.length > 0 && <div aria-live="polite" className="max-h-80 space-y-3 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/80 p-4 sm:p-5">{messages.map((m, i) => <div key={i} className={cn("max-w-[92%] rounded-xl border p-3.5 text-sm leading-6 shadow-sm", m.role === "user" ? "ml-auto border-emerald-200 bg-emerald-50 text-emerald-950" : "mr-auto border-slate-100 bg-white text-slate-700")}>{m.content}</div>)}{chat.isPending && <p className="text-xs text-gray-500">Preparing guidance...</p>}</div>}
+          <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); ask(); }}><input value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="Ask about crops, soil, water or pests..." className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-100" /><Button type="submit" disabled={!question.trim() || chat.isPending}><Send className="mr-2 h-4 w-4" />Ask</Button></form>
           <p className="text-xs text-slate-400">General guidance only. Confirm serious crop-health and chemical-use decisions with a qualified local agricultural expert.</p>
         </CardContent>
       </Card>
@@ -122,7 +122,7 @@ export function AdvisorView() {
       {data && report?.hasData && (
         <>
           <div>
-            <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold">
+            <h2 className="mb-3 flex items-center gap-2 text-lg font-bold text-slate-900">
               <TrendingUp className="h-5 w-5 text-emerald-600" /> What happened ({report.periodLabel})
             </h2>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -166,12 +166,12 @@ export function AdvisorView() {
 
           {why.length > 0 && (
             <div>
-              <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold">
+              <h2 className="mb-3 flex items-center gap-2 text-lg font-bold text-slate-900">
                 <Info className="h-5 w-5 text-emerald-600" /> Why
               </h2>
               <div className="grid gap-3 sm:grid-cols-2">
                 {why.map((w, i) => (
-                  <Card key={i} className="bg-gray-50/60">
+                  <Card key={i} className="rounded-xl border-slate-200 bg-white shadow-sm">
                     <CardContent className="flex items-start gap-3 p-4">
                       <span className="text-xl">{w.emoji}</span>
                       <div>
@@ -187,12 +187,12 @@ export function AdvisorView() {
 
           {forecast.length > 0 && (
             <div>
-              <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold">
+              <h2 className="mb-3 flex items-center gap-2 text-lg font-bold text-slate-900">
                 <Sparkles className="h-5 w-5 text-emerald-600" /> What happens next ({report.periodLabel})
               </h2>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {forecast.map((f, i) => (
-                  <Card key={i} className="border-l-4 border-l-emerald-400">
+                  <Card key={i} className="rounded-xl border-slate-200 border-l-4 border-l-emerald-500 shadow-sm">
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between">
                         <p className="font-semibold text-gray-900">{f.product}</p>
@@ -223,7 +223,7 @@ export function AdvisorView() {
 
           {recs.length > 0 && (
             <div>
-              <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold">
+              <h2 className="mb-3 flex items-center gap-2 text-lg font-bold text-slate-900">
                 <Bot className="h-5 w-5 text-emerald-600" /> What should I do?
               </h2>
               <div className="space-y-3">
@@ -254,7 +254,7 @@ export function AdvisorView() {
 
           {priceInsight.length > 0 && (
             <div>
-              <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold">
+              <h2 className="mb-3 flex items-center gap-2 text-lg font-bold text-slate-900">
                 <Package className="h-5 w-5 text-emerald-600" /> Price check
               </h2>
               <div className="grid gap-3 sm:grid-cols-3">
