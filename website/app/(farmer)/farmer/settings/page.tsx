@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../../../lib/api/client";
@@ -9,7 +9,7 @@ import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
 import { Select, SelectContent, SelectItem } from "../../../components/ui/select";
 import { Badge } from "../../../components/ui/badge";
-import { Bot, CreditCard, Loader2, Package, Save, Shield, ShoppingBag, Store, Truck, Settings2, CheckCircle2 } from "lucide-react";
+import { Bot, CreditCard, Loader2, Package, Save, Shield, ShoppingBag, Store, Truck, Settings2, CheckCircle2, Camera, UploadCloud } from "lucide-react";
 import { VerificationStatusCard } from "../../../components/security/verification-status";
 import toast from "react-hot-toast";
 
@@ -89,8 +89,16 @@ export default function FarmerSettingsPage() {
     weeklyPickupWindow: "Mon - Thu, 6 AM - 11 AM",
     farmAddress: "",
     pickupInstructions: "",
+    profileImage: "",
   });
   const [savingProfile, setSavingProfile] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const profilePhotoUrl = profile.profileImage
+    ? (profile.profileImage.startsWith("/uploads/")
+        ? `${(process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\\/api\\/v1\\/?$/, "").replace(/\\/$/, "")}${profile.profileImage}`
+        : profile.profileImage)
+    : "";
 
   const [prefs, setPrefs] = useState<Record<string, any>>({
     product: { lowStockAlert: 10, criticalStock: 5, notificationMethod: "email" },
@@ -150,6 +158,7 @@ export default function FarmerSettingsPage() {
         weeklyPickupWindow: p.weeklyPickupWindow || "Mon - Thu, 6 AM - 11 AM",
         farmAddress: p.farmAddress || "",
         pickupInstructions: p.pickupInstructions || "",
+        profileImage: p.profileImage || "",
       });
     }
   }, [profileData?.data, userName, userEmail]);
@@ -184,6 +193,31 @@ export default function FarmerSettingsPage() {
         [field]: typeof nextValue === "boolean" ? nextValue : !current[section][field],
       },
     }));
+  };
+
+  const handleProfilePhoto = async (file?: File) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please choose an image file");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Profile photo must be 5 MB or smaller");
+      return;
+    }
+    setUploadingPhoto(true);
+    try {
+      const response: any = await api.upload("/kyc/upload", file);
+      const uploadedUrl = response?.data?.url;
+      if (!uploadedUrl) throw new Error("The upload did not return an image URL");
+      setProfile((current) => ({ ...current, profileImage: uploadedUrl }));
+      toast.success("Photo uploaded. Save Profile to apply it.");
+    } catch (error: any) {
+      toast.error(error?.message || "Unable to upload profile photo");
+    } finally {
+      setUploadingPhoto(false);
+      if (photoInputRef.current) photoInputRef.current.value = "";
+    }
   };
 
   const saveProfile = async () => {
@@ -248,10 +282,17 @@ export default function FarmerSettingsPage() {
             <div className="sm:col-span-2"><label className="mb-1.5 block text-xs font-semibold text-slate-700">Pickup Instructions</label><Input className="h-10 w-full rounded-lg border-slate-200" value={profile.pickupInstructions} onChange={(event) => setProfile((current) => ({ ...current, pickupInstructions: event.target.value }))} placeholder="Landmark, gate details or contact instructions" /></div>
             <div className="sm:col-span-2"><label className="mb-1.5 block text-xs font-semibold text-slate-700">Weekly Pickup Window</label><Input className="h-10 w-full rounded-lg border-slate-200" value={profile.weeklyPickupWindow} onChange={(event) => setProfile((current) => ({ ...current, weeklyPickupWindow: event.target.value }))} /></div>
           </div>
-          <div className="flex min-h-[190px] flex-col items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50/60 p-5 text-center">
+          <div className="mx-auto flex aspect-square w-full max-w-[220px] flex-col items-center justify-center rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4 text-center">
             <p className="mb-3 text-sm font-semibold text-slate-800">Profile Photo</p>
-            <div className="mb-3 flex h-24 w-24 items-center justify-center rounded-full border-2 border-emerald-600 bg-emerald-100 text-3xl font-bold text-emerald-700 shadow-sm">{(profile.ownerName || userName).trim().charAt(0).toUpperCase()}</div>
-            <p className="text-xs text-slate-500">Your farm profile is visible to buyers and delivery partners.</p>
+            <div className="mb-3 flex h-28 w-28 items-center justify-center overflow-hidden rounded-full border-2 border-emerald-600 bg-emerald-100 text-3xl font-bold text-emerald-700 shadow-sm">
+              {profilePhotoUrl ? <img src={profilePhotoUrl} alt="Farmer profile" className="h-full w-full object-cover" /> : (profile.ownerName || userName).trim().charAt(0).toUpperCase()}
+            </div>
+            <input ref={photoInputRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(event) => handleProfilePhoto(event.target.files?.[0])} />
+            <Button type="button" variant="outline" disabled={uploadingPhoto} onClick={() => photoInputRef.current?.click()} className="h-9 rounded-lg border-emerald-300 bg-white px-3 text-xs font-semibold text-emerald-800 hover:bg-emerald-50">
+              {uploadingPhoto ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Camera className="mr-2 h-4 w-4" />}
+              {uploadingPhoto ? "Uploading..." : profilePhotoUrl ? "Change Photo" : "Upload Photo"}
+            </Button>
+            {profilePhotoUrl && <button type="button" onClick={() => setProfile((current) => ({ ...current, profileImage: "" }))} className="mt-2 text-xs font-medium text-rose-600 hover:underline">Remove photo</button>}
           </div>
         </CardContent>
       </Card>
