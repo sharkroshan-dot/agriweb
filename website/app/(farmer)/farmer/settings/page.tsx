@@ -21,10 +21,36 @@ function SettingsToggle({ checked, onChange, label }: { checked: boolean; onChan
       aria-checked={checked}
       aria-label={label}
       onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full p-0.5 transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${checked ? "bg-emerald-600" : "bg-slate-300"}`}
+      className="settings-modern-switch focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: checked ? "flex-end" : "flex-start",
+        width: 44,
+        minWidth: 44,
+        height: 24,
+        padding: 2,
+        boxSizing: "border-box",
+        border: 0,
+        borderRadius: 9999,
+        backgroundColor: checked ? "#059669" : "#cbd5e1",
+        cursor: "pointer",
+        transition: "background-color 180ms ease",
+        verticalAlign: "middle",
+      }}
     >
       <span
-        className={`pointer-events-none block h-5 w-5 rounded-full bg-white shadow-sm ring-0 transition-transform duration-200 ease-in-out ${checked ? "translate-x-5" : "translate-x-0"}`}
+        aria-hidden="true"
+        style={{
+          display: "block",
+          width: 20,
+          minWidth: 20,
+          height: 20,
+          borderRadius: "50%",
+          backgroundColor: "#ffffff",
+          boxShadow: "0 1px 3px rgba(15, 23, 42, 0.25)",
+          transition: "transform 180ms ease",
+        }}
       />
     </button>
   );
