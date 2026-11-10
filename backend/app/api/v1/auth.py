@@ -1056,6 +1056,18 @@ async def security_center(current_user: dict = Depends(get_current_user), token:
     }
     risk = risk_engine.evaluate(risk_event)
 
+    # Deterministic account-protection score based on real configured controls.
+    security_checks = {
+        "passwordConfigured": bool(current_user.get("passwordHash")),
+        "twoFactorEnabled": bool(current_user.get("totpEnabled")),
+        "recoveryPhoneVerified": bool(current_user.get("recoveryPhoneVerified")),
+        "recoveryEmailVerified": bool(current_user.get("recoveryEmailVerified")),
+        "hasActiveSession": session_count > 0,
+    }
+    weights = {"passwordConfigured": 25, "twoFactorEnabled": 25, "recoveryPhoneVerified": 15, "recoveryEmailVerified": 15, "hasActiveSession": 20}
+    security_score = sum(weights[key] for key, enabled in security_checks.items() if enabled)
+    security_level = "strong" if security_score >= 80 else "moderate" if security_score >= 50 else "needs_attention"
+
     # Verification status (best-effort; KYC data may be absent).
     verification: dict = {}
     trust_score: int = 0
@@ -1075,6 +1087,13 @@ async def security_center(current_user: dict = Depends(get_current_user), token:
             "userId": user_id,
             "role": current_user.get("role"),
             "currentJti": _jti_from_token(token),
+            "securityScore": security_score,
+            "securityLevel": security_level,
+            "securityChecks": security_checks,
+            "recoveryPhone": current_user.get("recoveryPhone"),
+            "recoveryPhoneVerified": bool(current_user.get("recoveryPhoneVerified")),
+            "recoveryEmail": current_user.get("recoveryEmail"),
+            "recoveryEmailVerified": bool(current_user.get("recoveryEmailVerified")),
             "mfaEnabled": bool(current_user.get("totpEnabled")),
             "activeSessions": session_count,
             "sessions": sessions,
