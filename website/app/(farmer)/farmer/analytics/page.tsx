@@ -424,10 +424,10 @@ export default function FarmerAnalyticsPage() {
                 <p className="py-6 text-center text-sm text-gray-500">No product sales data yet.</p>
               ) : (
                 topProducts.map((p: any) => (
-                  <div key={p.id} className="flex items-center justify-between rounded-lg border p-3">
+                  <div key={p.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-3">
                     <div className="flex items-center gap-3">
-                      <div className="relative h-10 w-10 rounded bg-gray-100 flex items-center justify-center text-xl">
-                        🍅
+                      <div className="relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-slate-100 text-slate-400">
+                        <PackageCheck className="h-5 w-5" />
                         {p.image && (
                           <img
                             src={p.image}
@@ -455,8 +455,8 @@ export default function FarmerAnalyticsPage() {
       </div>
 
       <Card className="rounded-2xl border-slate-200/80 shadow-sm">
-        <CardHeader>
-<CardTitle className="text-base font-semibold text-slate-900">Current product stock</CardTitle>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base font-semibold text-slate-900">Current product stock</CardTitle>
             <CardDescription>What you still have on hand</CardDescription>
         </CardHeader>
         <CardContent>
@@ -469,7 +469,7 @@ export default function FarmerAnalyticsPage() {
                 const hasTotal = (p.totalStock ?? 0) > 0;
                 const pct = hasTotal ? Math.min(100, Math.round((p.remaining / p.totalStock) * 100)) : null;
                 return (
-                  <div key={p.id} className="flex flex-col gap-3 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div key={p.id} className="flex flex-col gap-3 rounded-xl border border-slate-200 p-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex items-center gap-3 min-w-0">
                       <div className="relative h-10 w-10 rounded bg-gray-100 flex items-center justify-center text-xl">
                         🍅
