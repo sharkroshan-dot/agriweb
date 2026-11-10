@@ -866,6 +866,57 @@ async def get_2fa_status(current_user: dict = Depends(get_current_user)):
 
 # ============== SECURITY CENTER ==============
 
+@router.post("/change-password")
+async def change_password(
+    payload: dict = Body(...),
+    current_user: dict = Depends(get_current_user),
+    token: str = Depends(oauth2_scheme),
+):
+    """Change password after verifying the current password."""
+    current_password = str(payload.get("currentPassword") or "")
+    new_password = str(payload.get("newPassword") or "")
+    if not current_password or not new_password:
+        raise HTTPException(status_code=400, detail="Current password and new password are required")
+    valid, message = validate_password_strength(new_password)
+    if not valid:
+        raise HTTPException(status_code=400, detail=message)
+    if current_password == new_password:
+        raise HTTPException(status_code=400, detail="Choose a new password different from your current password")
+    changed = await UserService.change_password(str(current_user["_id"]), current_password, new_password)
+    if not changed:
+        raise HTTPException(status_code=400, detail="Current password is incorrect or password could not be updated")
+    await user_repository.update_user(str(current_user["_id"]), {"passwordChangedAt": datetime.utcnow()})
+    current_jti = _jti_from_token(token) or ""
+    await session_repository.revoke_all_for_user(str(current_user["_id"]), except_jti=current_jti)
+    await AuditService.log(
+        actor_id=str(current_user["_id"]), actor_role=current_user.get("role"),
+        action="password_changed", resource="auth", outcome="success",
+    )
+    return {"success": True, "message": "Password changed. Other sessions have been signed out."}
+
+
+@router.get("/security-activity")
+async def security_activity(limit: int = 30, current_user: dict = Depends(get_current_user)):
+    """Return recent security audit events for the signed-in user only."""
+    safe_limit = max(1, min(limit, 100))
+    from app.repositories.audit_log_repository import audit_log_repository
+    rows = await audit_log_repository.collection.find({
+        "actorId": str(current_user["_id"]),
+        "resource": {"$in": ["auth", "session"]},
+    }).sort("createdAt", -1).limit(safe_limit).to_list(length=safe_limit)
+    events = []
+    for row in rows:
+        created = row.get("createdAt")
+        events.append({
+            "id": str(row.get("_id", "")),
+            "action": row.get("action", "security_event"),
+            "outcome": row.get("outcome", "success"),
+            "ip": row.get("ip"),
+            "createdAt": created.isoformat() if hasattr(created, "isoformat") else None,
+        })
+    return {"success": True, "data": events}
+
+
 @router.get("/security-center")
 async def security_center(current_user: dict = Depends(get_current_user)):
     """Account security overview: sessions, 2FA, risk flags, verifications."""
