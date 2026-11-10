@@ -277,7 +277,7 @@ class EducationPreferenceBody(BaseModel):
 async def get_education_preferences(current_user: dict = Depends(get_current_user)):
     await _require_farmer(current_user)
     row = await MongoDB.get_collection("education_preferences").find_one({"farmerId": _user_id(current_user)})
-    return {"success": True, "data": row or {"language": "en", "learningLevel": "Beginner", "interests": []}}
+    return {"success": True, "data": {key: value for key, value in row.items() if key not in ("_id", "farmerId")} if row else {"language": "en", "learningLevel": "Beginner", "interests": []}}
 
 
 @router.put("/me/preferences")
