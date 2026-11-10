@@ -388,7 +388,7 @@ async def learning_assistant(body: AssistantBody, current_user: dict = Depends(g
             user=assistant_user,
             conversation=conversation,
         )
-        reply = answer.get("reply") or answer.get("answer")
+        reply = answer.get("reply") or answer.get("answer") or answer.get("response")
         if not reply:
             raise RuntimeError("AI assistant returned an empty answer")
         mode = answer.get("mode", "agriconnect-ai-assistant")
