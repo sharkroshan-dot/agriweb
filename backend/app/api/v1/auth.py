@@ -23,6 +23,7 @@ from app.services.risk_engine import risk_engine
 from app.repositories.session_repository import session_repository
 from app.repositories.user_repository import user_repository
 from app.database.redis import RedisClient
+from app.schemas.notification import NotificationType, NotificationPriority
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -123,6 +124,33 @@ async def _send_otp_for_phone(phone: str, otp_type: str, otp: Optional[str] = No
     except Exception as exc:
         logger.error(f"OTP storage or delivery failed for {phone}: {exc}", exc_info=True)
         return {"sent": False, "otp": otp_value, "email_sent": False, "sms_sent": False}
+
+
+async def _send_recovery_code(user_id: str, channel: str, destination: str) -> dict:
+    code = Security.generate_otp()
+    key = f"security:recovery:{user_id}:{channel}"
+    await RedisClient.set_cache(key, {
+        "code_hash": Security.hash_otp(code),
+        "destination": destination,
+        "attempts": 0,
+    }, ttl=settings.OTP_EXPIRY_MINUTES * 60)
+    if channel == "email":
+        sent = await NotificationService.send_otp_email(destination, code)
+    else:
+        sent = await NotificationService.send_otp(destination, code)
+    if settings.DEBUG:
+        logger.warning("Recovery verification code for %s/%s: %s", user_id, channel, code)
+    return {"sent": bool(sent), "expiresIn": settings.OTP_EXPIRY_MINUTES * 60}
+
+
+async def _resolve_login_user(identifier: str):
+    value = (identifier or "").strip()
+    if "@" in value:
+        return await UserService.get_user_by_email(value)
+    try:
+        return await UserService.get_user_by_phone(normalize_phone_number(value))
+    except Exception:
+        return await UserService.get_user_by_phone(value)
 
 
 async def _send_registration_otp(user: dict, phone: str) -> dict:
@@ -351,10 +379,12 @@ async def login(form_data: LoginForm = Depends(), request: Request = None):
     # Check if username is email or phone
     user = await AuthService.authenticate_user(form_data.username, form_data.password)
     if not user:
+        failed_user = await _resolve_login_user(form_data.username)
         await AuditService.log(
-            actor_id=None, actor_role=None, action="login", resource="auth",
-            outcome="failure", ip=ip, user_agent=ua,
-            metadata={"reason": "bad_credentials"},
+            actor_id=str(failed_user["_id"]) if failed_user else None,
+            actor_role=failed_user.get("role") if failed_user else None,
+            action="login", resource="auth", outcome="failure", ip=ip, user_agent=ua,
+            metadata={"reason": "bad_credentials", "identifierType": "email" if "@" in form_data.username else "phone"},
         )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -389,26 +419,35 @@ async def login(form_data: LoginForm = Depends(), request: Request = None):
             )
         )
     
-    # Detect new device based on IP + User-Agent fingerprint
+    # Compare the incoming browser fingerprint with previously recorded sessions.
     user_id = str(user["_id"])
     is_new_device = False
-    device_key = f"device:{user_id}:{ua or 'no-ua'}"
-    devices = await RedisClient.get_cache("active_devices") or {}
-    user_devices = devices.get(user_id, [])
-    if ua and user_id not in user_devices:
-        # Simple new device detection: check if this UA+IP combo exists
-        existing_ua = next((d for d in user_devices if d.get("ua") == ua), None)
-        if not existing_ua:
-            is_new_device = True
-            user_devices.append({"ua": ua, "ip": ip, "lastSeen": datetime.utcnow().isoformat()})
-            # Keep only last 5 devices per user
-            if len(user_devices) > 5:
-                user_devices = user_devices[-5:]
-            devices[user_id] = user_devices
-            await RedisClient.set_cache("active_devices", devices, ttl=86400 * 30)
+    if ua:
+        known_device = await session_repository.collection.find_one({
+            "userId": ObjectId(user_id), "userAgent": ua
+        })
+        is_new_device = known_device is None
     
     # Log new device detection
     await _log_login_event(str(user["_id"]), user.get("role"), ip, ua, is_new_device)
+    if is_new_device:
+        device_name = _device_label(ua)
+        alert_title = "New device signed in"
+        alert_message = f"A new sign-in to your AgriConnect account was detected from {device_name} (IP: {ip or 'unavailable'}). If this wasn't you, change your password immediately."
+        try:
+            await NotificationService.create_in_app_notification(
+                user_id=user_id, type=NotificationType.SECURITY, title=alert_title,
+                message=alert_message, data={"event": "new_device", "ip": ip, "device": device_name},
+                priority=NotificationPriority.HIGH, mandatory=True,
+            )
+        except Exception:
+            logger.exception("Could not create new-device security notification")
+        if user.get("email"):
+            await NotificationService.send_email(
+                user["email"], "New device sign-in to your AgriConnect account",
+                f"<p>{alert_message}</p><p>If you recognize this activity, no action is needed. Otherwise change your password and revoke unknown sessions.</p>",
+                plain_text=alert_message + " If this wasn't you, change your password and revoke unknown sessions.",
+            )
     
     # Create tokens
     access_token = Security.create_access_token(
@@ -880,6 +919,65 @@ async def get_2fa_status(current_user: dict = Depends(get_current_user)):
 
 
 # ============== SECURITY CENTER ==============
+
+@router.post("/recovery/{channel}/request")
+async def request_recovery_verification(channel: str, payload: dict = Body(...), current_user: dict = Depends(get_current_user)):
+    if channel not in {"phone", "email"}:
+        raise HTTPException(status_code=400, detail="Recovery channel must be phone or email")
+    raw = str(payload.get("destination") or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Enter a recovery phone number or email address")
+    if channel == "email":
+        destination = raw.lower()
+        if "@" not in destination or len(destination) > 254:
+            raise HTTPException(status_code=400, detail="Enter a valid email address")
+        existing = await UserService.get_user_by_email(destination)
+        if existing and str(existing["_id"]) != str(current_user["_id"]):
+            raise HTTPException(status_code=409, detail="This email is already associated with another account")
+    else:
+        try:
+            destination = normalize_phone_number(raw)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Enter a valid phone number with country code")
+        existing = await UserService.get_user_by_phone(destination)
+        if existing and str(existing["_id"]) != str(current_user["_id"]):
+            raise HTTPException(status_code=409, detail="This phone number is already associated with another account")
+    result = await _send_recovery_code(str(current_user["_id"]), channel, destination)
+    if not result["sent"] and not settings.DEBUG:
+        raise HTTPException(status_code=503, detail="Verification code could not be delivered. Check notification configuration and try again.")
+    return {"success": True, "message": "Verification code sent" if result["sent"] else "Development code generated; check backend logs", "expiresIn": result["expiresIn"]}
+
+
+@router.post("/recovery/{channel}/verify")
+async def verify_recovery_destination(channel: str, payload: dict = Body(...), current_user: dict = Depends(get_current_user)):
+    if channel not in {"phone", "email"}:
+        raise HTTPException(status_code=400, detail="Recovery channel must be phone or email")
+    code = str(payload.get("code") or "").strip()
+    if not code.isdigit() or len(code) != 6:
+        raise HTTPException(status_code=400, detail="Enter the 6-digit verification code")
+    key = f"security:recovery:{current_user['_id']}:{channel}"
+    cached = await RedisClient.get_cache(key)
+    if not cached:
+        raise HTTPException(status_code=400, detail="Code expired. Request a new verification code.")
+    attempts = int(cached.get("attempts", 0))
+    if attempts >= 5:
+        await RedisClient.delete_cache(key)
+        raise HTTPException(status_code=429, detail="Too many attempts. Request a new code.")
+    if not Security.verify_otp(code, cached.get("code_hash", "")):
+        cached["attempts"] = attempts + 1
+        await RedisClient.set_cache(key, cached, ttl=settings.OTP_EXPIRY_MINUTES * 60)
+        raise HTTPException(status_code=400, detail="Incorrect verification code")
+    destination = cached["destination"]
+    field = "recoveryEmail" if channel == "email" else "recoveryPhone"
+    verified_field = "recoveryEmailVerified" if channel == "email" else "recoveryPhoneVerified"
+    await user_repository.update_user(str(current_user["_id"]), {
+        field: destination, verified_field: True,
+        f"{field}VerifiedAt": datetime.utcnow(),
+    })
+    await RedisClient.delete_cache(key)
+    await AuditService.log(actor_id=str(current_user["_id"]), actor_role=current_user.get("role"), action=f"recovery_{channel}_verified", resource="auth", outcome="success")
+    return {"success": True, "message": f"Recovery {channel} verified"}
+
 
 @router.post("/change-password")
 async def change_password(
