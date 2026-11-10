@@ -10,7 +10,7 @@ import { Input } from "../../../components/ui/input";
 import { Select, SelectContent, SelectItem } from "../../../components/ui/select";
 import { Switch } from "../../../components/ui/switch";
 import { Badge } from "../../../components/ui/badge";
-import { Bot, CreditCard, Loader2, Package, Save, Shield, ShoppingBag, Store, Truck } from "lucide-react";
+import { Bot, CreditCard, Loader2, Package, Save, Shield, ShoppingBag, Store, Truck, Settings2, CheckCircle2 } from "lucide-react";
 import { VerificationStatusCard } from "../../../components/security/verification-status";
 import toast from "react-hot-toast";
 
@@ -80,13 +80,13 @@ export default function FarmerSettingsPage() {
   const [savingPrefs, setSavingPrefs] = useState(false);
   const [lastSaved, setLastSaved] = useState<string | null>(null);
 
-  const { data: profileData } = useQuery({
+  const { data: profileData, isLoading: profileLoading, isError: profileError } = useQuery({
     queryKey: ["farmerProfile"],
     queryFn: () => api.get("/farmers/me/profile"),
     enabled: Boolean(accessToken),
   });
 
-  const { data: settingsData } = useQuery({
+  const { data: settingsData, isLoading: settingsLoading, isError: settingsError } = useQuery({
     queryKey: ["farmerSettings"],
     queryFn: () => api.get("/settings/mine"),
     enabled: Boolean(accessToken),
@@ -143,8 +143,8 @@ export default function FarmerSettingsPage() {
       } else {
         toast.error(json.detail || "Failed to save");
       }
-    } catch {
-      toast.error("Network error");
+    } catch (err: any) {
+      toast.error(err?.message || "Unable to save farm profile");
     } finally {
       setSavingProfile(false);
     }
@@ -171,31 +171,31 @@ export default function FarmerSettingsPage() {
   );
 
   return (
-    <div className="space-y-8">
+    <div className="mx-auto w-full max-w-[1600px] space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-sm font-medium text-primary">Farmer preferences</p>
-          <h1 className="text-3xl font-semibold tracking-tight">Settings</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Manage farm profile, orders, payouts and AI tools.</p>
+          <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700"><Settings2 className="h-3.5 w-3.5" /> FARMER WORKSPACE</div>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Settings</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Manage farm information, order preferences, delivery charges, payouts and notifications in one place.</p>
         </div>
         <div className="flex items-center gap-2">
-          {lastSaved && <span className="text-xs text-muted-foreground">Saved at {lastSaved}</span>}
+          {lastSaved && <span className="text-xs text-muted-foreground">Preferences saved at {lastSaved}</span>}
           <Button size="sm" onClick={savePrefs} disabled={savingPrefs}>
             {savingPrefs ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Save className="mr-1.5 h-4 w-4" />}
-            Save all settings
+            Save preferences
           </Button>
         </div>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-2">
+      <p className="text-xs text-slate-500">Save preferences applies inventory, order, delivery, payout, AI and alert settings. Farm profile is saved separately using its own button.</p>{(profileError || settingsError) && <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">Some saved settings could not be loaded. Check your connection and refresh before making changes.</div>}<div className="grid items-start gap-5 xl:grid-cols-2">
         <VerificationStatusCard />
 
-        <Card className="xl:col-span-2">
-          <CardHeader>
+        <Card className="overflow-hidden rounded-2xl border-slate-200 shadow-sm xl:col-span-2">
+          <CardHeader className="border-b border-slate-100 bg-slate-50/70 pb-4">
             <CardTitle className="flex items-center gap-2"><Store className="h-5 w-5" />Farm profile</CardTitle>
             <CardDescription>Visible to buyers and used across your farmer dashboard.</CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-2">
+          <CardContent className="grid gap-4 p-5 md:grid-cols-2 xl:grid-cols-3">
             {[
               ["farmName", "Farm name"],
               ["ownerName", "Owner name"],
@@ -216,7 +216,7 @@ export default function FarmerSettingsPage() {
               </div>
             ))}
             <div className="md:col-span-2 flex justify-end">
-              <Button variant="outline" onClick={saveProfile} disabled={savingProfile}>
+              <Button onClick={saveProfile} disabled={savingProfile || profileLoading} className="h-10 rounded-lg px-5">
                 {savingProfile ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Save className="mr-1.5 h-4 w-4" />}
                 Save profile
               </Button>
@@ -225,11 +225,11 @@ export default function FarmerSettingsPage() {
         </Card>
 
         <Card>
-          <CardHeader>
+          <CardHeader className="border-b border-slate-100 bg-slate-50/70 pb-4">
             <CardTitle className="flex items-center gap-2"><Package className="h-5 w-5" />Product & inventory</CardTitle>
             <CardDescription>Stock alert thresholds for your listings.</CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-4 sm:grid-cols-2">
+          <CardContent className="grid gap-4 p-5 sm:grid-cols-2">
             <div>
               <label className="text-sm font-medium">Low stock alert (units)</label>
               <Input type="number" min="0" className="mt-1" value={prefs.product.lowStockAlert}
@@ -255,11 +255,11 @@ export default function FarmerSettingsPage() {
         </Card>
 
         <Card>
-          <CardHeader>
+          <CardHeader className="border-b border-slate-100 bg-slate-50/70 pb-4">
             <CardTitle className="flex items-center gap-2"><ShoppingBag className="h-5 w-5" />Order management</CardTitle>
             <CardDescription>Defaults applied to incoming orders.</CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-4 sm:grid-cols-2">
+          <CardContent className="grid gap-4 p-5 sm:grid-cols-2">
             <div>
               <label className="text-sm font-medium">Order timeout (min)</label>
               <Input type="number" min="0" className="mt-1" value={prefs.orders.orderTimeout}
@@ -284,11 +284,11 @@ export default function FarmerSettingsPage() {
         </Card>
 
         <Card>
-          <CardHeader>
+          <CardHeader className="border-b border-slate-100 bg-slate-50/70 pb-4">
             <CardTitle className="flex items-center gap-2"><Truck className="h-5 w-5" />Delivery settings</CardTitle>
             <CardDescription>Your self-delivery preferences. Final fees follow platform rules.</CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-4 sm:grid-cols-2">
+          <CardContent className="grid gap-4 p-5 sm:grid-cols-2">
             <div>
               <label className="text-sm font-medium">Free delivery radius (km)</label>
               <Input type="number" min="0" step="0.5" className="mt-1" value={prefs.delivery.freeDeliveryRadiusKm}
@@ -328,11 +328,11 @@ export default function FarmerSettingsPage() {
         </Card>
 
         <Card>
-          <CardHeader>
+          <CardHeader className="border-b border-slate-100 bg-slate-50/70 pb-4">
             <CardTitle className="flex items-center gap-2"><CreditCard className="h-5 w-5" />Payments & payouts</CardTitle>
             <CardDescription>Bank details for your earnings.</CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-4 sm:grid-cols-2">
+          <CardContent className="grid gap-4 p-5 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <label className="text-sm font-medium">Bank / UPI account</label>
               <Input className="mt-1" value={prefs.payouts.bankAccount}
@@ -374,11 +374,11 @@ export default function FarmerSettingsPage() {
         </Card>
 
         <Card>
-          <CardHeader>
+          <CardHeader className="border-b border-slate-100 bg-slate-50/70 pb-4">
             <CardTitle className="flex items-center gap-2"><Bot className="h-5 w-5" />AI & analytics</CardTitle>
             <CardDescription>Smart tools to grow your farm business.</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-2">
+          <CardContent className="space-y-2 p-5">
             {toggleRow("Price prediction", "pricePrediction")}
             {toggleRow("Demand forecast", "demandForecast")}
             {toggleRow("Weather integration", "weatherIntegration")}
@@ -390,11 +390,11 @@ export default function FarmerSettingsPage() {
         </Card>
 
         <Card>
-          <CardHeader>
+          <CardHeader className="border-b border-slate-100 bg-slate-50/70 pb-4">
             <CardTitle className="flex items-center gap-2"><Shield className="h-5 w-5" />Alerts & security</CardTitle>
             <CardDescription>How you hear about orders and account safety.</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-2">
+          <CardContent className="space-y-2 p-5">
             {toggleRow("New order alert", "newOrderAlert")}
             {toggleRow("Order cancelled alert", "orderCancelled")}
             {toggleRow("Payment received alert", "paymentReceived")}
