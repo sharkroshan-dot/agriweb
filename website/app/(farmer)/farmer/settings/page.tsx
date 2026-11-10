@@ -8,11 +8,27 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../..
 import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
 import { Select, SelectContent, SelectItem } from "../../../components/ui/select";
-import { Switch } from "../../../components/ui/switch";
 import { Badge } from "../../../components/ui/badge";
 import { Bot, CreditCard, Loader2, Package, Save, Shield, ShoppingBag, Store, Truck, Settings2, CheckCircle2 } from "lucide-react";
 import { VerificationStatusCard } from "../../../components/security/verification-status";
 import toast from "react-hot-toast";
+
+function SettingsToggle({ checked, onChange, label }: { checked: boolean; onChange: (value: boolean) => void; label: string }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={() => onChange(!checked)}
+      className={`inline-flex h-8 w-[4.25rem] shrink-0 items-center rounded-md border p-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 ${checked ? "justify-end border-emerald-700 bg-emerald-700" : "justify-start border-slate-300 bg-slate-200"}`}
+    >
+      <span className={`flex h-6 w-7 items-center justify-center rounded-sm bg-white text-[10px] font-bold tracking-wide shadow-sm transition-all ${checked ? "text-emerald-700" : "text-slate-500"}`}>
+        {checked ? "ON" : "OFF"}
+      </span>
+    </button>
+  );
+}
 
 type ToggleKeys =
   | "newOrderAlert"
@@ -166,7 +182,7 @@ export default function FarmerSettingsPage() {
   const toggleRow = (label: string, key: ToggleKeys) => (
     <div key={key} className="flex items-center justify-between rounded-lg border p-3 text-sm font-medium">
       {label}
-      <Switch checked={Boolean(prefs.alerts[key] ?? prefs.ai[key] ?? prefs.payouts[key])} onCheckedChange={() => toggle(key)} aria-label={`Toggle ${label}`} />
+      <SettingsToggle checked={Boolean(prefs.alerts[key] ?? prefs.ai[key] ?? prefs.payouts[key])} onChange={() => toggle(key)} label={`Toggle ${label}`} />
     </div>
   );
 
@@ -317,11 +333,11 @@ export default function FarmerSettingsPage() {
             <div className="space-y-2 sm:col-span-2">
               <div className="flex items-center justify-between rounded-lg border p-3 text-sm font-medium">
                 Allow self delivery
-                <Switch checked={Boolean(prefs.delivery.allowSelfDelivery)} onCheckedChange={(v) => updateNested("delivery", "allowSelfDelivery", v)} aria-label="Allow self delivery" />
+                <SettingsToggle checked={Boolean(prefs.delivery.allowSelfDelivery)} onChange={(v) => updateNested("delivery", "allowSelfDelivery", v)} label="Allow self delivery" />
               </div>
               <div className="flex items-center justify-between rounded-lg border p-3 text-sm font-medium">
                 Allow delivery partners
-                <Switch checked={Boolean(prefs.delivery.allowDeliveryPartners)} onCheckedChange={(v) => updateNested("delivery", "allowDeliveryPartners", v)} aria-label="Allow delivery partners" />
+                <SettingsToggle checked={Boolean(prefs.delivery.allowDeliveryPartners)} onChange={(v) => updateNested("delivery", "allowDeliveryPartners", v)} label="Allow delivery partners" />
               </div>
             </div>
           </CardContent>
