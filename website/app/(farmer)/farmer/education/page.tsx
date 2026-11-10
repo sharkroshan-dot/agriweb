@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Award, BookOpen, Bookmark, Bot, CheckCircle2, ChevronRight, ClipboardCheck, Clock3, GraduationCap, Languages, Loader2, PlayCircle, Search, Sprout, X } from "lucide-react";
+import { BookOpen, Bookmark, Bot, CheckCircle2, ChevronRight, ClipboardCheck, Clock3, GraduationCap, Languages, Loader2, PlayCircle, Search, Sprout, X } from "lucide-react";
 import { api } from "../../../lib/api/client";
 import { cn } from "../../../lib/utils";
 import { Badge } from "../../../components/ui/badge";
