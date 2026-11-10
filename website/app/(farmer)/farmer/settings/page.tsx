@@ -96,7 +96,7 @@ export default function FarmerSettingsPage() {
   const photoInputRef = useRef<HTMLInputElement>(null);
   const profilePhotoUrl = profile.profileImage
     ? (profile.profileImage.startsWith("/uploads/")
-        ? `${(process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\\/api\\/v1\\/?$/, "").replace(/\\/$/, "")}${profile.profileImage}`
+        ? `${(process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/api\/v1\/?$/, "").replace(/\/$/, "")}${profile.profileImage}`
         : profile.profileImage)
     : "";
 
