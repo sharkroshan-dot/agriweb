@@ -23,6 +23,7 @@ interface SessionInfo {
   userAgent?: string;
   createdAt?: string;
   lastSeenAt?: string;
+  expiresAt?: string;
 }
 
 interface SecurityCenterData {
@@ -37,6 +38,7 @@ interface SecurityCenterData {
   verification: Record<string, boolean>;
   trustScore: number;
   lastLoginAt?: string;
+  currentJti?: string;
 }
 
 const RISK_STYLES: Record<string, string> = {
@@ -72,6 +74,10 @@ export function SecurityCenter() {
   const [totpCode, setTotpCode] = useState("");
   const [setup, setSetup] = useState<{ secret: string; otpauthUrl: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [showPasswordForm, setShowPasswordForm] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
 
   const { data, isLoading, isError, refetch } = useQuery<SecurityCenterData>({
     queryKey: ["securityCenter"],
@@ -111,6 +117,34 @@ export function SecurityCenter() {
       queryClient.invalidateQueries({ queryKey: ["securityCenter"] });
     },
     onError: (err: any) => toast.error(err?.message || "Invalid code"),
+  });
+
+  const changePassword = useMutation({
+    mutationFn: () => api.post("/auth/change-password", { currentPassword, newPassword }),
+    onSuccess: () => {
+      toast.success("Password changed. Other devices have been signed out.");
+      setCurrentPassword(""); setNewPassword(""); setConfirmPassword(""); setShowPasswordForm(false);
+      queryClient.invalidateQueries({ queryKey: ["securityCenter"] });
+    },
+    onError: (err: any) => toast.error(err?.message || "Unable to change password"),
+  });
+
+  const revokeSession = useMutation({
+    mutationFn: (jti: string) => api.post(`/auth/sessions/${encodeURIComponent(jti)}/revoke`, {}),
+    onSuccess: () => {
+      toast.success("Device session revoked");
+      queryClient.invalidateQueries({ queryKey: ["securityCenter"] });
+    },
+    onError: (err: any) => toast.error(err?.message || "Unable to revoke this session"),
+  });
+
+  const { data: activity = [], isLoading: activityLoading } = useQuery<any[]>({
+    queryKey: ["securityActivity"],
+    queryFn: async () => {
+      const res = await api.get("/auth/security-activity?limit=30");
+      return (res as any)?.data ?? [];
+    },
+    enabled: Boolean(accessToken),
   });
 
   const copySecret = async (secret: string) => {
@@ -182,6 +216,16 @@ export function SecurityCenter() {
             ) : (
               <Button disabled={setupMfa.isPending} onClick={() => setupMfa.mutate()} className="w-full bg-emerald-700 hover:bg-emerald-800">{setupMfa.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <QrCode className="mr-2 h-4 w-4" />}Set up two-factor authentication</Button>
             )}
+            <div className="rounded-xl border border-slate-200 p-4">
+              <div className="flex items-center justify-between gap-3"><div><p className="text-sm font-semibold text-slate-800">Password</p><p className="mt-1 text-xs text-slate-500">Change your password regularly and never reuse it.</p></div><Button size="sm" variant="outline" onClick={() => setShowPasswordForm((v) => !v)}>{showPasswordForm ? "Cancel" : "Change password"}</Button></div>
+              {showPasswordForm && <div className="mt-4 space-y-2">
+                <input type="password" autoComplete="current-password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} placeholder="Current password" className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm" />
+                <input type="password" autoComplete="new-password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="New password (8+ characters, upper/lowercase, number and symbol)" className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm" />
+                <input type="password" autoComplete="new-password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Confirm new password" className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm" />
+                <Button className="w-full" disabled={!currentPassword || newPassword.length < 8 || newPassword !== confirmPassword || changePassword.isPending} onClick={() => changePassword.mutate()}>{changePassword.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Update password</Button>
+                {newPassword && confirmPassword && newPassword !== confirmPassword && <p className="text-xs text-red-600">Passwords do not match.</p>}
+              </div>}
+            </div>
             <div className="rounded-xl bg-slate-50 p-3"><p className="flex items-center gap-2 text-xs font-semibold text-slate-700"><AlertTriangle className="h-4 w-4 text-amber-600" />Keep your authenticator app accessible</p><p className="mt-1 text-xs leading-5 text-slate-500">You will need its current code to disable two-factor authentication later.</p></div>
           </CardContent>
         </Card>
@@ -192,11 +236,18 @@ export function SecurityCenter() {
           </CardHeader>
           <CardContent className="p-5">
             {(data.activeSessions ?? sessions.length) > 5 && <div className="mb-4 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3"><ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" /><div><p className="text-sm font-semibold text-amber-900">Many active sessions detected</p><p className="mt-1 text-xs leading-5 text-amber-800">There are {data.activeSessions ?? sessions.length} active sessions on your account. Review the devices below and sign out of any you do not recognize.</p></div></div>}
-            {sessions.length ? <div className="max-h-[430px] space-y-3 overflow-y-auto pr-1">{sessions.map((item, index) => { const DeviceIcon = getDeviceIcon(item.device, item.userAgent); return <div key={item.id || item.jti || index} className="flex min-w-0 items-start gap-3 rounded-xl border border-slate-200 p-3"><div className="rounded-lg bg-slate-100 p-2 text-slate-600"><DeviceIcon className="h-5 w-5" /></div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><p className="break-words text-sm font-semibold text-slate-800">{getDeviceLabel(item.device, item.userAgent)}</p>{index === 0 && <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">Most recent in list</Badge>}</div><p className="mt-1 flex flex-wrap items-center gap-1 text-xs text-slate-500"><MapPin className="h-3 w-3" />{item.ip || "IP unavailable"}</p><p className="mt-1 flex items-center gap-1 text-xs text-slate-500"><Clock3 className="h-3 w-3" />Last active: {formatDate(item.lastSeenAt)}</p></div></div>; })}</div> : <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center"><Laptop className="mx-auto h-8 w-8 text-slate-400" /><p className="mt-2 text-sm font-medium text-slate-700">No session details available</p><p className="mt-1 text-xs text-slate-500">Your signed-in devices will appear here when available.</p></div>}
+            {sessions.length ? <div className="max-h-[430px] space-y-3 overflow-y-auto pr-1">{sessions.map((item, index) => { const DeviceIcon = getDeviceIcon(item.device, item.userAgent); return <div key={item.id || item.jti || index} className="flex min-w-0 items-start gap-3 rounded-xl border border-slate-200 p-3"><div className="rounded-lg bg-slate-100 p-2 text-slate-600"><DeviceIcon className="h-5 w-5" /></div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><p className="break-words text-sm font-semibold text-slate-800">{getDeviceLabel(item.device, item.userAgent)}</p>{index === 0 && <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">Most recent in list</Badge>}</div><p className="mt-1 flex flex-wrap items-center gap-1 text-xs text-slate-500"><MapPin className="h-3 w-3" />{item.ip || "IP unavailable"}</p><p className="mt-1 flex items-center gap-1 text-xs text-slate-500"><Clock3 className="h-3 w-3" />Last active: {formatDate(item.lastSeenAt)}</p></div>{item.jti && item.jti !== data.currentJti && <Button size="sm" variant="outline" className="shrink-0 border-red-200 text-red-700 hover:bg-red-50" disabled={revokeSession.isPending} onClick={() => { if (window.confirm("Revoke this device session?")) revokeSession.mutate(item.jti!); }}>Revoke</Button>}</div>; })}</div> : <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center"><Laptop className="mx-auto h-8 w-8 text-slate-400" /><p className="mt-2 text-sm font-medium text-slate-700">No session details available</p><p className="mt-1 text-xs text-slate-500">Your signed-in devices will appear here when available.</p></div>}
             {(data.activeSessions ?? sessions.length) > 1 && <p className="mt-3 text-xs text-slate-500">Signing out other devices keeps your current session active. You may need to sign in again on those devices.</p>}
           </CardContent>
         </Card>
       </div>
+
+      <Card className="overflow-hidden rounded-2xl border-slate-200 shadow-sm">
+        <CardHeader className="border-b border-emerald-100 bg-emerald-50/50 pb-3"><CardTitle className="flex items-center gap-2 text-base"><Activity className="h-5 w-5 text-emerald-700" />Security activity</CardTitle><CardDescription>Recent sign-ins and account security changes.</CardDescription></CardHeader>
+        <CardContent className="p-5">
+          {activityLoading ? <p className="text-sm text-slate-500">Loading security activity…</p> : activity.length ? <div className="space-y-2">{activity.map((event: any) => <div key={event.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 px-3 py-2"><div><p className="text-sm font-medium capitalize text-slate-800">{String(event.action || "Security event").replace(/_/g, " ")}</p><p className="text-xs text-slate-500">{event.ip || "IP unavailable"}</p></div><div className="text-right"><Badge className={event.outcome === "failure" ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}>{event.outcome}</Badge><p className="mt-1 text-xs text-slate-500">{formatDate(event.createdAt)}</p></div></div>)}</div> : <div className="rounded-xl border border-dashed border-slate-300 p-6 text-center"><Activity className="mx-auto h-7 w-7 text-slate-400" /><p className="mt-2 text-sm font-medium text-slate-700">No security events yet</p><p className="mt-1 text-xs text-slate-500">New sign-ins and security changes will appear here.</p></div>}
+        </CardContent>
+      </Card>
 
       <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
         <Card className="overflow-hidden rounded-2xl border-slate-200 shadow-sm">
