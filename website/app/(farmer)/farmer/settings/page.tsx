@@ -213,100 +213,83 @@ export default function FarmerSettingsPage() {
   );
 
   return (
-    <div className="mx-auto w-full max-w-[1600px] space-y-5 pb-8">
-      <div className="flex flex-col gap-4 rounded-2xl border border-emerald-100 bg-gradient-to-r from-white to-emerald-50/70 p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+    <div className="!mx-0 w-full max-w-none space-y-5 pb-8">
+      <div className="flex flex-col gap-4 rounded-2xl border border-emerald-100 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700"><Settings2 className="h-6 w-6" /></div>
-          <div><h1 className="text-2xl font-bold tracking-tight text-slate-900">Farmer Settings</h1><p className="mt-1 text-sm text-slate-600">Manage your profile, preferences and account settings.</p></div>
+          <div><h1 className="text-2xl font-bold tracking-tight text-slate-900">Farmer Settings</h1><p className="mt-1 text-sm text-slate-600">Manage your profile, preferences and platform settings.</p></div>
         </div>
-        <Button onClick={saveProfile} disabled={savingProfile || profileLoading} className="h-10 rounded-xl bg-emerald-700 px-5 hover:bg-emerald-800">
-          {savingProfile ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}Save profile
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={saveProfile} disabled={savingProfile || profileLoading} className="h-10 rounded-xl bg-emerald-700 px-5 hover:bg-emerald-800">{savingProfile ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}Save Profile</Button>
+          <Button variant="outline" onClick={savePrefs} disabled={savingPrefs || settingsLoading} className="h-10 rounded-xl border-emerald-200 px-5 text-emerald-800 hover:bg-emerald-50">{savingPrefs ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}Save Preferences</Button>
+        </div>
       </div>
       {lastSaved && <p className="text-right text-xs text-emerald-700">Preferences saved at {lastSaved}</p>}
       {(profileError || settingsError) && <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">Some saved settings could not be loaded. Check your connection and refresh before making changes.</div>}
 
-      <div className="grid items-start gap-5 xl:grid-cols-2">
-        <VerificationStatusCard />
-        <Card className="overflow-hidden rounded-2xl border-slate-200 shadow-sm xl:col-span-2">
-          <CardHeader className="border-b border-emerald-100 bg-emerald-50/60 pb-4"><CardTitle className="flex items-center gap-2 text-slate-900"><Store className="h-5 w-5 text-emerald-700" />Profile Details</CardTitle><CardDescription>Keep your personal and farm information up to date.</CardDescription></CardHeader>
-          <CardContent className="grid gap-5 p-5 lg:grid-cols-[1fr_1fr_220px]">
-            <div className="grid gap-4 sm:grid-cols-2 lg:col-span-2">
-              {[
-                ["ownerName", "Full name"], ["email", "Email address"], ["phone", "Phone number"],
-                ["farmAddress", "Farm address"], ["city", "City"], ["farmName", "Farm name"],
-              ].map(([key, label]) => <div key={key}><label className="mb-1.5 block text-xs font-semibold text-slate-600">{label}</label><Input className="h-10 rounded-lg border-slate-200" value={profile[key as keyof typeof profile]} onChange={(event) => setProfile((current) => ({ ...current, [key]: event.target.value }))} /></div>)}
-              <div className="sm:col-span-2"><label className="mb-1.5 block text-xs font-semibold text-slate-600">Pickup instructions</label><Input className="h-10 rounded-lg border-slate-200" value={profile.pickupInstructions} onChange={(event) => setProfile((current) => ({ ...current, pickupInstructions: event.target.value }))} placeholder="Landmark, gate details or contact instructions" /></div>
-              <div className="sm:col-span-2"><label className="mb-1.5 block text-xs font-semibold text-slate-600">Weekly pickup window</label><Input className="h-10 rounded-lg border-slate-200" value={profile.weeklyPickupWindow} onChange={(event) => setProfile((current) => ({ ...current, weeklyPickupWindow: event.target.value }))} /></div>
-            </div>
-            <div className="flex flex-col items-center justify-center rounded-xl border border-emerald-100 bg-emerald-50/60 p-5 text-center">
-              <div className="mb-3 flex h-24 w-24 items-center justify-center rounded-full border-4 border-white bg-emerald-100 text-3xl font-bold text-emerald-700 shadow-sm">{(profile.ownerName || userName).trim().charAt(0).toUpperCase()}</div>
-              <p className="text-sm font-semibold text-slate-800">Farm profile</p><p className="mt-1 text-xs text-slate-500">Your details help buyers and delivery partners identify your farm.</p>
-            </div>
-          </CardContent>
-        </Card>
+      <Card className="w-full overflow-hidden rounded-2xl border-slate-200 shadow-sm">
+        <CardHeader className="border-b border-emerald-100 bg-emerald-50/60 pb-4"><CardTitle className="flex items-center gap-2 text-slate-900"><Store className="h-5 w-5 text-emerald-700" />Profile Details</CardTitle><CardDescription>Keep your personal and farm information up to date.</CardDescription></CardHeader>
+        <CardContent className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_230px]">
+          <div className="grid min-w-0 gap-4 sm:grid-cols-2 lg:col-span-2">
+            {[
+              ["ownerName", "Full Name"], ["email", "Email Address"], ["phone", "Phone Number"],
+              ["farmAddress", "Farm Address"], ["city", "City"], ["farmName", "Farm Name"],
+            ].map(([key, label]) => <div key={key} className="min-w-0"><label className="mb-1.5 block text-xs font-semibold text-slate-700">{label}</label><Input className="h-10 w-full rounded-lg border-slate-200 bg-white" value={profile[key as keyof typeof profile]} onChange={(event) => setProfile((current) => ({ ...current, [key]: event.target.value }))} /></div>)}
+            <div className="sm:col-span-2"><label className="mb-1.5 block text-xs font-semibold text-slate-700">Pickup Instructions</label><Input className="h-10 w-full rounded-lg border-slate-200" value={profile.pickupInstructions} onChange={(event) => setProfile((current) => ({ ...current, pickupInstructions: event.target.value }))} placeholder="Landmark, gate details or contact instructions" /></div>
+            <div className="sm:col-span-2"><label className="mb-1.5 block text-xs font-semibold text-slate-700">Weekly Pickup Window</label><Input className="h-10 w-full rounded-lg border-slate-200" value={profile.weeklyPickupWindow} onChange={(event) => setProfile((current) => ({ ...current, weeklyPickupWindow: event.target.value }))} /></div>
+          </div>
+          <div className="flex min-h-[190px] flex-col items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50/60 p-5 text-center">
+            <p className="mb-3 text-sm font-semibold text-slate-800">Profile Photo</p>
+            <div className="mb-3 flex h-24 w-24 items-center justify-center rounded-full border-2 border-emerald-600 bg-emerald-100 text-3xl font-bold text-emerald-700 shadow-sm">{(profile.ownerName || userName).trim().charAt(0).toUpperCase()}</div>
+            <p className="text-xs text-slate-500">Your farm profile is visible to buyers and delivery partners.</p>
+          </div>
+        </CardContent>
+      </Card>
 
-        <Card className="overflow-hidden rounded-2xl border-slate-200 shadow-sm">
+      <div className="grid min-w-0 grid-cols-1 items-start gap-5 xl:grid-cols-2">
+        <Card className="min-w-0 overflow-hidden rounded-2xl border-slate-200 shadow-sm">
           <CardHeader className="border-b border-emerald-100 bg-emerald-50/50 pb-3"><CardTitle className="flex items-center gap-2 text-base"><Truck className="h-5 w-5 text-emerald-700" />Delivery settings</CardTitle><CardDescription>Your self-delivery preferences. Final fees follow platform rules.</CardDescription></CardHeader>
           <CardContent className="space-y-3 p-5">
             <div className="grid gap-3 sm:grid-cols-2">
-              <div><label className="mb-1.5 block text-xs font-semibold text-slate-600">Free delivery radius (km)</label><Input type="number" min="0" step="0.5" className="h-10" value={prefs.delivery.freeDeliveryRadiusKm} onChange={(e) => updateNested("delivery", "freeDeliveryRadiusKm", Number(e.target.value))} /></div>
-              <div><label className="mb-1.5 block text-xs font-semibold text-slate-600">Base delivery fee (₹)</label><Input type="number" min="0" step="0.5" className="h-10" value={prefs.delivery.baseFee} onChange={(e) => updateNested("delivery", "baseFee", Number(e.target.value))} /></div>
-              <div><label className="mb-1.5 block text-xs font-semibold text-slate-600">Additional fee / km (₹)</label><Input type="number" min="0" step="0.5" className="h-10" value={prefs.delivery.perKmRate} onChange={(e) => updateNested("delivery", "perKmRate", Number(e.target.value))} /></div>
-              <div><label className="mb-1.5 block text-xs font-semibold text-slate-600">Maximum delivery radius (km)</label><Input type="number" min="0" step="0.5" className="h-10" value={prefs.delivery.maxRadiusKm} onChange={(e) => updateNested("delivery", "maxRadiusKm", Number(e.target.value))} /></div>
-              <div><label className="mb-1.5 block text-xs font-semibold text-slate-600">Minimum order (₹)</label><Input type="number" min="0" className="h-10" value={prefs.delivery.minOrderValue} onChange={(e) => updateNested("delivery", "minOrderValue", Number(e.target.value))} /></div>
+              <div><label className="mb-1.5 block text-xs font-semibold text-slate-700">Free delivery radius (km)</label><Input type="number" min="0" step="0.5" className="h-10" value={prefs.delivery.freeDeliveryRadiusKm} onChange={(e) => updateNested("delivery", "freeDeliveryRadiusKm", Number(e.target.value))} /></div>
+              <div><label className="mb-1.5 block text-xs font-semibold text-slate-700">Base delivery fee (₹)</label><Input type="number" min="0" step="0.5" className="h-10" value={prefs.delivery.baseFee} onChange={(e) => updateNested("delivery", "baseFee", Number(e.target.value))} /></div>
+              <div><label className="mb-1.5 block text-xs font-semibold text-slate-700">Additional fee / km (₹)</label><Input type="number" min="0" step="0.5" className="h-10" value={prefs.delivery.perKmRate} onChange={(e) => updateNested("delivery", "perKmRate", Number(e.target.value))} /></div>
+              <div><label className="mb-1.5 block text-xs font-semibold text-slate-700">Maximum delivery radius (km)</label><Input type="number" min="0" step="0.5" className="h-10" value={prefs.delivery.maxRadiusKm} onChange={(e) => updateNested("delivery", "maxRadiusKm", Number(e.target.value))} /></div>
+              <div><label className="mb-1.5 block text-xs font-semibold text-slate-700">Minimum order (₹)</label><Input type="number" min="0" className="h-10" value={prefs.delivery.minOrderValue} onChange={(e) => updateNested("delivery", "minOrderValue", Number(e.target.value))} /></div>
             </div>
             <div className="space-y-1 border-t border-slate-100 pt-2">
-              <div className="flex items-center justify-between rounded-lg px-1 py-2 text-sm"><span className="font-medium text-slate-700">Allow self delivery</span><SettingsToggle checked={Boolean(prefs.delivery.allowSelfDelivery)} onChange={(v) => updateNested("delivery", "allowSelfDelivery", v)} label="Allow self delivery" /></div>
-              <div className="flex items-center justify-between rounded-lg px-1 py-2 text-sm"><span className="font-medium text-slate-700">Allow delivery partners</span><SettingsToggle checked={Boolean(prefs.delivery.allowDeliveryPartners)} onChange={(v) => updateNested("delivery", "allowDeliveryPartners", v)} label="Allow delivery partners" /></div>
+              <div className="flex items-center justify-between py-2 text-sm"><span className="font-medium text-slate-700">Allow self delivery</span><SettingsToggle checked={Boolean(prefs.delivery.allowSelfDelivery)} onChange={(v) => updateNested("delivery", "allowSelfDelivery", v)} label="Allow self delivery" /></div>
+              <div className="flex items-center justify-between py-2 text-sm"><span className="font-medium text-slate-700">Allow delivery partners</span><SettingsToggle checked={Boolean(prefs.delivery.allowDeliveryPartners)} onChange={(v) => updateNested("delivery", "allowDeliveryPartners", v)} label="Allow delivery partners" /></div>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="overflow-hidden rounded-2xl border-slate-200 shadow-sm">
-          <CardHeader className="border-b border-emerald-100 bg-emerald-50/50 pb-3"><CardTitle className="flex items-center gap-2 text-base"><CreditCard className="h-5 w-5 text-emerald-700" />Payments & payouts</CardTitle><CardDescription>Bank details and payout preferences for your earnings.</CardDescription></CardHeader>
+        <Card className="min-w-0 overflow-hidden rounded-2xl border-slate-200 shadow-sm">
+          <CardHeader className="border-b border-emerald-100 bg-emerald-50/50 pb-3"><CardTitle className="flex items-center gap-2 text-base"><CreditCard className="h-5 w-5 text-emerald-700" />Payments & payouts</CardTitle><CardDescription>Bank details for your earnings.</CardDescription></CardHeader>
           <CardContent className="grid gap-3 p-5 sm:grid-cols-2">
-            <div className="sm:col-span-2"><label className="mb-1.5 block text-xs font-semibold text-slate-600">Bank / UPI account</label><Input className="h-10" value={prefs.payouts.bankAccount} onChange={(e) => updateNested("payouts", "bankAccount", e.target.value)} placeholder="UPI ID or account reference" /></div>
-            <div><label className="mb-1.5 block text-xs font-semibold text-slate-600">Account holder</label><Input className="h-10" value={prefs.payouts.accountHolder} onChange={(e) => updateNested("payouts", "accountHolder", e.target.value)} /></div>
-            <div><label className="mb-1.5 block text-xs font-semibold text-slate-600">Account number</label><Input className="h-10" value={prefs.payouts.accountNumber} onChange={(e) => updateNested("payouts", "accountNumber", e.target.value)} /></div>
-            <div><label className="mb-1.5 block text-xs font-semibold text-slate-600">IFSC code</label><Input className="h-10" value={prefs.payouts.ifsc} onChange={(e) => updateNested("payouts", "ifsc", e.target.value)} /></div>
-            <div><label className="mb-1.5 block text-xs font-semibold text-slate-600">Payout frequency</label><Select className="h-10" value={prefs.payouts.payoutFrequency} onValueChange={(v) => updateNested("payouts", "payoutFrequency", v)}><SelectContent><SelectItem value="daily">Daily</SelectItem><SelectItem value="weekly">Weekly</SelectItem><SelectItem value="biweekly">Bi-weekly</SelectItem><SelectItem value="monthly">Monthly</SelectItem></SelectContent></Select></div>
-            <div><label className="mb-1.5 block text-xs font-semibold text-slate-600">Minimum payout (₹)</label><Input type="number" min="0" className="h-10" value={prefs.payouts.minPayout} onChange={(e) => updateNested("payouts", "minPayout", Number(e.target.value))} /></div>
+            <div className="sm:col-span-2"><label className="mb-1.5 block text-xs font-semibold text-slate-700">Bank / UPI account</label><Input className="h-10" value={prefs.payouts.bankAccount} onChange={(e) => updateNested("payouts", "bankAccount", e.target.value)} placeholder="UPI ID or account reference" /></div>
+            <div><label className="mb-1.5 block text-xs font-semibold text-slate-700">Account holder</label><Input className="h-10" value={prefs.payouts.accountHolder} onChange={(e) => updateNested("payouts", "accountHolder", e.target.value)} /></div>
+            <div><label className="mb-1.5 block text-xs font-semibold text-slate-700">Account number</label><Input className="h-10" value={prefs.payouts.accountNumber} onChange={(e) => updateNested("payouts", "accountNumber", e.target.value)} /></div>
+            <div><label className="mb-1.5 block text-xs font-semibold text-slate-700">IFSC code</label><Input className="h-10" value={prefs.payouts.ifsc} onChange={(e) => updateNested("payouts", "ifsc", e.target.value)} /></div>
+            <div><label className="mb-1.5 block text-xs font-semibold text-slate-700">Payout frequency</label><Select className="h-10" value={prefs.payouts.payoutFrequency} onValueChange={(v) => updateNested("payouts", "payoutFrequency", v)}><SelectContent><SelectItem value="daily">Daily</SelectItem><SelectItem value="weekly">Weekly</SelectItem><SelectItem value="biweekly">Bi-weekly</SelectItem><SelectItem value="monthly">Monthly</SelectItem></SelectContent></Select></div>
+            <div><label className="mb-1.5 block text-xs font-semibold text-slate-700">Minimum payout (₹)</label><Input type="number" min="0" className="h-10" value={prefs.payouts.minPayout} onChange={(e) => updateNested("payouts", "minPayout", Number(e.target.value))} /></div>
           </CardContent>
         </Card>
 
-        <Card className="overflow-hidden rounded-2xl border-slate-200 shadow-sm">
+        <Card className="min-w-0 overflow-hidden rounded-2xl border-slate-200 shadow-sm">
           <CardHeader className="border-b border-emerald-100 bg-emerald-50/50 pb-3"><CardTitle className="flex items-center gap-2 text-base"><Bot className="h-5 w-5 text-emerald-700" />AI & analytics</CardTitle><CardDescription>Smart tools to grow your farm business.</CardDescription></CardHeader>
           <CardContent className="divide-y divide-slate-100 px-5 py-2">
             {toggleRow("Price prediction", "pricePrediction")}{toggleRow("Demand forecast", "demandForecast")}{toggleRow("Weather integration", "weatherIntegration")}{toggleRow("Smart recommendations", "smartRecommendations")}{toggleRow("Daily report", "dailyReport")}{toggleRow("Weekly report", "weeklyReport")}{toggleRow("Monthly report", "monthlyReport")}
           </CardContent>
         </Card>
 
-        <Card className="overflow-hidden rounded-2xl border-slate-200 shadow-sm">
+        <Card className="min-w-0 overflow-hidden rounded-2xl border-slate-200 shadow-sm">
           <CardHeader className="border-b border-emerald-100 bg-emerald-50/50 pb-3"><CardTitle className="flex items-center gap-2 text-base"><Shield className="h-5 w-5 text-emerald-700" />Alerts & security</CardTitle><CardDescription>How you hear about orders and account safety.</CardDescription></CardHeader>
           <CardContent className="divide-y divide-slate-100 px-5 py-2">
             {toggleRow("New order alert", "newOrderAlert")}{toggleRow("Order cancelled alert", "orderCancelled")}{toggleRow("Payment received alert", "paymentReceived")}{toggleRow("Low stock alerts", "lowStockAlerts")}{toggleRow("Auto-accept small orders", "autoAcceptSmallOrders")}
             <div className="my-2 rounded-lg bg-slate-50 p-3"><Badge variant="outline">Two-factor auth off</Badge><p className="mt-2 text-xs text-slate-500">Account recovery and device controls are not available yet.</p></div>
           </CardContent>
         </Card>
-
-        <Card className="overflow-hidden rounded-2xl border-slate-200 shadow-sm xl:col-span-2">
-          <CardHeader className="border-b border-emerald-100 bg-emerald-50/50 pb-3"><CardTitle className="flex items-center gap-2 text-base"><Package className="h-5 w-5 text-emerald-700" />Inventory & order defaults</CardTitle><CardDescription>Control stock alerts and default handling limits for incoming orders.</CardDescription></CardHeader>
-          <CardContent className="grid gap-4 p-5 lg:grid-cols-3">
-            <div><label className="mb-1.5 block text-xs font-semibold text-slate-600">Low stock alert (units)</label><Input type="number" min="0" className="h-10" value={prefs.product.lowStockAlert} onChange={(e) => updateNested("product", "lowStockAlert", Number(e.target.value))} /></div>
-            <div><label className="mb-1.5 block text-xs font-semibold text-slate-600">Critical stock (units)</label><Input type="number" min="0" className="h-10" value={prefs.product.criticalStock} onChange={(e) => updateNested("product", "criticalStock", Number(e.target.value))} /></div>
-            <div><label className="mb-1.5 block text-xs font-semibold text-slate-600">Notification method</label><Select className="h-10" value={prefs.product.notificationMethod} onValueChange={(v) => updateNested("product", "notificationMethod", v)}><SelectContent><SelectItem value="email">Email</SelectItem><SelectItem value="sms">SMS</SelectItem><SelectItem value="push">Push</SelectItem></SelectContent></Select></div>
-            <div><label className="mb-1.5 block text-xs font-semibold text-slate-600">Order timeout (min)</label><Input type="number" min="0" className="h-10" value={prefs.orders.orderTimeout} onChange={(e) => updateNested("orders", "orderTimeout", Number(e.target.value))} /></div>
-            <div><label className="mb-1.5 block text-xs font-semibold text-slate-600">Max orders / day</label><Input type="number" min="0" className="h-10" value={prefs.orders.maxOrdersPerDay} onChange={(e) => updateNested("orders", "maxOrdersPerDay", Number(e.target.value))} /></div>
-            <div><label className="mb-1.5 block text-xs font-semibold text-slate-600">Minimum order value (₹)</label><Input type="number" min="0" className="h-10" value={prefs.orders.minOrderValue} onChange={(e) => updateNested("orders", "minOrderValue", Number(e.target.value))} /></div>
-            <div><label className="mb-1.5 block text-xs font-semibold text-slate-600">Order delivery radius (km)</label><Input type="number" min="0" className="h-10" value={prefs.orders.deliveryRadius} onChange={(e) => updateNested("orders", "deliveryRadius", Number(e.target.value))} /></div>
-          </CardContent>
-        </Card>
-
-        <div className="flex flex-col gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/50 p-4 sm:flex-row sm:items-center sm:justify-between xl:col-span-2">
-          <div><p className="text-sm font-semibold text-slate-800">Save your preferences</p><p className="mt-1 text-xs text-slate-600">Applies delivery, payout, inventory, order, AI and alert settings.</p></div>
-          <Button onClick={savePrefs} disabled={savingPrefs || settingsLoading} className="h-10 rounded-xl bg-emerald-700 px-5 hover:bg-emerald-800">{savingPrefs ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}Save preferences</Button>
-        </div>
       </div>
     </div>
   );
