@@ -159,18 +159,18 @@ export default function FarmerAnalyticsPage() {
       )}
 
       {insights.length > 0 && (
-        <Card className="border-emerald-200 bg-gradient-to-br from-emerald-50/70 to-green-50/40">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Lightbulb className="h-5 w-5 text-emerald-600" />
+        <Card className="rounded-2xl border-slate-200/80 bg-white shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base font-semibold text-slate-900">
+              <Lightbulb className="h-5 w-5 text-emerald-700" />
               Farm insights and recommended actions
             </CardTitle>
-            <CardDescription>Practical actions based on your sales, stock, customer feedback and harvest activity.</CardDescription>
+            <CardDescription>Practical next steps based on your sales, inventory and harvest activity.</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-2 md:grid-cols-2">
+            <div className="grid gap-3 md:grid-cols-2">
               {insights.map((i: any, idx: number) => (
-                <div key={idx} className="flex items-start gap-3 rounded-lg border bg-white p-3">
+                <div key={idx} className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50/60 p-4">
                   <div>
                     <p className="font-medium">{i.title}</p>
                     <p className="text-sm text-gray-500">{i.message}</p>
@@ -198,17 +198,10 @@ export default function FarmerAnalyticsPage() {
         </CardContent>
       </Card>
 
-      <Card className="rounded-2xl border-slate-200/80 shadow-sm">
-        <CardHeader className="pb-2"><CardTitle className="text-base">Monthly sales trend</CardTitle><CardDescription>Revenue grouped by month from your customer order history.</CardDescription></CardHeader>
-        <CardContent>
-          {customerTrend.length > 0 ? <div className="h-52"><ResponsiveContainer width="100%" height="100%"><BarChart data={customerTrend}><CartesianGrid stroke="#e2e8f0" strokeDasharray="4 4" vertical={false} /><XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#64748b" }} /><YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#64748b" }} /><Tooltip /><Bar dataKey="revenue" name="Revenue" fill="#0f9f6e" radius={[6, 6, 0, 0]} /></BarChart></ResponsiveContainer></div> : <div className="rounded-xl border border-dashed border-slate-200 py-8 text-center text-sm text-slate-500">Monthly sales trends will appear after orders are recorded.</div>}
-        </CardContent>
-      </Card>
-
       <section className="grid gap-4 xl:grid-cols-2">
         <Card className="rounded-2xl border-slate-200/80 shadow-sm">
           <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-base"><Users className="h-5 w-5 text-sky-700" /> Customer trends</CardTitle>
+            <CardTitle className="flex items-center gap-2 text-base font-semibold text-slate-900"><Users className="h-5 w-5 text-sky-700" /> Customer trends</CardTitle>
             <CardDescription>Understand how many customers buy from your farm and how many return.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -223,7 +216,7 @@ export default function FarmerAnalyticsPage() {
 
         <Card className="rounded-2xl border-slate-200/80 shadow-sm">
           <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-base"><PackageCheck className="h-5 w-5 text-amber-600" /> Stock alerts</CardTitle>
+            <CardTitle className="flex items-center gap-2 text-base font-semibold text-slate-900"><PackageCheck className="h-5 w-5 text-amber-600" /> Stock alerts</CardTitle>
             <CardDescription>Products that may need replenishment before the next orders arrive.</CardDescription>
           </CardHeader>
           <CardContent>
@@ -234,22 +227,21 @@ export default function FarmerAnalyticsPage() {
 
       <Card className="rounded-2xl border-slate-200/80 shadow-sm">
         <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-2 text-base"><CircleDollarSign className="h-5 w-5 text-emerald-700" /> Revenue and cash flow</CardTitle>
-          <CardDescription>See sales revenue separately from money currently available or awaiting payout.</CardDescription>
+          <CardTitle className="flex items-center gap-2 text-base"><CircleDollarSign className="h-5 w-5 text-emerald-700" /> Payout overview</CardTitle>
+          <CardDescription>Track money available to withdraw and payments still being processed. Total sales are shown above.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div className="rounded-xl bg-emerald-50 p-4"><p className="text-xs font-medium text-emerald-800">Sales revenue</p><p className="mt-1 text-xl font-bold text-emerald-900">{formatPrice(data.totalRevenue ?? 0)}</p></div>
-            <div className="rounded-xl bg-sky-50 p-4"><p className="text-xs font-medium text-sky-800">Wallet balance</p><p className="mt-1 text-xl font-bold text-sky-900">{formatPrice(data.walletBalance ?? 0)}</p></div>
-            <div className="rounded-xl bg-amber-50 p-4"><p className="text-xs font-medium text-amber-800">Pending payout</p><p className="mt-1 text-xl font-bold text-amber-900">{formatPrice(data.pendingEarnings ?? 0)}</p></div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-xl border border-sky-100 bg-sky-50/70 p-4"><p className="text-xs font-medium text-sky-800">Wallet balance</p><p className="mt-1 text-xl font-bold text-sky-900">{formatPrice(data.walletBalance ?? 0)}</p></div>
+            <div className="rounded-xl border border-amber-100 bg-amber-50/70 p-4"><p className="text-xs font-medium text-amber-800">Pending payout</p><p className="mt-1 text-xl font-bold text-amber-900">{formatPrice(data.pendingEarnings ?? 0)}</p></div>
           </div>
           <p className="mt-3 text-xs text-slate-500">Net profit is not calculated because farm input costs, labour, packaging and transport expenses are not currently included in this analytics data. Revenue is not the same as profit.</p>
         </CardContent>
       </Card>
 
       {(aiDemand.length > 0 || aiPricing.length > 0) && (
-        <div className="grid gap-6 lg:grid-cols-2">
-          <Card className="border-emerald-200 bg-gradient-to-br from-emerald-50/60 to-violet-50/40">
+        <div className="grid gap-4 xl:grid-cols-2">
+          <Card className="rounded-2xl border-slate-200/80 bg-white shadow-sm">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Sparkles className="h-5 w-5 text-emerald-600" />
@@ -354,8 +346,8 @@ export default function FarmerAnalyticsPage() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card className="rounded-2xl border-slate-200/80 shadow-sm">
-          <CardHeader>
-            <CardTitle>Revenue trend</CardTitle>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base font-semibold text-slate-900">Revenue trend</CardTitle>
             <CardDescription>How much you earned in this period</CardDescription>
           </CardHeader>
           <CardContent>
@@ -375,8 +367,8 @@ export default function FarmerAnalyticsPage() {
         </Card>
 
         <Card className="rounded-2xl border-slate-200/80 shadow-sm">
-          <CardHeader>
-            <CardTitle>Sales by product category</CardTitle>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base font-semibold text-slate-900">Sales by product category</CardTitle>
             <CardDescription>Which crops customers buy the most</CardDescription>
           </CardHeader>
           <CardContent>
@@ -398,8 +390,8 @@ export default function FarmerAnalyticsPage() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card className="rounded-2xl border-slate-200/80 shadow-sm">
-          <CardHeader>
-            <CardTitle>Order status breakdown</CardTitle>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base font-semibold text-slate-900">Order status breakdown</CardTitle>
             <CardDescription>Pending, shipped or delivered</CardDescription>
           </CardHeader>
           <CardContent>
@@ -422,8 +414,8 @@ export default function FarmerAnalyticsPage() {
         </Card>
 
         <Card className="rounded-2xl border-slate-200/80 shadow-sm">
-          <CardHeader>
-            <CardTitle>Top-selling products</CardTitle>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base font-semibold text-slate-900">Top-selling products</CardTitle>
             <CardDescription>Products that earned you the most</CardDescription>
           </CardHeader>
           <CardContent>
@@ -464,7 +456,7 @@ export default function FarmerAnalyticsPage() {
 
       <Card className="rounded-2xl border-slate-200/80 shadow-sm">
         <CardHeader>
-<CardTitle>Current product stock</CardTitle>
+<CardTitle className="text-base font-semibold text-slate-900">Current product stock</CardTitle>
             <CardDescription>What you still have on hand</CardDescription>
         </CardHeader>
         <CardContent>
