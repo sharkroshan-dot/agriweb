@@ -195,9 +195,18 @@ async def learning_dashboard(current_user: dict = Depends(get_current_user)):
     progress = await MongoDB.get_collection("education_progress").find({"farmerId": uid}).to_list(2000)
     saved = await MongoDB.get_collection("education_saved").find({"farmerId": uid}).to_list(1000)
     plans = await MongoDB.get_collection("education_action_plans").find({"farmerId": uid}).sort("createdAt", -1).to_list(100)
+    certificates = await MongoDB.get_collection("education_certificates").find({"farmerId": uid}).sort("issuedAt", -1).to_list(100)
     completed = [p for p in progress if p.get("status") == "completed"]
     in_progress = [p for p in progress if p.get("status") == "in_progress"]
-    return {"success": True, "data": {"completedLessonIds": [p.get("lessonId") for p in completed], "inProgress": [_public(p) for p in in_progress], "savedResourceIds": [p.get("resourceId") for p in saved], "actionPlans": [_public(p) for p in plans], "completedCount": len(completed), "savedCount": len(saved)}}
+    return {"success": True, "data": {"completedLessonIds": [p.get("lessonId") for p in completed], "inProgress": [_public(p) for p in in_progress], "savedResourceIds": [p.get("resourceId") for p in saved], "actionPlans": [_public(p) for p in plans], "certificates": [_public(p) for p in certificates], "completedCount": len(completed), "savedCount": len(saved)}}
+
+
+
+@router.get("/me/certificates")
+async def list_education_certificates(current_user: dict = Depends(get_current_user)):
+    await _require_farmer(current_user)
+    rows = await MongoDB.get_collection("education_certificates").find({"farmerId": _user_id(current_user)}).sort("issuedAt", -1).to_list(200)
+    return {"success": True, "data": {"certificates": [_public(row) for row in rows]}}
 
 
 @router.post("/me/progress")
@@ -217,7 +226,24 @@ async def save_progress(body: ProgressBody, current_user: dict = Depends(get_cur
         {"$set": {"courseId": body.courseId, "status": body.status, "language": body.language, "secondsViewed": body.secondsViewed, "updatedAt": now}, "$setOnInsert": {"farmerId": uid, "lessonId": body.lessonId, "createdAt": now}},
         upsert=True,
     )
-    return {"success": True, "data": {"lessonId": body.lessonId, "status": body.status, "updatedAt": now.isoformat()}}
+    certificate = None
+    if body.status == "completed":
+        published_lessons = await MongoDB.get_collection("education_lessons").find({"courseId": course_id, "published": True}, {"_id": 1}).to_list(1000)
+        published_ids = {str(row["_id"]) for row in published_lessons}
+        done_rows = await MongoDB.get_collection("education_progress").find({"farmerId": uid, "courseId": body.courseId, "status": "completed"}).to_list(2000)
+        done_ids = {row.get("lessonId") for row in done_rows}
+        if published_ids and published_ids.issubset(done_ids):
+            cert_collection = MongoDB.get_collection("education_certificates")
+            existing = await cert_collection.find_one({"farmerId": uid, "courseId": body.courseId})
+            if not existing:
+                course = await MongoDB.get_collection("education_courses").find_one({"_id": course_id}) or {}
+                cert_doc = {"farmerId": uid, "courseId": body.courseId, "courseTitle": course.get("title", "AgriConnect course"), "certificateNumber": "AGR-EDU-" + uuid4().hex[:12].upper(), "issuedAt": now, "completedLessons": len(published_ids)}
+                cert_result = await cert_collection.insert_one(cert_doc)
+                cert_doc["_id"] = cert_result.inserted_id
+                certificate = _public(cert_doc)
+            else:
+                certificate = _public(existing)
+    return {"success": True, "data": {"lessonId": body.lessonId, "status": body.status, "updatedAt": now.isoformat(), "certificate": certificate}}
 
 
 @router.post("/me/saved")
@@ -465,7 +491,7 @@ async def admin_create_lesson(course_id: str, body: LessonBody, current_user: di
         raise HTTPException(status_code=404, detail="Course not found")
     now = datetime.utcnow()
     doc = body.model_dump()
-    doc.update({"courseId": ObjectId(course_id), "createdAt": now, "updatedAt": now, "createdBy": _user_id(current_user)})
+    doc.update({"courseId": ObjectId(course_id), "createdAt": now, "updatedAt": now, "createdBy": _user_id(current_user), "reviewStatus": "pending"})
     result = await MongoDB.get_collection("education_lessons").insert_one(doc)
     doc["_id"] = result.inserted_id
     return {"success": True, "data": _public(doc)}
@@ -576,7 +602,13 @@ class PublishBody(BaseModel):
 async def admin_publish_lesson(lesson_id: str, body: PublishBody, current_user: dict = Depends(require_role("admin"))):
     if not ObjectId.is_valid(lesson_id):
         raise HTTPException(status_code=400, detail="Invalid lesson id")
-    result = await MongoDB.get_collection("education_lessons").update_one(
+    lesson_collection = MongoDB.get_collection("education_lessons")
+    existing_lesson = await lesson_collection.find_one({"_id": ObjectId(lesson_id)})
+    if not existing_lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+    if body.published and existing_lesson.get("reviewStatus") in ("pending", "changes_requested"):
+        raise HTTPException(status_code=409, detail="Approve this lesson before publishing")
+    result = await lesson_collection.update_one(
         {"_id": ObjectId(lesson_id)},
         {"$set": {"published": body.published, "updatedAt": datetime.utcnow()}},
     )
