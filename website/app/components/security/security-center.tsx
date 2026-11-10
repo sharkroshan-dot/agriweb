@@ -90,6 +90,8 @@ export function SecurityCenter() {
   const [emailCode, setEmailCode] = useState("");
   const [pendingPhone, setPendingPhone] = useState(false);
   const [pendingEmail, setPendingEmail] = useState(false);
+  const [backupCodes, setBackupCodes] = useState<string[]>([]);
+  const [showBackupCodes, setShowBackupCodes] = useState(false);
 
   const { data, isLoading, isError, refetch } = useQuery<SecurityCenterData>({
     queryKey: ["securityCenter"],
@@ -123,8 +125,11 @@ export function SecurityCenter() {
 
   const enableMfa = useMutation({
     mutationFn: (code: string) => api.post("/auth/2fa/enable", { code }),
-    onSuccess: () => {
-      toast.success("Two-factor authentication enabled");
+    onSuccess: (res: any) => {
+      const result = res?.data ?? res ?? {};
+      setBackupCodes(Array.isArray(result.backupCodes) ? result.backupCodes : []);
+      setShowBackupCodes(true);
+      toast.success("Two-factor authentication enabled. Save your backup codes now.");
       setTotpCode("");
       setSetup(null);
       queryClient.invalidateQueries({ queryKey: ["securityCenter"] });
@@ -252,12 +257,20 @@ export function SecurityCenter() {
               <div className="flex gap-3"><div className="rounded-lg bg-emerald-50 p-2 text-emerald-700"><KeyRound className="h-5 w-5" /></div><div><p className="text-sm font-semibold text-slate-800">Two-factor authentication</p><p className="mt-1 text-xs leading-5 text-slate-500">Use an authenticator app code as an extra step when signing in.</p></div></div>
               <Badge className={data.mfaEnabled ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}>{data.mfaEnabled ? "Enabled" : "Off"}</Badge>
             </div>
+            {showBackupCodes && backupCodes.length > 0 && (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 space-y-3">
+                <div className="flex items-center gap-2 text-emerald-800"><ShieldCheck className="h-5 w-5" /><p className="font-semibold">Save your backup codes</p></div>
+                <p className="text-sm text-emerald-900">Each code can be used once if you lose access to your authenticator. This is the only time these codes are shown. Store them somewhere private and secure.</p>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">{backupCodes.map((code) => <code key={code} className="rounded-md border border-emerald-200 bg-white px-2 py-2 text-center text-sm font-mono">{code}</code>)}</div>
+                <div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => { void navigator.clipboard.writeText(backupCodes.join("\n")); toast.success("Backup codes copied"); }}><Copy className="mr-2 h-4 w-4" />Copy codes</Button><Button size="sm" variant="outline" onClick={() => { const blob = new Blob(["AgriConnect 2FA backup codes\nKeep these codes private. Each code works once.\n\n" + backupCodes.join("\n")], {type:"text/plain"}); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = "agriconnect-2fa-backup-codes.txt"; link.click(); URL.revokeObjectURL(url); }}><KeyRound className="mr-2 h-4 w-4" />Download</Button><Button size="sm" onClick={() => { setShowBackupCodes(false); setBackupCodes([]); }}>I saved these codes</Button></div>
+              </div>
+            )}
             {data.mfaEnabled ? (
               <div className="space-y-3"><p className="text-xs text-slate-600">To turn off 2FA, enter the current code from your authenticator app.</p><div className="flex flex-col gap-2 sm:flex-row"><input value={totpCode} onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="6-digit authenticator code" className="h-10 min-w-0 flex-1 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100" inputMode="numeric" maxLength={6} /><Button variant="outline" disabled={totpCode.length !== 6 || disableMfa.isPending} onClick={() => disableMfa.mutate(totpCode)}>{disableMfa.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Disable 2FA</Button></div></div>
             ) : setup ? (
               <div className="space-y-4 rounded-xl border border-emerald-100 bg-emerald-50/40 p-4">
-                <p className="text-sm font-medium text-slate-800">1. Scan this QR code in your authenticator app.</p>
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-start"><div className="w-fit rounded-xl border bg-white p-3"><QRCodeSVG value={setup.otpauthUrl} size={148} /></div><div className="min-w-0 flex-1 space-y-3"><div><p className="text-xs font-medium text-slate-600">Or enter this setup key manually</p><div className="mt-1 flex items-center gap-2"><code className="min-w-0 flex-1 truncate rounded-lg bg-white px-3 py-2 text-xs">{setup.secret}</code><Button variant="outline" size="sm" onClick={() => copySecret(setup.secret)}>{copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}{copied ? "Copied" : "Copy"}</Button></div></div><p className="text-sm font-medium text-slate-800">2. Enter the 6-digit code to verify and enable.</p><input value={totpCode} onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="6-digit code" className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm" inputMode="numeric" maxLength={6} /><div className="flex flex-wrap gap-2"><Button disabled={totpCode.length !== 6 || enableMfa.isPending} onClick={() => enableMfa.mutate(totpCode)}>{enableMfa.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Verify and enable</Button><Button variant="outline" disabled={cancelMfaSetup.isPending} onClick={() => cancelMfaSetup.mutate()}>{cancelMfaSetup.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Cancel setup</Button></div></div></div>
+                <div className="space-y-1"><p className="text-sm font-semibold text-slate-800">1. Scan this QR code with an authenticator app</p><p className="text-xs text-slate-600">Open Google Authenticator, Microsoft Authenticator or another TOTP app, tap Add account, then scan this code. You can also enter the setup key manually.</p></div>
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start"><div className="w-fit rounded-xl border bg-white p-3"><QRCodeSVG value={setup.otpauthUrl} size={148} /></div><div className="min-w-0 flex-1 space-y-3"><div><div className="flex items-center gap-2"><p className="text-xs font-semibold text-slate-700">Manual setup key</p><Badge className="border-amber-200 bg-amber-50 text-amber-800">Keep private</Badge></div><p className="text-xs text-slate-500">This is a secret, not a hashed password. Anyone who has it can generate your sign-in codes.</p><div className="mt-1 flex items-center gap-2"><code className="min-w-0 flex-1 truncate rounded-lg bg-white px-3 py-2 text-xs">{setup.secret}</code><Button variant="outline" size="sm" onClick={() => copySecret(setup.secret)}>{copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}{copied ? "Copied" : "Copy"}</Button></div></div><p className="text-sm font-semibold text-slate-800">2. Enter the current 6-digit code from your authenticator app</p><p className="text-xs text-slate-600">This is not an SMS code. It refreshes about every 30 seconds.</p><input value={totpCode} onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="6-digit code" className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm" inputMode="numeric" maxLength={6} /><div className="flex flex-wrap gap-2"><Button disabled={totpCode.length !== 6 || enableMfa.isPending} onClick={() => enableMfa.mutate(totpCode)}>{enableMfa.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Verify and enable</Button><Button variant="outline" disabled={cancelMfaSetup.isPending} onClick={() => cancelMfaSetup.mutate()}>{cancelMfaSetup.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Cancel setup</Button></div></div></div>
               </div>
             ) : (
               <Button disabled={setupMfa.isPending} onClick={() => setupMfa.mutate()} className="w-full bg-emerald-700 hover:bg-emerald-800">{setupMfa.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <QrCode className="mr-2 h-4 w-4" />}Set up two-factor authentication</Button>
