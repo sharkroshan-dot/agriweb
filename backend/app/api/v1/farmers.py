@@ -69,6 +69,7 @@ class UpdateFarmerProfileRequest(BaseModel):
     weeklyPickupWindow: Optional[str] = None
     farmAddress: Optional[str] = None
     pickupInstructions: Optional[str] = None
+    profileImage: Optional[str] = None
 
 router = APIRouter()
 
