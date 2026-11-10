@@ -918,7 +918,7 @@ async def security_activity(limit: int = 30, current_user: dict = Depends(get_cu
 
 
 @router.get("/security-center")
-async def security_center(current_user: dict = Depends(get_current_user)):
+async def security_center(current_user: dict = Depends(get_current_user), token: str = Depends(oauth2_scheme)):
     """Account security overview: sessions, 2FA, risk flags, verifications."""
     user_id = str(current_user["_id"])
     sessions = await session_repository.get_active_by_user(user_id)
@@ -961,6 +961,7 @@ async def security_center(current_user: dict = Depends(get_current_user)):
         "data": {
             "userId": user_id,
             "role": current_user.get("role"),
+            "currentJti": _jti_from_token(token),
             "mfaEnabled": bool(current_user.get("totpEnabled")),
             "activeSessions": session_count,
             "sessions": sessions,
@@ -970,6 +971,6 @@ async def security_center(current_user: dict = Depends(get_current_user)):
             "verification": verification,
             "trustScore": trust_score,
             "passwordChangedAt": current_user.get("passwordChangedAt"),
-            "lastLoginAt": current_user.get("lastLoginAt"),
+            "lastLoginAt": current_user.get("lastLoginAt") or current_user.get("lastLogin"),
         },
     }
