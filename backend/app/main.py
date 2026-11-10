@@ -282,6 +282,7 @@ async def health_check():
 from app.api.v1 import auth, users, products, orders, payments, farmers, warehouse, delivery, notifications, analytics, community_delivery, customers, marketplace, logistics, community_buying, farmer_offers, cooperatives, settlements
 from app.api.v1 import admin, coupons, complaints, kyc, settings as settings_router, delivery_ratings
 from app.api.v1 import quality, workflow
+from app.api.v1 import education
 from app.api.v1 import ai
 _ai_router = ai.router
 
@@ -334,6 +335,7 @@ from app.api.v1 import refunds
 app.include_router(refunds.router, prefix="/api/v1/refunds", tags=["Refunds"])
 app.include_router(quality.router, prefix="/api/v1/quality", tags=["Quality"])
 app.include_router(workflow.router, prefix="/api/v1/workflow", tags=["Workflow"])
+app.include_router(education.router, prefix="/api/v1/education", tags=["Education Center"])
 app.include_router(_ai_router, prefix="/api/v1/ai", tags=["AI"])
 
 if __name__ == "__main__":
