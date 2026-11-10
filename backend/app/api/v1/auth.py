@@ -596,6 +596,35 @@ async def verify_otp(otp_data: OTPVerify, request: Request = None):
     await RedisClient.delete_cache(cache_key)
     logger.info(f"OTP verification successful for {normalized_phone}")
 
+    # Detect and notify about OTP-based sign-ins from a previously unseen browser.
+    otp_user_id = str(user["_id"])
+    known_otp_device = await session_repository.collection.find_one({
+        "userId": ObjectId(otp_user_id), "userAgent": ua
+    }) if ua else True
+    if not known_otp_device:
+        device_name = _device_label(ua)
+        message = f"A new sign-in to your AgriConnect account was detected from {device_name} (IP: {ip or 'unavailable'}). If this wasn't you, change your password immediately."
+        await AuditService.log(
+            actor_id=otp_user_id, actor_role=user.get("role"), action="login",
+            resource="auth", outcome="new_device", ip=ip, user_agent=ua,
+            metadata={"newDevice": True, "method": "otp"},
+        )
+        try:
+            await NotificationService.create_in_app_notification(
+                user_id=otp_user_id, type=NotificationType.SECURITY,
+                title="New device signed in", message=message,
+                data={"event": "new_device", "ip": ip, "device": device_name},
+                priority=NotificationPriority.HIGH, mandatory=True,
+            )
+        except Exception:
+            logger.exception("Could not create OTP new-device security notification")
+        if user.get("email"):
+            await NotificationService.send_email(
+                user["email"], "New device sign-in to your AgriConnect account",
+                f"<p>{message}</p><p>If you don't recognize this activity, change your password and revoke unknown sessions.</p>",
+                plain_text=message,
+            )
+
     # Record the session and audit the login.
     await _register_session(str(user["_id"]), _jti_from_token(access_token) or "", ip, ua)
     await AuditService.log(
