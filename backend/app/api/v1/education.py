@@ -134,6 +134,11 @@ SEED_COURSES = [
 
 async def _seed_courses():
     courses = MongoDB.get_collection("education_courses")
+    await courses.create_index("slug", unique=True)
+    await MongoDB.get_collection("education_lessons").create_index([("courseId", 1), ("published", 1), ("order", 1)])
+    await MongoDB.get_collection("education_progress").create_index([("farmerId", 1), ("lessonId", 1)], unique=True)
+    await MongoDB.get_collection("education_saved").create_index([("farmerId", 1), ("resourceId", 1)], unique=True)
+    await MongoDB.get_collection("education_action_plans").create_index([("farmerId", 1), ("createdAt", -1)])
     now = datetime.utcnow()
     for item in SEED_COURSES:
         existing = await courses.find_one({"slug": item["slug"]})
