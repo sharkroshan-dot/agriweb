@@ -232,7 +232,9 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         )
     
     # PII / secret minimization: never expose the password hash or reset tokens.
+    password_configured = bool(user.get("passwordHash"))
     user = {k: v for k, v in user.items() if k not in ("passwordHash", "passwordResetToken", "otpHash")}
+    user["passwordConfigured"] = password_configured
     
     return user
 
@@ -1058,7 +1060,7 @@ async def security_center(current_user: dict = Depends(get_current_user), token:
 
     # Deterministic account-protection score based on real configured controls.
     security_checks = {
-        "passwordConfigured": bool(current_user.get("passwordHash")),
+        "passwordConfigured": bool(current_user.get("passwordConfigured")),
         "twoFactorEnabled": bool(current_user.get("totpEnabled")),
         "recoveryPhoneVerified": bool(current_user.get("recoveryPhoneVerified")),
         "recoveryEmailVerified": bool(current_user.get("recoveryEmailVerified")),
