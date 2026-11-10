@@ -39,6 +39,12 @@ interface SecurityCenterData {
   trustScore: number;
   lastLoginAt?: string;
   currentJti?: string;
+  securityScore?: number;
+  securityLevel?: string;
+  recoveryPhone?: string;
+  recoveryPhoneVerified?: boolean;
+  recoveryEmail?: string;
+  recoveryEmailVerified?: boolean;
 }
 
 const RISK_STYLES: Record<string, string> = {
@@ -78,6 +84,12 @@ export function SecurityCenter() {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [recoveryPhone, setRecoveryPhone] = useState("");
+  const [recoveryEmail, setRecoveryEmail] = useState("");
+  const [phoneCode, setPhoneCode] = useState("");
+  const [emailCode, setEmailCode] = useState("");
+  const [pendingPhone, setPendingPhone] = useState(false);
+  const [pendingEmail, setPendingEmail] = useState(false);
 
   const { data, isLoading, isError, refetch } = useQuery<SecurityCenterData>({
     queryKey: ["securityCenter"],
@@ -128,6 +140,29 @@ export function SecurityCenter() {
       queryClient.invalidateQueries({ queryKey: ["securityCenter"] });
     },
     onError: (err: any) => toast.error(err?.message || "Invalid code"),
+  });
+
+  const requestRecoveryCode = useMutation({
+    mutationFn: ({ channel, destination }: { channel: "phone" | "email"; destination: string }) =>
+      api.post(`/auth/recovery/${channel}/request`, { destination }),
+    onSuccess: (_res: any, variables) => {
+      if (variables.channel === "phone") setPendingPhone(true); else setPendingEmail(true);
+      toast.success("Verification code sent. Check your recovery contact.");
+    },
+    onError: (err: any) => toast.error(err?.message || "Could not send verification code"),
+  });
+
+  const verifyRecoveryCode = useMutation({
+    mutationFn: ({ channel, code }: { channel: "phone" | "email"; code: string }) =>
+      api.post(`/auth/recovery/${channel}/verify`, { code }),
+    onSuccess: (_res: any, variables) => {
+      if (variables.channel === "phone") { setPendingPhone(false); setPhoneCode(""); }
+      else { setPendingEmail(false); setEmailCode(""); }
+      toast.success("Recovery contact verified");
+      queryClient.invalidateQueries({ queryKey: ["securityCenter"] });
+      queryClient.invalidateQueries({ queryKey: ["securityActivity"] });
+    },
+    onError: (err: any) => toast.error(err?.message || "Verification failed"),
   });
 
   const changePassword = useMutation({
@@ -198,7 +233,7 @@ export function SecurityCenter() {
         <Card className="overflow-hidden rounded-2xl border-emerald-100 shadow-sm">
           <CardContent className="flex items-center gap-4 p-4">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><ShieldCheck className="h-6 w-6" /></div>
-            <div className="min-w-0"><p className="text-xs font-medium text-slate-500">Account risk score</p><div className="mt-1 flex items-center gap-2"><span className="text-2xl font-bold text-slate-900">{data.riskScore ?? "—"}<span className="text-sm font-medium text-slate-400">/100</span></span><Badge className={riskStyle}>{riskLevel}</Badge></div><p className="mt-0.5 text-xs text-slate-500">Lower risk is better</p></div>
+            <div className="min-w-0"><p className="text-xs font-medium text-slate-500">Account risk score</p><div className="mt-1 flex items-center gap-2"><span className="text-2xl font-bold text-slate-900">{data.securityScore ?? "—"}<span className="text-sm font-medium text-slate-400">/100</span></span><Badge className={riskStyle}>{data.securityLevel || riskLevel}</Badge></div><p className="mt-0.5 text-xs text-slate-500">Based on verified account protections</p></div>
           </CardContent>
         </Card>
         <Card className="rounded-2xl border-slate-200 shadow-sm"><CardContent className="flex items-center gap-4 p-4"><div className="flex h-12 w-12 items-center justify-center rounded-xl bg-sky-50 text-sky-700"><Laptop className="h-6 w-6" /></div><div><p className="text-xs font-medium text-slate-500">Active sessions</p><p className="mt-1 text-2xl font-bold text-slate-900">{data.activeSessions ?? sessions.length}</p><p className="text-xs text-slate-500">Currently signed-in sessions</p></div></CardContent></Card>
@@ -227,6 +262,18 @@ export function SecurityCenter() {
             ) : (
               <Button disabled={setupMfa.isPending} onClick={() => setupMfa.mutate()} className="w-full bg-emerald-700 hover:bg-emerald-800">{setupMfa.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <QrCode className="mr-2 h-4 w-4" />}Set up two-factor authentication</Button>
             )}
+            <div className="rounded-xl border border-slate-200 p-4 space-y-4">
+              <div><p className="text-sm font-semibold text-slate-800">Recovery phone</p><p className="mt-1 text-xs text-slate-500">Used to help recover your account. Verification code expires in 5 minutes.</p>
+                <div className="mt-2 flex flex-col gap-2 sm:flex-row"><input value={recoveryPhone} onChange={(e) => setRecoveryPhone(e.target.value)} placeholder={data.recoveryPhone || "+91 98765 43210"} className="h-10 min-w-0 flex-1 rounded-lg border border-slate-200 px-3 text-sm" /><Button size="sm" variant="outline" disabled={!recoveryPhone.trim() || requestRecoveryCode.isPending} onClick={() => requestRecoveryCode.mutate({channel:"phone",destination:recoveryPhone.trim()})}>Send OTP</Button></div>
+                {data.recoveryPhoneVerified && <Badge className="mt-2 border-emerald-200 bg-emerald-50 text-emerald-700">Verified: {data.recoveryPhone}</Badge>}
+                {pendingPhone && <div className="mt-2 flex gap-2"><input value={phoneCode} onChange={(e) => setPhoneCode(e.target.value.replace(/\D/g,"").slice(0,6))} placeholder="6-digit phone OTP" inputMode="numeric" className="h-10 min-w-0 flex-1 rounded-lg border border-slate-200 px-3 text-sm" /><Button size="sm" disabled={phoneCode.length!==6 || verifyRecoveryCode.isPending} onClick={() => verifyRecoveryCode.mutate({channel:"phone",code:phoneCode})}>Verify</Button></div>}
+              </div>
+              <div className="border-t border-slate-100 pt-4"><p className="text-sm font-semibold text-slate-800">Recovery email</p><p className="mt-1 text-xs text-slate-500">A verification code will be sent to the address you enter.</p>
+                <div className="mt-2 flex flex-col gap-2 sm:flex-row"><input type="email" value={recoveryEmail} onChange={(e) => setRecoveryEmail(e.target.value)} placeholder={data.recoveryEmail || "recovery@example.com"} className="h-10 min-w-0 flex-1 rounded-lg border border-slate-200 px-3 text-sm" /><Button size="sm" variant="outline" disabled={!recoveryEmail.trim() || requestRecoveryCode.isPending} onClick={() => requestRecoveryCode.mutate({channel:"email",destination:recoveryEmail.trim()})}>Send code</Button></div>
+                {data.recoveryEmailVerified && <Badge className="mt-2 border-emerald-200 bg-emerald-50 text-emerald-700">Verified: {data.recoveryEmail}</Badge>}
+                {pendingEmail && <div className="mt-2 flex gap-2"><input value={emailCode} onChange={(e) => setEmailCode(e.target.value.replace(/\D/g,"").slice(0,6))} placeholder="6-digit email code" inputMode="numeric" className="h-10 min-w-0 flex-1 rounded-lg border border-slate-200 px-3 text-sm" /><Button size="sm" disabled={emailCode.length!==6 || verifyRecoveryCode.isPending} onClick={() => verifyRecoveryCode.mutate({channel:"email",code:emailCode})}>Verify</Button></div>}
+              </div>
+            </div>
             <div className="rounded-xl border border-slate-200 p-4">
               <div className="flex items-center justify-between gap-3"><div><p className="text-sm font-semibold text-slate-800">Password</p><p className="mt-1 text-xs text-slate-500">Change your password regularly and never reuse it.</p></div><Button size="sm" variant="outline" onClick={() => setShowPasswordForm((v) => !v)}>{showPasswordForm ? "Cancel" : "Change password"}</Button></div>
               {showPasswordForm && <div className="mt-4 space-y-2">
