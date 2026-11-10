@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../lib/api/client";
@@ -92,6 +92,15 @@ export function SecurityCenter() {
   const [pendingEmail, setPendingEmail] = useState(false);
   const [backupCodes, setBackupCodes] = useState<string[]>([]);
   const [showBackupCodes, setShowBackupCodes] = useState(false);
+  const [totpSecondsLeft, setTotpSecondsLeft] = useState(30);
+
+  useEffect(() => {
+    if (!setup) return;
+    const updateCountdown = () => setTotpSecondsLeft(30 - (Math.floor(Date.now() / 1000) % 30));
+    updateCountdown();
+    const timer = window.setInterval(updateCountdown, 1000);
+    return () => window.clearInterval(timer);
+  }, [setup]);
 
   const { data, isLoading, isError, refetch } = useQuery<SecurityCenterData>({
     queryKey: ["securityCenter"],
@@ -270,7 +279,7 @@ export function SecurityCenter() {
             ) : setup ? (
               <div className="space-y-4 rounded-xl border border-emerald-100 bg-emerald-50/40 p-4">
                 <div className="space-y-1"><p className="text-sm font-semibold text-slate-800">1. Scan this QR code with an authenticator app</p><p className="text-xs text-slate-600">Open Google Authenticator, Microsoft Authenticator or another TOTP app, tap Add account, then scan this code. You can also enter the setup key manually.</p></div>
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-start"><div className="w-fit rounded-xl border bg-white p-3"><QRCodeSVG value={setup.otpauthUrl} size={148} /></div><div className="min-w-0 flex-1 space-y-3"><div><div className="flex items-center gap-2"><p className="text-xs font-semibold text-slate-700">Manual setup key</p><Badge className="border-amber-200 bg-amber-50 text-amber-800">Keep private</Badge></div><p className="text-xs text-slate-500">This is a secret, not a hashed password. Anyone who has it can generate your sign-in codes.</p><div className="mt-1 flex items-center gap-2"><code className="min-w-0 flex-1 truncate rounded-lg bg-white px-3 py-2 text-xs">{setup.secret}</code><Button variant="outline" size="sm" onClick={() => copySecret(setup.secret)}>{copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}{copied ? "Copied" : "Copy"}</Button></div></div><p className="text-sm font-semibold text-slate-800">2. Enter the current 6-digit code from your authenticator app</p><p className="text-xs text-slate-600">This is not an SMS code. It refreshes about every 30 seconds.</p><input value={totpCode} onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="6-digit code" className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm" inputMode="numeric" maxLength={6} /><div className="flex flex-wrap gap-2"><Button disabled={totpCode.length !== 6 || enableMfa.isPending} onClick={() => enableMfa.mutate(totpCode)}>{enableMfa.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Verify and enable</Button><Button variant="outline" disabled={cancelMfaSetup.isPending} onClick={() => cancelMfaSetup.mutate()}>{cancelMfaSetup.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Cancel setup</Button></div></div></div>
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start"><div className="w-fit rounded-xl border bg-white p-3"><QRCodeSVG value={setup.otpauthUrl} size={148} /></div><div className="min-w-0 flex-1 space-y-3"><div><div className="flex items-center gap-2"><p className="text-xs font-semibold text-slate-700">Manual setup key</p><Badge className="border-amber-200 bg-amber-50 text-amber-800">Keep private</Badge></div><p className="text-xs text-slate-500">This is a secret, not a hashed password. Anyone who has it can generate your sign-in codes.</p><div className="mt-1 flex items-center gap-2"><code className="min-w-0 flex-1 truncate rounded-lg bg-white px-3 py-2 text-xs">{setup.secret}</code><Button variant="outline" size="sm" onClick={() => copySecret(setup.secret)}>{copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}{copied ? "Copied" : "Copy"}</Button></div></div><p className="text-sm font-semibold text-slate-800">2. Enter the current 6-digit code from your authenticator app</p><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs text-slate-600">This is not an SMS code. Your authenticator generates a new code every 30 seconds.</p><Badge variant="outline">Code refreshes in {totpSecondsLeft}s</Badge></div><input value={totpCode} onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="6-digit code" className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm" inputMode="numeric" maxLength={6} /><div className="flex flex-wrap gap-2"><Button disabled={totpCode.length !== 6 || enableMfa.isPending} onClick={() => enableMfa.mutate(totpCode)}>{enableMfa.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Verify and enable</Button><Button variant="outline" disabled={cancelMfaSetup.isPending} onClick={() => cancelMfaSetup.mutate()}>{cancelMfaSetup.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Cancel setup</Button></div></div></div>
               </div>
             ) : (
               <Button disabled={setupMfa.isPending} onClick={() => setupMfa.mutate()} className="w-full bg-emerald-700 hover:bg-emerald-800">{setupMfa.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <QrCode className="mr-2 h-4 w-4" />}Set up two-factor authentication</Button>
