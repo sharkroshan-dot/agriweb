@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import {
   GraduationCap,
   BookOpen,
@@ -123,17 +122,9 @@ export default function FarmerEducationPage() {
     localStorage.setItem("farmerEducation:completed", JSON.stringify(next));
   };
 
-  const { data: educationData, isLoading, isError, refetch } = useQuery({
-    queryKey: ["farmerEducation"],
-    queryFn: () => api.get("/education/resources"),
-    retry: 1,
-  });
-
-  const apiResources = useMemo(() => {
-    const list = educationData?.data?.resources || educationData?.data || [];
-    if (Array.isArray(list) && list.length > 0) return list;
-    return RESOURCES;
-  }, [educationData]);
+  // The backend does not currently expose /education/resources.
+  // Use the curated in-app catalogue so learning resources remain available without a failing API request.
+  const apiResources = RESOURCES;
 
   const filtered = apiResources.filter((r: any) => {
     const topicMatch = activeTopic === "all" || r.topic === activeTopic;
@@ -194,8 +185,7 @@ export default function FarmerEducationPage() {
           {TOPICS.map((topic) => <button key={topic.id} type="button" onClick={() => setActiveTopic(topic.id)} className={cn("shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-colors", activeTopic === topic.id ? "bg-emerald-700 text-white" : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50")}>{topic.name}</button>)}
         </div>
 
-        {isLoading ? (
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{[1,2,3,4,5,6].map((n) => <div key={n} className="h-48 animate-pulse rounded-2xl bg-slate-100" />)}</div>
+                  <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{[1,2,3,4,5,6].map((n) => <div key={n} className="h-48 animate-pulse rounded-2xl bg-slate-100" />)}</div>
         ) : isError ? (
           <Card className="rounded-2xl border-red-200 bg-red-50/40 shadow-none"><CardContent className="flex flex-col items-start justify-between gap-3 p-5 sm:flex-row sm:items-center"><div><p className="font-semibold text-slate-900">Learning resources could not be refreshed</p><p className="mt-1 text-sm text-slate-600">Retry loading the latest resources. Built-in learning resources may still be available.</p></div><button type="button" onClick={() => refetch()} className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white">Try again</button></CardContent></Card>
         ) : (
@@ -220,8 +210,7 @@ export default function FarmerEducationPage() {
               );
             })}
             {filtered.length === 0 && <Card className="rounded-2xl border-dashed border-slate-300 bg-slate-50/50 shadow-none sm:col-span-2 xl:col-span-3"><CardContent className="py-12 text-center"><BookOpen className="mx-auto h-8 w-8 text-slate-400" /><p className="mt-3 font-semibold text-slate-800">{showSaved ? "No saved resources yet" : "No matching resources found"}</p><p className="mt-1 text-sm text-slate-500">{showSaved ? "Save a guide to keep it here for quick access." : "Try another search term or choose a different topic."}</p>{(search || activeTopic !== "all" || showSaved) && <button type="button" onClick={() => { setSearch(""); setActiveTopic("all"); setShowSaved(false); }} className="mt-4 text-sm font-semibold text-emerald-700 hover:text-emerald-800">Clear filters</button>}</CardContent></Card>}
-          </div>
-        )}
+          </div>}
       </section>
 
       {selectedResource && (
