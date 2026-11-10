@@ -363,7 +363,7 @@ async def login(form_data: LoginForm = Depends(), request: Request = None):
         )
 
     # 2FA: privileged accounts with TOTP enabled must present a valid code.
-    if user.get("totpEnabled") and user.get("role") in PRIVILEGED_ROLES:
+    if user.get("totpEnabled"):
         totp_code = (form_data.totp_code or "").strip()
         if not totp_code or not verify_code(user.get("totpSecret", ""), totp_code):
             await AuditService.log(
@@ -531,6 +531,12 @@ async def verify_otp(otp_data: OTPVerify, request: Request = None):
             detail="User not found"
         )
     
+    if user.get("totpEnabled"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account uses two-factor authentication. Sign in with your password and authenticator code instead of phone OTP.",
+        )
+
     # Mark as verified if not
     if not user.get("isVerified", user.get("is_verified", False)):
         await UserService.mark_verified(str(user["_id"]))
@@ -821,6 +827,15 @@ async def setup_2fa(current_user: dict = Depends(get_current_user)):
             "instructions": "Scan with an authenticator app, then call /2fa/enable with a code.",
         },
     }
+
+
+@router.post("/2fa/cancel-setup")
+async def cancel_2fa_setup(current_user: dict = Depends(get_current_user)):
+    """Clear a pending TOTP secret without changing an already-enabled factor."""
+    if current_user.get("totpEnabled"):
+        raise HTTPException(status_code=400, detail="Two-factor authentication is already enabled")
+    await UserService.update_totp_secret(str(current_user["_id"]), "", enabled=False)
+    return {"success": True, "message": "Two-factor setup cancelled"}
 
 
 @router.post("/2fa/enable")
