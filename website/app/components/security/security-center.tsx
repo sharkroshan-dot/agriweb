@@ -98,6 +98,17 @@ export function SecurityCenter() {
     onError: (err: any) => toast.error(err?.message || "Failed to start 2FA setup"),
   });
 
+  const cancelMfaSetup = useMutation({
+    mutationFn: () => api.post("/auth/2fa/cancel-setup", {}),
+    onSuccess: () => {
+      setSetup(null);
+      setTotpCode("");
+      toast.success("Two-factor setup cancelled");
+      queryClient.invalidateQueries({ queryKey: ["securityCenter"] });
+    },
+    onError: (err: any) => toast.error(err?.message || "Could not cancel 2FA setup"),
+  });
+
   const enableMfa = useMutation({
     mutationFn: (code: string) => api.post("/auth/2fa/enable", { code }),
     onSuccess: () => {
@@ -211,7 +222,7 @@ export function SecurityCenter() {
             ) : setup ? (
               <div className="space-y-4 rounded-xl border border-emerald-100 bg-emerald-50/40 p-4">
                 <p className="text-sm font-medium text-slate-800">1. Scan this QR code in your authenticator app.</p>
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-start"><div className="w-fit rounded-xl border bg-white p-3"><QRCodeSVG value={setup.otpauthUrl} size={148} /></div><div className="min-w-0 flex-1 space-y-3"><div><p className="text-xs font-medium text-slate-600">Or enter this setup key manually</p><div className="mt-1 flex items-center gap-2"><code className="min-w-0 flex-1 truncate rounded-lg bg-white px-3 py-2 text-xs">{setup.secret}</code><Button variant="outline" size="sm" onClick={() => copySecret(setup.secret)}>{copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}{copied ? "Copied" : "Copy"}</Button></div></div><p className="text-sm font-medium text-slate-800">2. Enter the 6-digit code to verify and enable.</p><input value={totpCode} onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="6-digit code" className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm" inputMode="numeric" maxLength={6} /><div className="flex flex-wrap gap-2"><Button disabled={totpCode.length !== 6 || enableMfa.isPending} onClick={() => enableMfa.mutate(totpCode)}>{enableMfa.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Verify and enable</Button><Button variant="outline" onClick={() => { setSetup(null); setTotpCode(""); }}>Cancel setup</Button></div></div></div>
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start"><div className="w-fit rounded-xl border bg-white p-3"><QRCodeSVG value={setup.otpauthUrl} size={148} /></div><div className="min-w-0 flex-1 space-y-3"><div><p className="text-xs font-medium text-slate-600">Or enter this setup key manually</p><div className="mt-1 flex items-center gap-2"><code className="min-w-0 flex-1 truncate rounded-lg bg-white px-3 py-2 text-xs">{setup.secret}</code><Button variant="outline" size="sm" onClick={() => copySecret(setup.secret)}>{copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}{copied ? "Copied" : "Copy"}</Button></div></div><p className="text-sm font-medium text-slate-800">2. Enter the 6-digit code to verify and enable.</p><input value={totpCode} onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="6-digit code" className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm" inputMode="numeric" maxLength={6} /><div className="flex flex-wrap gap-2"><Button disabled={totpCode.length !== 6 || enableMfa.isPending} onClick={() => enableMfa.mutate(totpCode)}>{enableMfa.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Verify and enable</Button><Button variant="outline" disabled={cancelMfaSetup.isPending} onClick={() => cancelMfaSetup.mutate()}>{cancelMfaSetup.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Cancel setup</Button></div></div></div>
               </div>
             ) : (
               <Button disabled={setupMfa.isPending} onClick={() => setupMfa.mutate()} className="w-full bg-emerald-700 hover:bg-emerald-800">{setupMfa.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <QrCode className="mr-2 h-4 w-4" />}Set up two-factor authentication</Button>
