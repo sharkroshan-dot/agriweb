@@ -1,0 +1,42 @@
+"use client";
+
+import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { BookOpen, GraduationCap, Plus, Save, ShieldCheck } from "lucide-react";
+import { api } from "../../../../lib/api/client";
+import { Button } from "../../../../components/ui/button";
+import { Input } from "../../../../components/ui/input";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../../components/ui/card";
+import { Badge } from "../../../../components/ui/badge";
+
+export default function AdminEducationPage() {
+  const qc = useQueryClient();
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [category, setCategory] = useState("Crop Management");
+  const [level, setLevel] = useState("Beginner");
+  const [language, setLanguage] = useState("en");
+  const [lessonCourse, setLessonCourse] = useState("");
+  const [lessonTitle, setLessonTitle] = useState("");
+  const [lessonSummary, setLessonSummary] = useState("");
+  const [lessonContent, setLessonContent] = useState("");
+  const statsQuery = useQuery({ queryKey: ["educationAdminAnalytics"], queryFn: () => api.get("/education/admin/analytics") });
+  const coursesQuery = useQuery({ queryKey: ["educationAdminCourses"], queryFn: () => api.get("/education/admin/courses") });
+  const stats = statsQuery.data?.data ?? {};
+  const courses = coursesQuery.data?.data?.courses ?? [];
+
+  const createCourse = useMutation({ mutationFn: () => api.post("/education/admin/courses", { title, description, category, level, estimatedMinutes: 30, language, published: false }), onSuccess: () => { setTitle(""); setDescription(""); qc.invalidateQueries({ queryKey: ["educationAdminCourses"] }); qc.invalidateQueries({ queryKey: ["educationAdminAnalytics"] }); } });
+  const createLesson = useMutation({ mutationFn: () => api.post("/education/admin/courses/" + lessonCourse + "/lessons", { title: lessonTitle, summary: lessonSummary, content: lessonContent, order: 1, estimatedMinutes: 10, language, published: false }), onSuccess: () => { setLessonTitle(""); setLessonSummary(""); setLessonContent(""); qc.invalidateQueries({ queryKey: ["educationAdminCourses"] }); qc.invalidateQueries({ queryKey: ["educationAdminAnalytics"] }); } });
+  const publishCourse = useMutation({ mutationFn: (course: any) => api.put("/education/admin/courses/" + course.id, { title: course.title, description: course.description, category: course.category, level: course.level, estimatedMinutes: course.estimatedMinutes || 30, language: course.language || "en", translations: course.translations || {}, published: !course.published }), onSuccess: () => qc.invalidateQueries({ queryKey: ["educationAdminCourses"] }) });
+
+  return <div className="w-full min-w-0 space-y-6 pb-8">
+    <section className="rounded-2xl border border-emerald-100 bg-emerald-50/50 p-5"><div className="flex items-center gap-3"><div className="rounded-xl bg-white p-3 text-emerald-700"><GraduationCap className="h-6 w-6" /></div><div><p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">Content administration</p><h1 className="text-2xl font-bold text-slate-900">Education management</h1><p className="text-sm text-slate-600">Create courses, add lessons and control publication of farmer learning content.</p></div></div></section>
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{[["Courses",stats.totalCourses],["Published courses",stats.publishedCourses],["Lessons",stats.totalLessons],["Active learners",stats.activeLearners]].map(([label,value]) => <Card key={String(label)}><CardContent className="p-4"><p className="text-xs text-slate-500">{label}</p><p className="mt-1 text-2xl font-bold">{value ?? "—"}</p></CardContent></Card>)}</div>
+    <div className="grid gap-5 xl:grid-cols-2">
+      <Card><CardHeader><CardTitle className="flex items-center gap-2 text-base"><Plus className="h-4 w-4 text-emerald-700" /> Create course</CardTitle><CardDescription>New courses are saved as drafts until an admin publishes them.</CardDescription></CardHeader><CardContent className="space-y-3"><Input value={title} onChange={e=>setTitle(e.target.value)} placeholder="Course title" /><textarea value={description} onChange={e=>setDescription(e.target.value)} placeholder="Course description" className="min-h-24 w-full rounded-lg border border-slate-200 p-3 text-sm" /><div className="grid grid-cols-2 gap-2"><select value={category} onChange={e=>setCategory(e.target.value)} className="h-10 rounded-lg border px-2 text-sm">{["Crop Management","Pest Management","Irrigation","Farm Business","Post-harvest","Organic Farming"].map(x=><option key={x}>{x}</option>)}</select><select value={level} onChange={e=>setLevel(e.target.value)} className="h-10 rounded-lg border px-2 text-sm">{["Beginner","Intermediate","Advanced","All levels"].map(x=><option key={x}>{x}</option>)}</select></div><select value={language} onChange={e=>setLanguage(e.target.value)} className="h-10 w-full rounded-lg border px-2 text-sm"><option value="en">English</option><option value="ta">Tamil</option><option value="hi">Hindi</option></select><Button disabled={title.trim().length<3||description.trim().length<10||createCourse.isPending} onClick={()=>createCourse.mutate()}><Save className="mr-2 h-4 w-4" />Save course draft</Button>{createCourse.isSuccess&&<p className="text-sm text-emerald-700">Course draft created.</p>}{createCourse.isError&&<p className="text-sm text-red-600">Could not create course. Check your admin access and try again.</p>}</CardContent></Card>
+      <Card><CardHeader><CardTitle className="flex items-center gap-2 text-base"><BookOpen className="h-4 w-4 text-emerald-700" /> Add lesson</CardTitle><CardDescription>Add written lesson content to an existing course.</CardDescription></CardHeader><CardContent className="space-y-3"><select value={lessonCourse} onChange={e=>setLessonCourse(e.target.value)} className="h-10 w-full rounded-lg border px-2 text-sm"><option value="">Select course</option>{courses.map((course:any)=><option key={course.id} value={course.id}>{course.title}</option>)}</select><Input value={lessonTitle} onChange={e=>setLessonTitle(e.target.value)} placeholder="Lesson title" /><Input value={lessonSummary} onChange={e=>setLessonSummary(e.target.value)} placeholder="Short lesson summary" /><textarea value={lessonContent} onChange={e=>setLessonContent(e.target.value)} placeholder="Lesson content and practical guidance" className="min-h-32 w-full rounded-lg border border-slate-200 p-3 text-sm" /><Button disabled={!lessonCourse||lessonTitle.trim().length<3||lessonContent.trim().length<10||createLesson.isPending} onClick={()=>createLesson.mutate()}>Save lesson draft</Button>{createLesson.isSuccess&&<p className="text-sm text-emerald-700">Lesson draft created.</p>}{createLesson.isError&&<p className="text-sm text-red-600">Could not create lesson.</p>}</CardContent></Card>
+    </div>
+    <Card><CardHeader><CardTitle>Course library</CardTitle><CardDescription>Review drafts and published courses.</CardDescription></CardHeader><CardContent className="space-y-3">{coursesQuery.isLoading?<p className="text-sm text-slate-500">Loading courses…</p>:courses.map((course:any)=><div key={course.id} className="flex flex-col gap-3 rounded-xl border p-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold text-slate-900">{course.title}</p><p className="text-sm text-slate-500">{course.category} · {course.lessonCount} lessons</p></div><div className="flex items-center gap-2"><Badge variant="outline">{course.published?"Published":"Draft"}</Badge><Button size="sm" variant="outline" disabled={publishCourse.isPending} onClick={()=>publishCourse.mutate(course)}>{course.published?"Unpublish":"Publish"}</Button></div></div>)}</CardContent></Card>
+    <p className="flex items-center gap-2 text-xs text-slate-500"><ShieldCheck className="h-4 w-4" /> This page uses admin-protected APIs. Only authorized admin accounts can manage education content.</p>
+  </div>;
+}
