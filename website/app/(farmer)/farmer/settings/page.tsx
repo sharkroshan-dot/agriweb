@@ -282,7 +282,7 @@ export default function FarmerSettingsPage() {
             <div className="sm:col-span-2"><label className="mb-1.5 block text-xs font-semibold text-slate-700">Pickup Instructions</label><Input className="h-10 w-full rounded-lg border-slate-200" value={profile.pickupInstructions} onChange={(event) => setProfile((current) => ({ ...current, pickupInstructions: event.target.value }))} placeholder="Landmark, gate details or contact instructions" /></div>
             <div className="sm:col-span-2"><label className="mb-1.5 block text-xs font-semibold text-slate-700">Weekly Pickup Window</label><Input className="h-10 w-full rounded-lg border-slate-200" value={profile.weeklyPickupWindow} onChange={(event) => setProfile((current) => ({ ...current, weeklyPickupWindow: event.target.value }))} /></div>
           </div>
-          <div className="mx-auto flex aspect-square w-full max-w-[220px] flex-col items-center justify-center rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4 text-center">
+          <div className="flex h-full min-h-[310px] w-full flex-col items-center justify-center self-stretch rounded-xl border border-emerald-200 bg-emerald-50/60 p-5 text-center">
             <p className="mb-3 text-sm font-semibold text-slate-800">Profile Photo</p>
             <div className="mb-3 flex h-28 w-28 items-center justify-center overflow-hidden rounded-full border-2 border-emerald-600 bg-emerald-100 text-3xl font-bold text-emerald-700 shadow-sm">
               {profilePhotoUrl ? <img src={profilePhotoUrl} alt="Farmer profile" className="h-full w-full object-cover" /> : (profile.ownerName || userName).trim().charAt(0).toUpperCase()}
