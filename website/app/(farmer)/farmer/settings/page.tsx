@@ -180,7 +180,7 @@ export default function FarmerSettingsPage() {
         </div>
         <div className="flex items-center gap-2">
           {lastSaved && <span className="text-xs text-muted-foreground">Preferences saved at {lastSaved}</span>}
-          <Button size="sm" onClick={savePrefs} disabled={savingPrefs}>
+          <Button size="sm" onClick={savePrefs} disabled={savingPrefs || settingsLoading} className="h-10 rounded-lg px-4 shadow-sm">
             {savingPrefs ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Save className="mr-1.5 h-4 w-4" />}
             Save preferences
           </Button>
