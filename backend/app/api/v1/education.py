@@ -505,6 +505,69 @@ async def admin_archive_course(course_id: str, current_user: dict = Depends(requ
     return {"success": True, "message": "Course archived"}
 
 
+
+class ReorderLessonsBody(BaseModel):
+    lessonIds: list[str] = Field(min_length=1, max_length=500)
+
+
+class ReviewBody(BaseModel):
+    approved: bool
+    notes: Optional[str] = Field(default=None, max_length=2000)
+
+
+@router.patch("/admin/courses/{course_id}/lessons/reorder")
+async def admin_reorder_lessons(course_id: str, body: ReorderLessonsBody, current_user: dict = Depends(require_role("admin"))):
+    if not ObjectId.is_valid(course_id):
+        raise HTTPException(status_code=400, detail="Invalid course id")
+    course_oid = ObjectId(course_id)
+    lesson_ids = body.lessonIds
+    if len(set(lesson_ids)) != len(lesson_ids) or any(not ObjectId.is_valid(item) for item in lesson_ids):
+        raise HTTPException(status_code=400, detail="Lesson IDs must be valid and unique")
+    lessons = MongoDB.get_collection("education_lessons")
+    rows = await lessons.find({"_id": {"$in": [ObjectId(item) for item in lesson_ids]}, "courseId": course_oid}).to_list(len(lesson_ids))
+    if len(rows) != len(lesson_ids):
+        raise HTTPException(status_code=400, detail="Every lesson must belong to this course")
+    now = datetime.utcnow()
+    for order, lesson_id in enumerate(lesson_ids, start=1):
+        await lessons.update_one({"_id": ObjectId(lesson_id), "courseId": course_oid}, {"$set": {"order": order, "updatedAt": now}})
+    return {"success": True, "data": {"courseId": course_id, "lessonIds": lesson_ids}}
+
+
+@router.patch("/admin/lessons/{lesson_id}/review")
+async def admin_review_lesson(lesson_id: str, body: ReviewBody, current_user: dict = Depends(require_role("admin"))):
+    if not ObjectId.is_valid(lesson_id):
+        raise HTTPException(status_code=400, detail="Invalid lesson id")
+    now = datetime.utcnow()
+    values = {"reviewStatus": "approved" if body.approved else "changes_requested", "reviewNotes": body.notes, "reviewedBy": _user_id(current_user), "reviewedAt": now, "updatedAt": now}
+    result = await MongoDB.get_collection("education_lessons").update_one({"_id": ObjectId(lesson_id)}, {"$set": values})
+    if not result.matched_count:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+    return {"success": True, "data": {"lessonId": lesson_id, **{k: v for k, v in values.items() if k not in ("reviewedBy",)}}}
+
+
+@router.get("/admin/reports")
+async def education_admin_reports(current_user: dict = Depends(require_role("admin"))):
+    courses = MongoDB.get_collection("education_courses")
+    lessons = MongoDB.get_collection("education_lessons")
+    progress = MongoDB.get_collection("education_progress")
+    by_course = await progress.aggregate([
+        {"$group": {"_id": "$courseId", "completions": {"$sum": {"$cond": [{"$eq": ["$status", "completed"]}, 1, 0]}}, "learners": {"$addToSet": "$farmerId"}}},
+        {"$project": {"completions": 1, "learners": {"$size": "$learners"}}},
+        {"$sort": {"completions": -1}},
+    ]).to_list(500)
+    by_language = await progress.aggregate([
+        {"$group": {"_id": "$language", "activities": {"$sum": 1}, "completions": {"$sum": {"$cond": [{"$eq": ["$status", "completed"]}, 1, 0]}}}},
+        {"$sort": {"activities": -1}},
+    ]).to_list(20)
+    course_rows = await courses.find({}).to_list(500)
+    course_map = {str(row["_id"]): row.get("title", "Untitled course") for row in course_rows}
+    for row in by_course:
+        row["courseId"] = str(row.pop("_id"))
+        row["courseTitle"] = course_map.get(row["courseId"], "Archived course")
+    pending_reviews = await lessons.count_documents({"reviewStatus": {"$in": ["pending", "changes_requested"]}})
+    return {"success": True, "data": {"courses": by_course, "languages": [{"language": row.get("_id") or "unknown", "activities": row["activities"], "completions": row["completions"]} for row in by_language], "pendingReviews": pending_reviews}}
+
+
 class PublishBody(BaseModel):
     published: bool
 
