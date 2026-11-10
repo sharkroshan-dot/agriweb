@@ -129,6 +129,55 @@ SEED_COURSES = [
             {"title": "Prepare and communicate an order", "summary": "Keep customers informed through fulfilment.", "content": "Confirm the ordered quantity and agreed delivery or pickup method. Check produce quality, pack it appropriately and communicate any genuine delay or shortage early. Update order stages accurately and keep proof of handover where the workflow requires it.", "translations": {"ta": {"title": "ஆர்டரை தயாரித்து தகவல் தெரிவிக்கவும்", "summary": "ஆர்டர் நிறைவேறும் வரை வாடிக்கையாளருடன் தொடர்பில் இருங்கள்.", "content": "ஆர்டர் அளவு மற்றும் ஒப்புக்கொண்ட விநியோகம் அல்லது pickup முறையை உறுதிப்படுத்துங்கள். தரத்தைச் சரிபார்த்து பொருத்தமாகப் பொதியுங்கள். தாமதம் அல்லது பற்றாக்குறை இருந்தால் முன்கூட்டியே தெரிவிக்கவும். ஆர்டர் நிலையை சரியாக புதுப்பிக்கவும்."}, "hi": {"title": "ऑर्डर तैयार करें और जानकारी दें", "summary": "ऑर्डर पूरा होने तक ग्राहक को सूचित रखें।", "content": "ऑर्डर मात्रा और तय डिलीवरी या पिकअप विधि की पुष्टि करें। गुणवत्ता जांचें और उचित पैकिंग करें। देरी या कमी होने पर समय से बताएं और ऑर्डर स्थिति सही अपडेट करें।"}}, "actionTasks": ["Confirm order quantity and fulfilment method", "Check and pack produce", "Update the order status and communicate changes"]},
         ],
     },
+
+    {
+        "slug": "harvest-grading-and-quality", "title": "Harvest grading and quality",
+        "description": "Learn how to assess, grade, sort and present harvested produce consistently and honestly.",
+        "category": "Quality", "level": "Beginner", "estimatedMinutes": 25,
+        "lessons": [
+            {"title": "How to grade your harvest like a pro", "summary": "Sort produce using consistent, buyer-agreed quality criteria.", "content": "Begin by separating produce by crop and variety. Remove damaged, diseased, over-mature or visibly contaminated items according to the buyer's specification and safe handling guidance. Compare size, maturity, colour, freshness and visible defects only against a clearly agreed grade standard for that crop. Keep different grades separate, use clean sorting surfaces and containers, and do not describe produce as certified or premium unless you have evidence. Record the quantity in each grade and share clear photographs with buyers before dispatch. Grade definitions vary by crop, buyer and market, so confirm the applicable local standard rather than assuming one universal grade.", "actionTasks": ["Ask the buyer for the crop-specific grade specification", "Prepare clean sorting space and containers", "Separate and weigh each agreed grade", "Photograph and record the graded lots"]},
+        ],
+    },
+    {
+        "slug": "cold-chain-and-produce-storage", "title": "Cold-chain basics and produce storage",
+        "description": "Understand careful handling, cooling, storage and transport practices that help maintain produce freshness.",
+        "category": "Storage", "level": "Beginner", "estimatedMinutes": 30,
+        "lessons": [
+            {"title": "Cold-chain basics: keeping produce fresh longer", "summary": "Reduce avoidable heat, damage and delays after harvest.", "content": "A cold chain is the planned handling of perishable produce at suitable conditions from harvest through storage and transport. Start by harvesting at a suitable time, keeping produce shaded, using clean ventilated crates and avoiding unnecessary handling. Remove field heat using a method appropriate to the crop. Different crops have different temperature and humidity needs; some are damaged by chilling, so never apply one temperature to every crop. Keep storage areas clean, monitor and record conditions, separate produce that may cause odour or ripening effects where appropriate, and minimise loading delays. Use crop-specific guidance from an agricultural university, extension officer or qualified post-harvest specialist to choose storage conditions.", "actionTasks": ["Identify the crop's recommended storage conditions", "Move harvested produce out of direct sun", "Inspect crates and storage area for cleanliness", "Record storage temperature and dispatch time"]},
+        ],
+    },
+    {
+        "slug": "market-price-and-produce-pricing", "title": "Market prices and pricing your produce",
+        "description": "Learn to compare market information and calculate a transparent selling price.",
+        "category": "Pricing", "level": "Intermediate", "estimatedMinutes": 25,
+        "lessons": [
+            {"title": "Reading market prices to price your produce", "summary": "Compare reliable market signals before setting a price.", "content": "Check recent prices for the same crop, variety, grade and unit in more than one relevant market where possible. Note the date, market location and whether the figure is a modal, minimum, maximum or actual transaction price. Prices change with quality, season, arrival volumes, transport costs and demand. Calculate your own cost per saleable unit, including inputs, labour, packaging, transport, platform charges and expected losses. Compare the resulting break-even price with current market information and the buyer's quality requirements. Do not treat yesterday's price or a headline market quote as a guaranteed price for today's sale.", "actionTasks": ["Record two or more dated market price references", "Confirm the correct unit and grade for comparison", "Calculate production, packing and delivery costs", "Set and review a transparent offer price"]},
+        ],
+    },
+    {
+        "slug": "pm-kisan-and-government-schemes", "title": "PM-KISAN and government schemes",
+        "description": "Learn how to find official scheme information and verify eligibility before applying.",
+        "category": "Government Schemes", "level": "Beginner", "estimatedMinutes": 25,
+        "lessons": [
+            {"title": "PM-KISAN and other schemes you may be eligible for", "summary": "Use official sources to check scheme rules, eligibility and application status.", "content": "Government schemes have eligibility conditions, application windows and required documents that can change. For PM-KISAN, check the current eligibility rules, beneficiary status, e-KYC requirements and official announcements on the Government of India's PM-KISAN portal. Do not rely on forwarded messages, unofficial agents or requests to pay a fee to release benefits. For state-level support, check the Tamil Nadu Agriculture and Farmers Welfare Department and the relevant district office. Keep copies of applications and acknowledgement numbers, and never share OTPs, passwords or bank credentials with intermediaries. This lesson is an information guide, not a guarantee that any farmer qualifies or will receive a payment.", "actionTasks": ["Open the official PM-KISAN portal and read current eligibility rules", "Check official beneficiary and e-KYC status if applicable", "Ask the district agriculture office about relevant state schemes", "Keep application acknowledgements and protect account credentials"]},
+        ],
+    },
+    {
+        "slug": "digital-selling-and-repeat-customers", "title": "Digital selling and repeat customers",
+        "description": "Build trust with accurate listings, reliable fulfilment and good buyer communication.",
+        "category": "Digital Selling", "level": "Intermediate", "estimatedMinutes": 25,
+        "lessons": [
+            {"title": "Using the marketplace to get repeat customers", "summary": "Turn a successful first order into a reliable buyer relationship.", "content": "Create a clear listing with the correct crop name, variety where known, unit, available quantity, harvest date, grade and realistic delivery area. Use recent photographs of the actual produce and update stock promptly. Confirm order details before preparation, communicate substitutions or shortages early, pack safely and dispatch on the agreed schedule. After delivery, ask for specific feedback and use it to improve quality and service. Keep communication professional and do not promise a quantity or delivery time you cannot meet. Repeat business depends on consistency, transparency and resolving issues fairly.", "actionTasks": ["Update product details and actual available stock", "Upload current photographs and quality information", "Confirm quantity and delivery expectations with the buyer", "Request feedback and record improvements after delivery"]},
+        ],
+    },
+    {
+        "slug": "eco-friendly-farm-packaging", "title": "Affordable, eco-friendly packaging",
+        "description": "Choose practical packaging that protects produce while controlling cost and waste.",
+        "category": "Packaging", "level": "Beginner", "estimatedMinutes": 20,
+        "lessons": [
+            {"title": "Cheap, eco-friendly packaging for farm produce", "summary": "Balance product protection, ventilation, cost and reuse.", "content": "Choose packaging according to the crop's weight, fragility, moisture sensitivity, journey length and buyer requirements. Clean reusable crates can reduce repeated packaging waste when they are suitable, sanitised and returned through a clear system. Corrugated cartons or paper-based materials may work for some produce if they remain strong and dry; they are not suitable for every crop or wet journey. Provide enough ventilation where needed, avoid overfilling, prevent crushing and keep different products separated when required. Compare total cost per trip, including cleaning, return transport, breakage and disposal, rather than looking only at the purchase price. Follow food-contact and local packaging requirements.", "actionTasks": ["List the crop's protection and ventilation needs", "Compare reusable crates and suitable recyclable options", "Calculate cost per use including cleaning and returns", "Test a small packed load for damage before wider use"]},
+        ],
+    },
 ]
 
 
@@ -140,20 +189,26 @@ async def _seed_courses():
     await MongoDB.get_collection("education_saved").create_index([("farmerId", 1), ("resourceId", 1)], unique=True)
     await MongoDB.get_collection("education_action_plans").create_index([("farmerId", 1), ("createdAt", -1)])
     now = datetime.utcnow()
+    lesson_collection = MongoDB.get_collection("education_lessons")
     for item in SEED_COURSES:
         existing = await courses.find_one({"slug": item["slug"]})
         if existing:
-            continue
-        course_doc = {k: v for k, v in item.items() if k != "lessons"}
-        course_doc.update({"published": True, "createdAt": now, "updatedAt": now, "createdBy": "system"})
-        result = await courses.insert_one(course_doc)
-        lesson_docs = []
+            course_id = existing["_id"]
+        else:
+            course_doc = {k: v for k, v in item.items() if k != "lessons"}
+            course_doc.update({"published": True, "createdAt": now, "updatedAt": now, "createdBy": "system"})
+            result = await courses.insert_one(course_doc)
+            course_id = result.inserted_id
+
+        # Idempotently append any missing lessons. This also upgrades installations
+        # that already have the original four courses without duplicating content.
         for index, lesson in enumerate(item["lessons"], 1):
+            already_exists = await lesson_collection.find_one({"courseId": course_id, "title": lesson["title"]})
+            if already_exists:
+                continue
             row = dict(lesson)
-            row.update({"courseId": result.inserted_id, "order": index, "estimatedMinutes": 10, "published": True, "createdAt": now, "updatedAt": now, "createdBy": "system"})
-            lesson_docs.append(row)
-        if lesson_docs:
-            await MongoDB.get_collection("education_lessons").insert_many(lesson_docs)
+            row.update({"courseId": course_id, "order": index, "estimatedMinutes": item.get("estimatedMinutes", 10), "published": True, "createdAt": now, "updatedAt": now, "createdBy": "system", "reviewStatus": "approved"})
+            await lesson_collection.insert_one(row)
 
 
 def _localized(doc: dict, language: str) -> dict:
