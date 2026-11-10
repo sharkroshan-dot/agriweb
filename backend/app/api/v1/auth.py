@@ -56,7 +56,7 @@ def _device_label(ua: str) -> str:
 
 
 async def _register_session(user_id: str, jti: str, ip: Optional[str], ua: str) -> None:
-    """Record a login session (best-effort)."""
+    """Record a login session with the same expiry as the access token."""
     try:
         await session_repository.create_session({
             "userId": ObjectId(user_id),
@@ -64,6 +64,7 @@ async def _register_session(user_id: str, jti: str, ip: Optional[str], ua: str) 
             "ip": ip,
             "userAgent": ua,
             "device": _device_label(ua),
+            "expiresAt": datetime.utcnow() + timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES),
         })
     except Exception as exc:
         logger.error(f"Session registration failed: {exc}")
