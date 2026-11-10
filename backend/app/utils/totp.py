@@ -8,10 +8,38 @@ import hashlib
 import hmac
 import struct
 import time
+import os
+from cryptography.fernet import Fernet, InvalidToken
+from app.core.config import settings
 from typing import Optional
 
 _STEP = 30  # seconds
 _DIGITS = 6
+
+def _secret_cipher() -> Fernet:
+    """Derive a stable Fernet key; configure TOTP_ENCRYPTION_KEY separately in production."""
+    configured = getattr(settings, "TOTP_ENCRYPTION_KEY", None)
+    material = (configured or settings.JWT_SECRET).encode("utf-8")
+    key = base64.urlsafe_b64encode(hashlib.sha256(material).digest())
+    return Fernet(key)
+
+
+def encrypt_secret(secret: str) -> str:
+    if not secret:
+        return ""
+    return "enc:v1:" + _secret_cipher().encrypt(secret.encode("utf-8")).decode("ascii")
+
+
+def decrypt_secret(value: str) -> str:
+    if not value:
+        return ""
+    if not value.startswith("enc:v1:"):
+        # Backward compatibility for TOTP secrets created before encryption.
+        return value
+    try:
+        return _secret_cipher().decrypt(value[7:].encode("ascii")).decode("utf-8")
+    except (InvalidToken, ValueError):
+        raise ValueError("Unable to decrypt the saved authenticator secret. Check TOTP_ENCRYPTION_KEY.")
 
 
 def generate_secret() -> str:
