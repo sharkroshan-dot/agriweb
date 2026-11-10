@@ -3,6 +3,8 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from datetime import datetime, timedelta
 from typing import Optional
 import logging
+import hashlib
+import secrets
 
 from bson import ObjectId
 
@@ -397,7 +399,11 @@ async def login(form_data: LoginForm = Depends(), request: Request = None):
     # 2FA: privileged accounts with TOTP enabled must present a valid code.
     if user.get("totpEnabled"):
         totp_code = (form_data.totp_code or "").strip()
-        if not totp_code or not verify_code(user.get("totpSecret", ""), totp_code):
+        totp_valid = bool(totp_code and verify_code(user.get("totpSecret", ""), totp_code))
+        backup_hashes = list(user.get("totpBackupCodeHashes") or [])
+        backup_hash = hashlib.sha256(totp_code.upper().encode("utf-8")).hexdigest() if totp_code else ""
+        backup_valid = bool(backup_hash and backup_hash in backup_hashes)
+        if not totp_valid and not backup_valid:
             await AuditService.log(
                 actor_id=str(user["_id"]), actor_role=user.get("role"), action="login",
                 resource="auth", outcome="failure", ip=ip, user_agent=ua,
@@ -407,6 +413,17 @@ async def login(form_data: LoginForm = Depends(), request: Request = None):
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Two-factor authentication code required or invalid",
                 headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        # Consume a backup code immediately; it can only be used once.
+        if backup_valid:
+            backup_hashes.remove(backup_hash)
+            await user_repository.update_user(str(user["_id"]), {"totpBackupCodeHashes": backup_hashes})
+            await AuditService.log(
+                actor_id=str(user["_id"]), actor_role=user.get("role"),
+                action="use_2fa_backup_code", resource="auth", outcome="success",
+                ip=ip, user_agent=ua,
+                metadata={"remainingBackupCodes": len(backup_hashes)},
             )
 
     # Check if user is verified
@@ -904,7 +921,7 @@ async def cancel_2fa_setup(current_user: dict = Depends(get_current_user)):
     """Clear a pending TOTP secret without changing an already-enabled factor."""
     if current_user.get("totpEnabled"):
         raise HTTPException(status_code=400, detail="Two-factor authentication is already enabled")
-    await UserService.update_totp_secret(str(current_user["_id"]), "", enabled=False)
+    await user_repository.update_user(str(current_user["_id"]), {"totpSecret": "", "totpEnabled": False, "totpBackupCodeHashes": [], "totpBackupCodesGeneratedAt": None})
     return {"success": True, "message": "Two-factor setup cancelled"}
 
 
@@ -914,12 +931,20 @@ async def enable_2fa(code: str = Body(..., embed=True), current_user: dict = Dep
     secret = current_user.get("totpSecret", "")
     if not secret or not verify_code(secret, code):
         raise HTTPException(status_code=400, detail="Invalid or missing 2FA code — enter the current code shown in your authenticator app")
-    await UserService.update_totp_secret(str(current_user["_id"]), secret, enabled=True)
+    # Generate one-time backup codes. Only SHA-256 hashes are stored.
+    backup_codes = [secrets.token_hex(4).upper() for _ in range(10)]
+    backup_hashes = [hashlib.sha256(code.encode("utf-8")).hexdigest() for code in backup_codes]
+    await user_repository.update_user(str(current_user["_id"]), {
+        "totpSecret": secret,
+        "totpEnabled": True,
+        "totpBackupCodeHashes": backup_hashes,
+        "totpBackupCodesGeneratedAt": datetime.utcnow(),
+    })
     await AuditService.log(
         actor_id=str(current_user["_id"]), actor_role=current_user.get("role"),
         action="enable_2fa", resource="auth", outcome="success",
     )
-    return {"success": True, "message": "Two-factor authentication enabled"}
+    return {"success": True, "message": "Two-factor authentication enabled", "backupCodes": backup_codes}
 
 
 @router.post("/2fa/disable")
