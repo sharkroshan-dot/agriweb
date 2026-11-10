@@ -28,7 +28,11 @@ function SettingsToggle({ checked, onChange, label }: { checked: boolean; onChan
         justifyContent: checked ? "flex-end" : "flex-start",
         width: 44,
         minWidth: 44,
+        maxWidth: 44,
         height: 24,
+        minHeight: 24,
+        maxHeight: 24,
+        flexShrink: 0,
         padding: 2,
         boxSizing: "border-box",
         border: 0,
@@ -167,13 +171,19 @@ export default function FarmerSettingsPage() {
     setPrefs((current) => ({ ...current, [section]: { ...current[section], [field]: value } }));
   };
 
-  const toggle = (field: ToggleKeys) => {
+  const toggle = (field: ToggleKeys, nextValue?: boolean) => {
     const section = (["pricePrediction", "demandForecast", "weatherIntegration", "smartRecommendations", "dailyReport", "weeklyReport", "monthlyReport"].includes(field))
       ? "ai"
       : (["newOrderAlert", "orderCancelled", "paymentReceived", "autoAcceptSmallOrders", "lowStockAlerts"].includes(field))
         ? "alerts"
         : "payouts";
-    setPrefs((current) => ({ ...current, [section]: { ...current[section], [field]: !current[section][field] } }));
+    setPrefs((current) => ({
+      ...current,
+      [section]: {
+        ...current[section],
+        [field]: typeof nextValue === "boolean" ? nextValue : !current[section][field],
+      },
+    }));
   };
 
   const saveProfile = async () => {
@@ -208,7 +218,7 @@ export default function FarmerSettingsPage() {
   const toggleRow = (label: string, key: ToggleKeys) => (
     <div key={key} className="flex items-center justify-between rounded-lg border p-3 text-sm font-medium">
       {label}
-      <SettingsToggle checked={Boolean(prefs.alerts[key] ?? prefs.ai[key] ?? prefs.payouts[key])} onChange={() => toggle(key)} label={`Toggle ${label}`} />
+      <SettingsToggle checked={Boolean(prefs.alerts[key] ?? prefs.ai[key] ?? prefs.payouts[key])} onChange={(nextValue) => toggle(key, nextValue)} label={`Toggle ${label}`} />
     </div>
   );
 
