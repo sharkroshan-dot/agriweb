@@ -79,7 +79,6 @@ export default function FarmerDashboardPage() {
   const { data: session } = useSession();
   const userName = (session?.user as any)?.name || "Farmer";
   const [period, setPeriod] = useState<"week" | "month" | "year">("week");
-  const [activeView, setActiveView] = useState<"dashboard" | "operations">("dashboard");
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
 
   useEffect(() => {
@@ -210,16 +209,7 @@ export default function FarmerDashboardPage() {
         </div>
       </FarmerPageHeader>
 
-      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-2 shadow-sm" role="tablist" aria-label="Farmer dashboard views">
-        <button type="button" role="tab" aria-selected={activeView === "dashboard"} onClick={() => setActiveView("dashboard")} className={cn("rounded-lg px-4 py-2 text-sm font-semibold transition", activeView === "dashboard" ? "bg-emerald-700 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100")}>
-          Dashboard
-        </button>
-        <button type="button" role="tab" aria-selected={activeView === "operations"} onClick={() => setActiveView("operations")} className={cn("rounded-lg px-4 py-2 text-sm font-semibold transition", activeView === "operations" ? "bg-emerald-700 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100")}>
-          Operations Overview
-        </button>
-      </div>
-
-      {activeView === "operations" ? <FarmerOperationsOverview /> : <>
+      <>
       <div className="farmer-task-banner flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div><p className="font-semibold text-emerald-950">Today’s operations queue</p><p className="mt-1 text-sm text-emerald-800">Start with orders that need confirmation, packing or delivery planning.</p></div>
         <div className="flex flex-wrap gap-2"><Button asChild size="sm" variant="outline"><Link href="/farmer/orders">Review orders</Link></Button><Button asChild size="sm" variant="outline"><Link href="/farmer/packing">Open packing</Link></Button></div>
@@ -835,7 +825,9 @@ export default function FarmerDashboardPage() {
           )}
         </CardContent>
       </Card>
-      </>}
+      </>
+
+      <FarmerOperationsOverview />
     </div>
   );
 }
