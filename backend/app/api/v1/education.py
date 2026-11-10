@@ -266,10 +266,57 @@ async def update_action_task(plan_id: str, task_id: str, body: TaskUpdateBody, c
     return {"success": True, "data": _public(plan)}
 
 
+
+class EducationPreferenceBody(BaseModel):
+    language: str = Field(default="en", pattern="^(en|ta|hi)$")
+    learningLevel: Optional[str] = Field(default=None, max_length=40)
+    interests: list[str] = Field(default_factory=list, max_length=20)
+
+
+@router.get("/me/preferences")
+async def get_education_preferences(current_user: dict = Depends(get_current_user)):
+    await _require_farmer(current_user)
+    row = await MongoDB.get_collection("education_preferences").find_one({"farmerId": _user_id(current_user)})
+    return {"success": True, "data": row or {"language": "en", "learningLevel": "Beginner", "interests": []}}
+
+
+@router.put("/me/preferences")
+async def save_education_preferences(body: EducationPreferenceBody, current_user: dict = Depends(get_current_user)):
+    await _require_farmer(current_user)
+    now = datetime.utcnow()
+    values = body.model_dump()
+    values["updatedAt"] = now
+    await MongoDB.get_collection("education_preferences").update_one(
+        {"farmerId": _user_id(current_user)},
+        {"$set": values, "$setOnInsert": {"createdAt": now}},
+        upsert=True,
+    )
+    return {"success": True, "data": values}
+
+
+@router.get("/me/conversation")
+async def get_education_conversation(current_user: dict = Depends(get_current_user)):
+    await _require_farmer(current_user)
+    row = await MongoDB.get_collection("education_conversations").find_one({"farmerId": _user_id(current_user)})
+    return {"success": True, "data": {"messages": (row or {}).get("messages", [])[-20:]}}
+
+
 @router.get("/me/recommendations")
 async def learning_recommendations(current_user: dict = Depends(get_current_user)):
     await _require_farmer(current_user)
     month = datetime.utcnow().month
+    from app.services.farmer_service import FarmerService
+    profile = await FarmerService.get_farmer_profile(str(current_user["_id"])) or {}
+    prefs = await MongoDB.get_collection("education_preferences").find_one({"farmerId": _user_id(current_user)}) or {}
+    crop_values = []
+    for key in ("crops", "currentCrops", "cropTypes", "primaryCrops", "cultivatedCrops"):
+        value = profile.get(key)
+        if isinstance(value, list):
+            crop_values.extend([str(item.get("name") or item.get("cropName") or item) if isinstance(item, dict) else str(item) for item in value])
+        elif isinstance(value, str) and value.strip():
+            crop_values.extend([part.strip() for part in value.split(",") if part.strip()])
+    crop_values = list(dict.fromkeys([crop for crop in crop_values if crop]))[:8]
+    district = profile.get("district") or profile.get("farmDistrict") or profile.get("address", {}).get("district") if isinstance(profile.get("address"), dict) else profile.get("district") or profile.get("farmDistrict")
     seasonal = {
         1: ("Rabi crop care", "Review irrigation, crop monitoring and harvest planning for current field conditions."),
         2: ("Harvest and post-harvest handling", "Review safe harvesting, grading and storage practices."),
@@ -285,40 +332,77 @@ async def learning_recommendations(current_user: dict = Depends(get_current_user
         12: ("Harvest and storage planning", "Review harvest timing, grading and post-harvest loss prevention."),
     }
     title, description = seasonal[month]
-    return {"success": True, "data": {"seasonal": {"title": title, "description": description, "month": month, "basis": "Calendar-month learning suggestion; verify crop and district-specific practices with local agricultural experts."}, "recommendedCategories": ["Crop Management", "Irrigation", "Pest Management"]}}
+    if crop_values:
+        title = f"{crop_values[0]}: {title}"
+        description = f"Learning priority for your recorded crop(s) {', '.join(crop_values)}. {description}"
+    return {"success": True, "data": {"seasonal": {"title": title, "description": description, "month": month, "crops": crop_values, "district": district, "basis": "Uses the farmer profile crops and calendar month when those fields are available; this is a learning prompt, not a crop prescription."}, "farmerProfile": {"crops": crop_values, "district": district, "learningLevel": prefs.get("learningLevel", "Beginner"), "interests": prefs.get("interests", [])}, "recommendedCategories": ["Crop Management", "Irrigation", "Pest Management"]}}
 
 
 @router.post("/assistant")
 async def learning_assistant(body: AssistantBody, current_user: dict = Depends(get_current_user)):
+    """Context-aware farmer learning assistant with persisted conversation and verified lesson references."""
     await _require_farmer(current_user)
     await _seed_courses()
-    query = body.question.lower()
-    words = [w for w in query.replace("?", " ").replace(",", " ").split() if len(w) > 2]
-    lessons = await MongoDB.get_collection("education_lessons").find({"published": True}).to_list(1000)
-    ranked = []
-    for lesson in lessons:
-        text = " ".join([lesson.get("title", ""), lesson.get("summary", ""), lesson.get("content", "")]).lower()
-        score = sum(1 for word in words if word in text)
-        if score:
-            ranked.append((score, lesson))
-    ranked.sort(key=lambda x: x[0], reverse=True)
     language = body.language
-    if not ranked:
-        fallback = {
-            "en": "I could not find a matching lesson in the verified Education Center library. Please share the crop and symptoms or ask your local agricultural extension officer before taking crop-protection action.",
-            "ta": "சரிபார்க்கப்பட்ட கல்வி மையப் பாடங்களில் பொருத்தமான தகவல் கிடைக்கவில்லை. பயிர் மற்றும் அறிகுறிகளை பகிரவும் அல்லது நடவடிக்கை எடுப்பதற்கு முன் உள்ளூர் வேளாண் அலுவலரை அணுகவும்.",
-            "hi": "सत्यापित शिक्षा सामग्री में संबंधित पाठ नहीं मिला। फसल और लक्षण बताएं या कार्रवाई से पहले स्थानीय कृषि अधिकारी से सलाह लें।",
-        }
-        return {"success": True, "data": {"reply": fallback[language], "sources": [], "mode": "verified-content-retrieval"}}
-    best = ranked[:3]
-    answers = []
-    sources = []
-    for _, lesson in best:
+    user_id = _user_id(current_user)
+    history_collection = MongoDB.get_collection("education_conversations")
+    history = await history_collection.find_one({"farmerId": user_id})
+    conversation = (history or {}).get("messages", [])[-10:]
+
+    # Reuse AgriConnect's configured AI Farm Assistant provider instead of
+    # presenting keyword matching as an AI response. The service has its own
+    # provider/fallback handling and role-aware privacy controls.
+    from app.services.data_assistant_service import data_assistant_service
+    profile = await FarmerService.get_farmer_profile(str(current_user["_id"]))
+    assistant_user = {**current_user, "farmerProfile": profile or {}, "educationCrop": body.crop}
+    try:
+        answer = await data_assistant_service.semantic_answer(
+            message=body.question,
+            language={"en": "english", "ta": "tamil", "hi": "hindi"}[language],
+            user=assistant_user,
+            conversation=conversation,
+        )
+        reply = answer.get("reply") or answer.get("answer")
+        if not reply:
+            raise RuntimeError("AI assistant returned an empty answer")
+        mode = answer.get("mode", "agriconnect-ai-assistant")
+    except Exception:
+        # Safe, transparent fallback: retrieve only published course material.
+        words = [w for w in body.question.lower().replace("?", " ").replace(",", " ").split() if len(w) > 2]
+        lessons = await MongoDB.get_collection("education_lessons").find({"published": True}).to_list(1000)
+        ranked = []
+        for lesson in lessons:
+            localized = (lesson.get("translations") or {}).get(language) or {}
+            haystack = " ".join([localized.get("title", lesson.get("title", "")), localized.get("summary", lesson.get("summary", "")), localized.get("content", lesson.get("content", ""))]).lower()
+            score = sum(1 for word in words if word in haystack)
+            if score:
+                ranked.append((score, lesson))
+        ranked.sort(key=lambda item: item[0], reverse=True)
+        selected = ranked[:3]
+        reply = "\\n\\n".join(((lesson.get("translations") or {}).get(language) or {}).get("content") or lesson.get("content", "") for _, lesson in selected)
+        if not reply:
+            reply = "I could not find verified lesson guidance for that question. Please share the crop and observed symptoms, or contact your local agricultural extension officer."
+        mode = "verified-course-library-fallback"
+    # Attach grounded source lessons independently of the AI-generated wording.
+    words = [w for w in body.question.lower().split() if len(w) > 2]
+    all_lessons = await MongoDB.get_collection("education_lessons").find({"published": True}).to_list(1000)
+    ranked_sources = []
+    for lesson in all_lessons:
         localized = (lesson.get("translations") or {}).get(language) or {}
-        answers.append(localized.get("content") or lesson.get("content", ""))
-        sources.append({"lessonId": str(lesson["_id"]), "title": localized.get("title") or lesson.get("title"), "courseId": str(lesson.get("courseId"))})
-    intro = {"en": "Here is relevant guidance from the published AgriConnect learning library:", "ta": "AgriConnect கல்வி நூலகத்தில் உள்ள தொடர்புடைய வழிகாட்டுதல்:", "hi": "AgriConnect की प्रकाशित शिक्षण सामग्री से संबंधित मार्गदर्शन:"}[language]
-    return {"success": True, "data": {"reply": intro + "\n\n" + "\n\n".join(answers), "sources": sources, "mode": "verified-content-retrieval", "disclaimer": "General learning information only. Confirm crop-specific treatment and input decisions with a qualified local agricultural expert."}}
+        haystack = " ".join([localized.get("title", lesson.get("title", "")), localized.get("content", lesson.get("content", ""))]).lower()
+        score = sum(1 for word in words if word in haystack)
+        if score:
+            ranked_sources.append((score, lesson, localized))
+    ranked_sources.sort(key=lambda item: item[0], reverse=True)
+    sources = [{"lessonId": str(row["_id"]), "title": localized.get("title") or row.get("title"), "courseId": str(row.get("courseId"))} for _, row, localized in ranked_sources[:3]]
+    now = datetime.utcnow()
+    messages = conversation + [{"role": "user", "content": body.question, "createdAt": now}, {"role": "assistant", "content": reply, "createdAt": now}]
+    await history_collection.update_one(
+        {"farmerId": user_id},
+        {"$set": {"messages": messages[-20:], "updatedAt": now}, "$setOnInsert": {"createdAt": now}},
+        upsert=True,
+    )
+    return {"success": True, "data": {"reply": reply, "sources": sources, "mode": mode, "conversation": messages[-10:], "disclaimer": "Educational guidance only. Verify crop-specific treatment, pesticide and input decisions with a qualified local agricultural expert."}}
 
 
 @router.get("/admin/analytics")
