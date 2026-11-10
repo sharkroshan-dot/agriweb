@@ -14,6 +14,7 @@ import {
   Warehouse,
   BarChart,
   Brain,
+  GraduationCap,
   Settings,
   Shield,
   ShieldAlert,
@@ -96,6 +97,7 @@ export function AdminSidebar() {
       items: [
         { name: "Analytics", href: "/admin/analytics", icon: BarChart },
         { name: "AI Dashboard", href: "/admin/ai", icon: Brain },
+        { name: "Education Center", href: "/admin/education", icon: GraduationCap },
       ],
     },
     {
