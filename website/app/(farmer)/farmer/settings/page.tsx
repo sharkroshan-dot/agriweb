@@ -273,7 +273,7 @@ export default function FarmerSettingsPage() {
 
       <Card className="w-full overflow-hidden rounded-2xl border-slate-200 shadow-sm">
         <CardHeader className="border-b border-emerald-100 bg-emerald-50/60 pb-4"><CardTitle className="flex items-center gap-2 text-slate-900"><Store className="h-5 w-5 text-emerald-700" />Profile Details</CardTitle><CardDescription>Keep your personal and farm information up to date.</CardDescription></CardHeader>
-        <CardContent className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_230px]">
+        <CardContent className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_300px]">
           <div className="grid min-w-0 gap-4 sm:grid-cols-2 lg:col-span-2">
             {[
               ["ownerName", "Full Name"], ["email", "Email Address"], ["phone", "Phone Number"],
@@ -282,7 +282,7 @@ export default function FarmerSettingsPage() {
             <div className="sm:col-span-2"><label className="mb-1.5 block text-xs font-semibold text-slate-700">Pickup Instructions</label><Input className="h-10 w-full rounded-lg border-slate-200" value={profile.pickupInstructions} onChange={(event) => setProfile((current) => ({ ...current, pickupInstructions: event.target.value }))} placeholder="Landmark, gate details or contact instructions" /></div>
             <div className="sm:col-span-2"><label className="mb-1.5 block text-xs font-semibold text-slate-700">Weekly Pickup Window</label><Input className="h-10 w-full rounded-lg border-slate-200" value={profile.weeklyPickupWindow} onChange={(event) => setProfile((current) => ({ ...current, weeklyPickupWindow: event.target.value }))} /></div>
           </div>
-          <div className="flex h-full min-h-[310px] w-full flex-col items-center justify-center self-stretch rounded-xl border border-emerald-200 bg-emerald-50/60 p-5 text-center">
+          <div className="mx-auto flex aspect-square w-full max-w-[300px] flex-col items-center justify-center self-center rounded-xl border border-emerald-200 bg-emerald-50/60 p-5 text-center">
             <p className="mb-3 text-sm font-semibold text-slate-800">Profile Photo</p>
             <div className="mb-3 flex h-28 w-28 items-center justify-center overflow-hidden rounded-full border-2 border-emerald-600 bg-emerald-100 text-3xl font-bold text-emerald-700 shadow-sm">
               {profilePhotoUrl ? <img src={profilePhotoUrl} alt="Farmer profile" className="h-full w-full object-cover" /> : (profile.ownerName || userName).trim().charAt(0).toUpperCase()}
