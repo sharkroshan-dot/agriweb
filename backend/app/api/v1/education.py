@@ -337,9 +337,10 @@ async def admin_list_courses(current_user: dict = Depends(require_role("admin"))
     rows = await MongoDB.get_collection("education_courses").find({}).sort("updatedAt", -1).to_list(500)
     result = []
     for row in rows:
-        lessons = await MongoDB.get_collection("education_lessons").count_documents({"courseId": row["_id"]})
+        lesson_rows = await MongoDB.get_collection("education_lessons").find({"courseId": row["_id"]}).sort("order", 1).to_list(500)
         item = _public(row)
-        item["lessonCount"] = lessons
+        item["lessonCount"] = len(lesson_rows)
+        item["lessons"] = [_public(lesson) for lesson in lesson_rows]
         result.append(item)
     return {"success": True, "data": {"courses": result}}
 
