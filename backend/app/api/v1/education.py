@@ -413,3 +413,20 @@ async def admin_archive_course(course_id: str, current_user: dict = Depends(requ
         raise HTTPException(status_code=404, detail="Course not found")
     await MongoDB.get_collection("education_lessons").update_many({"courseId": ObjectId(course_id)}, {"$set": {"published": False, "updatedAt": datetime.utcnow()}})
     return {"success": True, "message": "Course archived"}
+
+
+class PublishBody(BaseModel):
+    published: bool
+
+
+@router.patch("/admin/lessons/{lesson_id}/publish")
+async def admin_publish_lesson(lesson_id: str, body: PublishBody, current_user: dict = Depends(require_role("admin"))):
+    if not ObjectId.is_valid(lesson_id):
+        raise HTTPException(status_code=400, detail="Invalid lesson id")
+    result = await MongoDB.get_collection("education_lessons").update_one(
+        {"_id": ObjectId(lesson_id)},
+        {"$set": {"published": body.published, "updatedAt": datetime.utcnow()}},
+    )
+    if not result.matched_count:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+    return {"success": True, "data": {"lessonId": lesson_id, "published": body.published}}
