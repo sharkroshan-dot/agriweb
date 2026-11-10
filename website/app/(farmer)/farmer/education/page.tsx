@@ -66,7 +66,7 @@ export default function FarmerEducationPage() {
   const preferencesMutation = useMutation({ mutationFn: (body:any) => api.put("/education/me/preferences", body), onSuccess: () => qc.invalidateQueries({ queryKey: ["educationPreferences"] }) });
   const assistantMutation = useMutation({
     mutationFn: (body: any) => api.post("/education/assistant", body),
-    onSuccess: (response) => setAssistantReply(response?.data ?? response),
+    onSuccess: (response) => { setAssistantReply(response?.data ?? response); qc.invalidateQueries({ queryKey: ["educationConversation"] }); },
   });
 
   useEffect(() => {
