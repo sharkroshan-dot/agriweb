@@ -98,6 +98,7 @@ export default function FarmerEducationPage() {
   const [selectedResource, setSelectedResource] = useState<any | null>(null);
   const [savedIds, setSavedIds] = useState<string[]>([]);
   const [completedIds, setCompletedIds] = useState<string[]>([]);
+  const [showSaved, setShowSaved] = useState(false);
 
   useEffect(() => {
     try {
@@ -122,7 +123,7 @@ export default function FarmerEducationPage() {
     localStorage.setItem("farmerEducation:completed", JSON.stringify(next));
   };
 
-  const { data: educationData } = useQuery({
+  const { data: educationData, isLoading, isError, refetch } = useQuery({
     queryKey: ["farmerEducation"],
     queryFn: () => api.get("/education/resources"),
     retry: 1,
@@ -139,8 +140,12 @@ export default function FarmerEducationPage() {
     const searchMatch =
       !search.trim() ||
       (r.title || "").toLowerCase().includes(search.toLowerCase()) ||
-      (r.type || "").toLowerCase().includes(search.toLowerCase());
-    return topicMatch && searchMatch;
+      (r.type || "").toLowerCase().includes(search.toLowerCase()) ||
+      (r.description || "").toLowerCase().includes(search.toLowerCase()) ||
+      (r.source || "").toLowerCase().includes(search.toLowerCase());
+    const id = String(r.id || r.title);
+    const savedMatch = !showSaved || savedIds.includes(id);
+    return topicMatch && searchMatch && savedMatch;
   });
 
   const topicInfo = (topic: string) => TOPICS.find((t) => t.id === topic);
@@ -151,255 +156,87 @@ export default function FarmerEducationPage() {
     r.description ||
     `A practical ${String(r.type || "learning resource").toLowerCase()} for farmers covering ${topicInfo(r.topic)?.name?.toLowerCase() || "farm management"} with simple, actionable steps.`;
 
+
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Farmer Education Center</h1>
-        <p className="text-gray-500">Learn to grow smarter, price better, and sell more — in simple language.</p>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card className="md:col-span-2 border-emerald-100 bg-emerald-50/60">
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className="text-sm font-medium text-emerald-800">My Learning</p>
-                <p className="mt-1 text-2xl font-bold text-emerald-950">{completedIds.length} completed</p>
-                <p className="text-xs text-emerald-700">Keep learning to improve crop, selling and post-harvest decisions.</p>
-              </div>
-              <GraduationCap className="h-10 w-10 text-emerald-600" />
-            </div>
-            <div className="mt-4 h-2 overflow-hidden rounded-full bg-emerald-100">
-              <div className="h-full rounded-full bg-emerald-600 transition-all" style={{ width: `${learningProgress}%` }} />
-            </div>
-            <p className="mt-2 text-xs text-emerald-700">{learningProgress}% progress across available resources</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-5">
-            <p className="text-sm font-medium text-gray-500">Saved resources</p>
-            <p className="mt-1 text-2xl font-bold">{savedIds.length}</p>
-            <p className="text-xs text-gray-500">Quick access to resources you want to revisit.</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="relative max-w-md">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-        <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search resources..." className="pl-9" />
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        <button
-          onClick={() => setActiveTopic("all")}
-          className={cn(
-            "rounded-full px-4 py-2 text-sm font-medium transition-colors",
-            activeTopic === "all" ? "bg-emerald-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-          )}
-        >
-          All topics
-        </button>
-        {TOPICS.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setActiveTopic(t.id)}
-            className={cn(
-              "rounded-full px-4 py-2 text-sm font-medium transition-colors",
-              activeTopic === t.id ? "bg-emerald-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-            )}
-          >
-            {t.name}
-          </button>
-        ))}
-      </div>
-
-      {activeTopic !== "all" && (
-        <Card className="border-violet-200 bg-gradient-to-br from-violet-50 to-emerald-50">
-          <CardContent className="flex items-center gap-3 p-4">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-violet-100 text-violet-700">
-              <Sparkles className="h-5 w-5" />
-            </div>
-            <p className="text-sm text-violet-900">
-              AI pick for you: "You grow produce that needs careful handling. Start with{" "}
-              <span className="font-semibold">how to grade your harvest</span> and{" "}
-              <span className="font-semibold">cold-chain basics</span>."
-            </p>
-          </CardContent>
-        </Card>
-      )}
-
-      {activeTopic === "all" ? (
-        <div className="space-y-8">
-          {TOPICS.map((topic) => {
-            const group = SOURCE_GROUPS[topic.id];
-            const topicResources = filtered.filter((r: any) => r.topic === topic.id);
-            if (!group) return null;
-            return (
-              <section key={topic.id} className="space-y-3">
-                <div className="flex items-end justify-between gap-3">
-                  <div>
-                    <h2 className="text-lg font-semibold">{group.name}</h2>
-                    <p className="text-sm text-gray-500">{group.description}</p>
-                  </div>
-                  <Badge variant="outline">{group.links.length} sources</Badge>
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {group.links.map((link) => (
-                    <Card key={link.title} className="transition-shadow hover:shadow-md">
-                      <CardHeader>
-                        <div className="flex items-center justify-between gap-2">
-                          <Badge variant="outline">{link.kind}</Badge>
-                          <span className="text-xs text-gray-400">{link.source}</span>
-                        </div>
-                        <CardTitle className="text-base leading-snug">{link.title}</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <a href={link.url} target={link.url.startsWith("http") ? "_blank" : undefined} rel={link.url.startsWith("http") ? "noreferrer" : undefined} className="block rounded-md bg-emerald-600 px-3 py-2 text-center text-sm font-medium text-white hover:bg-emerald-700">
-                          Open learning source
-                        </a>
-                      </CardContent>
-                    </Card>
-                  ))}
-                  {topicResources.map((r: any) => (
-                    <Card key={r.id || r.title} className="transition-shadow hover:shadow-md">
-                      <CardHeader>
-                        <Badge variant="secondary">AgriConnect learning</Badge>
-                        <CardTitle className="text-base leading-snug">{r.title}</CardTitle>
-                        <CardDescription>{r.description}</CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <button type="button" onClick={() => setSelectedResource(r)} className="w-full rounded-md border px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50">
-                          Learn in AgriConnect
-                        </button>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              </section>
-            );
-          })}
+    <div className="w-full min-w-0 space-y-6 pb-8">
+      <section className="rounded-2xl border border-emerald-100 bg-gradient-to-r from-emerald-50/80 to-white p-5 sm:p-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-800"><GraduationCap className="h-6 w-6" /></div>
+            <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-emerald-700">Farmer learning library</p><h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900">Education Center</h1><p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600">Practical guides and trusted agricultural resources to help you grow, handle, price and sell your produce with confidence.</p></div>
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:min-w-[230px]">
+            <div className="rounded-xl border border-white bg-white/90 p-3"><p className="text-xs text-slate-500">Resources</p><p className="mt-1 text-xl font-semibold text-slate-900">{apiResources.length}</p></div>
+            <div className="rounded-xl border border-white bg-white/90 p-3"><p className="text-xs text-slate-500">Completed</p><p className="mt-1 text-xl font-semibold text-slate-900">{completedIds.length}</p></div>
+          </div>
         </div>
-      ) : (
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {filtered.map((r: any) => {
-          const topic = topicInfo(r.topic);
-          const Icon = topic?.icon || BookOpen;
-          const resourceId = String(r.id || r.title);
-          const isSaved = savedIds.includes(resourceId);
-          const isCompleted = completedIds.includes(resourceId);
-          return (
-            <Card key={resourceId} className="transition-shadow hover:shadow-md">
-              <CardHeader className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className={cn("flex h-9 w-9 items-center justify-center rounded-lg", topic?.color)}>
-                    <Icon className="h-4.5 w-4.5 h-5 w-5" />
-                  </div>
-                  <Badge variant="outline">{r.level}</Badge>
-                </div>
-                <CardTitle className="text-base leading-snug">{r.title}</CardTitle>
-                <CardDescription className="flex items-center gap-2">
-                  {r.type === "Video" ? <PlayCircle className="h-3.5 w-3.5" /> : <BookOpen className="h-3.5 w-3.5" />}
-                  {r.type} · {r.readTime}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="flex items-center gap-2 pt-0">
-                <button type="button" onClick={() => setSelectedResource(r)} className="flex-1 rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700">
-                  Open resource
-                </button>
-                <button type="button" onClick={() => toggleSaved(resourceId)} className={cn("rounded-md border px-3 py-2 text-sm", isSaved ? "border-amber-300 bg-amber-50 text-amber-700" : "border-gray-200 text-gray-600")}>
-                  {isSaved ? "Saved" : "Save"}
-                </button>
-                {isCompleted && <Badge variant="secondary">Done</Badge>}
-              </CardContent>
-            </Card>
-          );
-        })}
-        {filtered.length === 0 && (
-          <Card className="sm:col-span-2 lg:col-span-3">
-            <CardContent className="py-10 text-center text-sm text-gray-400">
-              No resources found for that topic. Check back soon.
-            </CardContent>
-          </Card>
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+        <Card className="rounded-2xl border-slate-200 shadow-sm"><CardContent className="p-4 sm:p-5">
+          <div className="flex items-center justify-between gap-3"><div><h2 className="font-semibold text-slate-900">Your learning progress</h2><p className="mt-1 text-sm text-slate-500">Track the resources you have completed.</p></div><span className="text-2xl font-bold text-emerald-700">{learningProgress}%</span></div>
+          <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-600 transition-all" style={{ width: learningProgress + "%" }} /></div>
+          <div className="mt-2 flex justify-between text-xs text-slate-500"><span>{completedIds.length} completed</span><span>{Math.max(0, apiResources.length - completedIds.length)} remaining</span></div>
+        </CardContent></Card>
+        <Card className="rounded-2xl border-slate-200 shadow-sm"><CardContent className="flex h-full items-center justify-between p-4 sm:p-5">
+          <div><p className="text-sm font-medium text-slate-700">Saved for later</p><p className="mt-1 text-2xl font-bold text-slate-900">{savedIds.length}</p><p className="mt-1 text-xs text-slate-500">Your personal reading list</p></div>
+          <button type="button" onClick={() => { setShowSaved((v) => !v); setActiveTopic("all"); }} className={cn("rounded-lg border px-3 py-2 text-sm font-medium transition-colors", showSaved ? "border-emerald-700 bg-emerald-700 text-white" : "border-slate-200 text-slate-700 hover:bg-slate-50")}>{showSaved ? "View all" : "View saved"}</button>
+        </CardContent></Card>
+      </section>
+
+      <section className="space-y-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div><h2 className="text-lg font-semibold text-slate-900">{showSaved ? "Your saved resources" : "Explore learning resources"}</h2><p className="text-sm text-slate-500">Search by topic, resource name or source.</p></div>
+          <div className="relative w-full sm:max-w-sm"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search learning resources..." className="h-10 rounded-xl border-slate-200 bg-white pl-9" /></div>
+        </div>
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          <button type="button" onClick={() => setActiveTopic("all")} className={cn("shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-colors", activeTopic === "all" ? "bg-emerald-700 text-white" : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50")}>All topics</button>
+          {TOPICS.map((topic) => <button key={topic.id} type="button" onClick={() => setActiveTopic(topic.id)} className={cn("shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-colors", activeTopic === topic.id ? "bg-emerald-700 text-white" : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50")}>{topic.name}</button>)}
+        </div>
+
+        {isLoading ? (
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{[1,2,3,4,5,6].map((n) => <div key={n} className="h-48 animate-pulse rounded-2xl bg-slate-100" />)}</div>
+        ) : isError ? (
+          <Card className="rounded-2xl border-red-200 bg-red-50/40 shadow-none"><CardContent className="flex flex-col items-start justify-between gap-3 p-5 sm:flex-row sm:items-center"><div><p className="font-semibold text-slate-900">Learning resources could not be refreshed</p><p className="mt-1 text-sm text-slate-600">Retry loading the latest resources. Built-in learning resources may still be available.</p></div><button type="button" onClick={() => refetch()} className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white">Try again</button></CardContent></Card>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {filtered.map((resource: any) => {
+              const topic = topicInfo(resource.topic);
+              const Icon = topic?.icon || BookOpen;
+              const id = String(resource.id || resource.title);
+              const isSaved = savedIds.includes(id);
+              const isCompleted = completedIds.includes(id);
+              return (
+                <Card key={id} className="flex h-full flex-col rounded-2xl border-slate-200 bg-white shadow-sm transition-all hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-md">
+                  <CardHeader className="flex-1 space-y-3 pb-3">
+                    <div className="flex items-center justify-between gap-2"><div className={cn("flex h-10 w-10 items-center justify-center rounded-xl", topic?.color || "bg-slate-100 text-slate-600")}><Icon className="h-5 w-5" /></div><div className="flex flex-wrap justify-end gap-1.5">{isCompleted && <Badge className="border-emerald-200 bg-emerald-50 text-emerald-800" variant="outline">Completed</Badge>}<Badge variant="outline" className="border-slate-200 text-slate-600">{resource.level || "All levels"}</Badge></div></div>
+                    <div><p className="text-xs font-medium text-emerald-700">{topic?.name || "Farmer learning"}</p><CardTitle className="mt-1 text-base leading-6 text-slate-900">{resource.title}</CardTitle><CardDescription className="mt-2 line-clamp-3 text-sm leading-5">{resource.description || resourceDescription(resource)}</CardDescription></div>
+                  </CardHeader>
+                  <CardContent className="mt-auto space-y-3 pt-0">
+                    <div className="flex items-center justify-between gap-2 text-xs text-slate-500"><span className="inline-flex items-center gap-1.5">{resource.type === "Video" ? <PlayCircle className="h-3.5 w-3.5" /> : <BookOpen className="h-3.5 w-3.5" />}{resource.type || "Learning resource"}</span><span>{resource.readTime || "Reference"}</span></div>
+                    <div className="flex gap-2"><button type="button" onClick={() => setSelectedResource(resource)} className="flex-1 rounded-lg bg-emerald-700 px-3 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-800">View resource</button><button type="button" aria-label={isSaved ? "Remove saved resource" : "Save resource"} onClick={() => toggleSaved(id)} className={cn("rounded-lg border px-3 py-2.5 text-sm font-medium", isSaved ? "border-amber-200 bg-amber-50 text-amber-800" : "border-slate-200 text-slate-600 hover:bg-slate-50")}>{isSaved ? "Saved" : "Save"}</button></div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+            {filtered.length === 0 && <Card className="rounded-2xl border-dashed border-slate-300 bg-slate-50/50 shadow-none sm:col-span-2 xl:col-span-3"><CardContent className="py-12 text-center"><BookOpen className="mx-auto h-8 w-8 text-slate-400" /><p className="mt-3 font-semibold text-slate-800">{showSaved ? "No saved resources yet" : "No matching resources found"}</p><p className="mt-1 text-sm text-slate-500">{showSaved ? "Save a guide to keep it here for quick access." : "Try another search term or choose a different topic."}</p>{(search || activeTopic !== "all" || showSaved) && <button type="button" onClick={() => { setSearch(""); setActiveTopic("all"); setShowSaved(false); }} className="mt-4 text-sm font-semibold text-emerald-700 hover:text-emerald-800">Clear filters</button>}</CardContent></Card>}
+          </div>
         )}
-      </div>
-      )}
+      </section>
 
       {selectedResource && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true">
-          <Card className="max-h-[85vh] w-full max-w-2xl overflow-y-auto">
-            <CardHeader>
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <Badge variant="outline">{selectedResource.type || "Resource"}</Badge>
-                  <CardTitle className="mt-3 text-xl">{selectedResource.title}</CardTitle>
-                  <CardDescription className="mt-2">
-                    {topicInfo(selectedResource.topic)?.name || "Farmer learning"} · {selectedResource.readTime || "Practical guide"}
-                  </CardDescription>
-                </div>
-                <button type="button" onClick={() => setSelectedResource(null)} className="rounded-md border px-3 py-1 text-sm text-gray-600">Close</button>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-5">
-              <div className="rounded-lg bg-gray-50 p-4 text-sm leading-6 text-gray-700">{resourceDescription(selectedResource)}</div>
-              <div>
-                <h3 className="font-semibold">What you will learn</h3>
-                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-gray-600">
-                  <li>Key practices and decisions for this topic.</li>
-                  <li>Simple steps you can apply on your farm.</li>
-                  <li>Common mistakes to avoid and when to seek expert help.</li>
-                </ul>
-              </div>
-              {selectedResource.url && (
-                selectedResource.url.startsWith("http") ? (
-                  <a
-                    href={selectedResource.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex rounded-md border px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50"
-                  >
-                    Open official source
-                  </a>
-                ) : (
-                  <a
-                    href={selectedResource.url}
-                    className="inline-flex rounded-md border px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50"
-                  >
-                    Open in AgriConnect
-                  </a>
-                )
-              )}
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => { markCompleted(String(selectedResource.id || selectedResource.title)); setSelectedResource(null); }}
-                  className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
-                >
-                  Mark as completed
-                </button>
-                <button
-                  type="button"
-                  onClick={() => toggleSaved(String(selectedResource.id || selectedResource.title))}
-                  className="rounded-md border px-4 py-2 text-sm font-medium"
-                >
-                  {savedIds.includes(String(selectedResource.id || selectedResource.title)) ? "Remove from saved" : "Save for later"}
-                </button>
-              </div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-[2px]" role="dialog" aria-modal="true" aria-labelledby="education-resource-title">
+          <Card className="max-h-[88vh] w-full max-w-2xl overflow-y-auto rounded-2xl border-slate-200 shadow-xl">
+            <CardHeader className="border-b border-slate-100 pb-4"><div className="flex items-start justify-between gap-4"><div className="min-w-0"><Badge variant="outline">{selectedResource.type || "Learning resource"}</Badge><CardTitle id="education-resource-title" className="mt-3 text-xl leading-7 text-slate-900">{selectedResource.title}</CardTitle><CardDescription className="mt-2">{topicInfo(selectedResource.topic)?.name || "Farmer learning"} · {selectedResource.level || "All levels"} · {selectedResource.source || "AgriConnect"}</CardDescription></div><button type="button" onClick={() => setSelectedResource(null)} className="shrink-0 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">Close</button></div></CardHeader>
+            <CardContent className="space-y-5 p-5">
+              <div className="rounded-xl bg-slate-50 p-4 text-sm leading-6 text-slate-700">{resourceDescription(selectedResource)}</div>
+              <p className="text-xs text-slate-500">This resource opens the original provider or the related AgriConnect page. Follow the source instructions and local agricultural guidance for crop-specific decisions.</p>
+              {selectedResource.url && <a href={selectedResource.url} target={selectedResource.url.startsWith("http") ? "_blank" : undefined} rel={selectedResource.url.startsWith("http") ? "noreferrer" : undefined} className="inline-flex items-center justify-center rounded-lg border border-emerald-200 px-4 py-2.5 text-sm font-semibold text-emerald-800 transition-colors hover:bg-emerald-50">{selectedResource.url.startsWith("http") ? "Open official learning source" : "Open in AgriConnect"}</a>}
+              <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-4"><button type="button" onClick={() => { markCompleted(String(selectedResource.id || selectedResource.title)); setSelectedResource(null); }} className="rounded-lg bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-800">Mark as completed</button><button type="button" onClick={() => toggleSaved(String(selectedResource.id || selectedResource.title))} className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50">{savedIds.includes(String(selectedResource.id || selectedResource.title)) ? "Remove from saved" : "Save for later"}</button></div>
             </CardContent>
           </Card>
         </div>
       )}
-
-      <Card className="border-emerald-200 bg-gradient-to-br from-emerald-50 to-teal-50">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <GraduationCap className="h-5 w-5 text-emerald-600" />
-            Personalized learning
-          </CardTitle>
-          <CardDescription>
-            As you add crops, the education center will recommend resources matched to your current crop stage, season, and location.
-          </CardDescription>
-        </CardHeader>
-      </Card>
     </div>
   );
 }
