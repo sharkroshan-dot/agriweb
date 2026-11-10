@@ -21,11 +21,11 @@ function SettingsToggle({ checked, onChange, label }: { checked: boolean; onChan
       aria-checked={checked}
       aria-label={label}
       onClick={() => onChange(!checked)}
-      className={`inline-flex h-8 w-[4.25rem] shrink-0 items-center rounded-md border p-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 ${checked ? "justify-end border-emerald-700 bg-emerald-700" : "justify-start border-slate-300 bg-slate-200"}`}
+      className={`relative inline-flex h-6 w-10 shrink-0 items-center rounded-full p-0.5 transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 ${checked ? "bg-emerald-600" : "bg-slate-300"}`}
     >
-      <span className={`flex h-6 w-7 items-center justify-center rounded-sm bg-white text-[10px] font-bold tracking-wide shadow-sm transition-all ${checked ? "text-emerald-700" : "text-slate-500"}`}>
-        {checked ? "ON" : "OFF"}
-      </span>
+      <span
+        className={`h-5 w-5 rounded-full bg-white shadow-sm transition-transform duration-200 ${checked ? "translate-x-4" : "translate-x-0"}`}
+      />
     </button>
   );
 }
