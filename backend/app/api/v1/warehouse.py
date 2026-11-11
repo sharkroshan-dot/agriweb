@@ -1511,7 +1511,6 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
         dlat, dlon = lat2 - lat1, lon2 - lon1
         value = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
         return 6371.0 * 2 * math.asin(min(1.0, math.sqrt(value)))
-    profile_by_id: Dict[str, dict] = {}
     profile_area_by_id: Dict[str, str] = {}
     profile_coords_by_id: Dict[str, tuple] = {}
     for profile in profiles:
@@ -1524,7 +1523,6 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
         for identity in (profile.get("_id"), profile.get("userId"), profile.get("farmerId")):
             if identity:
                 identity_key = str(identity)
-                profile_by_id[identity_key] = profile
                 if area_key:
                     profile_area_by_id[identity_key] = area_key
                 if coords:
@@ -1556,7 +1554,6 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
         "totalOrders": 0, "readyToAssign": 0, "collectionIds": [],
         "hubCoordinates": None,
     }
-    job_area_keys: Dict[str, str] = {}
     for job in pickup_jobs:
         farmer_id = str(job.get("farmerId") or job.get("farmerUserId") or "")
         area_key = profile_area_by_id.get(farmer_id)
@@ -1607,7 +1604,6 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
         status_value = str(job.get("status") or "").strip().lower()
         if status_value == "ready_for_pickup" and not job.get("pickupRouteId"):
             chosen["readyToAssign"] += 1
-        job_area_keys[str(job.get("_id") or job.get("id") or "")] = chosen["key"]
 
     visible_zones = zones + [unassigned_zone]
     for zone in visible_zones:
