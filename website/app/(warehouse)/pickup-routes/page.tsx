@@ -146,13 +146,18 @@ export default function PickupRoutesPage() {
   // Keep its assigned/in-progress/completed pickup jobs visible even when an
   // older farmer profile has no district field serialized on the collection.
   // Explicit district mismatches remain excluded from this warehouse's plan.
-  const jobs = allowedDistrictKeys.size
+  // Pickup Routes is only for farm-stock collection inside this warehouse's
+  // configured district. Completed/assigned pickup history is not assignable.
+  const districtJobs = allowedDistrictKeys.size
     ? allJobs.filter((job) => {
         const districtKey = normalizeDistrict(districtOf(job));
         if (districtKey) return allowedDistrictKeys.has(districtKey);
         return String(job.districtMatchStatus || "") !== "district_mismatch";
       })
     : [];
+  const jobs = districtJobs.filter((job) =>
+    READY.has(String(job.status || "").toLowerCase()) && !job.pickupRouteId && !job.collectionTeamId
+  );
   const eligibleTeams = teams.filter((team) => Number(team.capacity || team.vehicleCapacity || 0) > 0);
   const selectedTeam = eligibleTeams.find((team) => String(team.id) === teamId);
 
@@ -340,11 +345,11 @@ export default function PickupRoutesPage() {
       {!jobsQ.isLoading && !jobsQ.isError && allowedDistrictKeys.size === 0 && <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">Farm Collection district coverage is missing. Pickup Routes is intentionally not showing orders from other districts. Configure this warehouse’s district in Warehouse Settings, then refresh.</div>}
       <section className="grid gap-3 grid-cols-2 xl:grid-cols-5">
         {[
-          { label: "Farm pickup orders", value: areaSummary.total, icon: Package },
-          { label: "Pickup areas", value: areas.length, icon: MapIcon },
-          { label: "Ready to assign", value: areaSummary.ready, icon: Clock3 },
-          { label: "Already assigned", value: areaSummary.assigned.length, icon: Truck },
-          { label: "Pickup completed", value: areaSummary.completed, icon: CheckCircle2 },
+          { label: "Registered farm locations", value: areas.reduce((sum, area) => sum + Number((area as any).registeredFarmCount || 0), 0), icon: Package },
+          { label: "Pickup areas in district", value: areas.length, icon: MapIcon },
+          { label: "Farms ready for pickup", value: new Set(jobs.map((job) => String(job.farmerId || job.farmerUserId || job.farmId || idOf(job)))).size, icon: Clock3 },
+          { label: "Ready pickup records", value: jobs.length, icon: Truck },
+          { label: "Available pickup partners", value: eligibleTeams.length, icon: CheckCircle2 },
         ].map((item) => <Card key={item.label} className="border-slate-200 shadow-sm"><CardContent className="flex items-center gap-3 p-4"><span className="rounded-lg bg-emerald-50 p-2 text-emerald-700"><item.icon className="h-5 w-5"/></span><div><p className="text-xs text-slate-500">{item.label}</p><p className="text-2xl font-bold tabular-nums text-slate-900">{jobsQ.isError ? "—" : item.value}</p></div></CardContent></Card>)}
       </section>
 
@@ -352,7 +357,7 @@ export default function PickupRoutesPage() {
         <Card className="h-fit overflow-hidden border-slate-200 shadow-sm">
           <div className="border-b p-4">
             <h2 className="font-semibold text-slate-900">Pickup areas</h2>
-            <p className="mt-1 text-xs text-slate-500">Select an area to view only its farms and pickup orders. All registered areas remain visible, including areas with no orders.</p>
+            <p className="mt-1 text-xs text-slate-500">Select a farm area to view farms with stock ready for collection. All registered farm areas remain visible, including areas with no ready pickups.</p>
           </div>
           <div className="max-h-[680px] space-y-2 overflow-y-auto p-3">
             <button
@@ -361,15 +366,14 @@ export default function PickupRoutesPage() {
               className={"w-full rounded-lg border p-3 text-left transition-colors " + (selectedArea === "all" ? "border-emerald-300 bg-emerald-50" : "border-slate-200 hover:bg-slate-50")}
             >
               <span className="flex items-center justify-between gap-3 text-sm font-semibold text-slate-900">
-                <span>All pickup areas</span><span className="tabular-nums">{jobs.length}</span>
+                <span>All farm pickup areas</span><span className="tabular-nums">{areas.reduce((sum, area) => sum + Number((area as any).registeredFarmCount || 0), 0)} farms</span>
               </span>
-              <span className="mt-1 block text-xs text-slate-500">{areaSummary.ready} ready orders for assignment</span>
+              <span className="mt-1 block text-xs text-slate-500">{jobs.length} farm pickup records ready for partner assignment</span>
             </button>
 
             {areas.length ? areas.map((area) => {
               const active = selectedArea === area.key;
               const registeredFarmCount = Number((area as any).registeredFarmCount || 0);
-              const orderCount = Math.max(Number(area.totalOrders || 0), area.jobs.length);
               return (
                 <button
                   type="button"
@@ -379,14 +383,13 @@ export default function PickupRoutesPage() {
                 >
                   <span className="flex items-center justify-between gap-3">
                     <span className="min-w-0 truncate text-sm font-semibold text-slate-900">{area.name}</span>
-                    <span className={"shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold tabular-nums " + (orderCount > 0 ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-500")}>
-                      {orderCount} {orderCount === 1 ? "order" : "orders"}
+                    <span className={"shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold tabular-nums " + (registeredFarmCount > 0 ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-500")}>
+                      {registeredFarmCount} {registeredFarmCount === 1 ? "farm" : "farms"}
                     </span>
                   </span>
-                  <span className="mt-1 block text-xs text-slate-500">{registeredFarmCount} registered {registeredFarmCount === 1 ? "farm" : "farms"}</span>
+                  <span className="mt-1 block text-xs text-slate-500">Registered farms in this pickup area</span>
                   <span className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs">
-                    <span className="font-medium text-emerald-700">{area.readyToAssign} ready orders</span>
-                    {area.jobs.length > 0 && <span className="text-slate-500">{area.jobs.length} matching pickup records</span>}
+                    <span className="font-medium text-emerald-700">{area.jobs.length} ready for pickup</span>
                   </span>
                 </button>
               );
@@ -433,8 +436,8 @@ export default function PickupRoutesPage() {
 
           <Card className="border-slate-200 shadow-sm">
             <div className="flex flex-col gap-3 border-b p-4 lg:flex-row lg:items-center lg:justify-between">
-              <div><h2 className="font-semibold text-slate-900">Orders by selected area</h2><p className="mt-1 text-xs text-slate-500">Only Ready for Pickup orders that are not already route-assigned can be selected.</p></div>
-              <Button variant="outline" size="sm" onClick={selectVisible} disabled={!eligibleFiltered.length}>{eligibleFiltered.length && eligibleFiltered.every((job) => selectedIds.includes(idOf(job))) ? "Clear eligible selection" : "Select eligible orders"} ({eligibleFiltered.length})</Button>
+              <div><h2 className="font-semibold text-slate-900">Farms ready for collection</h2><p className="mt-1 text-xs text-slate-500">Only farm stock marked Ready for Pickup in this warehouse district is shown for pickup-partner assignment.</p></div>
+              <Button variant="outline" size="sm" onClick={selectVisible} disabled={!eligibleFiltered.length}>{eligibleFiltered.length && eligibleFiltered.every((job) => selectedIds.includes(idOf(job))) ? "Clear farm selection" : "Select ready farms"} ({eligibleFiltered.length})</Button>
             </div>
             <div className="grid gap-3 border-b bg-slate-50/70 p-3 md:grid-cols-2">
               <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-10 rounded-lg border bg-white px-3 text-sm"><option value="all">All pickup statuses</option>{Object.entries(STATUS_LABEL).map(([key, value]) => <option key={key} value={key}>{value}</option>)}</select>
