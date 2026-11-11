@@ -21,15 +21,33 @@ const statusColors: Record<string, string> = {
   ready_for_pickup: "bg-amber-500/10 text-amber-700 border-amber-500/20",
   in_transit: "bg-purple-500/10 text-purple-600 border-purple-500/20",
   received: "bg-green-500/10 text-green-600 border-green-500/20",
+  quality_passed: "bg-emerald-500/10 text-emerald-700 border-emerald-500/20",
   quality_check: "bg-yellow-500/10 text-yellow-600 border-yellow-500/20",
   stored: "bg-green-500/10 text-green-600 border-green-500/20",
   rejected: "bg-red-500/10 text-red-600 border-red-500/20",
+};
+
+const hasWarehouseReceipt = (item: any) =>
+  ["received", "quality_check", "stored", "rejected"].includes(String(item?.status || "").toLowerCase()) ||
+  Boolean(item?.receivedAt || item?.receivedDate || item?.warehouseReceivedAt || item?.bulkShipmentReceivedAt);
+
+const getIncomingDisplayStatus = (item: any) => {
+  const rawStatus = String(item?.status || "").toLowerCase();
+  if (!hasWarehouseReceipt(item)) return rawStatus || "scheduled";
+  if (rawStatus === "stored" || item?.storedAt) return "stored";
+  if (rawStatus === "rejected") return "rejected";
+  const quality = String(item?.qualityCheck || item?.quality_check || "").toLowerCase();
+  if (quality === "failed") return "rejected";
+  if (quality === "passed") return "quality_passed";
+  if (quality === "pending" || rawStatus === "quality_check") return "quality_check";
+  return "received";
 };
 
 const statusLabels: Record<string, string> = {
   scheduled: "Scheduled",
   in_transit: "In Transit",
   received: "Received",
+  quality_passed: "Quality Passed · Ready to Store",
   quality_check: "Quality Check",
   stored: "Stored",
   rejected: "Rejected",
@@ -833,14 +851,14 @@ export default function WarehouseIncomingPage() {
               {pagedShipments.map((item: any) => {
                 const packed = isFarmerPackedIncoming(item);
                 const arrived = Boolean(item.arrivedWarehouseAt || item.warehouseArrivalConfirmed || String(item.collectionStatus || "").toLowerCase() === "arrived_warehouse");
-                const received = ["received","quality_check","stored","rejected"].includes(String(item.status || "").toLowerCase()) || Boolean(item.receivedAt || item.receivedDate || item.warehouseReceivedAt);
+                const received = hasWarehouseReceipt(item);
                 const active = String(item.id || item._id) === String(selectedDetailId || selectedShipment?.id || selectedShipment?._id);
                 return <tr key={String(item.id || item._id)} onClick={() => {setSelectedIncoming(item);setSelectedDetailId(String(item.id || item._id));}} className={cn("cursor-pointer transition-colors hover:bg-emerald-50/50",active && "bg-emerald-50/70")}>
                   <td className="whitespace-nowrap px-3 py-3 font-semibold text-slate-900">{item.displayOrderNumber || item.id || "Reference unavailable"}</td>
                   <td className="px-3 py-3"><Badge variant="outline" className={packed?"border-emerald-200 bg-emerald-50 text-emerald-700":"border-violet-200 bg-violet-50 text-violet-700"}>{packed?"Farmer":"Warehouse"}</Badge></td>
                   <td className="px-3 py-3"><p className="font-medium text-slate-800">{item.displayFarmName}</p><p className="text-xs text-slate-500">{item.displayProductName}</p><p className="text-xs text-slate-500">{getPickupArea(item)}</p></td>
                   <td className="whitespace-nowrap px-3 py-3 font-semibold">{item.quantity ?? "—"} {item.unit || "kg"}</td>
-                  <td className="px-3 py-3"><Badge variant="outline" className={cn("whitespace-nowrap",statusColors[String(item.status || "")] || "border-slate-200 bg-slate-50 text-slate-700")}>{statusLabels[String(item.status || "")] || String(item.status || "Pending").replace(/_/g," ")}</Badge></td>
+                  <td className="px-3 py-3"><Badge variant="outline" className={cn("whitespace-nowrap",statusColors[String(item.status || "")] || "border-slate-200 bg-slate-50 text-slate-700")}>{statusLabels[getIncomingDisplayStatus(item)] || getIncomingDisplayStatus(item).replace(/_/g," ")}</Badge></td>
                   <td className="whitespace-nowrap px-3 py-3 text-slate-600">{formatDate(item.expectedDate)}</td>
                   <td className="px-3 py-3 text-right" onClick={(event)=>event.stopPropagation()}>{arrived && !received && packed ? <Button size="sm" onClick={()=>openReceiveDialog(item)}>Receive</Button> : received ? <Button size="sm" variant="outline" onClick={()=>{setSelectedIncoming(item);setShowReceiptDialog(true);}}>View</Button> : <Button size="sm" variant="outline" onClick={()=>{setSelectedIncoming(item);setSelectedDetailId(String(item.id || item._id));setShowTrackDialog(true);}}>Details</Button>}</td>
                 </tr>;
@@ -985,7 +1003,8 @@ export default function WarehouseIncomingPage() {
             const item = incomingList.find((row: any) => String(row.id || row._id || "") === selectedDetailId) || incomingList[0];
             const arrived = Boolean(item.arrivedWarehouseAt || item.warehouseArrivalConfirmed || String(item.collectionStatus || "").toLowerCase() === "arrived_warehouse");
             const received = ["received","quality_check","stored","rejected"].includes(String(item.status || "").toLowerCase()) || Boolean(item.receivedAt || item.receivedDate || item.warehouseReceivedAt);
-            const quality = String(item.qualityCheck || item.quality_check || "pending").toLowerCase();
+            const quality = received ? String(item.qualityCheck || item.quality_check || "pending").toLowerCase() : "not_started";
+            const displayStatus = getIncomingDisplayStatus(item);
             const isPacked = isFarmerPackedIncoming(item);
             return <div className="space-y-4">
               <div className="flex items-start gap-3">
@@ -994,14 +1013,14 @@ export default function WarehouseIncomingPage() {
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div className="rounded-xl border border-slate-200 p-3"><p className="text-xs text-slate-500">Expected quantity</p><p className="mt-1 text-lg font-bold text-slate-900">{item.quantity ?? "—"} {item.unit || "kg"}</p></div>
-                <div className="rounded-xl border border-slate-200 p-3"><p className="text-xs text-slate-500">Current status</p><p className="mt-1 text-sm font-semibold capitalize text-slate-900">{String(item.status || "pending").replace(/_/g," ")}</p></div>
+                <div className="rounded-xl border border-slate-200 p-3"><p className="text-xs text-slate-500">Current status</p><p className="mt-1 text-sm font-semibold capitalize text-slate-900">{(statusLabels[displayStatus] || displayStatus.replace(/_/g," "))}</p></div>
               </div>
               <div><p className="mb-2 text-sm font-semibold text-slate-900">Shipment information</p><div className="space-y-2.5 text-sm">
                 <div className="flex justify-between gap-3"><span className="text-slate-500">Product</span><span className="text-right font-medium text-slate-800">{item.displayProductName || getProductDisplayName(item)}</span></div>
                 <div className="flex justify-between gap-3"><span className="text-slate-500">Expected date</span><span className="text-right font-medium text-slate-800">{formatDate(item.expectedDate)}</span></div>
                 <div className="flex justify-between gap-3"><span className="text-slate-500">Arrival confirmed</span><span className={cn("font-semibold",arrived?"text-emerald-700":"text-amber-700")}>{arrived ? "Yes" : "No"}</span></div>
                 <div className="flex justify-between gap-3"><span className="text-slate-500">Receipt</span><span className="font-medium text-slate-800">{received ? "Recorded" : "Pending"}</span></div>
-                <div className="flex justify-between gap-3"><span className="text-slate-500">Quality</span><span className={cn("font-semibold capitalize",quality==="passed"?"text-emerald-700":quality==="failed"?"text-red-700":"text-amber-700")}>{quality}</span></div>
+                <div className="flex justify-between gap-3"><span className="text-slate-500">Quality</span><span className={cn("font-semibold capitalize",quality==="passed"?"text-emerald-700":quality==="failed"?"text-red-700":"text-amber-700")}>{quality === "not_started" ? "Not started — awaiting receipt" : quality}</span></div>
               </div></div>
               <div><p className="mb-2 text-sm font-semibold text-slate-900">Workflow progress</p><div className="space-y-2">
                 {[
