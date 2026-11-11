@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   MapPin, Truck, RefreshCw, Search, Package,
@@ -169,6 +169,20 @@ export default function PickupRoutesPage() {
   );
   const eligibleTeams = teams.filter((team) => Number(team.capacity || team.vehicleCapacity || 0) > 0);
   const selectedTeam = eligibleTeams.find((team) => String(team.id) === teamId);
+
+  // If the B2B page or another warehouse user assigns a selected job, remove
+  // it from this page's local bulk selection as soon as the shared queue refreshes.
+  useEffect(() => {
+    setSelectedIds((current) => {
+      const next = current.filter((id) => jobs.some((job) =>
+        idOf(job) === id &&
+        READY.has(String(job.status || "").toLowerCase()) &&
+        !job.pickupRouteId &&
+        !job.collectionTeamId
+      ));
+      return next.length === current.length && next.every((id, index) => id === current[index]) ? current : next;
+    });
+  }, [jobs]);
 
   const areas = useMemo(() => {
     const groups = new Map<string, { key: string; name: string; areaType?: string; jobs: Job[]; totalOrders: number; readyToAssign: number; collectionIds: string[]; serviceAreas?: string[]; pickupRadiusKm?: number }>();
