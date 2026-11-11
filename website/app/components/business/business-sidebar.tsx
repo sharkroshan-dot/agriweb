@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 import { usePathname } from "next/navigation";
 import { PrefetchLink as Link } from "../shared/prefetch-link";
 import { useSession } from "next-auth/react";
@@ -20,6 +22,8 @@ import {
   MapPin,
   ShieldCheck,
   ShieldAlert,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { api } from "../../lib/api/client";
@@ -64,6 +68,7 @@ const navGroups = [
 
 export function BusinessSidebar() {
   const pathname = usePathname();
+  const [collapsedGroups, setCollapsedGroups] = useState<string[]>([]);
   const { data: session } = useSession();
   const accessToken = (session as any)?.accessToken;
   const userLabel = (session?.user?.name || session?.user?.email || "Account").trim();
@@ -127,10 +132,24 @@ export function BusinessSidebar() {
         </div>
 
         <nav className="space-y-4">
-          {navGroups.map((group) => (
-            <div key={group.label}>
-              <p className="mb-1 px-3 text-[11px] font-semibold uppercase tracking-wider text-gray-400">{group.label}</p>
-              <div className="space-y-1">
+          {navGroups.map((group) => {
+            const hasActiveItem = group.items.some((item) =>
+              pathname === item.href || pathname?.startsWith(item.href + "/")
+            );
+            const isCollapsed = collapsedGroups.includes(group.label) && !hasActiveItem;
+            return (
+              <section key={group.label} aria-label={group.label} className="space-y-1">
+                <button
+                  type="button"
+                  aria-expanded={!isCollapsed}
+                  onClick={() => setCollapsedGroups((current) => current.includes(group.label) ? current.filter((label) => label !== group.label) : [...current, group.label])}
+                  className="group flex w-full items-center justify-between rounded-lg px-3 py-2 text-left transition-colors hover:bg-slate-50"
+                >
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 group-hover:text-slate-600">{group.label}</span>
+                  {isCollapsed ? <ChevronRight className="h-3.5 w-3.5 text-slate-400" /> : <ChevronDown className="h-3.5 w-3.5 text-slate-400" />}
+                </button>
+                {!isCollapsed && (
+                  <div className="ml-2 space-y-1 border-l border-slate-200 pl-2">
                 {group.items.map((item) => {
                   const isCreateRfqRoute = pathname === "/business/rfqs/new" || pathname?.startsWith("/business/rfqs/new/");
                   const isActive =
@@ -155,8 +174,10 @@ export function BusinessSidebar() {
                   );
                 })}
               </div>
-            </div>
-          ))}
+                )}
+              </section>
+            );
+          })}
         </nav>
       </div>
     </aside>
