@@ -63,7 +63,7 @@ class WarehouseCollectionRepository(BaseRepository):
                 "_id": oid,
                 "status": {"$in": [COLLECTION_READY, COLLECTION_ASSIGNED]},
                 "$and": [
-                    {"$or": [{"pickupRouteId": {"$exists": False}}, {"pickupRouteId": None}, {"pickupRouteId": ""}, {"pickupRouteId": route_oid}]},
+                    {"$or": [{"pickupRouteId": {"$exists": False}}, {"pickupRouteId": None}, {"pickupRouteId": ""}, {"pickupRouteId": route_oid}, {"pickupRouteId": route_id}]},
                     {"$or": [{"collectionTeamId": {"$exists": False}}, {"collectionTeamId": None}, {"collectionTeamId": ""}]},
                 ],
             }
@@ -136,8 +136,8 @@ class WarehouseCollectionRepository(BaseRepository):
                 "_id": ObjectId(collection_id),
                 "status": {"$in": [COLLECTION_READY, COLLECTION_ASSIGNED]},
                 "$and": [
-                    {"$or": [{"pickupRouteId": {"$exists": False}}, {"pickupRouteId": None}, {"pickupRouteId": ""}, {"pickupRouteId": ObjectId(route_id)}]},
-                    {"$or": [{"collectionTeamId": {"$exists": False}}, {"collectionTeamId": None}, {"collectionTeamId": ""}, {"collectionTeamId": ObjectId(partner_id)}]},
+                    {"$or": [{"pickupRouteId": {"$exists": False}}, {"pickupRouteId": None}, {"pickupRouteId": ""}, {"pickupRouteId": ObjectId(route_id)}, {"pickupRouteId": route_id}]},
+                    {"$or": [{"collectionTeamId": {"$exists": False}}, {"collectionTeamId": None}, {"collectionTeamId": ""}, {"collectionTeamId": ObjectId(partner_id)}, {"collectionTeamId": partner_id}]},
                 ],
             }
             fields = {
