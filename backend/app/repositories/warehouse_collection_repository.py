@@ -61,7 +61,7 @@ class WarehouseCollectionRepository(BaseRepository):
             now = datetime.utcnow()
             query = {
                 "_id": oid,
-                "status": COLLECTION_READY,
+                "status": {"$in": [COLLECTION_READY, COLLECTION_ASSIGNED]},
                 "$and": [
                     {"$or": [{"pickupRouteId": {"$exists": False}}, {"pickupRouteId": None}, {"pickupRouteId": ""}, {"pickupRouteId": route_oid}]},
                     {"$or": [{"collectionTeamId": {"$exists": False}}, {"collectionTeamId": None}, {"collectionTeamId": ""}]},
