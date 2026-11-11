@@ -19,7 +19,6 @@ const navSections = [
   {
     title: "Overview",
     items: [
-      { name: "My Workflow", href: "/warehouse/workflow", icon: ClipboardCheck },
       { name: "Dashboard", href: "/warehouse/dashboard", icon: LayoutDashboard },
       { name: "Messages", href: "/warehouse/messages", icon: MessageSquare },
     ],
@@ -169,11 +168,6 @@ export function WarehouseSidebar() {
             );
           })}
         </nav>
-
-        <div className="mt-5 rounded-xl border border-dashed border-slate-300 p-4">
-          <p className="text-sm font-semibold text-slate-800">Warehouse Workflow</p>
-          <Button asChild size="sm" className="mt-3 w-full"><Link href="/warehouse/workflow"><ClipboardCheck className="mr-2 h-4 w-4" />My Workflow</Link></Button>
-        </div>
 
         {lowStock !== null && lowStock > 0 && (
           <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3">
