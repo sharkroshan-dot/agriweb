@@ -1440,29 +1440,44 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
         return {"success": True, "data": {"districts": [], "areas": [], "zones": [], "taluks": [], "directorySource": "farmer_profiles"}}
 
     def area_from_profile(profile: dict) -> Optional[str]:
-        candidates = [
-            profile.get("farmVillage"), profile.get("villageName"), profile.get("village"),
-            profile.get("farmAreaName"), profile.get("gramPanchayat"), profile.get("panchayat"),
-            profile.get("farmLocality"), profile.get("locality"), profile.get("area"),
-            # Farmer settings store the selected pickup area in farmTaluk.
-            # Include it before generic city/address values so Trichy is not
-            # mistaken for the farm's actual pickup locality.
-            profile.get("farmTaluk"), profile.get("taluk"), profile.get("subDistrict"),
-            profile.get("farmTown"), profile.get("town"),
+        # Farm location data has several legacy shapes. Inspect all nested
+        # address objects and both camelCase/snake_case fields; GPS coordinates
+        # are deliberately not part of locality resolution.
+        locality_keys = {
+            "farmvillage", "village", "villagename", "farmareaname",
+            "farmlocality", "locality", "localityname", "area", "areaname",
+            "grampanchayat", "panchayat", "hamlet", "ward",
+            "farmtaluk", "taluk", "subdistrict", "sub_district",
+            "tehsil", "mandal", "block", "farmtown", "town", "townname",
+        }
+        preferred = [
+            "farmvillage", "village", "villagename", "farmareaname",
+            "farmlocality", "locality", "localityname", "area", "areaname",
+            "grampanchayat", "panchayat", "hamlet", "ward",
+            "farmtaluk", "taluk", "subdistrict", "sub_district",
+            "tehsil", "mandal", "block", "farmtown", "town", "townname",
         ]
-        for container_key in ("farmLocation", "farmAddress", "pickupLocation", "address", "location"):
-            value = profile.get(container_key)
-            if isinstance(value, dict):
-                candidates.extend([
-                    value.get("village"), value.get("villageName"), value.get("farmVillage"),
-                    value.get("locality"), value.get("area"), value.get("gramPanchayat"), value.get("panchayat"),
-                    value.get("farmTaluk"), value.get("taluk"), value.get("subDistrict"), value.get("town"),
-                ])
-        for candidate in candidates:
-            if isinstance(candidate, str) and candidate.strip():
-                cleaned = " ".join(candidate.strip().split())
-                if cleaned.lower() not in {"unknown", "n/a", "na", "not available"}:
-                    return cleaned
+        found: Dict[str, str] = {}
+        pending = [profile]
+        visited = set()
+        while pending:
+            node = pending.pop(0)
+            if not isinstance(node, dict) or id(node) in visited:
+                continue
+            visited.add(id(node))
+            for key, value in node.items():
+                normalized_key = str(key).casefold()
+                if normalized_key in locality_keys and isinstance(value, str) and value.strip():
+                    cleaned = " ".join(value.strip().split())
+                    if cleaned.casefold() not in {"unknown", "n/a", "na", "not available", "none", "null"}:
+                        found.setdefault(normalized_key, cleaned)
+                if isinstance(value, dict):
+                    pending.append(value)
+                elif isinstance(value, list):
+                    pending.extend(item for item in value if isinstance(item, dict))
+        for key in preferred:
+            if found.get(key):
+                return found[key]
         return None
 
     profiles_collection = MongoDB.get_collection("farmer_profiles")
