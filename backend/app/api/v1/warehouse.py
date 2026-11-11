@@ -1096,8 +1096,11 @@ async def get_my_collections(
         if not ObjectId.is_valid(b2b_order_id):
             continue
         existing_b2b_jobs = await warehouse_collection_repository.get_by_order(b2b_order_id, "b2b")
+        # Reuse the existing job even after collection/warehouse arrival.
+        # Creating a fresh row for a picked-up B2B order would make it appear
+        # assignable again and could cause a duplicate farm visit.
         collection_job = next(
-            (row for row in existing_b2b_jobs if str(row.get("status") or "") not in ("cancelled", "completed", "received", "arrived_warehouse")),
+            (row for row in existing_b2b_jobs if str(row.get("status") or "") != "cancelled"),
             None,
         )
         farmer_id = str(b2b_order.get("farmerId") or "")
