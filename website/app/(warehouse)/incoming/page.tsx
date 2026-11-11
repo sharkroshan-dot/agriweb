@@ -775,11 +775,12 @@ export default function WarehouseIncomingPage() {
       <div className="rounded-2xl border border-emerald-100 bg-gradient-to-r from-emerald-50 via-white to-white px-5 py-4 shadow-sm">
         <div className="grid gap-4 md:grid-cols-[190px_1fr_1fr_1fr] md:items-center">
           <p className="font-semibold text-slate-900">Incoming Stock Workflow</p>
-          {[
-            { number: "1", title: "Receive Collection", description: "Confirm and record receipt" },
-            { number: "2", title: "Quality Check", description: "Inspect quantity and quality" },
-            { number: "3", title: "Store / Next Step", description: "Move to inventory or continue fulfillment" },
-          ].map((step, index) => <div key={step.number} className="flex items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 font-bold text-emerald-800">{step.number}</span><div><p className="text-sm font-semibold text-slate-900">{step.title}</p><p className="text-xs text-slate-600">{step.description}</p></div>{index < 2 && <ArrowRight className="ml-auto hidden h-4 w-4 text-emerald-600 lg:block"/>}</div>)}
+          {(fulfillmentFilter === "received_warehouse"
+            ? [{number:"1",title:"Confirm Destination Receipt",description:"Verify the packed transfer arrived"},{number:"2",title:"Send to Local Hub",description:"Handoff for last-mile delivery"},{number:"3",title:"Final-mile Delivery",description:"Continue the delivery workflow"}]
+            : fulfillmentFilter === "farmer"
+              ? [{number:"1",title:"Receive Packed Collection",description:"Confirm physically received packets"},{number:"2",title:"Review Receipt",description:"Verify order references and quantities"},{number:"3",title:"Transfer Routing",description:"Continue to Farmer Fulfillment Transfers"}]
+              : [{number:"1",title:"Receive Bulk Stock",description:"Record measured quantity and receipt"},{number:"2",title:"Quality Check",description:"Inspect quality and usable quantity"},{number:"3",title:"Store / Order Packing",description:"Update inventory and prepare orders"}]
+          ).map((step,index)=><div key={step.number} className="flex items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 font-bold text-emerald-800">{step.number}</span><div><p className="text-sm font-semibold text-slate-900">{step.title}</p><p className="text-xs text-slate-600">{step.description}</p></div>{index<2&&<ArrowRight className="ml-auto hidden h-4 w-4 text-emerald-600 lg:block"/>}</div>)}
         </div>
       </div>
 
