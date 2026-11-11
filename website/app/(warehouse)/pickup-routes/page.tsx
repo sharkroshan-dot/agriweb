@@ -77,6 +77,7 @@ export default function PickupRoutesPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [teamId, setTeamId] = useState("");
   const [assigning, setAssigning] = useState(false);
+  const [activeFarmId, setActiveFarmId] = useState("");
 
   const jobsQ = useQuery({
     queryKey: ["warehousePickupAreaPlanning"],
@@ -323,9 +324,17 @@ export default function PickupRoutesPage() {
               <div><h2 className="flex items-center gap-2 font-semibold text-slate-900"><MapPin className="h-4 w-4 text-emerald-700"/> Pickup location map</h2><p className="mt-1 text-xs text-slate-500">{filtered.filter(coordinatesOf).length} located orders · {filtered.filter((job) => !coordinatesOf(job)).length} without coordinates</p></div>
               <Badge variant="outline">{selectedGroupName}</Badge>
             </div>
-            {farmMarkers.length ? <SharedMap center={mapCenter} zoom={11} markers={farmMarkers} drawRoute={false} height="340px" className="w-full" /> : <div className="flex h-[260px] flex-col items-center justify-center gap-2 bg-slate-50 text-center"><MapPin className="h-8 w-8 text-slate-400"/><p className="text-sm font-medium text-slate-700">No verified farm coordinates in this area</p><p className="text-xs text-slate-500">Orders remain available below. Add verified GPS coordinates to the farmer's farm profile to show a marker.</p></div>}
+            {farmMarkers.length ? <SharedMap center={mapCenter} zoom={11} markers={farmMarkers} drawRoute={false} height="340px" className="w-full" onMarkerClick={(marker: any) => setActiveFarmId(String(marker?.id || ""))} /> : <div className="flex h-[260px] flex-col items-center justify-center gap-2 bg-slate-50 text-center"><MapPin className="h-8 w-8 text-slate-400"/><p className="text-sm font-medium text-slate-700">No verified farm coordinates in this area</p><p className="text-xs text-slate-500">Orders remain available below. Add verified GPS coordinates to the farmer's farm profile to show a marker.</p></div>}
             <div className="flex flex-wrap gap-3 border-t bg-slate-50 px-4 py-3 text-xs text-slate-600"><span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5"/> Each marker represents a farm pickup order</span><span>Only farms in this warehouse district are included</span></div>
           </Card>
+          {activeFarmId && (() => {
+            const active = filtered.find((job) => idOf(job) === activeFarmId);
+            if (!active) return null;
+            return <Card className="border-emerald-200 shadow-sm"><CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+              <div><p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Selected farm marker</p><p className="mt-1 font-semibold text-slate-900">{active.farmerName || "Farm"} · {active.orderNumber || active.eventOrderNumber || "Pickup order"}</p><p className="mt-1 text-xs text-slate-600">{active.pickupAddress || "Farm address unavailable"} · {active.productName || "Product"} · {Number(active.quantity || 0)} kg</p></div>
+              <Button size="sm" variant="outline" onClick={() => setActiveFarmId("")}>Close</Button>
+            </CardContent></Card>;
+          })()}
 
           {filtered.some((job) => !coordinatesOf(job)) && <Card className="border-amber-200 shadow-sm">
             <div className="border-b border-amber-100 p-4">
