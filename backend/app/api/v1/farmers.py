@@ -68,6 +68,7 @@ class UpdateFarmerProfileRequest(BaseModel):
     city: Optional[str] = None
     weeklyPickupWindow: Optional[str] = None
     farmAddress: Optional[str] = None
+    farmVillage: Optional[str] = Field(None, max_length=120)
     farmTaluk: Optional[str] = Field(None, max_length=120)
     pickupInstructions: Optional[str] = None
     profileImage: Optional[str] = None
