@@ -5194,7 +5194,7 @@ async def update_b2b_warehouse_fulfillment(
                 {"$unset": {
                     "pickupTeam": "", "pickupTeamName": "", "pickupVehicle": "",
                     "pickupAssignedAt": "", "pickupAssignedBy": "",
-                    "pickupAssignmentSource": "",
+                    "pickupAssignmentSource": "", "pickupRouteId": "",
                 }, "$set": {"updatedAt": datetime.utcnow()}},
             )
 
