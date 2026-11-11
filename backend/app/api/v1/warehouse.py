@@ -1476,7 +1476,9 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
                 continue
             visited.add(id(node))
             for key, value in node.items():
-                normalized_key = str(key).casefold()
+                # Farmer profile schemas exist in both camelCase and
+                # snake_case. Normalize key spelling before testing locality fields.
+                normalized_key = str(key).casefold().replace("_", "").replace("-", "").replace(" ", "")
                 if normalized_key in locality_keys and isinstance(value, str) and value.strip():
                     cleaned = " ".join(value.strip().split())
                     if cleaned.casefold() not in {"unknown", "n/a", "na", "not available", "none", "null"}:
@@ -1525,14 +1527,24 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
         return master_by_alias.get(normalized_area(value)) if value else None
 
     def taluk_from_profile(profile: dict) -> Optional[str]:
-        candidates = [profile.get("farmTaluk"), profile.get("taluk"), profile.get("subDistrict"), profile.get("sub_district"), profile.get("tehsil"), profile.get("mandal")]
-        for container_key in ("farmLocation", "farmAddress", "address", "location"):
-            value = profile.get(container_key)
-            if isinstance(value, dict):
-                candidates.extend([value.get("taluk"), value.get("subDistrict"), value.get("sub_district"), value.get("tehsil"), value.get("mandal")])
-        for candidate in candidates:
-            if isinstance(candidate, str) and candidate.strip() and candidate.strip().casefold() not in {"unknown", "n/a", "na", "not available"}:
-                return " ".join(candidate.strip().split())
+        taluk_keys = {"farmtaluk", "taluk", "subdistrict", "tehsil", "mandal"}
+        pending = [profile]
+        visited = set()
+        while pending:
+            node = pending.pop(0)
+            if not isinstance(node, dict) or id(node) in visited:
+                continue
+            visited.add(id(node))
+            for key, value in node.items():
+                normalized_key = str(key).casefold().replace("_", "").replace("-", "").replace(" ", "")
+                if normalized_key in taluk_keys and isinstance(value, str) and value.strip():
+                    cleaned = " ".join(value.strip().split())
+                    if cleaned.casefold() not in {"unknown", "n/a", "na", "not available", "none", "null"} and not is_road_or_address_label(cleaned):
+                        return cleaned
+                if isinstance(value, dict):
+                    pending.append(value)
+                elif isinstance(value, list):
+                    pending.extend(item for item in value if isinstance(item, dict))
         return None
 
     def taluk_from_job(job: dict) -> Optional[str]:
@@ -1654,10 +1666,19 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
         "hubCoordinates": None,
     }
     for job in pickup_jobs:
-        farmer_id = str(job.get("farmerId") or job.get("farmerUserId") or "")
+        farmer_id = str(job.get("farmerId") or job.get("farmerUserId") or job.get("farmId") or "")
         area_key = profile_area_by_id.get(farmer_id)
         if not area_key:
-            explicit = job.get("farmVillage") or job.get("farmAreaName") or job.get("village") or job.get("locality") or job.get("farmTown")
+            explicit_candidates = [
+                job.get("farmVillage"), job.get("farm_village"), job.get("village"),
+                job.get("villageName"), job.get("village_name"), job.get("locality"),
+                job.get("farmLocality"), job.get("farm_locality"), job.get("farmAreaName"),
+                job.get("farm_area_name"), job.get("farmTaluk"), job.get("farm_taluk"),
+                job.get("taluk"), job.get("subDistrict"), job.get("sub_district"),
+                job.get("farmTown"), job.get("farm_town"), job.get("town"),
+            ]
+            explicit = next((value for value in explicit_candidates
+                if isinstance(value, str) and value.strip() and not is_road_or_address_label(value)), None)
             area_key = normalized_area(explicit) if explicit else ""
         coords = profile_coords_by_id.get(farmer_id)
         if not coords:
