@@ -160,10 +160,22 @@ export default function PickupRoutesPage() {
     });
     jobs.forEach((job) => {
       const id = idOf(job);
-      const profileArea = areaKey(areaOf(job));
-      const key = collectionToZone.get(id) || areaAliases.get(profileArea) || (directoryRows.length ? "district-unassigned" : profileArea);
+      const location = job.pickupLocation || job.farmLocation || {};
+      const explicitAreas = [
+        job.farmVillage, job.farmAreaName, job.farmTown, job.farmTaluk,
+        job.village, job.locality, job.taluk, job.town,
+        location.village, location.locality, location.taluk, location.town,
+      ].filter((value): value is string => typeof value === "string" && Boolean(value.trim()));
+      const address = String(job.pickupAddress || job.farmAddress || "");
+      const addressParts = address.split(",").map((part) => areaKey(part)).filter(Boolean);
+      const matchedKey = explicitAreas.map((value) => areaAliases.get(areaKey(value))).find(Boolean)
+        || addressParts.map((value) => areaAliases.get(value)).find(Boolean);
+      // A generic district or road address is not proof of a farm's taluk.
+      // Only a matching canonical area/alias or a backend collection ID can
+      // assign a job to an area. Unknown jobs stay visible for correction.
+      const key = collectionToZone.get(id) || matchedKey || "district-unassigned";
       if (!groups.has(key)) {
-        const name = key === "district-unassigned" ? "Area not matched" : areaOf(job);
+        const name = key === "district-unassigned" ? "Location verification needed" : areaOf(job);
         groups.set(key, { key, name, areaType: "Farm location needs area-master mapping", jobs: [], totalOrders: 0, readyToAssign: 0, collectionIds: [] });
       }
       const group = groups.get(key)!;
