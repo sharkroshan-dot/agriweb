@@ -1317,6 +1317,10 @@ async def get_my_collections(
         # Farmer profiles in older records use different address containers.
         # Inspect all known structured locations and their nested address objects.
         address_sources = [
+            # Include the complete records as well as their nested location
+            # objects: older collection/order documents often store locality
+            # and taluk fields at the top level.
+            job, (order or {}), profile, (product or {}),
             job.get("pickupLocation"), job.get("farmLocation"),
             (order or {}).get("farmLocation"), (order or {}).get("farmerLocation"),
             profile.get("farmLocation"), profile.get("farmAddress"),
