@@ -10,10 +10,11 @@ import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
 import { api } from "../../lib/api/client";
+import { Map as SharedMap } from "../../components/shared/map";
 import toast from "react-hot-toast";
 
 type Job = Record<string, any>;
-const READY = new Set(["ready_for_pickup", "team_assigned"]);
+const READY = new Set(["ready_for_pickup"]);
 const STATUS_LABEL: Record<string, string> = {
   scheduled: "Waiting for farmer", ready_for_pickup: "Ready for pickup",
   team_assigned: "Partner assigned", en_route: "En route", arrived_at_farm: "At farm",
@@ -66,6 +67,7 @@ function coordinatesOf(job: Job): [number, number] | null {
   return Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 ? [lat, lng] : null;
 }
 function areaKey(value: string) { return value.toLowerCase().replace(/\s+/g, " ").trim(); }
+function escapeMapText(value: unknown) { return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/\'/g, "&#39;"); }
 
 export default function PickupRoutesPage() {
   const [selectedArea, setSelectedArea] = useState("all");
@@ -85,6 +87,13 @@ export default function PickupRoutesPage() {
     queryKey: ["warehousePickupAreaTeams"],
     queryFn: () => api.get("/warehouse/me/pickup-team/members"),
     refetchInterval: 15000,
+  });
+
+  const areasQ = useQuery({
+    queryKey: ["warehousePickupAreaDirectory"],
+    queryFn: () => api.get("/warehouse/me/pickup-areas"),
+    refetchInterval: 60000,
+    staleTime: 30000,
   });
 
   // Accept both direct API payloads and { data: ... } response envelopes.
@@ -117,14 +126,33 @@ export default function PickupRoutesPage() {
   const selectedTeam = eligibleTeams.find((team) => String(team.id) === teamId);
 
   const areas = useMemo(() => {
-    const groups = new Map<string, { key: string; name: string; jobs: Job[] }>();
+    const groups = new Map<string, { key: string; name: string; jobs: Job[]; totalOrders: number; readyToAssign: number }>();
+    const directoryRows = areasQ.data?.data?.areas ?? areasQ.data?.areas ?? areasQ.data?.data?.data?.areas ?? [];
+    if (Array.isArray(directoryRows)) {
+      directoryRows.forEach((area: Job) => {
+        const name = String(area.name || "").trim();
+        if (!name) return;
+        const key = areaKey(name);
+        groups.set(key, {
+          key, name, jobs: [],
+          totalOrders: Number(area.totalOrders || 0),
+          readyToAssign: Number(area.readyToAssign || 0),
+        });
+      });
+    }
     jobs.forEach((job) => {
       const name = areaOf(job); const key = areaKey(name);
-      if (!groups.has(key)) groups.set(key, { key, name, jobs: [] });
-      groups.get(key)!.jobs.push(job);
+      if (!groups.has(key)) groups.set(key, { key, name, jobs: [], totalOrders: 0, readyToAssign: 0 });
+      const group = groups.get(key)!;
+      group.jobs.push(job);
+      // Use API directory counts when present; otherwise count the warehouse-scoped jobs.
+      if (!directoryRows?.length) {
+        group.totalOrders += 1;
+        if (READY.has(String(job.status || "")) && !job.pickupRouteId) group.readyToAssign += 1;
+      }
     });
     return Array.from(groups.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [jobs]);
+  }, [jobs, areasQ.data]);
 
   const filtered = useMemo(() => jobs.filter((job) => {
     const areaMatch = selectedArea === "all" || areaKey(areaOf(job)) === selectedArea;
@@ -147,14 +175,20 @@ export default function PickupRoutesPage() {
     };
   }, [jobs, selectedArea]);
 
-  const mapBounds = useMemo(() => {
-    const coords = filtered.map(coordinatesOf).filter(Boolean) as [number, number][];
-    if (!coords.length) return null;
-    const lats = coords.map((p) => p[0]), lngs = coords.map((p) => p[1]);
-    const padLat = Math.max((Math.max(...lats) - Math.min(...lats)) * 0.2, 0.015);
-    const padLng = Math.max((Math.max(...lngs) - Math.min(...lngs)) * 0.2, 0.015);
-    return [Math.min(...lngs) - padLng, Math.min(...lats) - padLat, Math.max(...lngs) + padLng, Math.max(...lats) + padLat].join(",");
-  }, [filtered]);
+  const farmMarkers = useMemo(() => filtered.flatMap((job) => {
+    const coords = coordinatesOf(job);
+    if (!coords) return [];
+    return [{
+      id: idOf(job),
+      lat: coords[0],
+      lng: coords[1],
+      title: escapeMapText(job.farmerName || "Farm pickup"),
+      info: escapeMapText(`${job.orderNumber || job.eventOrderNumber || "Pickup order"} · ${job.productName || "Product"} · ${Number(job.quantity || 0)} kg · ${STATUS_LABEL[String(job.status)] || String(job.status || "Unknown").replace(/_/g, " ")}`),
+    }];
+  }), [filtered]);
+  const mapCenter = useMemo(() => farmMarkers.length
+    ? { lat: farmMarkers.reduce((sum, marker) => sum + marker.lat, 0) / farmMarkers.length, lng: farmMarkers.reduce((sum, marker) => sum + marker.lng, 0) / farmMarkers.length }
+    : { lat: 10.7905, lng: 78.7047 }, [farmMarkers]);
 
   const toggleOrder = (id: string) => setSelectedIds((current) => current.includes(id) ? current.filter((x) => x !== id) : [...current, id]);
   const selectVisible = () => setSelectedIds((current) => {
@@ -181,7 +215,7 @@ export default function PickupRoutesPage() {
       });
       toast.success(result?.message || result?.data?.message || "Selected area pickups assigned successfully.");
       setSelectedIds([]);
-      await Promise.all([jobsQ.refetch(), teamsQ.refetch()]);
+      await Promise.all([jobsQ.refetch(), teamsQ.refetch(), areasQ.refetch()]);
     } catch (error: any) {
       toast.error(error?.message || "Unable to assign selected pickups.");
     } finally { setAssigning(false); }
@@ -203,7 +237,7 @@ export default function PickupRoutesPage() {
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Plan farm pickups only within this warehouse’s configured district coverage. Orders are grouped into villages, towns and local areas inside that district.</p>
             <p className="mt-2 text-xs font-medium text-emerald-700">{configuredDistricts.length ? `District coverage: ${configuredDistricts.join(", ")}` : "District coverage is not configured. Set the warehouse district in Settings before planning pickups."}</p>
           </div>
-          <Button variant="outline" onClick={() => { jobsQ.refetch(); teamsQ.refetch(); }} disabled={jobsQ.isFetching} className="gap-2 self-start"><RefreshCw className={`h-4 w-4 ${jobsQ.isFetching ? "animate-spin" : ""}`} /> Refresh</Button>
+          <Button variant="outline" onClick={() => { jobsQ.refetch(); teamsQ.refetch(); areasQ.refetch(); }} disabled={jobsQ.isFetching} className="gap-2 self-start"><RefreshCw className={`h-4 w-4 ${jobsQ.isFetching ? "animate-spin" : ""}`} /> Refresh</Button>
         </div>
       </section>
 
@@ -211,7 +245,7 @@ export default function PickupRoutesPage() {
       <section className="grid gap-3 grid-cols-2 xl:grid-cols-5">
         {[
           { label: "Farm pickup orders", value: areaSummary.total, icon: Package },
-          { label: "Pickup areas", value: selectedArea === "all" ? areas.length : 1, icon: MapIcon },
+          { label: "Pickup areas", value: areas.length, icon: MapIcon },
           { label: "Ready to assign", value: areaSummary.ready, icon: Clock3 },
           { label: "Already assigned", value: areaSummary.assigned.length, icon: Truck },
           { label: "Pickup completed", value: areaSummary.completed, icon: CheckCircle2 },
@@ -227,9 +261,9 @@ export default function PickupRoutesPage() {
               <span className="mt-1 block text-xs text-slate-500">{areaSummary.ready} ready for assignment</span>
             </button>
             {areas.map((area) => {
-              const ready = area.jobs.filter((job) => READY.has(String(job.status || "")) && !job.pickupRouteId).length;
+              const ready = area.readyToAssign;
               return <button key={area.key} onClick={() => setSelectedArea(area.key)} className={`w-full rounded-lg border p-3 text-left ${selectedArea === area.key ? "border-emerald-300 bg-emerald-50" : "border-transparent hover:bg-slate-50"}`}>
-                <span className="flex items-center justify-between gap-2 text-sm font-semibold text-slate-800"><span className="truncate">{area.name}</span><span className="tabular-nums">{area.jobs.length}</span></span>
+                <span className="flex items-center justify-between gap-2 text-sm font-semibold text-slate-800"><span className="truncate">{area.name}</span><span className="tabular-nums">{area.totalOrders}</span></span>
                 <span className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500"><span>{ready} ready for pickup</span></span>
               </button>;
             })}
@@ -242,9 +276,22 @@ export default function PickupRoutesPage() {
               <div><h2 className="flex items-center gap-2 font-semibold text-slate-900"><MapPin className="h-4 w-4 text-emerald-700"/> Pickup location map</h2><p className="mt-1 text-xs text-slate-500">{filtered.filter(coordinatesOf).length} located orders · {filtered.filter((job) => !coordinatesOf(job)).length} without coordinates</p></div>
               <Badge variant="outline">{selectedArea === "all" ? "All areas" : areas.find((a) => a.key === selectedArea)?.name || "Selected area"}</Badge>
             </div>
-            {mapBounds ? <iframe title="Pickup area map" className="h-[340px] w-full border-0" loading="lazy" src={`https://www.openstreetmap.org/export/embed.html?bbox=${mapBounds}&layer=mapnik`} /> : <div className="flex h-[260px] flex-col items-center justify-center gap-2 bg-slate-50 text-center"><MapPin className="h-8 w-8 text-slate-400"/><p className="text-sm font-medium text-slate-700">No verified coordinates in this selection</p><p className="text-xs text-slate-500">Orders remain available in the area list; add farm coordinates to display them on the map.</p></div>}
-            <div className="flex flex-wrap gap-3 border-t bg-slate-50 px-4 py-3 text-xs text-slate-600"><span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5"/> Open a farm pickup location from its order</span><span>Only farms in this warehouse district are included</span></div>
+            {farmMarkers.length ? <SharedMap center={mapCenter} zoom={11} markers={farmMarkers} drawRoute={false} height="340px" className="w-full" /> : <div className="flex h-[260px] flex-col items-center justify-center gap-2 bg-slate-50 text-center"><MapPin className="h-8 w-8 text-slate-400"/><p className="text-sm font-medium text-slate-700">No verified farm coordinates in this area</p><p className="text-xs text-slate-500">Orders remain available below. Add verified GPS coordinates to the farmer's farm profile to show a marker.</p></div>}
+            <div className="flex flex-wrap gap-3 border-t bg-slate-50 px-4 py-3 text-xs text-slate-600"><span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5"/> Each marker represents a farm pickup order</span><span>Only farms in this warehouse district are included</span></div>
           </Card>
+
+          {filtered.some((job) => !coordinatesOf(job)) && <Card className="border-amber-200 shadow-sm">
+            <div className="border-b border-amber-100 p-4">
+              <h3 className="flex items-center gap-2 font-semibold text-slate-900"><AlertTriangle className="h-4 w-4 text-amber-600"/> Farms needing location coordinates</h3>
+              <p className="mt-1 text-xs text-slate-500">{filtered.filter((job) => !coordinatesOf(job)).length} pickup orders remain visible but cannot be pinned until verified farm GPS coordinates are saved.</p>
+            </div>
+            <div className="max-h-48 divide-y overflow-y-auto">
+              {filtered.filter((job) => !coordinatesOf(job)).map((job) => <div key={idOf(job)} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
+                <div className="min-w-0"><p className="truncate font-medium text-slate-800">{job.farmerName || "Farmer details unavailable"} · {job.orderNumber || job.eventOrderNumber || "Pickup order"}</p><p className="truncate text-xs text-slate-500">{job.pickupAddress || "No farm pickup address saved"} · {areaOf(job)}</p></div>
+                <Badge variant="outline">GPS missing</Badge>
+              </div>)}
+            </div>
+          </Card>}
 
           <Card className="border-slate-200 shadow-sm">
             <div className="flex flex-col gap-3 border-b p-4 lg:flex-row lg:items-center lg:justify-between">

@@ -1420,6 +1420,97 @@ async def get_my_collections(
     }
 
 
+
+@router.get("/me/pickup-areas", response_model=dict)
+async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
+    """Return registered farm areas in this warehouse's district with live pickup counts.
+
+    The directory is derived from active farmer profiles, not from today's pickup
+    orders, so registered areas remain visible when their order count is zero.
+    """
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can view pickup areas")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    if not warehouse:
+        raise HTTPException(status_code=404, detail="Warehouse not found")
+
+    coverage = warehouse_collection_districts(warehouse)
+    if not coverage:
+        return {"success": True, "data": {"districts": [], "areas": [], "directorySource": "farmer_profiles"}}
+
+    def area_from_profile(profile: dict) -> Optional[str]:
+        candidates = [
+            profile.get("farmVillage"), profile.get("villageName"), profile.get("village"),
+            profile.get("farmAreaName"), profile.get("gramPanchayat"), profile.get("panchayat"),
+            profile.get("farmLocality"), profile.get("locality"), profile.get("area"),
+            profile.get("farmTown"), profile.get("town"), profile.get("taluk"),
+        ]
+        for container_key in ("farmLocation", "farmAddress", "address", "location"):
+            value = profile.get(container_key)
+            if isinstance(value, dict):
+                candidates.extend([
+                    value.get("village"), value.get("villageName"), value.get("farmVillage"),
+                    value.get("locality"), value.get("area"), value.get("town"),
+                    value.get("taluk"), value.get("gramPanchayat"), value.get("panchayat"),
+                ])
+        for candidate in candidates:
+            if isinstance(candidate, str) and candidate.strip():
+                cleaned = " ".join(candidate.strip().split())
+                if cleaned.lower() not in {"unknown", "n/a", "na", "not available"}:
+                    return cleaned
+        return None
+
+    profiles_collection = MongoDB.get_collection("farmer_profiles")
+    profiles = await profiles_collection.find({"deletedAt": None}).to_list(length=10000)
+    area_profiles: Dict[str, Dict[str, Any]] = {}
+    farmer_area_by_id: Dict[str, str] = {}
+    for profile in profiles:
+        location = (
+            profile.get("farmLocation") or profile.get("farmAddress")
+            or profile.get("location") or profile.get("address") or {}
+        )
+        if farmer_collection_district(profile, location, coverage) not in coverage:
+            continue
+        area_name = area_from_profile(profile)
+        if not area_name:
+            continue
+        area_key = " ".join(area_name.casefold().split())
+        area_profiles.setdefault(area_key, {"key": area_key, "name": area_name, "totalOrders": 0, "readyToAssign": 0})
+        for identity in (profile.get("_id"), profile.get("userId")):
+            if identity:
+                farmer_area_by_id[str(identity)] = area_key
+
+    pickup_jobs = await warehouse_collection_repository.get_by_warehouse(str(warehouse["_id"]), None, limit=5000)
+    for job in pickup_jobs:
+        farmer_id = job.get("farmerId") or job.get("farmerUserId")
+        area_key = farmer_area_by_id.get(str(farmer_id)) if farmer_id else None
+        if not area_key:
+            # Use explicit structured area fields on the collection only. Do not
+            # infer a village from an unstructured road/address string.
+            explicit = job.get("farmVillage") or job.get("farmAreaName") or job.get("village") or job.get("locality") or job.get("farmTown")
+            if isinstance(explicit, str) and explicit.strip():
+                area_key = " ".join(explicit.casefold().split())
+                area_profiles.setdefault(area_key, {"key": area_key, "name": " ".join(explicit.split()), "totalOrders": 0, "readyToAssign": 0})
+        if not area_key or area_key not in area_profiles:
+            continue
+        area = area_profiles[area_key]
+        area["totalOrders"] += 1
+        status_value = str(job.get("status") or "").strip().lower()
+        if status_value == "ready_for_pickup" and not job.get("pickupRouteId"):
+            area["readyToAssign"] += 1
+
+    areas = sorted(area_profiles.values(), key=lambda item: item["name"].casefold())
+    return {
+        "success": True,
+        "data": {
+            "districts": sorted(coverage),
+            "areas": areas,
+            "directorySource": "active_farmer_profiles",
+            "note": "Areas are derived from active farmer farm-address records; add missing village/locality details to farmer profiles to complete district coverage.",
+        },
+    }
+
+
 @router.get("/me/workflow")
 async def get_warehouse_workflow(current_user: dict = Depends(get_current_user)):
     """Return one authoritative snapshot of every warehouse fulfillment stage."""
