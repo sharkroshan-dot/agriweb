@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 import math
+import re
 from zoneinfo import ZoneInfo
 from pydantic import BaseModel, Field
 from bson import ObjectId
@@ -1444,8 +1445,8 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
         if not text:
             return True
         return bool(
-            re.search(r"\\b(main road|road|street|st\\.?|highway|hwy|bypass|cross street|roadways)\\b", text)
-            or (re.search(r"\\b(trichy|tiruchirappalli|tiruchirapalli)\\b", text) and len(text.split()) > 1)
+            re.search(r"\b(main road|road|street|st\\.?|highway|hwy|bypass|cross street|roadways)\\b", text)
+            or (re.search(r"\b(trichy|tiruchirappalli|tiruchirapalli)\\b", text) and len(text.split()) > 1)
         )
 
     def area_from_profile(profile: dict) -> Optional[str]:
