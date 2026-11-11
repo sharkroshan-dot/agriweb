@@ -101,6 +101,7 @@ export default function B2BFulfillmentPage() {
         qc.invalidateQueries({ queryKey: ["b2b", "warehouse-fulfillment"] }),
         qc.invalidateQueries({ queryKey: ["b2b", "farmer", "orders"] }),
         qc.invalidateQueries({ queryKey: ["warehouseCollectionsPage"] }),
+        qc.invalidateQueries({ queryKey: ["warehousePickupAreaPlanning"] }),
       ]);
     },
     onError: (e: any) => toast.error(e?.message || "Could not update B2B fulfillment"),
@@ -144,7 +145,7 @@ export default function B2BFulfillmentPage() {
       const orderName = o.orderNumber || `B2B-${o.id.slice(-6)}`;
       return <Card key={o.id || orderName}><CardContent className="space-y-4 p-5">
         <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2"><h2 className="font-semibold">{orderName}</h2><Badge>{label(o.status)}</Badge></div>
+          <div className="flex flex-wrap items-center gap-2"><h2 className="font-semibold">{orderName}</h2><Badge>{o.pickupTeam && o.status === "ready_for_pickup" ? "pickup assigned" : label(o.status)}</Badge></div>
           <p className="mt-1 text-sm text-slate-700">{o.productName || "B2B produce"} · Ordered {o.quantityKg ?? "—"} kg · Packed {o.packedQuantityKg ?? "—"} kg · Received {o.receivedQuantityKg ?? o.destinationReceivedQuantityKg ?? "—"} kg</p>
           <div className="mt-2 grid gap-1 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950 sm:grid-cols-2">
             <p><strong>Business delivery:</strong> {o.deliveryDeadline || o.requiredDate || o.scheduledDeliveryDate ? new Date(o.deliveryDeadline || o.requiredDate || o.scheduledDeliveryDate).toLocaleDateString("en-IN") : "Confirm delivery date"} · {o.deliveryTimeSlot || "Morning slot not specified"}</p>
@@ -165,17 +166,16 @@ export default function B2BFulfillmentPage() {
           {o.deliveredAt && <p>Business delivery recorded: {new Date(o.deliveredAt).toLocaleString("en-IN")}</p>}
           {o.completedAt && <p>Completion recorded: {new Date(o.completedAt).toLocaleString("en-IN")}</p>}
         </section> : <>
-        {o.status === "ready_for_pickup" && <section className="space-y-3 rounded-xl border bg-slate-50 p-4">
-          <h3 className="font-medium"><Truck className="mr-2 inline h-4 w-4"/>Farm pickup assignment</h3>
-          <p className="text-sm text-slate-600">Select a registered approved pickup team. Vehicle details come from the team record; do not type team IDs or vehicle numbers.</p>
-          {teams.length ? <div className="grid gap-3 sm:grid-cols-2">
-            <div><label className="mb-1 block text-sm font-medium">Approved pickup team</label><select className="h-10 w-full rounded-md border bg-white px-3 text-sm" value={String(f.pickupTeam || "")} onChange={e => setForm(o.id, { pickupTeam: e.target.value })}><option value="">Select registered team</option>{teams.map((t: any) => <option key={String(t.deliveryPartnerId || t.userId || t.id || t._id)} value={String(t.deliveryPartnerId || t.userId || t.id || t._id)}>{t.name || t.fullName || "Pickup team"}{t.vehicleType ? ` · ${t.vehicleType}` : ""}{t.vehicleNumber ? ` · ${t.vehicleNumber}` : ""}</option>)}</select></div>
-            <div><label className="mb-1 block text-sm font-medium">Registered vehicle</label><div className="flex min-h-10 items-center rounded-md border bg-white px-3 text-sm">{vehicle || "Select a team to view its vehicle"}</div></div>
-          </div> : <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{teamsQuery.isError ? "Could not load the approved pickup-team roster." : "No approved pickup team with registered vehicle capacity is available. Configure one in Pickup Partners."}</p>}
-          <Button disabled={mutation.isPending || !f.pickupTeam || !team || !vehicle || Boolean(o.pickupTeam)} onClick={() => act(o.id, { action: "assign_pickup", pickupTeam: String(team.deliveryPartnerId || team.userId || team.user_id || team.id || team._id), vehicle, pickupTeamName: team.name || team.fullName || "Pickup team" })}>Confirm Pickup Assignment</Button>
-          {o.pickupTeam && <p className="text-sm text-emerald-800">Assigned to {o.pickupTeamName || team?.name || o.pickupTeam} · {o.pickupVehicle || vehicle}. Collection must be confirmed by the assigned pickup team.</p>}
-        </section>}
-
+        {o.status === "ready_for_pickup" && (o.pickupTeam ? <section className="space-y-3 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
+  <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold text-emerald-950"><CheckCircle2 className="mr-2 inline h-4 w-4"/>Farm pickup already assigned</h3><Badge className="border-emerald-200 bg-white text-emerald-800">Assignment synchronized</Badge></div>
+  <div className="grid gap-2 sm:grid-cols-2"><div className="rounded-lg border border-emerald-100 bg-white p-3"><p className="text-xs text-slate-500">Pickup partner</p><p className="mt-1 font-semibold text-slate-900">{o.pickupTeamName || team?.name || o.pickupTeam}</p></div><div className="rounded-lg border border-emerald-100 bg-white p-3"><p className="text-xs text-slate-500">Vehicle</p><p className="mt-1 font-semibold text-slate-900">{o.pickupVehicle || vehicle || "Registered vehicle"}</p></div></div>
+  <div className="rounded-lg border border-emerald-100 bg-white p-3"><p className="font-medium text-emerald-900">Next process: Awaiting farm collection</p><p className="mt-1 text-sm text-slate-600">This pickup was assigned from {o.pickupAssignmentSource === "pickup_routes" ? "Pickup Routes" : "B2B Pickup & Fulfillment"}. The assignment is shared between both pages. Do not assign another partner.</p></div>
+</section> : <section className="space-y-3 rounded-xl border bg-slate-50 p-4">
+  <h3 className="font-medium"><Truck className="mr-2 inline h-4 w-4"/>Farm pickup assignment</h3>
+  <p className="text-sm text-slate-600">Select a registered approved pickup team. Vehicle details come from the team record; the same assignment will appear in Pickup Routes.</p>
+  {teams.length ? <div className="grid gap-3 sm:grid-cols-2"><div><label className="mb-1 block text-sm font-medium">Approved pickup team</label><select className="h-10 w-full rounded-md border bg-white px-3 text-sm" value={String(f.pickupTeam || "")} onChange={e => setForm(o.id, { pickupTeam: e.target.value })}><option value="">Select registered team</option>{teams.map((t: any) => <option key={String(t.deliveryPartnerId || t.userId || t.id || t._id)} value={String(t.deliveryPartnerId || t.userId || t.id || t._id)}>{t.name || t.fullName || "Pickup team"}{t.vehicleType ? " · " + t.vehicleType : ""}{t.vehicleNumber ? " · " + t.vehicleNumber : ""}</option>)}</select></div><div><label className="mb-1 block text-sm font-medium">Registered vehicle</label><div className="flex min-h-10 items-center rounded-md border bg-white px-3 text-sm">{vehicle || "Select a team to view its vehicle"}</div></div></div> : <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{teamsQuery.isError ? "Could not load the approved pickup-team roster." : "No approved pickup team with registered vehicle capacity is available. Configure one in Pickup Partners."}</p>}
+  <Button disabled={mutation.isPending || !f.pickupTeam || !team || !vehicle} onClick={() => act(o.id, { action: "assign_pickup", pickupTeam: String(team.deliveryPartnerId || team.userId || team.user_id || team.id || team._id), vehicle, pickupTeamName: team.name || team.fullName || "Pickup team" })}>Confirm Pickup Assignment</Button>
+</section>)}
 
 
         {o.cooperativeId && ["picked_up", "warehouse_received"].includes(String(o.status || "").toLowerCase()) && <section className="space-y-3 rounded-xl border border-violet-200 bg-violet-50/40 p-4">
