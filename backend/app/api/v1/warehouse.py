@@ -1467,10 +1467,23 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
     hubs = await MongoDB.get_collection("warehouses").find({
         "parentWarehouseId": warehouse["_id"], "facilityType": "local_hub",
         "status": "active", "deletedAt": None,
-    }).to_list(length=500)
+    }).to_list(length=500)    # Canonical district locality directory maintained by administrators.
+    area_master = await MongoDB.get_collection("district_pickup_areas").find({
+        "districtKey": {"$in": list(coverage)},
+        "isActive": True, "deletedAt": None,
+    }).to_list(length=5000)
 
     def normalized_area(value: Any) -> str:
         return " ".join(str(value or "").casefold().split())
+    master_by_alias: Dict[str, dict] = {}
+    for master in area_master:
+        canonical = str(master.get("name") or "").strip()
+        if not canonical: continue
+        for alias in [canonical, *(master.get("aliases") or [])]:
+            master_by_alias[normalized_area(alias)] = master
+
+    def canonical_area(value: Optional[str]) -> Optional[dict]:
+        return master_by_alias.get(normalized_area(value)) if value else None
 
     def taluk_from_profile(profile: dict) -> Optional[str]:
         candidates = [profile.get("farmTaluk"), profile.get("taluk"), profile.get("subDistrict"), profile.get("sub_district"), profile.get("tehsil"), profile.get("mandal")]
@@ -1542,8 +1555,11 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
         if farmer_collection_district(profile, location, coverage) not in coverage:
             continue
         area_name = area_from_profile(profile)
+        matched_master = canonical_area(area_name)
+        if matched_master:
+            area_name = str(matched_master.get("name") or area_name)
         area_key = normalized_area(area_name) if area_name else ""
-        taluk_name = taluk_from_profile(profile)
+        taluk_name = (str(matched_master.get("taluk") or "").strip() if matched_master else None) or taluk_from_profile(profile)
         coords = profile_coordinates(profile)
         profile_directory.append({"area": area_name, "taluk": taluk_name, "farmerId": str(profile.get("userId") or profile.get("farmerId") or profile.get("_id") or "")})
         for identity in (profile.get("_id"), profile.get("userId"), profile.get("farmerId")):
@@ -1689,14 +1705,69 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
             "collectionIds": group["collectionIds"],
         })
     taluks.sort(key=lambda item: item["name"].casefold())
-    return {
-        "success": True,
+
+    # Build locality cards from the master first, retaining localities with zero orders.
+    area_groups: Dict[str, Dict[str, Any]] = {}
+    for master in area_master:
+        name = str(master.get("name") or "").strip()
+        if not name: continue
+        key = "area:" + normalized_area(name)
+        area_groups[key] = {
+            "key": key, "name": name, "taluk": master.get("taluk"),
+            "district": master.get("district"), "aliases": master.get("aliases") or [],
+            "registeredFarmIds": set(), "readyFarmIds": set(),
+            "collectionIds": [], "totalOrders": 0, "readyOrders": 0,
+        }
+    for item in profile_directory:
+        name = item.get("area")
+        if not name: continue
+        master = canonical_area(name)
+        canonical = str((master or {}).get("name") or name).strip()
+        key = "area:" + normalized_area(canonical)
+        group = area_groups.setdefault(key, {
+            "key": key, "name": canonical, "taluk": item.get("taluk"),
+            "district": None, "aliases": [], "registeredFarmIds": set(),
+            "readyFarmIds": set(), "collectionIds": [], "totalOrders": 0, "readyOrders": 0,
+        })
+        if item.get("farmerId"): group["registeredFarmIds"].add(item["farmerId"])
+    for job in pickup_jobs:
+        farmer_id = str(job.get("farmerId") or job.get("farmerUserId") or "")
+        raw_name = profile_area_name_by_id.get(farmer_id) or job.get("farmVillage") or job.get("farmAreaName") or job.get("village") or job.get("locality") or job.get("farmTown")
+        master = canonical_area(str(raw_name)) if raw_name else None
+        canonical = str((master or {}).get("name") or raw_name or "").strip()
+        if not canonical: continue
+        key = "area:" + normalized_area(canonical)
+        group = area_groups.setdefault(key, {
+            "key": key, "name": canonical, "taluk": (master or {}).get("taluk") or profile_taluk_by_id.get(farmer_id),
+            "district": (master or {}).get("district"), "aliases": (master or {}).get("aliases") or [],
+            "registeredFarmIds": set(), "readyFarmIds": set(),
+            "collectionIds": [], "totalOrders": 0, "readyOrders": 0,
+        })
+        job_id = str(job.get("_id") or job.get("id") or "")
+        if job_id: group["collectionIds"].append(job_id)
+        group["totalOrders"] += 1
+        if farmer_id: group["registeredFarmIds"].add(farmer_id)
+        if str(job.get("status") or "").strip().lower() == "ready_for_pickup" and not job.get("pickupRouteId"):
+            group["readyOrders"] += 1
+            if farmer_id: group["readyFarmIds"].add(farmer_id)
+    registered_areas = [{
+        "key": group["key"], "name": group["name"], "taluk": group["taluk"],
+        "district": group["district"], "aliases": group["aliases"],
+        "registeredFarmCount": len(group["registeredFarmIds"]),
+        "readyFarmCount": len(group["readyFarmIds"]),
+        "totalOrders": group["totalOrders"], "readyOrders": group["readyOrders"],
+        "collectionIds": group["collectionIds"],
+    } for group in area_groups.values()]
+    registered_areas.sort(key=lambda item: item["name"].casefold())
+    return {        "success": True,
         "data": {
             "districts": sorted(coverage),
             "areas": visible_zones,
             "zones": visible_zones,
             "taluks": taluks,
-            "directorySource": "local_hub_service_areas_with_gps_radius_fallback",
+            "registeredAreas": registered_areas,
+            "areaMasterCount": len(area_master),
+            "directorySource": "admin_district_area_master_with_farmer_profile_fallback",
             "coverageMode": "explicit_locality_first_then_nearest_hub_radius",
             "defaultPickupRadiusKm": 15,
             "message": "Local Hub zones are operational pickup areas. Assign village/locality coverage in Local Hub Management; farms without an explicit match are assigned to the nearest hub only when verified farm and hub coordinates fall within its configured radius.",
