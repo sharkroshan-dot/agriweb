@@ -67,6 +67,7 @@ function coordinatesOf(job: Job): [number, number] | null {
   return Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 ? [lat, lng] : null;
 }
 function areaKey(value: string) { return value.toLowerCase().replace(/\s+/g, " ").trim(); }
+function escapeMapText(value: unknown) { return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/\'/g, "&#39;"); }
 
 export default function PickupRoutesPage() {
   const [selectedArea, setSelectedArea] = useState("all");
@@ -181,8 +182,8 @@ export default function PickupRoutesPage() {
       id: idOf(job),
       lat: coords[0],
       lng: coords[1],
-      title: job.farmerName || "Farm pickup",
-      info: `${job.orderNumber || job.eventOrderNumber || "Pickup order"} · ${job.productName || "Product"} · ${Number(job.quantity || 0)} kg · ${STATUS_LABEL[String(job.status)] || String(job.status || "Unknown").replace(/_/g, " ")}`,
+      title: escapeMapText(job.farmerName || "Farm pickup"),
+      info: escapeMapText(`${job.orderNumber || job.eventOrderNumber || "Pickup order"} · ${job.productName || "Product"} · ${Number(job.quantity || 0)} kg · ${STATUS_LABEL[String(job.status)] || String(job.status || "Unknown").replace(/_/g, " ")}`),
     }];
   }), [filtered]);
   const mapCenter = useMemo(() => farmMarkers.length
@@ -278,6 +279,19 @@ export default function PickupRoutesPage() {
             {farmMarkers.length ? <SharedMap center={mapCenter} zoom={11} markers={farmMarkers} drawRoute={false} height="340px" className="w-full" /> : <div className="flex h-[260px] flex-col items-center justify-center gap-2 bg-slate-50 text-center"><MapPin className="h-8 w-8 text-slate-400"/><p className="text-sm font-medium text-slate-700">No verified farm coordinates in this area</p><p className="text-xs text-slate-500">Orders remain available below. Add verified GPS coordinates to the farmer's farm profile to show a marker.</p></div>}
             <div className="flex flex-wrap gap-3 border-t bg-slate-50 px-4 py-3 text-xs text-slate-600"><span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5"/> Each marker represents a farm pickup order</span><span>Only farms in this warehouse district are included</span></div>
           </Card>
+
+          {filtered.some((job) => !coordinatesOf(job)) && <Card className="border-amber-200 shadow-sm">
+            <div className="border-b border-amber-100 p-4">
+              <h3 className="flex items-center gap-2 font-semibold text-slate-900"><AlertTriangle className="h-4 w-4 text-amber-600"/> Farms needing location coordinates</h3>
+              <p className="mt-1 text-xs text-slate-500">{filtered.filter((job) => !coordinatesOf(job)).length} pickup orders remain visible but cannot be pinned until verified farm GPS coordinates are saved.</p>
+            </div>
+            <div className="max-h-48 divide-y overflow-y-auto">
+              {filtered.filter((job) => !coordinatesOf(job)).map((job) => <div key={idOf(job)} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
+                <div className="min-w-0"><p className="truncate font-medium text-slate-800">{job.farmerName || "Farmer details unavailable"} · {job.orderNumber || job.eventOrderNumber || "Pickup order"}</p><p className="truncate text-xs text-slate-500">{job.pickupAddress || "No farm pickup address saved"} · {areaOf(job)}</p></div>
+                <Badge variant="outline">GPS missing</Badge>
+              </div>)}
+            </div>
+          </Card>}
 
           <Card className="border-slate-200 shadow-sm">
             <div className="flex flex-col gap-3 border-b p-4 lg:flex-row lg:items-center lg:justify-between">
