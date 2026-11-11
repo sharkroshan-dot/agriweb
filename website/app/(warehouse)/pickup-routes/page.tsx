@@ -150,20 +150,26 @@ export default function PickupRoutesPage() {
       });
     }
     const collectionToZone = new Map<string, string>();
-    groups.forEach((area) => area.collectionIds.forEach((id) => collectionToZone.set(id, area.key)));
+    const areaAliases = new Map<string, string>();
+    groups.forEach((area) => {
+      area.collectionIds.forEach((id) => collectionToZone.set(id, area.key));
+      [area.name, ...(area.serviceAreas || [])].forEach((value) => {
+        const normalized = areaKey(String(value || ""));
+        if (normalized) areaAliases.set(normalized, area.key);
+      });
+    });
     jobs.forEach((job) => {
       const id = idOf(job);
-      const key = collectionToZone.get(id) || (directoryRows.length ? "district-unassigned" : areaKey(areaOf(job)));
+      const profileArea = areaKey(areaOf(job));
+      const key = collectionToZone.get(id) || areaAliases.get(profileArea) || (directoryRows.length ? "district-unassigned" : profileArea);
       if (!groups.has(key)) {
-        const name = key === "district-unassigned" ? "Other district farms" : areaOf(job);
-        groups.set(key, { key, name, areaType: "Outside configured local hub coverage", jobs: [], totalOrders: 0, readyToAssign: 0, collectionIds: [] });
+        const name = key === "district-unassigned" ? "Area not matched" : areaOf(job);
+        groups.set(key, { key, name, areaType: "Farm location needs area-master mapping", jobs: [], totalOrders: 0, readyToAssign: 0, collectionIds: [] });
       }
       const group = groups.get(key)!;
       group.jobs.push(job);
-      if (!directoryRows.length) {
-        group.totalOrders += 1;
-        if (READY.has(String(job.status || "")) && !job.pickupRouteId) group.readyToAssign += 1;
-      }
+      group.totalOrders = Math.max(group.totalOrders || 0, group.jobs.length);
+      if (READY.has(String(job.status || "")) && !job.pickupRouteId) group.readyToAssign += 1;
     });
     return Array.from(groups.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [jobs, areasQ.data]);
@@ -282,39 +288,54 @@ export default function PickupRoutesPage() {
       </section>
 
       <section className="grid gap-5 xl:grid-cols-[minmax(250px,0.75fr)_minmax(0,2fr)]">
-        <Card className="h-fit border-slate-200 shadow-sm">
-          <div className="border-b p-4"><h2 className="font-semibold text-slate-900">Pickup areas</h2><p className="mt-1 text-xs text-slate-500">Registered villages, towns and localities in this warehouse district, including areas with zero pickup orders.</p></div>
+        <Card className="h-fit overflow-hidden border-slate-200 shadow-sm">
+          <div className="border-b p-4">
+            <h2 className="font-semibold text-slate-900">Pickup areas</h2>
+            <p className="mt-1 text-xs text-slate-500">Select an area to view only its farms and pickup orders. All registered areas remain visible, including areas with no orders.</p>
+          </div>
           <div className="max-h-[680px] space-y-2 overflow-y-auto p-3">
-            <button onClick={() => setSelectedArea("all")} className={"w-full rounded-lg border p-3 text-left " + (selectedArea === "all" ? "border-emerald-300 bg-emerald-50" : "border-transparent hover:bg-slate-50")}>
-              <span className="flex items-center justify-between text-sm font-semibold">All pickup areas <span className="tabular-nums">{jobs.length}</span></span>
+            <button
+              type="button"
+              onClick={() => setSelectedArea("all")}
+              className={"w-full rounded-lg border p-3 text-left transition-colors " + (selectedArea === "all" ? "border-emerald-300 bg-emerald-50" : "border-slate-200 hover:bg-slate-50")}
+            >
+              <span className="flex items-center justify-between gap-3 text-sm font-semibold text-slate-900">
+                <span>All pickup areas</span><span className="tabular-nums">{jobs.length}</span>
+              </span>
               <span className="mt-1 block text-xs text-slate-500">{areaSummary.ready} ready orders for assignment</span>
             </button>
-            {taluks.length ? taluks.map((taluk) => {
-              const expanded = expandedTaluks.includes(taluk.key);
-              const active = selectedArea === taluk.key;
-              const villages: string[] = Array.isArray(taluk.areaNames) ? taluk.areaNames : [];
-              return <div key={taluk.key} className={"rounded-lg border " + (active ? "border-emerald-300 bg-emerald-50" : "border-slate-200")}>
-                <div className="flex items-stretch">
-                  <button onClick={() => setSelectedArea(taluk.key)} className="min-w-0 flex-1 p-3 text-left">
-                    <span className="block truncate text-sm font-semibold text-slate-900">{taluk.name}</span>
-                    <span className="mt-1 block text-xs text-slate-500">{taluk.areaCount ?? villages.length} villages / areas · {taluk.registeredFarmCount ?? 0} registered farms</span>
-                    <span className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs"><span className="font-semibold text-emerald-700">{taluk.readyFarmCount ?? 0} farms ready</span><span className="font-semibold text-emerald-700">{taluk.readyOrders ?? 0} ready orders</span></span>
-                  </button>
-                  <button type="button" aria-label={expanded ? "Collapse " + taluk.name + " villages" : "Expand " + taluk.name + " villages"} onClick={() => setExpandedTaluks((current) => expanded ? current.filter((key) => key !== taluk.key) : [...current, taluk.key])} className="border-l px-3 text-slate-500 hover:bg-white"><span className="text-lg">{expanded ? "−" : "+"}</span></button>
-                </div>
-                {expanded && <div className="border-t bg-white/80 px-3 py-2">
-                  {villages.length ? <div className="flex flex-wrap gap-1.5">{villages.map((village) => <span key={village} className="rounded-md bg-slate-100 px-2 py-1 text-[11px] text-slate-600">{village}</span>)}</div> : <p className="text-xs text-slate-500">Village / area details are not available in the farmer profiles yet.</p>}
-                  <p className="mt-2 text-[11px] text-slate-500">{taluk.totalOrders ?? 0} total pickup orders · {taluk.readyOrders ?? 0} ready to assign</p>
-                </div>}
-              </div>;
-            }) : areas.map((area) => <button key={area.key} onClick={() => setSelectedArea(area.key)} className={"w-full rounded-lg border p-3 text-left " + (selectedArea === area.key ? "border-emerald-300 bg-emerald-50" : "border-transparent hover:bg-slate-50")}>
-              <span className="flex items-center justify-between gap-2 text-sm font-semibold text-slate-800"><span className="truncate">{area.name}</span><span className="tabular-nums">{area.totalOrders}</span></span>
-              <span className="mt-1 block text-xs text-slate-500">{(area as any).registeredFarmCount ?? 0} registered farms · {area.readyToAssign} ready orders</span>
-            </button>)}
-            <div className="border-t pt-3">
-              <p className="mb-2 text-xs font-semibold text-slate-500">LOCAL HUB COVERAGE</p>
-              {areas.map((area) => <button key={area.key} onClick={() => setSelectedArea(area.key)} className={"mb-1 w-full rounded-md px-2 py-2 text-left text-xs " + (selectedArea === area.key ? "bg-emerald-50 text-emerald-800" : "text-slate-600 hover:bg-slate-50")}>{area.name} · {area.readyToAssign} ready orders</button>)}
-            </div>
+
+            {areas.length ? areas.map((area) => {
+              const active = selectedArea === area.key;
+              const registeredFarmCount = Number((area as any).registeredFarmCount || 0);
+              const orderCount = Math.max(Number(area.totalOrders || 0), area.jobs.length);
+              return (
+                <button
+                  type="button"
+                  key={area.key}
+                  onClick={() => { setSelectedArea(area.key); setActiveFarmId(""); setSelectedIds([]); }}
+                  className={"w-full rounded-lg border p-3 text-left transition-colors " + (active ? "border-emerald-300 bg-emerald-50" : "border-slate-200 hover:bg-slate-50")}
+                >
+                  <span className="flex items-center justify-between gap-3">
+                    <span className="min-w-0 truncate text-sm font-semibold text-slate-900">{area.name}</span>
+                    <span className={"shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold tabular-nums " + (orderCount > 0 ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-500")}>
+                      {orderCount} {orderCount === 1 ? "order" : "orders"}
+                    </span>
+                  </span>
+                  <span className="mt-1 block text-xs text-slate-500">{registeredFarmCount} registered {registeredFarmCount === 1 ? "farm" : "farms"}</span>
+                  <span className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+                    <span className="font-medium text-emerald-700">{area.readyToAssign} ready orders</span>
+                    {area.jobs.length > 0 && <span className="text-slate-500">{area.jobs.length} matching pickup records</span>}
+                  </span>
+                </button>
+              );
+            }) : (
+              <div className="rounded-lg border border-dashed border-slate-300 p-5 text-center">
+                <MapPin className="mx-auto h-6 w-6 text-slate-400" />
+                <p className="mt-2 text-sm font-medium text-slate-700">{areasQ.isLoading ? "Loading pickup areas…" : "No pickup areas configured"}</p>
+                <p className="mt-1 text-xs text-slate-500">Add active villages and localities to the district pickup area master.</p>
+              </div>
+            )}
           </div>
         </Card>
 
