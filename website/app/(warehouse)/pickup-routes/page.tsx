@@ -126,27 +126,35 @@ export default function PickupRoutesPage() {
   const selectedTeam = eligibleTeams.find((team) => String(team.id) === teamId);
 
   const areas = useMemo(() => {
-    const groups = new Map<string, { key: string; name: string; areaType?: string; jobs: Job[]; totalOrders: number; readyToAssign: number }>();
-    const directoryRows = areasQ.data?.data?.areas ?? areasQ.data?.areas ?? areasQ.data?.data?.data?.areas ?? [];
+    const groups = new Map<string, { key: string; name: string; areaType?: string; jobs: Job[]; totalOrders: number; readyToAssign: number; collectionIds: string[]; serviceAreas?: string[]; pickupRadiusKm?: number }>();
+    const directoryRows = areasQ.data?.data?.zones ?? areasQ.data?.data?.areas ?? areasQ.data?.zones ?? areasQ.data?.areas ?? [];
     if (Array.isArray(directoryRows)) {
       directoryRows.forEach((area: Job) => {
         const name = String(area.name || "").trim();
         if (!name) return;
-        const key = areaKey(name);
+        const key = String(area.key || area.hubId || areaKey(name));
         groups.set(key, {
-          key, name, jobs: [],
+          key, name, areaType: String(area.areaType || "Local hub pickup zone"), jobs: [],
           totalOrders: Number(area.totalOrders || 0),
           readyToAssign: Number(area.readyToAssign || 0),
+          collectionIds: Array.isArray(area.collectionIds) ? area.collectionIds.map(String) : [],
+          serviceAreas: Array.isArray(area.serviceAreas) ? area.serviceAreas : [],
+          pickupRadiusKm: Number(area.pickupRadiusKm || 0),
         });
       });
     }
+    const collectionToZone = new Map<string, string>();
+    groups.forEach((area) => area.collectionIds.forEach((id) => collectionToZone.set(id, area.key)));
     jobs.forEach((job) => {
-      const name = areaOf(job); const key = areaKey(name);
-      if (!groups.has(key)) groups.set(key, { key, name, jobs: [], totalOrders: 0, readyToAssign: 0 });
+      const id = idOf(job);
+      const key = collectionToZone.get(id) || (directoryRows.length ? "district-unassigned" : areaKey(areaOf(job)));
+      if (!groups.has(key)) {
+        const name = key === "district-unassigned" ? "Other district farms" : areaOf(job);
+        groups.set(key, { key, name, areaType: "Outside configured local hub coverage", jobs: [], totalOrders: 0, readyToAssign: 0, collectionIds: [] });
+      }
       const group = groups.get(key)!;
       group.jobs.push(job);
-      // Use API directory counts when present; otherwise count the warehouse-scoped jobs.
-      if (!directoryRows?.length) {
+      if (!directoryRows.length) {
         group.totalOrders += 1;
         if (READY.has(String(job.status || "")) && !job.pickupRouteId) group.readyToAssign += 1;
       }
@@ -154,26 +162,30 @@ export default function PickupRoutesPage() {
     return Array.from(groups.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [jobs, areasQ.data]);
 
-  const filtered = useMemo(() => jobs.filter((job) => {
-    const areaMatch = selectedArea === "all" || areaKey(areaOf(job)) === selectedArea;
-    const statusMatch = statusFilter === "all" || String(job.status || "") === statusFilter;
-    const term = search.trim().toLowerCase();
-    const text = [job.farmerName, job.orderNumber, job.orderId, job.productName, job.pickupAddress, areaOf(job)].join(" ").toLowerCase();
-    return areaMatch && statusMatch && (!term || text.includes(term));
-  }), [jobs, selectedArea, statusFilter, search]);
+  const filtered = useMemo(() => {
+    const selectedZone = areas.find((area) => area.key === selectedArea);
+    const zoneOrderIds = new Set(selectedZone?.collectionIds || []);
+    return jobs.filter((job) => {
+      const areaMatch = selectedArea === "all" || zoneOrderIds.has(idOf(job)) || selectedZone?.jobs.some((item) => idOf(item) === idOf(job));
+      const statusMatch = statusFilter === "all" || String(job.status || "") === statusFilter;
+      const term = search.trim().toLowerCase();
+      const text = [job.farmerName, job.orderNumber, job.orderId, job.productName, job.pickupAddress, areaOf(job)].join(" ").toLowerCase();
+      return areaMatch && statusMatch && (!term || text.includes(term));
+    });
+  }, [jobs, areas, selectedArea, statusFilter, search]);
 
   const selectedJobs = jobs.filter((job) => selectedIds.includes(idOf(job)));
   const selectedWeight = selectedJobs.reduce((sum, job) => sum + Number(job.quantity || 0), 0);
   const eligibleFiltered = filtered.filter((job) => READY.has(String(job.status || "")) && !job.pickupRouteId && idOf(job));
   const areaSummary = useMemo(() => {
-    const source = selectedArea === "all" ? jobs : jobs.filter((job) => areaKey(areaOf(job)) === selectedArea);
+    const source = selectedArea === "all" ? jobs : filtered;
     return {
       total: source.length,
       ready: source.filter((job) => READY.has(String(job.status || "")) && !job.pickupRouteId).length,
       assigned: source.filter((job) => Boolean(job.pickupRouteId || job.collectionTeamId)),
       completed: source.filter((job) => ["arrived_warehouse", "received", "completed"].includes(String(job.status || ""))).length,
     };
-  }, [jobs, selectedArea]);
+  }, [jobs, selectedArea, filtered]);
 
   const farmMarkers = useMemo(() => filtered.flatMap((job) => {
     const coords = coordinatesOf(job);
@@ -234,7 +246,7 @@ export default function PickupRoutesPage() {
           <div>
             <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-emerald-700"><MapIcon className="h-4 w-4" /> Geographical pickup planning</div>
             <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Area-wise Pickup Routes</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Plan farm pickups only within this warehouse’s configured district coverage. Orders are grouped into villages, towns and local areas inside that district.</p>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Plan farm pickups within this warehouse district using Local Hub service zones. Explicit village coverage takes priority; the hub radius automatically covers nearby farms without an explicit assignment.</p>
             <p className="mt-2 text-xs font-medium text-emerald-700">{configuredDistricts.length ? `District coverage: ${configuredDistricts.join(", ")}` : "District coverage is not configured. Set the warehouse district in Settings before planning pickups."}</p>
           </div>
           <Button variant="outline" onClick={() => { jobsQ.refetch(); teamsQ.refetch(); areasQ.refetch(); }} disabled={jobsQ.isFetching} className="gap-2 self-start"><RefreshCw className={`h-4 w-4 ${jobsQ.isFetching ? "animate-spin" : ""}`} /> Refresh</Button>
@@ -254,7 +266,7 @@ export default function PickupRoutesPage() {
 
       <section className="grid gap-5 xl:grid-cols-[minmax(250px,0.75fr)_minmax(0,2fr)]">
         <Card className="h-fit border-slate-200 shadow-sm">
-          <div className="border-b p-4"><h2 className="font-semibold text-slate-900">Pickup areas</h2><p className="mt-1 text-xs text-slate-500">Select an area to view its orders and locations.</p></div>
+          <div className="border-b p-4"><h2 className="font-semibold text-slate-900">Pickup areas</h2><p className="mt-1 text-xs text-slate-500">Select a Local Hub zone to view only its farms and pickup orders.</p></div>
           <div className="max-h-[620px] space-y-2 overflow-y-auto p-3">
             <button onClick={() => setSelectedArea("all")} className={`w-full rounded-lg border p-3 text-left ${selectedArea === "all" ? "border-emerald-300 bg-emerald-50" : "border-transparent hover:bg-slate-50"}`}>
               <span className="flex items-center justify-between text-sm font-semibold">All areas <span className="tabular-nums">{jobs.length}</span></span>
@@ -264,7 +276,7 @@ export default function PickupRoutesPage() {
               const ready = area.readyToAssign;
               return <button key={area.key} onClick={() => setSelectedArea(area.key)} className={`w-full rounded-lg border p-3 text-left ${selectedArea === area.key ? "border-emerald-300 bg-emerald-50" : "border-transparent hover:bg-slate-50"}`}>
                 <span className="flex items-center justify-between gap-2 text-sm font-semibold text-slate-800"><span className="truncate">{area.name}</span><span className="tabular-nums">{area.totalOrders}</span></span>
-                <span className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500"><span>{area.areaType || "Registered farmer locality"}</span><span>·</span><span>{ready} ready for pickup</span></span>
+                <span className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500"><span>{area.areaType || "Local hub pickup zone"}</span><span>·</span><span>{ready} ready for pickup</span></span>{area.serviceAreas?.length ? <span className="mt-1 block text-[11px] text-slate-400">{area.serviceAreas.slice(0, 3).join(", ")}{area.serviceAreas.length > 3 ? ` +${area.serviceAreas.length - 3} more` : ""}</span> : area.pickupRadiusKm ? <span className="mt-1 block text-[11px] text-slate-400">GPS fallback radius: {area.pickupRadiusKm} km</span> : null}
               </button>;
             })}
           </div>
