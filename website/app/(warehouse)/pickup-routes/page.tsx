@@ -355,7 +355,7 @@ export default function PickupRoutesPage() {
         ].map((item) => <Card key={item.label} className="border-slate-200 shadow-sm"><CardContent className="flex items-center gap-3 p-4"><span className="rounded-lg bg-emerald-50 p-2 text-emerald-700"><item.icon className="h-5 w-5"/></span><div><p className="text-xs text-slate-500">{item.label}</p><p className="text-2xl font-bold tabular-nums text-slate-900">{jobsQ.isError ? "—" : item.value}</p></div></CardContent></Card>)}
       </section>
 
-      <section className="grid items-start gap-5 2xl:grid-cols-[minmax(240px,0.78fr)_minmax(0,1.65fr)_minmax(300px,0.95fr)] xl:grid-cols-[minmax(235px,0.72fr)_minmax(0,1.5fr)]">
+      <section className="grid items-start gap-5 xl:grid-cols-[minmax(220px,0.72fr)_minmax(0,1.55fr)_minmax(275px,0.92fr)]">
         <Card className="h-fit overflow-hidden rounded-2xl border-slate-200 shadow-sm">
           <div className="border-b border-slate-100 p-4">
             <div className="flex items-center justify-between gap-2"><div><h2 className="font-semibold text-slate-950">Pickup areas</h2><p className="mt-1 text-xs text-slate-500">Areas in this warehouse district</p></div><Badge className="border-emerald-100 bg-emerald-50 text-emerald-800">{areas.length} areas</Badge></div>
@@ -461,9 +461,7 @@ export default function PickupRoutesPage() {
             </div>}
           </Card>
         </div>
-      </section>
-
-      <Card className="overflow-hidden rounded-2xl border-slate-200 shadow-sm">
+<Card className="h-fit overflow-hidden rounded-2xl border-slate-200 shadow-sm 2xl:sticky 2xl:top-4">
         <div className="flex flex-col gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             <span className="rounded-xl bg-emerald-50 p-2.5 text-emerald-700"><Truck className="h-5 w-5"/></span>
@@ -471,7 +469,7 @@ export default function PickupRoutesPage() {
           </div>
           <Badge variant="outline" className="w-fit">{selectedIds.length} farms selected</Badge>
         </div>
-        <CardContent className="grid gap-4 p-4 sm:p-5 lg:grid-cols-[minmax(0,1.2fr)_minmax(220px,0.8fr)_minmax(180px,0.65fr)_auto] lg:items-end">
+        <CardContent className="grid gap-3 p-4 sm:p-5">
           <label className="block min-w-0 space-y-1.5 text-xs font-semibold text-slate-700">Approved pickup partner and vehicle
             <select value={teamId} onChange={(e) => setTeamId(e.target.value)} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"><option value="">Select partner / vehicle</option>{eligibleTeams.map((team) => <option key={team.id} value={team.id}>{team.name || "Pickup partner"} · {team.vehicleType || "Vehicle"} · {team.capacity || team.vehicleCapacity} kg</option>)}</select>
           </label>
@@ -484,11 +482,14 @@ export default function PickupRoutesPage() {
             <p className="text-xs font-medium text-slate-500">Assignment status</p>
             <p className={`mt-1 text-sm font-semibold ${selectedTeam && selectedWeight > Number(selectedTeam.capacity || selectedTeam.vehicleCapacity || 0) ? "text-rose-700" : "text-slate-800"}`}>{selectedTeam && selectedWeight > Number(selectedTeam.capacity || selectedTeam.vehicleCapacity || 0) ? "Capacity exceeded" : selectedIds.length ? "Ready to assign" : "Awaiting farm selection"}</p>
           </div>
-          <Button onClick={assignAreaOrders} disabled={assigning || !selectedIds.length || !selectedTeam || selectedWeight > Number(selectedTeam?.capacity || selectedTeam?.vehicleCapacity || 0)} className="h-11 w-full rounded-xl bg-emerald-700 px-5 font-semibold text-white hover:bg-emerald-800 lg:w-auto"><Truck className="mr-2 h-4 w-4"/>{assigning ? "Assigning…" : "Assign pickup route"}</Button>
+          <Button onClick={assignAreaOrders} disabled={assigning || !selectedIds.length || !selectedTeam || selectedWeight > Number(selectedTeam?.capacity || selectedTeam?.vehicleCapacity || 0)} className="h-11 w-full rounded-xl bg-emerald-700 px-4 font-semibold text-white hover:bg-emerald-800"><Truck className="mr-2 h-4 w-4"/>{assigning ? "Assigning…" : "Assign pickup route"}</Button>
         </CardContent>
         {selectedTeam && selectedWeight > Number(selectedTeam.capacity || selectedTeam.vehicleCapacity || 0) && <p className="border-t border-rose-100 bg-rose-50 px-5 py-2.5 text-xs text-rose-700">Selected quantity exceeds this vehicle's capacity. Remove farms or select a vehicle with sufficient capacity.</p>}
         {eligibleTeams.length === 0 && <p className="border-t border-amber-100 bg-amber-50 px-5 py-2.5 text-xs text-amber-800">No approved pickup partner with registered vehicle capacity is available. Review Pickup Partners first.</p>}
       </Card>
+      </section>
+
+      
 
             <p className="text-center text-xs text-slate-400">Pickup Routes is dedicated to farm collection within this warehouse’s configured district. Customer and business delivery destinations are not included.</p>
     </main>
