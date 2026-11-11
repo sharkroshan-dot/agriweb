@@ -5134,7 +5134,27 @@ async def update_b2b_warehouse_fulfillment(
         if vehicle_capacity <= 0 or quantity <= 0 or quantity > vehicle_capacity:
             raise HTTPException(status_code=409, detail="The selected pickup vehicle has no valid capacity or cannot carry this B2B order quantity.")
 
-        # Atomically claim the B2B order first. This is the cross-page lock:
+        # Check an existing Pickup Routes reservation before claiming the B2B
+        # order. An offered route may be assigned here, but an already assigned
+        # route belongs to its confirmed partner and cannot be reassigned.
+        routes_collection = MongoDB.get_collection("warehouse_pickup_routes")
+        existing_pickup_route = await routes_collection.find_one({
+            "$and": [
+                {"warehouseId": {"$in": [ObjectId(pickup_warehouse_id), pickup_warehouse_id]}},
+                {"deletedAt": None},
+                {"status": {"$nin": ["cancelled", "closed", "archived", "returned_to_warehouse"]}},
+                {"$or": [
+                    {"b2bOrderId": str(order["_id"])},
+                    {"stops.b2bOrderId": str(order["_id"])},
+                    {"stops.orderId": str(order["_id"])},
+                    {"stops.orders.b2bOrderId": str(order["_id"])},
+                ]},
+            ]
+        })
+        if existing_pickup_route and existing_pickup_route.get("deliveryPartnerId") and str(existing_pickup_route.get("deliveryPartnerId")) != pickup_partner_id:
+            raise HTTPException(status_code=409, detail="This B2B order is already included in a route assigned to another pickup partner.")
+
+        # Atomically claim the B2B order. This is the cross-page lock:
         # Pickup Routes and B2B Fulfillment cannot both win the same order.
         now = datetime.utcnow()
         assignment_source = "b2b_fulfillment"
