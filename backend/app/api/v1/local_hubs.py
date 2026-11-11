@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, List
 import secrets
 import os
 from bson import ObjectId
@@ -33,6 +33,13 @@ class LocalHubCreate(BaseModel):
     managerName: str = Field(..., min_length=2, max_length=120)
     username: str = Field(..., min_length=3, max_length=60, pattern=r"^[a-zA-Z0-9_.-]+$")
     email: EmailStr
+    serviceAreas: List[str] = Field(default_factory=list, max_items=200)
+    pickupRadiusKm: float = Field(default=15, ge=1, le=100)
+
+
+class LocalHubCoverageUpdate(BaseModel):
+    serviceAreas: List[str] = Field(default_factory=list, max_items=200)
+    pickupRadiusKm: float = Field(default=15, ge=1, le=100)
 
 
 def _safe(doc):
@@ -124,6 +131,8 @@ async def create_local_hub(payload: LocalHubCreate, current_user: dict = Depends
         "state": payload.state.strip(),
         "address": {"address": payload.address.strip(), "city": payload.district.strip(), "state": payload.state.strip()},
         "capacity": float(payload.capacity),
+        "serviceAreas": sorted({" ".join(area.strip().split()) for area in payload.serviceAreas if area and area.strip()}, key=str.casefold),
+        "pickupRadiusKm": float(payload.pickupRadiusKm),
         "location": {"type": "Point", "coordinates": [longitude, latitude]},
         "geocodedAddress": payload.address.strip(),
         "geocodedAt": now,
@@ -189,6 +198,29 @@ async def list_local_hubs(current_user: dict = Depends(get_current_user)):
         item["manager"] = {"name": (manager or {}).get("name"), "username": (manager or {}).get("username"), "email": (manager or {}).get("email"), "isActive": (manager or {}).get("isActive", False)}
         output.append(item)
     return {"success": True, "data": {"hubs": output}}
+
+
+@router.patch("/warehouse/me/local-hubs/{hub_id}/coverage")
+async def update_local_hub_coverage(hub_id: str, payload: LocalHubCoverageUpdate, current_user: dict = Depends(get_current_user)):
+    """Update the village/locality coverage and radius fallback for one child hub."""
+    if current_user.get("role") != "warehouse" or current_user.get("facilityType") == "local_hub":
+        raise HTTPException(status_code=403, detail="Only a parent warehouse manager can update local hub coverage")
+    if not ObjectId.is_valid(hub_id):
+        raise HTTPException(status_code=400, detail="Invalid local hub id")
+    parent = await warehouse_repository.get_by_manager(str(current_user["_id"]))
+    if not parent:
+        raise HTTPException(status_code=404, detail="Parent warehouse not found")
+    areas = sorted({" ".join(area.strip().split()) for area in payload.serviceAreas if area and area.strip()}, key=str.casefold)
+    if len(areas) > 200:
+        raise HTTPException(status_code=422, detail="A local hub can have at most 200 explicitly assigned areas")
+    now = datetime.utcnow()
+    result = await MongoDB.get_collection("warehouses").update_one(
+        {"_id": ObjectId(hub_id), "parentWarehouseId": parent["_id"], "facilityType": "local_hub", "deletedAt": None},
+        {"$set": {"serviceAreas": areas, "pickupRadiusKm": float(payload.pickupRadiusKm), "coverageUpdatedAt": now, "updatedAt": now}},
+    )
+    if not result.matched_count:
+        raise HTTPException(status_code=404, detail="Local hub not found under this warehouse")
+    return {"success": True, "data": {"hubId": hub_id, "serviceAreas": areas, "pickupRadiusKm": float(payload.pickupRadiusKm)}, "message": "Local hub pickup coverage updated"}
 
 
 @router.post("/warehouse/me/local-hubs/{hub_id}/resend-login")
