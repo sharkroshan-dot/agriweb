@@ -7442,22 +7442,27 @@ async def create_pickup_routes(
             continue
 
         route_doc = await warehouse_pickup_route_repository.get_by_id(route_id)
-        # Reserve each job while a partner offer is open, too. It stays in
-        # Ready for Pickup until a partner accepts, but cannot be planned twice.
+        # Reserve every selected job atomically while the offer is open. A
+        # second page/user cannot plan or assign the same collection concurrently.
+        reserved_collection_ids: List[str] = []
+        reservation_failed = False
         for stop in group.get("stops") or []:
             for collection_id in (stop.get("collectionIds") or [stop.get("collectionId")]):
-                if not collection_id or not ObjectId.is_valid(str(collection_id)):
+                collection_id = str(collection_id or "")
+                if not ObjectId.is_valid(collection_id):
                     continue
-                await warehouse_collection_repository.update_job(
-                    str(collection_id),
-                    {
-                        "pickupRouteId": ObjectId(route_id),
-                        "pickupRouteStatus": "offered",
-                        "status": "ready_for_pickup",
-                        "collectionTeamId": None,
-                        "teamAssignedAt": None,
-                    },
-                )
+                reserved = await warehouse_collection_repository.reserve_job_for_route(collection_id, route_id)
+                if not reserved:
+                    reservation_failed = True
+                    break
+                reserved_collection_ids.append(collection_id)
+            if reservation_failed:
+                break
+        if reservation_failed:
+            for reserved_id in reserved_collection_ids:
+                await warehouse_collection_repository.release_route_reservation(reserved_id, route_id)
+            await warehouse_pickup_route_repository.update_route(route_id, {"status": "cancelled", "cancelReason": "Pickup job was claimed by another workflow before route reservation completed."})
+            raise HTTPException(status_code=409, detail="One or more pickup jobs were assigned or reserved in another warehouse page. Refresh the pickup list and select the available farms again.")
 
         if data.assignmentMode in {"assign_team", "auto_assign"}:
             membership = dict(assignments[index])
