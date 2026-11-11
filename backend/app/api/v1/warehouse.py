@@ -1463,6 +1463,66 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
     profiles_collection = MongoDB.get_collection("farmer_profiles")
     profiles = await profiles_collection.find({"deletedAt": None}).to_list(length=10000)
     area_profiles: Dict[str, Dict[str, Any]] = {}
+    # Official district-level administrative directory, independent of farmer
+    # registrations so empty areas remain visible.
+    district_area_master = {
+        "tiruchirappalli": [
+            ("Andhanallur", "Development block"),
+            ("Manikandam", "Development block"),
+            ("Thiruverambur", "Development block"),
+            ("Manapparai", "Development block"),
+            ("Marungapuri", "Development block"),
+            ("Vaiyampatti", "Development block"),
+            ("Lalgudi", "Development block"),
+            ("Mannachanallur", "Development block"),
+            ("Pullambadi", "Development block"),
+            ("Musiri", "Development block"),
+            ("Thottiyam", "Development block"),
+            ("T.Pet", "Development block"),
+            ("Thuraiyur", "Development block"),
+            ("Uppiliapuram", "Development block"),
+            ("Tiruchirappalli East", "Revenue taluk"),
+            ("Tiruchirappalli West", "Revenue taluk"),
+            ("Srirangam", "Revenue taluk"),
+            ("Tiruchirappalli", "Revenue taluk / city"),
+            ("Lalgudi Taluk", "Revenue taluk"),
+            ("Manapparai Taluk", "Revenue taluk"),
+            ("Musiri Taluk", "Revenue taluk"),
+            ("Thuraiyur Taluk", "Revenue taluk"),
+            ("Mannachanallur Taluk", "Revenue taluk"),
+            ("Srirangam Taluk", "Revenue taluk"),
+            ("Thottiyam Taluk", "Revenue taluk"),
+            ("Thiruverambur Taluk", "Revenue taluk"),
+            ("Marungapuri Taluk", "Revenue taluk"),
+            ("Tiruchirappalli City Corporation", "Urban local body"),
+            ("Manapparai Municipality", "Municipality"),
+            ("Thuraiyur Municipality", "Municipality"),
+            ("Thuvakkudi Municipality", "Municipality"),
+            ("Lalgudi Municipality", "Municipality"),
+            ("Musiri Municipality", "Municipality"),
+            ("Balakrishnampatti", "Town panchayat"),
+            ("Kallakudi", "Town panchayat"),
+            ("Kattuputhur", "Town panchayat"),
+            ("Koothappar", "Town panchayat"),
+            ("Mannachanallur Town Panchayat", "Town panchayat"),
+            ("Metthupalayam", "Town panchayat"),
+            ("Ponnampatti", "Town panchayat"),
+            ("Pullampadi", "Town panchayat"),
+            ("Puvalur", "Town panchayat"),
+            ("S.Kannanur", "Town panchayat"),
+            ("Sirugamani", "Town panchayat"),
+            ("T.Pet Town Panchayat", "Town panchayat"),
+            ("Thottiyam Town Panchayat", "Town panchayat"),
+            ("Uppiliyapuram Town Panchayat", "Town panchayat"),
+        ],
+    }
+    for district in coverage:
+        for name, area_type in district_area_master.get(district, []):
+            key = " ".join(name.casefold().split())
+            area_profiles.setdefault(key, {
+                "key": key, "name": name, "areaType": area_type,
+                "totalOrders": 0, "readyToAssign": 0,
+            })
     farmer_area_by_id: Dict[str, str] = {}
     for profile in profiles:
         location = (
@@ -1475,7 +1535,7 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
         if not area_name:
             continue
         area_key = " ".join(area_name.casefold().split())
-        area_profiles.setdefault(area_key, {"key": area_key, "name": area_name, "totalOrders": 0, "readyToAssign": 0})
+        area_profiles.setdefault(area_key, {"key": area_key, "name": area_name, "areaType": "Registered farmer locality", "totalOrders": 0, "readyToAssign": 0})
         for identity in (profile.get("_id"), profile.get("userId")):
             if identity:
                 farmer_area_by_id[str(identity)] = area_key
@@ -1490,7 +1550,7 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
             explicit = job.get("farmVillage") or job.get("farmAreaName") or job.get("village") or job.get("locality") or job.get("farmTown")
             if isinstance(explicit, str) and explicit.strip():
                 area_key = " ".join(explicit.casefold().split())
-                area_profiles.setdefault(area_key, {"key": area_key, "name": " ".join(explicit.split()), "totalOrders": 0, "readyToAssign": 0})
+                area_profiles.setdefault(area_key, {"key": area_key, "name": " ".join(explicit.split()), "areaType": "Registered pickup locality", "totalOrders": 0, "readyToAssign": 0})
         if not area_key or area_key not in area_profiles:
             continue
         area = area_profiles[area_key]
@@ -1505,8 +1565,8 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
         "data": {
             "districts": sorted(coverage),
             "areas": areas,
-            "directorySource": "active_farmer_profiles",
-            "note": "Areas are derived from active farmer farm-address records; add missing village/locality details to farmer profiles to complete district coverage.",
+            "directorySource": "district_administrative_master_and_active_farmer_profiles",
+            "note": "Administrative areas are listed even with zero orders; registered farmer localities are added when available. This is not a complete revenue-village or habitation gazetteer.",
         },
     }
 
