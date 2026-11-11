@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   MapPin, Truck, RefreshCw, Search, Package,
   CheckCircle2, Clock3, AlertTriangle, Map as MapIcon,
+  Sprout, ChevronRight, Users, CalendarDays,
 } from "lucide-react";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
@@ -107,6 +108,7 @@ export default function PickupRoutesPage() {
   const [teamId, setTeamId] = useState("");
   const [assigning, setAssigning] = useState(false);
   const [activeFarmId, setActiveFarmId] = useState("");
+  const [areaSearch, setAreaSearch] = useState("");
 
   const jobsQ = useQuery({
     queryKey: ["warehousePickupAreaPlanning"],
@@ -328,14 +330,18 @@ export default function PickupRoutesPage() {
     window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`, "_blank", "noopener,noreferrer");
   };
 
+  const searchedAreas = areas.filter((area) => area.name.toLowerCase().includes(areaSearch.trim().toLowerCase()));
+  const registeredFarmTotal = areas.reduce((sum, area) => sum + Number((area as any).registeredFarmCount || 0), 0);
+  const readyFarmTotal = new Set(jobs.map((job) => String(job.farmerId || job.farmerUserId || job.farmId || idOf(job)))).size;
+
   return (
-    <main className="warehouse-pickup-routes-page w-full space-y-6 pb-8">
-      <section className="rounded-xl border border-slate-200 border-l-4 border-l-emerald-600 bg-white p-5 shadow-sm sm:p-6">
+    <main className="warehouse-pickup-routes-page w-full space-y-5 pb-8">
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
         <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
           <div>
             <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-emerald-700"><MapIcon className="h-4 w-4" /> Geographical pickup planning</div>
             <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Area-wise Pickup Routes</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Plan farm pickups within this warehouse district using Local Hub service zones. Explicit village coverage takes priority; the hub radius automatically covers nearby farms without an explicit assignment.</p>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Organise farm collections across your warehouse coverage area and assign approved pickup partners to farms with stock ready for collection.</p>
             <p className="mt-2 text-xs font-medium text-emerald-700">{configuredDistricts.length ? `District coverage: ${configuredDistricts.join(", ")}` : "District coverage is not configured. Set the warehouse district in Settings before planning pickups."}</p>
           </div>
           <Button variant="outline" onClick={() => { jobsQ.refetch(); teamsQ.refetch(); areasQ.refetch(); }} disabled={jobsQ.isFetching} className="gap-2 self-start"><RefreshCw className={`h-4 w-4 ${jobsQ.isFetching ? "animate-spin" : ""}`} /> Refresh</Button>
@@ -343,21 +349,20 @@ export default function PickupRoutesPage() {
       </section>
 
       {!jobsQ.isLoading && !jobsQ.isError && allowedDistrictKeys.size === 0 && <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">Farm Collection district coverage is missing. Pickup Routes is intentionally not showing orders from other districts. Configure this warehouse’s district in Warehouse Settings, then refresh.</div>}
-      <section className="grid gap-3 grid-cols-2 xl:grid-cols-5">
+      <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         {[
-          { label: "Registered farm locations", value: areas.reduce((sum, area) => sum + Number((area as any).registeredFarmCount || 0), 0), icon: Package },
+          { label: "Registered farms", value: registeredFarmTotal, icon: Sprout },
           { label: "Pickup areas in district", value: areas.length, icon: MapIcon },
-          { label: "Farms ready for pickup", value: new Set(jobs.map((job) => String(job.farmerId || job.farmerUserId || job.farmId || idOf(job)))).size, icon: Clock3 },
-          { label: "Ready pickup records", value: jobs.length, icon: Truck },
-          { label: "Available pickup partners", value: eligibleTeams.length, icon: CheckCircle2 },
+          { label: "Farms ready for pickup", value: readyFarmTotal, icon: Package },
+          { label: "Available pickup partners", value: eligibleTeams.length, icon: Users },
         ].map((item) => <Card key={item.label} className="border-slate-200 shadow-sm"><CardContent className="flex items-center gap-3 p-4"><span className="rounded-lg bg-emerald-50 p-2 text-emerald-700"><item.icon className="h-5 w-5"/></span><div><p className="text-xs text-slate-500">{item.label}</p><p className="text-2xl font-bold tabular-nums text-slate-900">{jobsQ.isError ? "—" : item.value}</p></div></CardContent></Card>)}
       </section>
 
-      <section className="grid gap-5 xl:grid-cols-[minmax(250px,0.75fr)_minmax(0,2fr)]">
+      <section className="grid items-start gap-4 xl:grid-cols-[minmax(220px,0.72fr)_minmax(0,1.6fr)_minmax(270px,0.9fr)]">
         <Card className="h-fit overflow-hidden border-slate-200 shadow-sm">
-          <div className="border-b p-4">
-            <h2 className="font-semibold text-slate-900">Pickup areas</h2>
-            <p className="mt-1 text-xs text-slate-500">Select a farm area to view farms with stock ready for collection. All registered farm areas remain visible, including areas with no ready pickups.</p>
+          <div className="border-b border-slate-100 p-4">
+            <div className="flex items-center justify-between gap-2"><div><h2 className="font-semibold text-slate-950">Pickup areas</h2><p className="mt-1 text-xs text-slate-500">Areas in this warehouse district</p></div><Badge className="border-emerald-100 bg-emerald-50 text-emerald-800">{areas.length} areas</Badge></div>
+            <div className="relative mt-3"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"/><input value={areaSearch} onChange={(e) => setAreaSearch(e.target.value)} placeholder="Search pickup area…" className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-3 text-sm outline-none focus:border-emerald-500 focus:bg-white"/></div>
           </div>
           <div className="max-h-[680px] space-y-2 overflow-y-auto p-3">
             <button
@@ -371,7 +376,7 @@ export default function PickupRoutesPage() {
               <span className="mt-1 block text-xs text-slate-500">{jobs.length} farm pickup records ready for partner assignment</span>
             </button>
 
-            {areas.length ? areas.map((area) => {
+            {searchedAreas.length ? searchedAreas.map((area) => {
               const active = selectedArea === area.key;
               const registeredFarmCount = Number((area as any).registeredFarmCount || 0);
               return (
@@ -379,7 +384,7 @@ export default function PickupRoutesPage() {
                   type="button"
                   key={area.key}
                   onClick={() => { setSelectedArea(area.key); setActiveFarmId(""); setSelectedIds([]); }}
-                  className={"w-full rounded-lg border p-3 text-left transition-colors " + (active ? "border-emerald-300 bg-emerald-50" : "border-slate-200 hover:bg-slate-50")}
+                  className={"w-full rounded-xl border p-3 text-left transition " + (active ? "border-emerald-300 bg-emerald-50/70 ring-1 ring-emerald-100" : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50")}
                 >
                   <span className="flex items-center justify-between gap-3">
                     <span className="min-w-0 truncate text-sm font-semibold text-slate-900">{area.name}</span>
@@ -388,9 +393,7 @@ export default function PickupRoutesPage() {
                     </span>
                   </span>
                   <span className="mt-1 block text-xs text-slate-500">Registered farms in this pickup area</span>
-                  <span className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs">
-                    <span className="font-medium text-emerald-700">{area.jobs.length} ready for pickup</span>
-                  </span>
+                  <span className="mt-2 flex items-center justify-between gap-2 text-xs"><span className="text-slate-500">{area.jobs.length} ready for pickup</span><ChevronRight className={"h-4 w-4 " + (active ? "text-emerald-700" : "text-slate-300")}/></span>
                 </button>
               );
             }) : (
@@ -461,6 +464,20 @@ export default function PickupRoutesPage() {
             </div>}
           </Card>
         </div>
+      <Card className="h-fit overflow-hidden rounded-2xl border-slate-200 shadow-sm xl:sticky xl:top-4">
+        <CardContent className="flex flex-col gap-4 p-4 sm:p-5">
+          <div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="font-semibold text-slate-900">Assign pickup partner</h2><p className="mt-1 text-xs text-slate-500">Assign farm pickup orders to an approved pickup partner. The same assignment is reflected in Farm Collection.</p></div><Badge variant="outline">{selectedIds.length} selected</Badge></div>
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-end">
+            <label className="space-y-1.5 text-sm font-medium text-slate-700">Approved pickup partner and vehicle
+              <select value={teamId} onChange={(e) => setTeamId(e.target.value)} className="h-11 w-full rounded-lg border bg-white px-3 font-normal"><option value="">Select partner / vehicle</option>{eligibleTeams.map((team) => <option key={team.id} value={team.id}>{team.name || "Pickup partner"} · {team.vehicleType || "Vehicle"} · {team.capacity || team.vehicleCapacity} kg</option>)}</select>
+            </label>
+            <div className="rounded-lg bg-slate-50 p-3 text-sm"><p className="text-slate-500">Selected pickup load</p><p className="mt-1 font-semibold text-slate-900">{selectedJobs.length} orders · {selectedWeight.toFixed(1)} kg</p><p className="mt-1 text-xs text-slate-500">{selectedTeam ? `Vehicle capacity: ${selectedTeam.capacity || selectedTeam.vehicleCapacity} kg` : "Choose a partner to validate capacity"}</p></div>
+            <Button onClick={assignAreaOrders} disabled={assigning || !selectedIds.length || !selectedTeam} className="h-11 bg-emerald-700 hover:bg-emerald-800"><Truck className="mr-2 h-4 w-4"/>{assigning ? "Assigning…" : "Assign selected orders"}</Button>
+          </div>
+          {selectedTeam && selectedWeight > Number(selectedTeam.capacity || selectedTeam.vehicleCapacity || 0) && <p className="text-sm text-rose-700">Selected quantity exceeds the selected vehicle capacity. Remove orders or choose a larger vehicle.</p>}
+          {eligibleTeams.length === 0 && <p className="text-sm text-amber-700">No approved pickup partner with registered vehicle capacity is available. Review Pickup Partners first.</p>}
+        </CardContent>
+      </Card>
       </section>
 
       <Card className="border-emerald-200 shadow-sm">
