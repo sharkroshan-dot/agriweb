@@ -128,20 +128,24 @@ export default function PickupRoutesPage() {
 
   const areas = useMemo(() => {
     const groups = new Map<string, { key: string; name: string; areaType?: string; jobs: Job[]; totalOrders: number; readyToAssign: number; collectionIds: string[]; serviceAreas?: string[]; pickupRadiusKm?: number }>();
-    const directoryRows = areasQ.data?.data?.zones ?? areasQ.data?.data?.areas ?? areasQ.data?.zones ?? areasQ.data?.areas ?? [];
+    const registeredAreas = areasQ.data?.data?.registeredAreas;
+    const directoryRows = Array.isArray(registeredAreas) && registeredAreas.length
+      ? registeredAreas
+      : (areasQ.data?.data?.zones ?? areasQ.data?.data?.areas ?? areasQ.data?.zones ?? areasQ.data?.areas ?? []);
     if (Array.isArray(directoryRows)) {
       directoryRows.forEach((area: Job) => {
         const name = String(area.name || "").trim();
         if (!name) return;
         const key = String(area.key || area.hubId || areaKey(name));
         groups.set(key, {
-          key, name, areaType: String(area.areaType || "Local hub pickup zone"), jobs: [],
+          key, name, areaType: area.taluk ? ("Village / locality · " + area.taluk) : String(area.areaType || "Registered pickup area"), jobs: [],
           totalOrders: Number(area.totalOrders || 0),
-          readyToAssign: Number(area.readyToAssign || 0),
+          readyToAssign: Number(area.readyOrders ?? area.readyToAssign ?? 0),
           collectionIds: Array.isArray(area.collectionIds) ? area.collectionIds.map(String) : [],
-          serviceAreas: Array.isArray(area.serviceAreas) ? area.serviceAreas : [],
+          serviceAreas: Array.isArray(area.aliases) ? area.aliases : (Array.isArray(area.serviceAreas) ? area.serviceAreas : []),
           pickupRadiusKm: Number(area.pickupRadiusKm || 0),
-        });
+          registeredFarmCount: Number(area.registeredFarmCount || 0),
+        } as any);
       });
     }
     const collectionToZone = new Map<string, string>();
@@ -164,6 +168,8 @@ export default function PickupRoutesPage() {
   }, [jobs, areasQ.data]);
 
   const taluks: Job[] = useMemo(() => {
+    const registered = areasQ.data?.data?.registeredAreas;
+    if (Array.isArray(registered) && registered.length) return [];
     const rows = areasQ.data?.data?.taluks ?? areasQ.data?.taluks ?? [];
     return Array.isArray(rows) ? rows.filter((item: unknown): item is Job => Boolean(item) && typeof item === "object") : [];
   }, [areasQ.data]);
@@ -276,10 +282,10 @@ export default function PickupRoutesPage() {
 
       <section className="grid gap-5 xl:grid-cols-[minmax(250px,0.75fr)_minmax(0,2fr)]">
         <Card className="h-fit border-slate-200 shadow-sm">
-          <div className="border-b p-4"><h2 className="font-semibold text-slate-900">Pickup areas by taluk</h2><p className="mt-1 text-xs text-slate-500">Taluk-wise farm readiness with every registered village/locality listed underneath.</p></div>
+          <div className="border-b p-4"><h2 className="font-semibold text-slate-900">Pickup areas</h2><p className="mt-1 text-xs text-slate-500">Registered villages, towns and localities in this warehouse district, including areas with zero pickup orders.</p></div>
           <div className="max-h-[680px] space-y-2 overflow-y-auto p-3">
             <button onClick={() => setSelectedArea("all")} className={"w-full rounded-lg border p-3 text-left " + (selectedArea === "all" ? "border-emerald-300 bg-emerald-50" : "border-transparent hover:bg-slate-50")}>
-              <span className="flex items-center justify-between text-sm font-semibold">All taluks / areas <span className="tabular-nums">{jobs.length}</span></span>
+              <span className="flex items-center justify-between text-sm font-semibold">All pickup areas <span className="tabular-nums">{jobs.length}</span></span>
               <span className="mt-1 block text-xs text-slate-500">{areaSummary.ready} ready orders for assignment</span>
             </button>
             {taluks.length ? taluks.map((taluk) => {
@@ -302,7 +308,7 @@ export default function PickupRoutesPage() {
               </div>;
             }) : areas.map((area) => <button key={area.key} onClick={() => setSelectedArea(area.key)} className={"w-full rounded-lg border p-3 text-left " + (selectedArea === area.key ? "border-emerald-300 bg-emerald-50" : "border-transparent hover:bg-slate-50")}>
               <span className="flex items-center justify-between gap-2 text-sm font-semibold text-slate-800"><span className="truncate">{area.name}</span><span className="tabular-nums">{area.totalOrders}</span></span>
-              <span className="mt-1 block text-xs text-slate-500">{area.readyToAssign} ready orders · {area.areaType || "Local hub pickup zone"}</span>
+              <span className="mt-1 block text-xs text-slate-500">{(area as any).registeredFarmCount ?? 0} registered farms · {area.readyToAssign} ready orders</span>
             </button>)}
             <div className="border-t pt-3">
               <p className="mb-2 text-xs font-semibold text-slate-500">LOCAL HUB COVERAGE</p>
