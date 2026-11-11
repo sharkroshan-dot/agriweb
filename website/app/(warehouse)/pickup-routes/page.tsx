@@ -355,13 +355,13 @@ export default function PickupRoutesPage() {
         ].map((item) => <Card key={item.label} className="border-slate-200 shadow-sm"><CardContent className="flex items-center gap-3 p-4"><span className="rounded-lg bg-emerald-50 p-2 text-emerald-700"><item.icon className="h-5 w-5"/></span><div><p className="text-xs text-slate-500">{item.label}</p><p className="text-2xl font-bold tabular-nums text-slate-900">{jobsQ.isError ? "—" : item.value}</p></div></CardContent></Card>)}
       </section>
 
-      <section className="grid items-start gap-4 xl:grid-cols-[minmax(250px,0.78fr)_minmax(0,2fr)]">
-        <Card className="h-fit overflow-hidden border-slate-200 shadow-sm">
+      <section className="grid items-start gap-5 2xl:grid-cols-[minmax(240px,0.78fr)_minmax(0,1.65fr)_minmax(300px,0.95fr)] xl:grid-cols-[minmax(235px,0.72fr)_minmax(0,1.5fr)]">
+        <Card className="h-fit overflow-hidden rounded-2xl border-slate-200 shadow-sm">
           <div className="border-b border-slate-100 p-4">
             <div className="flex items-center justify-between gap-2"><div><h2 className="font-semibold text-slate-950">Pickup areas</h2><p className="mt-1 text-xs text-slate-500">Areas in this warehouse district</p></div><Badge className="border-emerald-100 bg-emerald-50 text-emerald-800">{areas.length} areas</Badge></div>
             <div className="relative mt-3"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"/><input value={areaSearch} onChange={(e) => setAreaSearch(e.target.value)} placeholder="Search pickup area…" className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-3 text-sm outline-none focus:border-emerald-500 focus:bg-white"/></div>
           </div>
-          <div className="max-h-[620px] space-y-2 overflow-y-auto p-3">
+          <div className="max-h-[560px] space-y-2 overflow-y-auto p-3">
             <button
               type="button"
               onClick={() => setSelectedArea("all")}
@@ -403,10 +403,10 @@ export default function PickupRoutesPage() {
           </div>
         </Card>
 
-        <div className="space-y-4">
-          <Card className="overflow-hidden border-slate-200 shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b p-4">
-              <div><h2 className="flex items-center gap-2 font-semibold text-slate-900"><MapPin className="h-4 w-4 text-emerald-700"/> Pickup location map</h2><p className="mt-1 text-xs text-slate-500">{filtered.filter(coordinatesOf).length} located orders · {filtered.filter((job) => !coordinatesOf(job)).length} without coordinates</p></div>
+        <div className="min-w-0 space-y-4">
+          <Card className="overflow-hidden rounded-2xl border-slate-200 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 p-4">
+              <div><h2 className="flex items-center gap-2 font-semibold text-slate-950"><MapPin className="h-4 w-4 text-emerald-700"/> Pickup location map</h2><p className="mt-1 text-xs text-slate-500">{filtered.filter(coordinatesOf).length} located orders · {filtered.filter((job) => !coordinatesOf(job)).length} without coordinates</p></div>
               <Badge variant="outline">{selectedGroupName}</Badge>
             </div>
             {farmMarkers.length ? <SharedMap center={mapCenter} zoom={11} markers={farmMarkers} drawRoute={false} height="300px" className="w-full" onMarkerClick={(marker: any) => setActiveFarmId(String(marker?.id || ""))} /> : <div className="flex h-[260px] flex-col items-center justify-center gap-2 bg-slate-50 text-center"><MapPin className="h-8 w-8 text-slate-400"/><p className="text-sm font-medium text-slate-700">No verified farm coordinates in this area</p><p className="text-xs text-slate-500">Orders remain available below. Add verified GPS coordinates to the farmer's farm profile to show a marker.</p></div>}
@@ -439,9 +439,9 @@ export default function PickupRoutesPage() {
               <div><h2 className="font-semibold text-slate-900">Farms ready for collection</h2><p className="mt-1 text-xs text-slate-500">Only farm stock marked Ready for Pickup in this warehouse district is shown for pickup-partner assignment.</p></div>
               <Button variant="outline" size="sm" onClick={selectVisible} disabled={!eligibleFiltered.length}>{eligibleFiltered.length && eligibleFiltered.every((job) => selectedIds.includes(idOf(job))) ? "Clear farm selection" : "Select ready farms"} ({eligibleFiltered.length})</Button>
             </div>
-            <div className="grid gap-3 border-b bg-slate-50/70 p-3 md:grid-cols-2">
-              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-10 rounded-lg border bg-white px-3 text-sm"><option value="all">All pickup statuses</option>{Object.entries(STATUS_LABEL).map(([key, value]) => <option key={key} value={key}>{value}</option>)}</select>
-              <div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"/><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search farmer, order, product…" className="h-10 w-full rounded-lg border bg-white pl-9 pr-3 text-sm outline-none focus:border-emerald-500"/></div>
+            <div className="grid gap-2 border-b border-slate-100 bg-slate-50/70 p-3 md:grid-cols-2">
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"><option value="all">All pickup statuses</option>{Object.entries(STATUS_LABEL).map(([key, value]) => <option key={key} value={key}>{value}</option>)}</select>
+              <div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"/><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search farmer, order, product…" className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"/></div>
             </div>
             {jobsQ.isLoading ? <div className="p-10 text-center text-sm text-slate-500">Loading pickup orders…</div> : jobsQ.isError ? <div className="p-8 text-center"><AlertTriangle className="mx-auto h-8 w-8 text-rose-500"/><p className="mt-2 text-sm font-medium">Unable to load pickup orders</p><Button className="mt-3" variant="outline" onClick={() => jobsQ.refetch()}>Try again</Button></div> : filtered.length === 0 ? <div className="p-10 text-center text-sm text-slate-500">No orders match the selected filters.</div> : <div className="max-h-[480px] divide-y overflow-y-auto">
               {filtered.map((job) => {
