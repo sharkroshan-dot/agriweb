@@ -126,7 +126,7 @@ export default function PickupRoutesPage() {
   const selectedTeam = eligibleTeams.find((team) => String(team.id) === teamId);
 
   const areas = useMemo(() => {
-    const groups = new Map<string, { key: string; name: string; jobs: Job[]; totalOrders: number; readyToAssign: number }>();
+    const groups = new Map<string, { key: string; name: string; areaType?: string; jobs: Job[]; totalOrders: number; readyToAssign: number }>();
     const directoryRows = areasQ.data?.data?.areas ?? areasQ.data?.areas ?? areasQ.data?.data?.data?.areas ?? [];
     if (Array.isArray(directoryRows)) {
       directoryRows.forEach((area: Job) => {
@@ -264,7 +264,7 @@ export default function PickupRoutesPage() {
               const ready = area.readyToAssign;
               return <button key={area.key} onClick={() => setSelectedArea(area.key)} className={`w-full rounded-lg border p-3 text-left ${selectedArea === area.key ? "border-emerald-300 bg-emerald-50" : "border-transparent hover:bg-slate-50"}`}>
                 <span className="flex items-center justify-between gap-2 text-sm font-semibold text-slate-800"><span className="truncate">{area.name}</span><span className="tabular-nums">{area.totalOrders}</span></span>
-                <span className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500"><span>{ready} ready for pickup</span></span>
+                <span className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500"><span>{area.areaType || "Registered farmer locality"}</span><span>·</span><span>{ready} ready for pickup</span></span>
               </button>;
             })}
           </div>

@@ -1463,6 +1463,51 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
     profiles_collection = MongoDB.get_collection("farmer_profiles")
     profiles = await profiles_collection.find({"deletedAt": None}).to_list(length=10000)
     area_profiles: Dict[str, Dict[str, Any]] = {}
+    # Official district-level administrative directory, independent of farmer
+    # registrations so empty areas remain visible.
+    district_area_master = {
+        "tiruchirappalli": [
+            "Andhanallur", "Manikandam", "Thiruverambur", "Manapparai",
+            "Marungapuri", "Vaiyampatti", "Lalgudi", "Mannachanallur",
+            "Pullambadi", "Musiri", "Thottiyam", "T.Pet", "Thuraiyur", "Uppiliapuram",
+        ],
+    }
+    # Village-panchayat names published by Tiruchirappalli District Administration.
+    # The district portal lists 404 village panchayats across these 14 blocks.
+    # Keep block association to make the directory searchable and unambiguous.
+    district_village_master = {
+        "Andhanallur": "Allur|Andanallur|Ettarai|Kambarasampettai|Kilikoodu|Kodiyalam|Koppu|Kulumani|Malliampathu|Marudhandakurichi|Mekkudy|Mullikarumbur|Mutharasanallur|Palur|Panayapuram|Periakaruppur|Perugamani|Perur|Pettavaithalai|Podavur|Posampatti|Puliyur|Thiruchendurai|Thirupparaithurai|Uthamseri",
+        "Manikandam": "Adhavathur|Allithurai|Alundur|Ammapettai|Ariyavoor|K.Kallikudi|Kulathur|Kumaravayalur|Mathur|Mekkudy|Mudikandam|Nachikurichy|Nagamangalam|Navalurkottapattu|Paganur|Periyanayakichatram|Punganur|Sethurapatti|Somarasampettai|Thayanur|Thirumalaisamudram|Thorakkudy",
+        "Thiruverambur": "Arasangudy|Asur|Gundur|Kandalur|Kilamullakkudy|Kilakurichy|Kiliyur|Krishnasamudram|Kumbakudy|Kuvalakkudy|Natarajapuram|Navalpattu|Palaganangudy|Panayakurichy|Pathalapettai|Sholamadevi|Sooriyur|Thirunedunkulam|Valavanthankottai|Vengur",
+        "Manapparai": "Chettiapatti|Chithanatham|F.Keelaiyur|K.Periapatti|Kalingapatti|Kannudaiyanpatti|Karuppur|Malayadipatti|Mondipatti|Pannapatti|Podangupatti|Poigaipatti|Puthanatham|Sampatti|Samudram|Seegampatti|Sooliapatti|Thoppampatti|Usilampatti|Vadugapatti|Vengaikurichi",
+        "Marungapuri": "Adaikkampatti|Alampatti|Amanakkampatti|Ammachatram|Athikaram|Ayanporuvai|Ayanpudupatti|D.Pudupatti|Endapuli|Ikkaraikosukuruchi|Kalingapatti|Kallakkanpatti|Kanjanaickenpatti|Kannivadugampatti|Kannukuli|Kannuthu|Karadipatti|Karaipatti|Karumalai|Kavandampatti|Kodumbapatti|M.Idayapatti|Maniankuruchi|Minikiyur|Marungapuri|Muthalvarpatti|Nallur|Nattarapatti|Palakurichi|Palayapalayam|Paluvanji|Pidarapatti|Pirampatti|Sevalpatti|T.Idayapatti|Thathanur|Thazhampadi|Thenur|Thethur|Thirunellipatti|Thottiapatti|Unaiyur|Usilampatti|Uthukuli|V.Edaiyapatti|Vaguthalvarpatti|Vairampatti|Valanadu|Vembanur",
+        "Vaiyampatti": "Amayapuram|Aniyappur|Ayanreddiapatti|Dhavalaveeranpatti|Elamanam|Kumaravadi|Mohavanur|Nadupatti|Nallampillai|Palayakottai|Ponnambalapatti|Pudukkottai|Inam Pudur|Puduvadi|Sekkanam|V.Periapatti|Vaiyampatti|Vellalapatti",
+        "Lalgudi": "Adikudi|Agalanganallur|Alangudimahajanam|Angarai|Appadurai|Ariyur|Esanakorai|Idaiyathumangalam|Jangamarajapuram|Keelanbil|Keelaperungavoor|Komagudi|Koohur|Koonakudi|Koppavali|Madakkudi|Mahilampadi|Manakkal|Mangammalpuram|Mangudi|Marudur|Mettuppatti|Nagar|Natham|Neikuppai|Nerunjalakudi|Pallapuram|Pamparamchutti|Peruvalanallur|Puduruthamanur|Pudukkudi|R.Valavanur|Sathamangalam|Sembarai|Sevendhinathapuram|Sirumarudhur|Sirumayangudi|T.Kallikudi|T.Valavanoor|Thachankurichi|Thalakudi|Thinniyam|Thirumanamedu|Thirumangalam|Valadi",
+        "Mannachanallur": "Alagiyamanavalam|Ayikudi|Ayyampalayam|Edumalai|Irungalur|Kalpalayam|94.Kariyamanickam|Killiyanallur|Konalai|Koothur|Kovathakudi|Madavarperumalkovil|Melpathu|Omandur|Palaiyur|Perakambi|Pichandarkovil|Poonampalayam|Samayapuram|Seedevimangalam|Shanamangalam|Siruganur|Sirugudi|Siruppathur|Thaluthalapatti|Thathamangalam|Theerampalayam|Thiruppanjeeli|Thiruppattur|Thiruvellarai|Thiruvasi|Valaiyur|Vazhaiyur|Vengangudi|2.Kariyamanickam",
+        "Pullambadi": "Alambadi|Alambakkam|Garudamangalam|Kallagam|Kanakkiliyanallur|Kannakudi|Kelarasur|Kovandakurichi|Kumulur|M.Kannanur|Malvoi|Melarasur|Muthuvathur|Nambukurichi|Nanjeisangenthi|Neikulam|Oottathur|Orathur|Periyakurukkai Agaram|Peruvalappur|Pudurpalayam|Punjaisangenthi|Reddimangudi|Saradamangalam|Sirukalappur|Thinnakulam|Theranipalayam|Thappai|Vandalaigudalur|Varakuppai|E.Vellanur|Venkatachalapuram|Viragalur",
+        "Musiri": "Abinimangalam|Amoor|Ayyampalayam|Evur|Gunaseelam|Jeyankondan|Kamatchipatti|Karattampatti|Kattukulam|Kodunthurai|Komangalam|Kottathur|Manparai|Moovanur|Neiveli|Peramangalam|Perur|Pulivalam|Puthanampatti|Sathanur|Seventhilingapuram|Sithambur|Sukkampatti|T.Pudupatti|Thandalaiputhur|Thinnakkonam|Thinnanur|Thiruthalaiyur|Thiruthiyamalai|Veliyanur|Vellakkalpatti|Vellur|Vengaimandalam",
+        "Thottiyam": "Alagarai|Appananallur|Arangoor|Arasalur|Chinnapallipalayam|Elurpatti|Kaduvetti|Kamalapuram|Kidaram|Kolakkudi|M.Kalathur|M.Puthur|Manamedu|Mullipadi|Murungai|Nagayanallur|Natham|Periyapallipalayam|Pidaramangalam|Seelaipillayarputhur|Seethapatti|Srinivasanallur|Sriramasamudram|Tholurpatti|Unniyur|Valvelputhur",
+        "T.Pet": "Anjalam|Arachi|Devanur|Jambumadai|Karikali|Karugudi|Konappampatti|M.Pudupatti|Mahadevi|Mangalam|Mavalipatti|Muthampatti|Paithamparai|Pillapalayam|Poolancheri|Serugudi|Sittilarai|Soorampatti|Thulayanatham|Thumbalam|Urakkarai|Urudayanpatti|Valaiyeduppu|Valasiramani|Valavanthi",
+        "Thuraiyur": "Adanur|Ammapatti|Chokkanathapuram|Govindapuram|K.Palayam|Kalingamudayanpatti|Kannanur|Keerambur|Kollapatti|Kombai|Kottaiyur|Kunnupatti|Madurapuri|Maruvathur|Murugur|Muthiampalayam|Naduvalur|Nagalapuram|Narasinghapuram|Pagalavadi|Perumalpalayam|Ponnusangampatti|Sellipalayam|Senappanallur|Sikkathambur|Singalandapuram|Sorathur|T.Renganathapuram|Vannadu|Varadarajapuram|Veeramachanpatti|Vengadathanur|Venkatesapuram|Visalakshiammal Samudram",
+        "Uppiliapuram": "Alathudaiyanpatti|Angiyam|Alagapuri|Baderpettai|Eragudi|Kamachipuram|Koppampatti|Kottapalayam|Maradi|Naganallur|Okkarai|Pachaperumalpatti|Sirunavalur|Sobanapuram|Talugai|Thenparanadu|Vairichettipalayam|Venkatachalapuram",
+    }
+    for district in coverage:
+        for block_name in district_area_master.get(district, []):
+            block_key = " ".join(block_name.casefold().split())
+            area_profiles.setdefault(block_key, {
+                "key": block_key, "name": block_name, "areaType": "Development block",
+                "totalOrders": 0, "readyToAssign": 0,
+            })
+            for village_name in district_village_master.get(block_name, "").split("|"):
+                village_name = village_name.strip()
+                if not village_name:
+                    continue
+                village_key = " ".join(village_name.casefold().split())
+                area_profiles.setdefault(village_key, {
+                    "key": village_key, "name": village_name,
+                    "areaType": f"Village panchayat · {block_name}",
+                    "totalOrders": 0, "readyToAssign": 0,
+                })
     farmer_area_by_id: Dict[str, str] = {}
     for profile in profiles:
         location = (
@@ -1475,7 +1520,7 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
         if not area_name:
             continue
         area_key = " ".join(area_name.casefold().split())
-        area_profiles.setdefault(area_key, {"key": area_key, "name": area_name, "totalOrders": 0, "readyToAssign": 0})
+        area_profiles.setdefault(area_key, {"key": area_key, "name": area_name, "areaType": "Registered farmer locality", "totalOrders": 0, "readyToAssign": 0})
         for identity in (profile.get("_id"), profile.get("userId")):
             if identity:
                 farmer_area_by_id[str(identity)] = area_key
@@ -1490,7 +1535,7 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
             explicit = job.get("farmVillage") or job.get("farmAreaName") or job.get("village") or job.get("locality") or job.get("farmTown")
             if isinstance(explicit, str) and explicit.strip():
                 area_key = " ".join(explicit.casefold().split())
-                area_profiles.setdefault(area_key, {"key": area_key, "name": " ".join(explicit.split()), "totalOrders": 0, "readyToAssign": 0})
+                area_profiles.setdefault(area_key, {"key": area_key, "name": " ".join(explicit.split()), "areaType": "Registered pickup locality", "totalOrders": 0, "readyToAssign": 0})
         if not area_key or area_key not in area_profiles:
             continue
         area = area_profiles[area_key]
@@ -1505,8 +1550,10 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
         "data": {
             "districts": sorted(coverage),
             "areas": areas,
-            "directorySource": "active_farmer_profiles",
-            "note": "Areas are derived from active farmer farm-address records; add missing village/locality details to farmer profiles to complete district coverage.",
+            "directorySource": "district_administration_village_panchayat_lists_and_active_farmer_profiles",
+            "officialVillagePanchayatCount": 404,
+            "officialAreaDirectoryUrl": "https://tiruchirappalli.nic.in/rural-development/",
+            "note": "Includes the district administration published 14 development blocks and 404 village panchayats, plus additional registered farmer localities. Village panchayats are not the same as the 507 revenue villages.",
         },
     }
 
