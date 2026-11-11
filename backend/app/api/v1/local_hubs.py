@@ -15,6 +15,7 @@ from app.services.delivery_job_service import build_job_document
 from app.core.security import Security
 from app.services.order_service import geocode_address
 from app.services.notification_service import NotificationService
+from app.services.warehouse_collection_service import warehouse_collection_districts, normalize_collection_district
 
 router = APIRouter()
 
@@ -70,6 +71,10 @@ async def create_local_hub(payload: LocalHubCreate, current_user: dict = Depends
     parent = await warehouse_repository.get_by_manager(str(current_user["_id"]))
     if not parent:
         raise HTTPException(status_code=404, detail="Parent warehouse was not found for this manager")
+    parent_districts = warehouse_collection_districts(parent)
+    hub_district = normalize_collection_district(payload.district)
+    if parent_districts and hub_district not in parent_districts:
+        raise HTTPException(status_code=422, detail=f"Local Hub district must be within this warehouse's farm pickup coverage: {', '.join(sorted(parent_districts))}")
     users = MongoDB.get_collection("users")
     email = str(payload.email).lower().strip()
     username = payload.username.strip().lower()
