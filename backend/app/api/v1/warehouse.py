@@ -1755,14 +1755,56 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
         })
         if item.get("farmerId"): group["registeredFarmIds"].add(item["farmerId"])
     for job in pickup_jobs:
-        farmer_id = str(job.get("farmerId") or job.get("farmerUserId") or "")
-        raw_name = profile_area_name_by_id.get(farmer_id) or job.get("farmVillage") or job.get("farmAreaName") or job.get("village") or job.get("locality") or job.get("farmTown")
+        farmer_id = str(job.get("farmerId") or job.get("farmerUserId") or job.get("farmId") or "")
+        linked_profile = None
+        # Collection records do not always carry the same farmer reference as
+        # the farmer profile. Resolve through the linked order/product exactly
+        # as the Farm Collection list does before deciding that an area is absent.
+        linked_order = None
+        order_id = str(job.get("orderId") or "")
+        if order_id and ObjectId.is_valid(order_id):
+            linked_order = await order_repository.get_by_id(order_id)
+        order_items = (linked_order or {}).get("items") or []
+        first_item = order_items[0] if order_items else {}
+        product_id = str(job.get("productId") or first_item.get("productId") or "")
+        linked_product = None
+        if product_id and ObjectId.is_valid(product_id):
+            linked_product = await product_repository.get_by_id(product_id)
+        farmer_refs = [
+            job.get("farmerId"), job.get("farmerUserId"), job.get("farmId"),
+            (linked_order or {}).get("farmerId"), (linked_order or {}).get("farmer_id"),
+            first_item.get("farmerId"), first_item.get("farmer_id"),
+            (linked_product or {}).get("farmerId"), (linked_product or {}).get("farmer_id"),
+            (linked_product or {}).get("ownerId"), (linked_product or {}).get("sellerId"),
+        ]
+        for farmer_ref in farmer_refs:
+            if not farmer_ref:
+                continue
+            farmer_key = str(farmer_ref)
+            linked_profile = await farmer_repository.get_by_user_id(farmer_key)
+            if not linked_profile and ObjectId.is_valid(farmer_key):
+                linked_profile = await farmer_repository.get_by_id(farmer_key)
+            if linked_profile:
+                farmer_id = str(linked_profile.get("userId") or farmer_key)
+                break
+
+        raw_name = (
+            profile_area_name_by_id.get(farmer_id)
+            or area_from_profile(linked_profile or {})
+            or area_from_profile(job)
+            or job.get("farmVillage") or job.get("farmAreaName")
+            or job.get("village") or job.get("locality") or job.get("farmTown")
+        )
         master = canonical_area(str(raw_name)) if raw_name else None
         canonical = str((master or {}).get("name") or raw_name or "").strip()
-        if not canonical: continue
+        if not canonical:
+            # Do not fabricate a taluk from a district/city-level address. Keep
+            # these orders out of a false area count until the farm locality is
+            # actually available on its linked profile or pickup location.
+            continue
         key = "area:" + normalized_area(canonical)
         group = area_groups.setdefault(key, {
-            "key": key, "name": canonical, "taluk": (master or {}).get("taluk") or profile_taluk_by_id.get(farmer_id),
+            "key": key, "name": canonical, "taluk": (master or {}).get("taluk") or taluk_from_profile(linked_profile or {}) or profile_taluk_by_id.get(farmer_id),
             "district": (master or {}).get("district"), "aliases": (master or {}).get("aliases") or [],
             "registeredFarmIds": set(), "readyFarmIds": set(),
             "collectionIds": [], "totalOrders": 0, "readyOrders": 0,
