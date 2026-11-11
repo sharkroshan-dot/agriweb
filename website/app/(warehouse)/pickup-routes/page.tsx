@@ -71,6 +71,7 @@ function escapeMapText(value: unknown) { return String(value ?? "").replace(/&/g
 
 export default function PickupRoutesPage() {
   const [selectedArea, setSelectedArea] = useState("all");
+  const [expandedTaluks, setExpandedTaluks] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -163,16 +164,25 @@ export default function PickupRoutesPage() {
   }, [jobs, areasQ.data]);
 
   const filtered = useMemo(() => {
-    const selectedZone = areas.find((area) => area.key === selectedArea);
-    const zoneOrderIds = new Set(selectedZone?.collectionIds || []);
+    const zone = areas.find((area) => area.key === selectedArea);
+    const taluk = taluks.find((item) => item.key === selectedArea);
+    const orderIds = new Set(taluk?.collectionIds || zone?.collectionIds || []);
     return jobs.filter((job) => {
-      const areaMatch = selectedArea === "all" || zoneOrderIds.has(idOf(job)) || selectedZone?.jobs.some((item) => idOf(item) === idOf(job));
+      const areaMatch = selectedArea === "all" || orderIds.has(idOf(job)) || zone?.jobs.some((item) => idOf(item) === idOf(job));
       const statusMatch = statusFilter === "all" || String(job.status || "") === statusFilter;
       const term = search.trim().toLowerCase();
-      const text = [job.farmerName, job.orderNumber, job.orderId, job.productName, job.pickupAddress, areaOf(job)].join(" ").toLowerCase();
+      const text = [job.farmerName, job.orderNumber, job.orderId, job.productName, job.pickupAddress, areaOf(job), districtOf(job)].join(" ").toLowerCase();
       return areaMatch && statusMatch && (!term || text.includes(term));
     });
-  }, [jobs, areas, selectedArea, statusFilter, search]);
+  }, [jobs, areas, taluks, selectedArea, statusFilter, search]);
+
+  const taluks: Job[] = useMemo(() => {
+    const rows = areasQ.data?.data?.taluks ?? areasQ.data?.taluks ?? [];
+    return Array.isArray(rows) ? rows.filter((item: unknown): item is Job => Boolean(item) && typeof item === "object") : [];
+  }, [areasQ.data]);
+  const selectedTaluk = taluks.find((taluk) => taluk.key === selectedArea);
+  const selectedZone = areas.find((area) => area.key === selectedArea);
+  const selectedGroupName = selectedTaluk?.name || selectedZone?.name || "All areas";
 
   const selectedJobs = jobs.filter((job) => selectedIds.includes(idOf(job)));
   const selectedWeight = selectedJobs.reduce((sum, job) => sum + Number(job.quantity || 0), 0);
@@ -266,19 +276,38 @@ export default function PickupRoutesPage() {
 
       <section className="grid gap-5 xl:grid-cols-[minmax(250px,0.75fr)_minmax(0,2fr)]">
         <Card className="h-fit border-slate-200 shadow-sm">
-          <div className="border-b p-4"><h2 className="font-semibold text-slate-900">Pickup areas</h2><p className="mt-1 text-xs text-slate-500">Select a Local Hub zone to view only its farms and pickup orders.</p></div>
-          <div className="max-h-[620px] space-y-2 overflow-y-auto p-3">
-            <button onClick={() => setSelectedArea("all")} className={`w-full rounded-lg border p-3 text-left ${selectedArea === "all" ? "border-emerald-300 bg-emerald-50" : "border-transparent hover:bg-slate-50"}`}>
-              <span className="flex items-center justify-between text-sm font-semibold">All areas <span className="tabular-nums">{jobs.length}</span></span>
-              <span className="mt-1 block text-xs text-slate-500">{areaSummary.ready} ready for assignment</span>
+          <div className="border-b p-4"><h2 className="font-semibold text-slate-900">Pickup areas by taluk</h2><p className="mt-1 text-xs text-slate-500">Taluk-wise farm readiness with every registered village/locality listed underneath.</p></div>
+          <div className="max-h-[680px] space-y-2 overflow-y-auto p-3">
+            <button onClick={() => setSelectedArea("all")} className={"w-full rounded-lg border p-3 text-left " + (selectedArea === "all" ? "border-emerald-300 bg-emerald-50" : "border-transparent hover:bg-slate-50")}>
+              <span className="flex items-center justify-between text-sm font-semibold">All taluks / areas <span className="tabular-nums">{jobs.length}</span></span>
+              <span className="mt-1 block text-xs text-slate-500">{areaSummary.ready} ready orders for assignment</span>
             </button>
-            {areas.map((area) => {
-              const ready = area.readyToAssign;
-              return <button key={area.key} onClick={() => setSelectedArea(area.key)} className={`w-full rounded-lg border p-3 text-left ${selectedArea === area.key ? "border-emerald-300 bg-emerald-50" : "border-transparent hover:bg-slate-50"}`}>
-                <span className="flex items-center justify-between gap-2 text-sm font-semibold text-slate-800"><span className="truncate">{area.name}</span><span className="tabular-nums">{area.totalOrders}</span></span>
-                <span className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500"><span>{area.areaType || "Local hub pickup zone"}</span><span>·</span><span>{ready} ready for pickup</span></span>{area.serviceAreas?.length ? <span className="mt-1 block text-[11px] text-slate-400">{area.serviceAreas.slice(0, 3).join(", ")}{area.serviceAreas.length > 3 ? ` +${area.serviceAreas.length - 3} more` : ""}</span> : area.pickupRadiusKm ? <span className="mt-1 block text-[11px] text-slate-400">GPS fallback radius: {area.pickupRadiusKm} km</span> : null}
-              </button>;
-            })}
+            {taluks.length ? taluks.map((taluk) => {
+              const expanded = expandedTaluks.includes(taluk.key);
+              const active = selectedArea === taluk.key;
+              const villages: string[] = Array.isArray(taluk.areaNames) ? taluk.areaNames : [];
+              return <div key={taluk.key} className={"rounded-lg border " + (active ? "border-emerald-300 bg-emerald-50" : "border-slate-200")}>
+                <div className="flex items-stretch">
+                  <button onClick={() => setSelectedArea(taluk.key)} className="min-w-0 flex-1 p-3 text-left">
+                    <span className="block truncate text-sm font-semibold text-slate-900">{taluk.name}</span>
+                    <span className="mt-1 block text-xs text-slate-500">{taluk.areaCount ?? villages.length} villages / areas · {taluk.registeredFarmCount ?? 0} registered farms</span>
+                    <span className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs"><span className="font-semibold text-emerald-700">{taluk.readyFarmCount ?? 0} farms ready</span><span className="font-semibold text-emerald-700">{taluk.readyOrders ?? 0} ready orders</span></span>
+                  </button>
+                  <button type="button" aria-label={expanded ? "Collapse " + taluk.name + " villages" : "Expand " + taluk.name + " villages"} onClick={() => setExpandedTaluks((current) => expanded ? current.filter((key) => key !== taluk.key) : [...current, taluk.key])} className="border-l px-3 text-slate-500 hover:bg-white"><span className="text-lg">{expanded ? "−" : "+"}</span></button>
+                </div>
+                {expanded && <div className="border-t bg-white/80 px-3 py-2">
+                  {villages.length ? <div className="flex flex-wrap gap-1.5">{villages.map((village) => <span key={village} className="rounded-md bg-slate-100 px-2 py-1 text-[11px] text-slate-600">{village}</span>)}</div> : <p className="text-xs text-slate-500">Village / area details are not available in the farmer profiles yet.</p>}
+                  <p className="mt-2 text-[11px] text-slate-500">{taluk.totalOrders ?? 0} total pickup orders · {taluk.readyOrders ?? 0} ready to assign</p>
+                </div>}
+              </div>;
+            }) : areas.map((area) => <button key={area.key} onClick={() => setSelectedArea(area.key)} className={"w-full rounded-lg border p-3 text-left " + (selectedArea === area.key ? "border-emerald-300 bg-emerald-50" : "border-transparent hover:bg-slate-50")}>
+              <span className="flex items-center justify-between gap-2 text-sm font-semibold text-slate-800"><span className="truncate">{area.name}</span><span className="tabular-nums">{area.totalOrders}</span></span>
+              <span className="mt-1 block text-xs text-slate-500">{area.readyToAssign} ready orders · {area.areaType || "Local hub pickup zone"}</span>
+            </button>)}
+            <div className="border-t pt-3">
+              <p className="mb-2 text-xs font-semibold text-slate-500">LOCAL HUB COVERAGE</p>
+              {areas.map((area) => <button key={area.key} onClick={() => setSelectedArea(area.key)} className={"mb-1 w-full rounded-md px-2 py-2 text-left text-xs " + (selectedArea === area.key ? "bg-emerald-50 text-emerald-800" : "text-slate-600 hover:bg-slate-50")}>{area.name} · {area.readyToAssign} ready orders</button>)}
+            </div>
           </div>
         </Card>
 
@@ -286,7 +315,7 @@ export default function PickupRoutesPage() {
           <Card className="overflow-hidden border-slate-200 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b p-4">
               <div><h2 className="flex items-center gap-2 font-semibold text-slate-900"><MapPin className="h-4 w-4 text-emerald-700"/> Pickup location map</h2><p className="mt-1 text-xs text-slate-500">{filtered.filter(coordinatesOf).length} located orders · {filtered.filter((job) => !coordinatesOf(job)).length} without coordinates</p></div>
-              <Badge variant="outline">{selectedArea === "all" ? "All areas" : areas.find((a) => a.key === selectedArea)?.name || "Selected area"}</Badge>
+              <Badge variant="outline">{selectedGroupName}</Badge>
             </div>
             {farmMarkers.length ? <SharedMap center={mapCenter} zoom={11} markers={farmMarkers} drawRoute={false} height="340px" className="w-full" /> : <div className="flex h-[260px] flex-col items-center justify-center gap-2 bg-slate-50 text-center"><MapPin className="h-8 w-8 text-slate-400"/><p className="text-sm font-medium text-slate-700">No verified farm coordinates in this area</p><p className="text-xs text-slate-500">Orders remain available below. Add verified GPS coordinates to the farmer's farm profile to show a marker.</p></div>}
             <div className="flex flex-wrap gap-3 border-t bg-slate-50 px-4 py-3 text-xs text-slate-600"><span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5"/> Each marker represents a farm pickup order</span><span>Only farms in this warehouse district are included</span></div>
