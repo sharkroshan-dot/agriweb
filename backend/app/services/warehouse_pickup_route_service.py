@@ -311,31 +311,122 @@ async def build_smart_routes(
     return routes
 
 
+async def _sync_b2b_order_pickup_assignment(
+    collection_job: Dict[str, Any],
+    route: Dict[str, Any],
+    partner_id: str,
+    membership: Dict[str, Any],
+) -> None:
+    """Mirror a confirmed shared collection assignment onto its B2B order."""
+    collection_type = str(collection_job.get("collectionType") or "").strip().lower()
+    b2b_order_id = str(
+        collection_job.get("b2bOrderId")
+        or (collection_job.get("orderId") if collection_type == "b2b" else "")
+        or ""
+    )
+    if collection_type != "b2b" and not collection_job.get("b2bOrderId"):
+        return
+    if not ObjectId.is_valid(b2b_order_id):
+        return
+
+    now = datetime.utcnow()
+    b2b_orders = MongoDB.get_collection("b2b_orders")
+    # Never overwrite a different partner's active assignment. This also makes
+    # route acceptance safe when the same order is visible in both warehouse UIs.
+    await b2b_orders.update_one(
+        {
+            "_id": ObjectId(b2b_order_id),
+            "status": "ready_for_pickup",
+            "$or": [
+                {"pickupTeam": {"$exists": False}},
+                {"pickupTeam": None},
+                {"pickupTeam": ""},
+                {"pickupTeam": partner_id},
+            ],
+        },
+        {"$set": {
+            "pickupTeam": partner_id,
+            "pickupTeamName": membership.get("name") or membership.get("partnerName") or membership.get("displayName") or route.get("deliveryPartnerName") or "Assigned pickup partner",
+            "pickupVehicle": (
+                route.get("deliveryPartnerVehicleNumber")
+                or membership.get("vehicleNumber")
+                or membership.get("vehicleRegistrationNumber")
+                or membership.get("registrationNumber")
+                or ""
+            ),
+            "pickupAssignedAt": route.get("assignedAt") or now,
+            "pickupAssignedBy": str(route.get("assignedBy") or ""),
+            "pickupWarehouseId": str(route.get("warehouseId") or collection_job.get("warehouseId") or ""),
+            "sourceWarehouseId": str(route.get("warehouseId") or collection_job.get("warehouseId") or ""),
+            "assignedWarehouseId": str(route.get("warehouseId") or collection_job.get("warehouseId") or ""),
+            "pickupAssignmentSource": route.get("assignmentSource") or "pickup_routes",
+            "updatedAt": now,
+        }},
+    )
+
+
 async def assign_route(route: Dict[str, Any], membership: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     partner_id = str(membership["deliveryPartnerId"])
     route_id = str(route["_id"])
-    await warehouse_pickup_route_repository.update_route(route_id, {
+    now = datetime.utcnow()
+    route_update = {
         "deliveryPartnerId": ObjectId(partner_id),
+        "deliveryPartnerName": membership.get("name") or membership.get("partnerName") or membership.get("displayName") or route.get("deliveryPartnerName"),
+        "deliveryPartnerVehicleType": membership.get("vehicleType") or route.get("deliveryPartnerVehicleType"),
+        "deliveryPartnerVehicleNumber": (
+            membership.get("vehicleNumber")
+            or membership.get("vehicleRegistrationNumber")
+            or membership.get("registrationNumber")
+            or route.get("deliveryPartnerVehicleNumber")
+        ),
         "status": "assigned",
-        "assignedAt": datetime.utcnow(),
+        "assignedAt": route.get("assignedAt") or now,
         "assignedBy": route.get("assignedBy"),
-    })
-    for stop in route.get("stops") or []:
-        collection_ids = stop.get("collectionIds") or [stop.get("collectionId")]
+        "updatedAt": now,
+    }
+    await warehouse_pickup_route_repository.update_route(route_id, route_update)
+    assigned_route = {**route, **route_update, "_id": route.get("_id")}
+
+    for stop in assigned_route.get("stops") or []:
+        collection_ids = stop.get("collectionIds") or [
+            str(item.get("collectionId") or "") for item in (stop.get("orders") or [])
+        ] or [stop.get("collectionId")]
         for collection_id in collection_ids:
-            if not collection_id or not ObjectId.is_valid(str(collection_id)):
+            collection_id = str(collection_id or "")
+            if not ObjectId.is_valid(collection_id):
                 continue
-            await warehouse_collection_repository.update_job(str(collection_id), {
+            collection_job = await warehouse_collection_repository.get_by_id(collection_id)
+            if not collection_job:
+                continue
+            existing_team = str(collection_job.get("collectionTeamId") or "")
+            existing_route = str(collection_job.get("pickupRouteId") or "")
+            if existing_team and existing_team != partner_id:
+                raise ValueError("This farm pickup is already assigned to another pickup partner. Refresh both warehouse pages.")
+            if existing_route and existing_route != route_id:
+                raise ValueError("This farm pickup already belongs to another active pickup route.")
+            await warehouse_collection_repository.update_job(collection_id, {
                 "pickupRouteId": ObjectId(route_id),
+                "pickupRouteStatus": "assigned",
                 "collectionTeamId": ObjectId(partner_id),
+                "collectionTeamName": route_update["deliveryPartnerName"],
+                "collectionVehicleNumber": route_update["deliveryPartnerVehicleNumber"],
                 "status": "team_assigned",
-                "teamAssignedAt": datetime.utcnow(),
+                "teamAssignedAt": now,
+                "pickupAssignmentSource": route.get("assignmentSource") or "pickup_routes",
             })
+            await _sync_b2b_order_pickup_assignment(
+                collection_job,
+                assigned_route,
+                partner_id,
+                membership,
+            )
     try:
-        await NotificationService.send_custom_notification(
-            str(membership["deliveryPartnerUserId"]),
-            f"Pickup route {route.get('routeNumber', route_id)} assigned: {len(route.get('stops') or [])} farm stops.",
-        )
+        user_id = str(membership.get("deliveryPartnerUserId") or membership.get("userId") or "")
+        if user_id:
+            await NotificationService.send_custom_notification(
+                user_id,
+                f"Pickup route {route.get('routeNumber', route_id)} assigned: {len(route.get('stops') or [])} farm stops.",
+            )
     except Exception:
         pass
     return await warehouse_pickup_route_repository.get_by_id(route_id)
