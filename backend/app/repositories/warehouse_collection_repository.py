@@ -92,6 +92,35 @@ class WarehouseCollectionRepository(BaseRepository):
         except Exception:
             return False
 
+    async def release_route_assignment(self, collection_id: str, route_id: str, partner_id: str) -> bool:
+        """Roll back only a route/team assignment created by the specified route."""
+        try:
+            result = await self.collection.update_one(
+                {
+                    "_id": ObjectId(collection_id),
+                    "pickupRouteId": ObjectId(route_id),
+                    "collectionTeamId": ObjectId(partner_id),
+                    "status": COLLECTION_ASSIGNED,
+                },
+                {
+                    "$set": {
+                        "status": COLLECTION_READY,
+                        "pickupRouteStatus": "offered",
+                        "updatedAt": datetime.utcnow(),
+                    },
+                    "$unset": {
+                        "collectionTeamId": "",
+                        "collectionTeamName": "",
+                        "collectionVehicleNumber": "",
+                        "teamAssignedAt": "",
+                        "pickupAssignmentSource": "",
+                    },
+                },
+            )
+            return result.modified_count > 0
+        except Exception:
+            return False
+
     async def assign_job_to_route(
         self,
         collection_id: str,
