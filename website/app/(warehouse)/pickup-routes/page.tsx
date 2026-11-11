@@ -13,7 +13,7 @@ import { api } from "../../lib/api/client";
 import toast from "react-hot-toast";
 
 type Job = Record<string, any>;
-const READY = new Set(["ready_for_pickup", "team_assigned"]);
+const READY = new Set(["ready_for_pickup"]);
 const STATUS_LABEL: Record<string, string> = {
   scheduled: "Waiting for farmer", ready_for_pickup: "Ready for pickup",
   team_assigned: "Partner assigned", en_route: "En route", arrived_at_farm: "At farm",
@@ -87,6 +87,13 @@ export default function PickupRoutesPage() {
     refetchInterval: 15000,
   });
 
+  const areasQ = useQuery({
+    queryKey: ["warehousePickupAreaDirectory"],
+    queryFn: () => api.get("/warehouse/me/pickup-areas"),
+    refetchInterval: 60000,
+    staleTime: 30000,
+  });
+
   // Accept both direct API payloads and { data: ... } response envelopes.
   // Guard arrays so malformed/alternate responses cannot crash page rendering.
   const rawJobs = jobsQ.data?.data?.collections ?? jobsQ.data?.collections ?? jobsQ.data?.orders ?? jobsQ.data?.data?.orders;
@@ -117,14 +124,33 @@ export default function PickupRoutesPage() {
   const selectedTeam = eligibleTeams.find((team) => String(team.id) === teamId);
 
   const areas = useMemo(() => {
-    const groups = new Map<string, { key: string; name: string; jobs: Job[] }>();
+    const groups = new Map<string, { key: string; name: string; jobs: Job[]; totalOrders: number; readyToAssign: number }>();
+    const directoryRows = areasQ.data?.data?.areas ?? areasQ.data?.areas ?? areasQ.data?.data?.data?.areas ?? [];
+    if (Array.isArray(directoryRows)) {
+      directoryRows.forEach((area: Job) => {
+        const name = String(area.name || "").trim();
+        if (!name) return;
+        const key = areaKey(name);
+        groups.set(key, {
+          key, name, jobs: [],
+          totalOrders: Number(area.totalOrders || 0),
+          readyToAssign: Number(area.readyToAssign || 0),
+        });
+      });
+    }
     jobs.forEach((job) => {
       const name = areaOf(job); const key = areaKey(name);
-      if (!groups.has(key)) groups.set(key, { key, name, jobs: [] });
-      groups.get(key)!.jobs.push(job);
+      if (!groups.has(key)) groups.set(key, { key, name, jobs: [], totalOrders: 0, readyToAssign: 0 });
+      const group = groups.get(key)!;
+      group.jobs.push(job);
+      // Use API directory counts when present; otherwise count the warehouse-scoped jobs.
+      if (!directoryRows?.length) {
+        group.totalOrders += 1;
+        if (READY.has(String(job.status || "")) && !job.pickupRouteId) group.readyToAssign += 1;
+      }
     });
     return Array.from(groups.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [jobs]);
+  }, [jobs, areasQ.data]);
 
   const filtered = useMemo(() => jobs.filter((job) => {
     const areaMatch = selectedArea === "all" || areaKey(areaOf(job)) === selectedArea;
@@ -181,7 +207,7 @@ export default function PickupRoutesPage() {
       });
       toast.success(result?.message || result?.data?.message || "Selected area pickups assigned successfully.");
       setSelectedIds([]);
-      await Promise.all([jobsQ.refetch(), teamsQ.refetch()]);
+      await Promise.all([jobsQ.refetch(), teamsQ.refetch(), areasQ.refetch()]);
     } catch (error: any) {
       toast.error(error?.message || "Unable to assign selected pickups.");
     } finally { setAssigning(false); }
@@ -203,7 +229,7 @@ export default function PickupRoutesPage() {
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Plan farm pickups only within this warehouse’s configured district coverage. Orders are grouped into villages, towns and local areas inside that district.</p>
             <p className="mt-2 text-xs font-medium text-emerald-700">{configuredDistricts.length ? `District coverage: ${configuredDistricts.join(", ")}` : "District coverage is not configured. Set the warehouse district in Settings before planning pickups."}</p>
           </div>
-          <Button variant="outline" onClick={() => { jobsQ.refetch(); teamsQ.refetch(); }} disabled={jobsQ.isFetching} className="gap-2 self-start"><RefreshCw className={`h-4 w-4 ${jobsQ.isFetching ? "animate-spin" : ""}`} /> Refresh</Button>
+          <Button variant="outline" onClick={() => { jobsQ.refetch(); teamsQ.refetch(); areasQ.refetch(); }} disabled={jobsQ.isFetching} className="gap-2 self-start"><RefreshCw className={`h-4 w-4 ${jobsQ.isFetching ? "animate-spin" : ""}`} /> Refresh</Button>
         </div>
       </section>
 
@@ -211,7 +237,7 @@ export default function PickupRoutesPage() {
       <section className="grid gap-3 grid-cols-2 xl:grid-cols-5">
         {[
           { label: "Farm pickup orders", value: areaSummary.total, icon: Package },
-          { label: "Pickup areas", value: selectedArea === "all" ? areas.length : 1, icon: MapIcon },
+          { label: "Pickup areas", value: areas.length, icon: MapIcon },
           { label: "Ready to assign", value: areaSummary.ready, icon: Clock3 },
           { label: "Already assigned", value: areaSummary.assigned.length, icon: Truck },
           { label: "Pickup completed", value: areaSummary.completed, icon: CheckCircle2 },
@@ -227,9 +253,9 @@ export default function PickupRoutesPage() {
               <span className="mt-1 block text-xs text-slate-500">{areaSummary.ready} ready for assignment</span>
             </button>
             {areas.map((area) => {
-              const ready = area.jobs.filter((job) => READY.has(String(job.status || "")) && !job.pickupRouteId).length;
+              const ready = area.readyToAssign;
               return <button key={area.key} onClick={() => setSelectedArea(area.key)} className={`w-full rounded-lg border p-3 text-left ${selectedArea === area.key ? "border-emerald-300 bg-emerald-50" : "border-transparent hover:bg-slate-50"}`}>
-                <span className="flex items-center justify-between gap-2 text-sm font-semibold text-slate-800"><span className="truncate">{area.name}</span><span className="tabular-nums">{area.jobs.length}</span></span>
+                <span className="flex items-center justify-between gap-2 text-sm font-semibold text-slate-800"><span className="truncate">{area.name}</span><span className="tabular-nums">{area.totalOrders}</span></span>
                 <span className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500"><span>{ready} ready for pickup</span></span>
               </button>;
             })}
