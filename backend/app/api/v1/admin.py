@@ -1,7 +1,8 @@
 from fastapi import APIRouter, HTTPException, Depends, Query
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime, timedelta
 from bson import ObjectId
+from pydantic import BaseModel, Field
 import logging
 
 from app.database.mongodb import MongoDB
@@ -11,6 +12,108 @@ from app.utils.helpers import escape_regex
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+class PickupAreaMasterRequest(BaseModel):
+    district: str = Field(..., min_length=2, max_length=120)
+    name: str = Field(..., min_length=2, max_length=120)
+    taluk: Optional[str] = Field(None, max_length=120)
+    aliases: List[str] = Field(default_factory=list)
+    isActive: bool = True
+
+
+@router.get("/pickup-area-master")
+async def list_pickup_area_master(
+    district: Optional[str] = Query(None),
+    current_user: dict = Depends(require_role("admin")),
+):
+    collection = MongoDB.get_collection("district_pickup_areas")
+    query = {"deletedAt": None}
+    if district:
+        query["districtKey"] = "".join(ch for ch in district.casefold() if ch.isalnum())
+    rows = await collection.find(query).sort([("district", 1), ("name", 1)]).to_list(length=5000)
+    for row in rows:
+        row["id"] = str(row.pop("_id"))
+    return {"success": True, "data": {"areas": rows}}
+
+
+@router.post("/pickup-area-master")
+async def create_pickup_area_master(
+    payload: PickupAreaMasterRequest,
+    current_user: dict = Depends(require_role("admin")),
+):
+    collection = MongoDB.get_collection("district_pickup_areas")
+    district = " ".join(payload.district.split())
+    name = " ".join(payload.name.split())
+    district_key = "".join(ch for ch in district.casefold() if ch.isalnum())
+    name_key = " ".join(name.casefold().split())
+    existing = await collection.find_one({
+        "districtKey": district_key, "nameKey": name_key, "deletedAt": None,
+    })
+    if existing:
+        raise HTTPException(status_code=409, detail="This pickup area already exists in the district")
+    now = datetime.utcnow()
+    doc = {
+        "district": district, "districtKey": district_key,
+        "name": name, "nameKey": name_key,
+        "taluk": " ".join(payload.taluk.split()) if payload.taluk else None,
+        "aliases": sorted({" ".join(x.split()) for x in payload.aliases if x and x.strip()}),
+        "isActive": payload.isActive, "createdAt": now, "updatedAt": now,
+        "createdBy": str(current_user.get("_id") or ""),
+        "deletedAt": None,
+    }
+    result = await collection.insert_one(doc)
+    return {"success": True, "data": {"id": str(result.inserted_id)}, "message": "Pickup area created"}
+
+
+@router.put("/pickup-area-master/{area_id}")
+async def update_pickup_area_master(
+    area_id: str,
+    payload: PickupAreaMasterRequest,
+    current_user: dict = Depends(require_role("admin")),
+):
+    if not ObjectId.is_valid(area_id):
+        raise HTTPException(status_code=400, detail="Invalid pickup area ID")
+    collection = MongoDB.get_collection("district_pickup_areas")
+    district = " ".join(payload.district.split())
+    name = " ".join(payload.name.split())
+    district_key = "".join(ch for ch in district.casefold() if ch.isalnum())
+    name_key = " ".join(name.casefold().split())
+    duplicate = await collection.find_one({
+        "_id": {"$ne": ObjectId(area_id)}, "districtKey": district_key,
+        "nameKey": name_key, "deletedAt": None,
+    })
+    if duplicate:
+        raise HTTPException(status_code=409, detail="This pickup area already exists in the district")
+    result = await collection.update_one(
+        {"_id": ObjectId(area_id), "deletedAt": None},
+        {"$set": {
+            "district": district, "districtKey": district_key,
+            "name": name, "nameKey": name_key,
+            "taluk": " ".join(payload.taluk.split()) if payload.taluk else None,
+            "aliases": sorted({" ".join(x.split()) for x in payload.aliases if x and x.strip()}),
+            "isActive": payload.isActive, "updatedAt": datetime.utcnow(),
+        }},
+    )
+    if not result.matched_count:
+        raise HTTPException(status_code=404, detail="Pickup area not found")
+    return {"success": True, "message": "Pickup area updated"}
+
+
+@router.delete("/pickup-area-master/{area_id}")
+async def delete_pickup_area_master(
+    area_id: str,
+    current_user: dict = Depends(require_role("admin")),
+):
+    if not ObjectId.is_valid(area_id):
+        raise HTTPException(status_code=400, detail="Invalid pickup area ID")
+    result = await MongoDB.get_collection("district_pickup_areas").update_one(
+        {"_id": ObjectId(area_id), "deletedAt": None},
+        {"$set": {"isActive": False, "deletedAt": datetime.utcnow(), "updatedAt": datetime.utcnow()}},
+    )
+    if not result.matched_count:
+        raise HTTPException(status_code=404, detail="Pickup area not found")
+    return {"success": True, "message": "Pickup area deleted"}
+
 
 @router.get("/workflow")
 async def platform_workflow(current_user: dict = Depends(require_role("admin"))):
