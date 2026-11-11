@@ -3,8 +3,8 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  MapPin, Route, Users, Truck, RefreshCw, Search, Package,
-  CheckCircle2, Clock3, AlertTriangle, Map as MapIcon, Layers3, Building2,
+  MapPin, Truck, RefreshCw, Search, Package,
+  CheckCircle2, Clock3, AlertTriangle, Map as MapIcon,
 } from "lucide-react";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
@@ -38,10 +38,6 @@ function districtOf(job: Job) {
 function normalizeDistrict(value: unknown) {
   return String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 }
-function typeOf(job: Job): "B2B" | "Normal" {
-  const value = [job.orderType, job.orderCategory, job.customerType, job.businessId, job.businessName, job.buyerType, job.collectionType].filter(Boolean).join(" ").toLowerCase();
-  return value.includes("b2b") || value.includes("business") || Boolean(job.businessId || job.businessName) ? "B2B" : "Normal";
-}
 function coordinatesOf(job: Job): [number, number] | null {
   const location = job.pickupLocation || job.farmLocation || {};
   const raw = location.coordinates || location.coords;
@@ -51,11 +47,10 @@ function coordinatesOf(job: Job): [number, number] | null {
   else { lat = Number(location.lat ?? location.latitude ?? job.latitude); lng = Number(location.lng ?? location.longitude ?? job.longitude); }
   return Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 ? [lat, lng] : null;
 }
-function areaKey(value: string) { return value.toLowerCase().replace(/\\s+/g, " ").trim(); }
+function areaKey(value: string) { return value.toLowerCase().replace(/\s+/g, " ").trim(); }
 
 export default function PickupRoutesPage() {
   const [selectedArea, setSelectedArea] = useState("all");
-  const [orderType, setOrderType] = useState<"all" | "B2B" | "Normal">("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -107,12 +102,11 @@ export default function PickupRoutesPage() {
 
   const filtered = useMemo(() => jobs.filter((job) => {
     const areaMatch = selectedArea === "all" || areaKey(areaOf(job)) === selectedArea;
-    const typeMatch = orderType === "all" || typeOf(job) === orderType;
     const statusMatch = statusFilter === "all" || String(job.status || "") === statusFilter;
     const term = search.trim().toLowerCase();
     const text = [job.farmerName, job.orderNumber, job.orderId, job.productName, job.pickupAddress, areaOf(job)].join(" ").toLowerCase();
-    return areaMatch && typeMatch && statusMatch && (!term || text.includes(term));
-  }), [jobs, selectedArea, orderType, statusFilter, search]);
+    return areaMatch && statusMatch && (!term || text.includes(term));
+  }), [jobs, selectedArea, statusFilter, search]);
 
   const selectedJobs = jobs.filter((job) => selectedIds.includes(idOf(job)));
   const selectedWeight = selectedJobs.reduce((sum, job) => sum + Number(job.quantity || 0), 0);
@@ -121,8 +115,6 @@ export default function PickupRoutesPage() {
     const source = selectedArea === "all" ? jobs : jobs.filter((job) => areaKey(areaOf(job)) === selectedArea);
     return {
       total: source.length,
-      b2b: source.filter((job) => typeOf(job) === "B2B").length,
-      normal: source.filter((job) => typeOf(job) === "Normal").length,
       ready: source.filter((job) => READY.has(String(job.status || "")) && !job.pickupRouteId).length,
       assigned: source.filter((job) => Boolean(job.pickupRouteId || job.collectionTeamId)).length,
     };
@@ -181,7 +173,7 @@ export default function PickupRoutesPage() {
           <div>
             <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-emerald-700"><MapIcon className="h-4 w-4" /> Geographical pickup planning</div>
             <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Area-wise Pickup Routes</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Plan normal and B2B farm pickups only within this warehouse’s configured district coverage. Orders are grouped into local areas, towns and villages inside that district.</p>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Plan farm pickups only within this warehouse’s configured district coverage. Orders are grouped into villages, towns and local areas inside that district.</p>
             <p className="mt-2 text-xs font-medium text-emerald-700">{configuredDistricts.length ? `District coverage: ${configuredDistricts.join(", ")}` : "District coverage is not configured. Set the warehouse district in Settings before planning pickups."}</p>
           </div>
           <Button variant="outline" onClick={() => { jobsQ.refetch(); teamsQ.refetch(); }} disabled={jobsQ.isFetching} className="gap-2 self-start"><RefreshCw className={`h-4 w-4 ${jobsQ.isFetching ? "animate-spin" : ""}`} /> Refresh</Button>
@@ -191,11 +183,11 @@ export default function PickupRoutesPage() {
       {!jobsQ.isLoading && !jobsQ.isError && allowedDistrictKeys.size === 0 && <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">Farm Collection district coverage is missing. Pickup Routes is intentionally not showing orders from other districts. Configure this warehouse’s district in Warehouse Settings, then refresh.</div>}
       <section className="grid gap-3 grid-cols-2 xl:grid-cols-5">
         {[
-          { label: "Orders in view", value: areaSummary.total, icon: Package },
-          { label: "Normal orders", value: areaSummary.normal, icon: Package },
-          { label: "B2B orders", value: areaSummary.b2b, icon: Building2 },
+          { label: "Farm pickup orders", value: areaSummary.total, icon: Package },
+          { label: "Pickup areas", value: selectedArea === "all" ? areas.length : 1, icon: MapIcon },
           { label: "Ready to assign", value: areaSummary.ready, icon: Clock3 },
-          { label: "Already assigned", value: areaSummary.assigned, icon: CheckCircle2 },
+          { label: "Already assigned", value: areaSummary.assigned, icon: Truck },
+          { label: "Collected / in progress", value: jobs.filter((job) => ["en_route", "arrived_at_farm", "collected", "departed_farm", "arrived_warehouse"].includes(String(job.status || ""))).length, icon: CheckCircle2 },
         ].map((item) => <Card key={item.label} className="border-slate-200 shadow-sm"><CardContent className="flex items-center gap-3 p-4"><span className="rounded-lg bg-emerald-50 p-2 text-emerald-700"><item.icon className="h-5 w-5"/></span><div><p className="text-xs text-slate-500">{item.label}</p><p className="text-2xl font-bold tabular-nums text-slate-900">{jobsQ.isError ? "—" : item.value}</p></div></CardContent></Card>)}
       </section>
 
@@ -209,10 +201,9 @@ export default function PickupRoutesPage() {
             </button>
             {areas.map((area) => {
               const ready = area.jobs.filter((job) => READY.has(String(job.status || "")) && !job.pickupRouteId).length;
-              const b2b = area.jobs.filter((job) => typeOf(job) === "B2B").length;
               return <button key={area.key} onClick={() => setSelectedArea(area.key)} className={`w-full rounded-lg border p-3 text-left ${selectedArea === area.key ? "border-emerald-300 bg-emerald-50" : "border-transparent hover:bg-slate-50"}`}>
                 <span className="flex items-center justify-between gap-2 text-sm font-semibold text-slate-800"><span className="truncate">{area.name}</span><span className="tabular-nums">{area.jobs.length}</span></span>
-                <span className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500"><span>{ready} ready</span><span>·</span><span>{b2b} B2B</span></span>
+                <span className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500"><span>{ready} ready for pickup</span></span>
               </button>;
             })}
           </div>
@@ -225,7 +216,7 @@ export default function PickupRoutesPage() {
               <Badge variant="outline">{selectedArea === "all" ? "All areas" : areas.find((a) => a.key === selectedArea)?.name || "Selected area"}</Badge>
             </div>
             {mapBounds ? <iframe title="Pickup area map" className="h-[340px] w-full border-0" loading="lazy" src={`https://www.openstreetmap.org/export/embed.html?bbox=${mapBounds}&layer=mapnik`} /> : <div className="flex h-[260px] flex-col items-center justify-center gap-2 bg-slate-50 text-center"><MapPin className="h-8 w-8 text-slate-400"/><p className="text-sm font-medium text-slate-700">No verified coordinates in this selection</p><p className="text-xs text-slate-500">Orders remain available in the area list; add farm coordinates to display them on the map.</p></div>}
-            <div className="flex flex-wrap gap-3 border-t bg-slate-50 px-4 py-3 text-xs text-slate-600"><span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-emerald-600"/> Normal order</span><span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-blue-600"/> B2B order</span><span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5"/> Open exact pickup location from an order</span></div>
+            <div className="flex flex-wrap gap-3 border-t bg-slate-50 px-4 py-3 text-xs text-slate-600"><span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5"/> Open a farm pickup location from its order</span><span>Only farms in this warehouse district are included</span></div>
           </Card>
 
           <Card className="border-slate-200 shadow-sm">
@@ -233,8 +224,7 @@ export default function PickupRoutesPage() {
               <div><h2 className="font-semibold text-slate-900">Orders by selected area</h2><p className="mt-1 text-xs text-slate-500">Only Ready for Pickup orders that are not already route-assigned can be selected.</p></div>
               <Button variant="outline" size="sm" onClick={selectVisible} disabled={!eligibleFiltered.length}>{eligibleFiltered.length && eligibleFiltered.every((job) => selectedIds.includes(idOf(job))) ? "Clear eligible selection" : "Select eligible orders"} ({eligibleFiltered.length})</Button>
             </div>
-            <div className="grid gap-3 border-b bg-slate-50/70 p-3 md:grid-cols-3">
-              <select value={orderType} onChange={(e) => setOrderType(e.target.value as any)} className="h-10 rounded-lg border bg-white px-3 text-sm"><option value="all">All order types</option><option value="Normal">Normal orders</option><option value="B2B">B2B orders</option></select>
+            <div className="grid gap-3 border-b bg-slate-50/70 p-3 md:grid-cols-2">
               <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-10 rounded-lg border bg-white px-3 text-sm"><option value="all">All pickup statuses</option>{Object.entries(STATUS_LABEL).map(([key, value]) => <option key={key} value={key}>{value}</option>)}</select>
               <div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"/><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search farmer, order, product…" className="h-10 w-full rounded-lg border bg-white pl-9 pr-3 text-sm outline-none focus:border-emerald-500"/></div>
             </div>
@@ -244,7 +234,7 @@ export default function PickupRoutesPage() {
                 return <div key={id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start">
                   <input type="checkbox" aria-label={`Select order ${job.orderNumber || id}`} checked={selectedIds.includes(id)} disabled={!canAssign} onChange={() => toggleOrder(id)} className="mt-1 h-4 w-4 accent-emerald-700 disabled:opacity-40"/>
                   <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-slate-900">{job.orderNumber || job.eventOrderNumber || "Pickup order"}</span><Badge className={typeOf(job) === "B2B" ? "border-blue-200 bg-blue-50 text-blue-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}>{typeOf(job)}</Badge><Badge variant="outline">{STATUS_LABEL[String(job.status)] || String(job.status || "Unknown").replace(/_/g, " ")}</Badge></div>
+                    <div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-slate-900">{job.orderNumber || job.eventOrderNumber || "Pickup order"}</span><Badge className="border-emerald-200 bg-emerald-50 text-emerald-800">Farm pickup</Badge><Badge variant="outline">{STATUS_LABEL[String(job.status)] || String(job.status || "Unknown").replace(/_/g, " ")}</Badge></div>
                     <p className="mt-1 text-sm text-slate-700">{job.farmerName || "Farmer details unavailable"} · {job.productName || "Product details unavailable"}</p>
                     <p className="mt-1 flex items-start gap-1.5 text-xs text-slate-500"><MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0"/>{job.pickupAddress || "Farm address not provided"} · {areaOf(job)}</p>
                     <p className="mt-1 text-xs text-slate-500">{Number(job.quantity || 0)} kg {job.collectionTeamName && `· ${job.collectionTeamName}`}</p>
@@ -260,7 +250,7 @@ export default function PickupRoutesPage() {
 
       <Card className="border-emerald-200 shadow-sm">
         <CardContent className="flex flex-col gap-4 p-4 sm:p-5">
-          <div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="font-semibold text-slate-900">Assign pickup partner by area</h2><p className="mt-1 text-xs text-slate-500">Assignments are saved through the existing pickup-route workflow and appear in Farm Collection automatically.</p></div><Badge variant="outline">{selectedIds.length} selected</Badge></div>
+          <div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="font-semibold text-slate-900">Assign pickup partner by area</h2><p className="mt-1 text-xs text-slate-500">Assign farm pickup orders to an approved pickup partner. The same assignment is reflected in Farm Collection.</p></div><Badge variant="outline">{selectedIds.length} selected</Badge></div>
           <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-end">
             <label className="space-y-1.5 text-sm font-medium text-slate-700">Approved pickup partner and vehicle
               <select value={teamId} onChange={(e) => setTeamId(e.target.value)} className="h-11 w-full rounded-lg border bg-white px-3 font-normal"><option value="">Select partner / vehicle</option>{eligibleTeams.map((team) => <option key={team.id} value={team.id}>{team.name || "Pickup partner"} · {team.vehicleType || "Vehicle"} · {team.capacity || team.vehicleCapacity} kg</option>)}</select>
