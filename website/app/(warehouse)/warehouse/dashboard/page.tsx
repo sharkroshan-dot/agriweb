@@ -12,6 +12,13 @@ import {
   CheckCircle,
   Clock,
   RefreshCw,
+  Truck,
+  ClipboardCheck,
+  Boxes,
+  PackageCheck,
+  ArrowRight,
+  Route,
+  ShieldAlert,
 } from "lucide-react";
 import {
   Card,
@@ -43,9 +50,10 @@ const COLORS = ["#22c55e", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6"];
 
 export default function WarehouseDashboardPage() {
   const [period, setPeriod] = useState<"week" | "month" | "year">("week");
-  const { data: dashboardData, isLoading, refetch } = useQuery({
+  const { data: dashboardData, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ["warehouseDashboard", period],
     queryFn: () => api.get(`/warehouse/me/dashboard?period=${period}`),
+    refetchInterval: 60000,
   });
 
   const dashboard = dashboardData?.data ?? dashboardData ?? {};
@@ -62,6 +70,17 @@ export default function WarehouseDashboardPage() {
   const coldStorageUsed = Number(warehouse.coldStorageUsed ?? 0);
   const coldStorageCapacity = Number(warehouse.coldStorageCapacity ?? 0);
 
+
+  const operations = [
+    { title: "Farm collections", description: "Assign teams and collect produce from farms", href: "/warehouse/collections", icon: Truck },
+    { title: "Incoming stock", description: "Receive and verify arriving stock", href: "/warehouse/incoming", icon: ArrowDown },
+    { title: "Quality inspections", description: "Review produce and inspection evidence", href: "/warehouse/quality-inspection", icon: ClipboardCheck },
+    { title: "Packing & fulfillment", description: "Prepare and verify customer orders", href: "/warehouse/packing", icon: Boxes },
+    { title: "Outgoing dispatch", description: "Manage ready and dispatched shipments", href: "/warehouse/outgoing", icon: PackageCheck },
+    { title: "Warehouse transfers", description: "Track inter-warehouse movement", href: "/warehouse/transfers", icon: Route },
+    { title: "B2B fulfillment", description: "Process business orders and deliveries", href: "/warehouse/b2b-fulfillment", icon: Warehouse },
+    { title: "Farmer fulfillment", description: "Handle farmer-packed fulfillment orders", href: "/warehouse/farmer-fulfillment", icon: Package },
+  ];
 
   if (isLoading) {
     return (
@@ -86,10 +105,62 @@ export default function WarehouseDashboardPage() {
                 <button key={p} onClick={() => setPeriod(p)} className={cn("selection-item rounded-md px-3 py-1.5 text-sm font-medium", period === p ? "selection-item-active" : "selection-item-inactive")}>{p.charAt(0).toUpperCase() + p.slice(1)}</button>
               ))}
             </div>
-            <Button variant="outline" size="icon" onClick={() => refetch()} aria-label="Refresh dashboard"><RefreshCw className="h-4 w-4" /></Button>
+            <Button variant="outline" size="icon" onClick={() => refetch()} disabled={isFetching} aria-label="Refresh dashboard"><RefreshCw className="h-4 w-4" /></Button>
           </div>
         }
       />
+
+      {isError && (
+        <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
+          <span>Dashboard data could not be loaded. Values may be unavailable until the connection is restored.</span>
+          <Button variant="outline" size="sm" onClick={() => refetch()}>Retry</Button>
+        </div>
+      )}
+
+      <section aria-labelledby="warehouse-operations-title" className="space-y-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 id="warehouse-operations-title" className="text-xl font-semibold tracking-tight">Today's operations</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Open the existing workflow to review its live queue and take action.</p>
+          </div>
+          <span className="text-xs text-muted-foreground">Dashboard refreshes every 60 seconds</span>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {operations.map((operation) => (
+            <Link key={operation.href} href={operation.href} className="group flex min-w-0 items-start gap-3 rounded-xl border bg-card p-4 transition-colors hover:border-emerald-300 hover:bg-emerald-50/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-600">
+              <div className="shrink-0 rounded-lg bg-emerald-50 p-2.5 text-emerald-700"><operation.icon className="h-5 w-5" /></div>
+              <div className="min-w-0 flex-1">
+                <p className="flex items-center gap-1.5 text-sm font-semibold">{operation.title}<ArrowRight className="h-3.5 w-3.5 opacity-0 transition-opacity group-hover:opacity-100" /></p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">{operation.description}</p>
+              </div>
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      <section aria-labelledby="warehouse-attention-title" className="space-y-3">
+        <div>
+          <h2 id="warehouse-attention-title" className="text-xl font-semibold tracking-tight">Attention required</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Warnings supported by current inventory and capacity data.</p>
+        </div>
+        <div className="grid gap-3 md:grid-cols-3">
+          <Link href="/warehouse/stock" className="flex items-center gap-3 rounded-xl border bg-card p-4 hover:border-amber-300">
+            <ShieldAlert className={lowStockItems.length ? "h-5 w-5 text-amber-600" : "h-5 w-5 text-emerald-600"} />
+            <div><p className="text-sm font-semibold">Low-stock items</p><p className="text-xs text-muted-foreground">{isError ? "Unavailable" : `${lowStockItems.length} shown in dashboard`}</p></div>
+            <ArrowRight className="ml-auto h-4 w-4 text-muted-foreground" />
+          </Link>
+          <Link href="/warehouse/settings" className="flex items-center gap-3 rounded-xl border bg-card p-4 hover:border-amber-300">
+            <Warehouse className={totalCapacity > 0 && capacityUtilization >= 90 ? "h-5 w-5 text-amber-600" : "h-5 w-5 text-emerald-600"} />
+            <div><p className="text-sm font-semibold">Warehouse capacity</p><p className="text-xs text-muted-foreground">{isError ? "Unavailable" : totalCapacity <= 0 ? "Capacity not configured" : `${capacityUtilization.toFixed(1)}% used`}</p></div>
+            <ArrowRight className="ml-auto h-4 w-4 text-muted-foreground" />
+          </Link>
+          <Link href="/warehouse/cold-storage" className="flex items-center gap-3 rounded-xl border bg-card p-4 hover:border-amber-300">
+            <AlertTriangle className={coldStorageCapacity > 0 && coldStorageUtilization >= 90 ? "h-5 w-5 text-amber-600" : "h-5 w-5 text-emerald-600"} />
+            <div><p className="text-sm font-semibold">Cold storage</p><p className="text-xs text-muted-foreground">{isError ? "Unavailable" : coldStorageCapacity <= 0 ? "Capacity not configured" : `${coldStorageUtilization.toFixed(1)}% used`}</p></div>
+            <ArrowRight className="ml-auto h-4 w-4 text-muted-foreground" />
+          </Link>
+        </div>
+      </section>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {[
