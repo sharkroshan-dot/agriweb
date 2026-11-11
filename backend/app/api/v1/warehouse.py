@@ -1746,26 +1746,77 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
     # before farmers or orders exist there; administrators can extend the master
     # with more villages/localities at any time.
     area_groups: Dict[str, Dict[str, Any]] = {}
+    # Complete Tamil Nadu revenue-taluks directory. Keep this administrative
+    # directory available for every warehouse district, including areas with
+    # zero registered farms/orders. Names are based on the TNPSC district/taluk
+    # list; the admin district_pickup_areas collection can add local aliases.
     default_district_areas = {
-        "tiruchirappalli": [
-            ("Manachanallur", "Manachanallur"),
-            ("Lalgudi", "Lalgudi"),
-            ("Srirangam", "Srirangam"),
-            ("Thuraiyur", "Thuraiyur"),
-            ("Musiri", "Musiri"),
-        ],
+        "ariyalur": ("Ariyalur", ["Ariyalur", "Andimadam", "Sendurai", "Udaiyarpalayam"]),
+        "chengalpattu": ("Chengalpattu", ["Chengalpattu", "Cheyyur", "Maduranthakam", "Pallavaram", "Tambaram", "Thirukalukundram", "Tiruporur", "Vandalur"]),
+        "chennai": ("Chennai", ["Alandur", "Ambattur", "Aminjikarai", "Ayanavaram", "Egmore", "Guindy", "Madhavaram", "Madhuravoyal", "Mambalam", "Mylapore", "Perambur", "Purasavakkam", "Sholinganallur", "Thiruvottriyur", "Tondiarpet", "Velacherry"]),
+        "coimbatore": ("Coimbatore", ["Aanaimalai", "Annur", "Coimbatore (North)", "Coimbatore (South)", "Kinathukadavu", "Madukarai", "Mettupalayam", "Perur", "Pollachi", "Sulur", "Valparai"]),
+        "cuddalore": ("Cuddalore", ["Cuddalore", "Bhuvanagiri", "Chidambaram", "Kattumannarkoil", "Kurinjipadi", "Panruti", "Srimushnam", "Thittakudi", "Veppur", "Virudhachalam"]),
+        "dharmapuri": ("Dharmapuri", ["Dharmapuri", "Harur", "Karimangalam", "Nallampalli", "Palacode", "Pappireddipatti", "Pennagaram"]),
+        "dindigul": ("Dindigul", ["Atthur", "Dindigul (East)", "Dindigul (West)", "Guziliyamparai", "Kodaikanal", "Natham", "Nilakottai", "Oddanchatram", "Palani", "Vedasandur"]),
+        "erode": ("Erode", ["Erode", "Anthiyur", "Bhavani", "Gobichettipalayam", "Kodumudi", "Modakurichi", "Nambiyur", "Perundurai", "Sathiyamangalam", "Thalavadi"]),
+        "kallakurichi": ("Kallakurichi", ["Kallakurichi", "Chinnaselam", "Kalvarayan Hills", "Sankarapuram", "Tirukoilur", "Ulundurpet"]),
+        "kancheepuram": ("Kancheepuram", ["Kancheepuram", "Kundrathur", "Sriperumbudur", "Uthiramerur", "Walajabad"]),
+        "kanniyakumari": ("Kanniyakumari", ["Agasteeswaram", "Kalkulam", "Killiyur", "Thiruvatar", "Thovalai", "Vilavankodu"]),
+        "karur": ("Karur", ["Karur", "Aravakurichi", "Kadavur", "Krishnarayapuram", "Kulithalai", "Manmangalam", "Pugalur"]),
+        "krishnagiri": ("Krishnagiri", ["Krishnagiri", "Anjetty", "Bargur", "Hosur", "Pochampalli", "Sulagiri", "Thenkanikottai", "Uthangarai"]),
+        "madurai": ("Madurai", ["Kallikudi", "Madurai (East)", "Madurai (North)", "Madurai (South)", "Madurai (West)", "Melur", "Peraiyur", "Thirumangalam", "Thiruparankundram", "Usilampatti", "Vadipatti"]),
+        "mayiladuthurai": ("Mayiladuthurai", ["Mayiladuthurai", "Kuthalam", "Sirkali", "Tharangambadi"]),
+        "nagapattinam": ("Nagapattinam", ["Nagapattinam", "Kilvelur", "Thirukkuvalai", "Vedaranyam"]),
+        "namakkal": ("Namakkal", ["Namakkal", "Kholli Hills", "Kumarapalayam", "Mohanoor", "Paramathi Velur", "Rasipuram", "Senthamangalam", "Tiruchengode"]),
+        "nilgiris": ("The Nilgiris", ["Udagamandalam", "Coonoor", "Gudalur", "Kothagiri", "Kundah", "Pandalur"]),
+        "perambalur": ("Perambalur", ["Perambalur", "Alathur", "Kunnam", "Veppanthattai"]),
+        "pudukkottai": ("Pudukkottai", ["Pudukkottai", "Alangudi", "Aranthangi", "Avudiyarkoil", "Gandarvakottai", "Iluppur", "Karambakudi", "Kulathur", "Manamelkudi", "Ponnamaravathi", "Thirumayam", "Viralimalai"]),
+        "ramanathapuram": ("Ramanathapuram", ["Ramanathapuram", "Kadaladi", "Kamuthi", "Kezhakarai", "Mudukulathur", "Paramakudi", "Rajasingamangalam", "Rameswaram", "Tiruvadanai"]),
+        "ranipet": ("Ranipet", ["Arakkonam", "Arcot", "Kalavai", "Nemili", "Sholingur", "Walajah"]),
+        "salem": ("Salem", ["Salem", "Attur", "Edapadi", "Gangavalli", "Kadaiyampatti", "Mettur", "Omalur", "Pethanayakanpalayam", "Salem South", "Salem West", "Sankari", "Vazhapadi", "Yercaud"]),
+        "sivaganga": ("Sivaganga", ["Sivagangai", "Devakottai", "Ilayankudi", "Kalaiyarkovil", "Karaikudi", "Manamadurai", "Singampunari", "Thirupuvanam", "Tirupathur"]),
+        "tenkasi": ("Tenkasi", ["Tenkasi", "Alangulam", "Kadayanallur", "Sankarankovil", "Shenkottai", "Sivagiri", "Thiruvengadam", "Veerakeralampudur"]),
+        "thanjavur": ("Thanjavur", ["Thanjavur", "Boothalur", "Kumbakonam", "Orathanadu", "Papanasam", "Pattukottai", "Peravurani", "Thiruvaiyaru", "Thiruvidaimaruthur"]),
+        "theni": ("Theni", ["Theni", "Aandipatti", "Bodinayakanur", "Periyakulam", "Uthamapalayam"]),
+        "thoothukudi": ("Thoothukudi", ["Thoothukudi", "Eral", "Ettayapuram", "Kayathar", "Kovilpatti", "Ottapidaram", "Sattankulam", "Srivaikundam", "Tiruchendur", "Vilathikulam"]),
+        "tiruchirappalli": ("Tiruchirappalli", ["Lalgudi", "Manachanallur", "Manapparai", "Marungapuri", "Musiri", "Srirangam", "Thottiam", "Thuraiyur", "Tiruchirapalli (West)", "Tiruchirappalli (East)", "Tiruverumbur"]),
+        "tirunelveli": ("Tirunelveli", ["Tirunelveli", "Ambasamudram", "Cheranmahadevi", "Manur", "Nanguneri", "Palayamkottai", "Radhapuram", "Thisayanvilai"]),
+        "tiruppur": ("Tiruppur", ["Avinashi", "Dharapuram", "Kangeyam", "Madathukkulam", "Oothukuli", "Palladam", "Tiruppur (North)", "Tiruppur (South)", "Udumalaipettai"]),
+        "tirupathur": ("Tirupathur", ["Tirupathur", "Ambur", "Natrampalli", "Vaniyambadi"]),
+        "tiruvallur": ("Tiruvallur", ["Thiruvallur", "Avadi", "Gummidipoondi", "Pallipattu", "Ponneri", "Poonamallee", "R.K. Pet", "Tiruthani", "Uthukottai"]),
+        "tiruvannamalai": ("Tiruvannamalai", ["Thiruvannamalai", "Arni", "Chengam", "Chetpet", "Cheyyar", "Jamunamarathur", "Kalasapakkam", "Kilpennathur", "Polur", "Thandramet", "Vandavasi", "Vembakkam"]),
+        "tiruvarur": ("Tiruvarur", ["Thiruvarur", "Kodavasal", "Koothanallur", "Mannargudi", "Nannilam", "Needamangalam", "Thiruthuraipoondi", "Valangaiman"]),
+        "vellore": ("Vellore", ["Vellore", "Aanikattu", "Gudiyatham", "K V Kuppam", "Katpadi", "Pernambut"]),
+        "viluppuram": ("Villupuram", ["Villupuram", "Gingee", "Kandachipuram", "Marakanam", "Melmalaiyanur", "Thiruvennainallur", "Tindivanam", "Vanur", "Vikravandi"]),
+        "virudhunagar": ("Virudhunagar", ["Virudhunagar", "Aruppukottai", "Kariyapatti", "Rajapalayam", "Sathur", "Sivakasi", "Srivilliputhur", "Tiruchuli", "Vembakottai", "Watrap"]),
+    }
+    district_aliases = {
+        "the nilgiris": "nilgiris", "udagamandalam": "nilgiris",
+        "kanyakumari": "kanniyakumari", "trichy": "tiruchirappalli",
+        "tiruchirapalli": "tiruchirappalli", "pudukottai": "pudukkottai",
+        "thirunelveli": "tirunelveli", "thiruvallur": "tiruvallur",
+        "thiruvannamalai": "tiruvannamalai", "thiruvarur": "tiruvarur",
+        "sivagangai": "sivaganga", "the nilgiris (udagamandalam)": "nilgiris",
     }
     for district_key in coverage:
-        for canonical_district, default_areas in default_district_areas.items():
-            if canonical_district in normalize_collection_district(district_key):
-                for name, taluk in default_areas:
-                    key = "area:" + normalized_area(name)
-                    area_groups[key] = {
-                        "key": key, "name": name, "taluk": taluk,
-                        "district": "Tiruchirappalli", "aliases": [],
-                        "registeredFarmIds": set(), "readyFarmIds": set(),
-                        "collectionIds": [], "totalOrders": 0, "readyOrders": 0,
-                    }
+        normalized_district = normalize_collection_district(district_key)
+        canonical_key = district_aliases.get(normalized_district, normalized_district)
+        if canonical_key not in default_district_areas:
+            # Resolve aliases by normalized substring only when it is unambiguous.
+            matches = [key for key in default_district_areas if key in normalized_district or normalized_district in key]
+            canonical_key = matches[0] if len(matches) == 1 else canonical_key
+        directory = default_district_areas.get(canonical_key)
+        if not directory:
+            continue
+        canonical_district, default_areas = directory
+        for name in default_areas:
+            key = "area:" + normalized_area(name)
+            area_groups[key] = {
+                "key": key, "name": name, "taluk": name,
+                "district": canonical_district, "aliases": [],
+                "registeredFarmIds": set(), "readyFarmIds": set(),
+                "collectionIds": [], "totalOrders": 0, "readyOrders": 0,
+            }
     for master in area_master:
         name = str(master.get("name") or "").strip()
         if not name: continue
