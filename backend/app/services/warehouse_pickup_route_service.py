@@ -360,6 +360,8 @@ async def _sync_b2b_order_pickup_assignment(
             "sourceWarehouseId": str(route.get("warehouseId") or collection_job.get("warehouseId") or ""),
             "assignedWarehouseId": str(route.get("warehouseId") or collection_job.get("warehouseId") or ""),
             "pickupAssignmentSource": route.get("assignmentSource") or "pickup_routes",
+            "warehouseCollectionStatus": "team_assigned",
+            "warehouseFulfillmentStage": "pickup_assigned",
             "updatedAt": now,
         }},
     )
