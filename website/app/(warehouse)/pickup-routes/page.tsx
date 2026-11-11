@@ -37,7 +37,8 @@ function areaOf(job: Job) {
     job.farmTown, job.town, location.town, farmer.farmTown, farmer.town,
   ];
   const directArea = candidates.find((value) => typeof value === "string" && value.trim() &&
-    !["unknown", "n/a", "na", "not available"].includes(value.trim().toLowerCase()));
+    !["unknown", "n/a", "na", "not available"].includes(value.trim().toLowerCase()) &&
+    !isRoadOrAddressLabel(value));
   if (directArea) return String(directArea).trim();
 
   // Prefer a known locality appearing anywhere in the address over a GPS
@@ -53,7 +54,7 @@ function areaOf(job: Job) {
       const normalized = normalizeDistrict(part);
       return normalized && normalized !== district && !/^(road|street|main road|india|tamil nadu)$/i.test(part);
     });
-    const candidate = usable.length ? usable[usable.length - 1] : "";
+    const candidate = usable.filter((part) => !isRoadOrAddressLabel(part)).at(-1) || "";
     if (candidate) return candidate.replace(/\\s*[-–].*$/, "").trim();
   }
   return "Area not identified";
@@ -194,12 +195,12 @@ export default function PickupRoutesPage() {
         farmer.locality, farmer.farmTaluk, farmer.taluk, farmer.subDistrict, farmer.farmTown, farmer.town,
         farmerLocation.village, farmerLocation.locality, farmerLocation.taluk, farmerLocation.subDistrict,
         farmerLocation.town, farmerLocation.area,
-      ].filter((value): value is string => typeof value === "string" && Boolean(value.trim()));
+      ].filter((value): value is string => typeof value === "string" && Boolean(value.trim()) && !isRoadOrAddressLabel(value));
       const address = [
         job.pickupAddress, job.farmAddress, location.address, location.formattedAddress,
         farmer.pickupAddress, farmer.farmAddress, farmerLocation.address, job.address,
       ].filter((value) => typeof value === "string").join(", ");
-      const addressParts = address.split(/[,;|]/).map((part) => areaKey(part)).filter(Boolean);
+      const addressParts = address.split(/[,;|]/).map((part) => part.trim()).filter((part) => part && !isRoadOrAddressLabel(part)).map(areaKey);
       const aliasMatches = Array.from(areaAliases.entries())
         .filter(([alias]) => alias.length >= 3 && addressParts.some((part) => part === alias || part.includes(alias) || alias.includes(part)))
         .sort((a, b) => b[0].length - a[0].length);
