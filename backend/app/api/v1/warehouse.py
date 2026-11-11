@@ -1189,7 +1189,11 @@ async def get_my_collections(
                     "collectionTeamId": ObjectId(pickup_team_id),
                     "collectionTeamName": b2b_order.get("pickupTeamName") or "Assigned pickup partner",
                     "collectionVehicleNumber": b2b_order.get("pickupVehicle"),
-                    "status": "team_assigned" if b2b_order.get("status") == "ready_for_pickup" else collection_job.get("status"),
+                    "status": (
+                        collection_job.get("status")
+                        if str(collection_job.get("status") or "") in ("en_route", "arrived_at_farm", "collected", "departed_farm", "arrived_warehouse")
+                        else "team_assigned"
+                    ) if b2b_order.get("status") == "ready_for_pickup" else collection_job.get("status"),
                     "pickupAssignmentSource": b2b_order.get("pickupAssignmentSource") or "b2b_fulfillment",
                 })
             if pickup_route and pickup_route.get("_id"):
