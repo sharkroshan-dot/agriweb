@@ -168,8 +168,11 @@ export default function PickupRoutesPage() {
       }
       const group = groups.get(key)!;
       group.jobs.push(job);
-      group.totalOrders = Math.max(group.totalOrders || 0, group.jobs.length);
-      if (READY.has(String(job.status || "")) && !job.pickupRouteId) group.readyToAssign += 1;
+    });
+    groups.forEach((group) => {
+      group.totalOrders = Math.max(Number(group.totalOrders || 0), group.jobs.length);
+      const readyFromJobs = group.jobs.filter((job) => READY.has(String(job.status || "")) && !job.pickupRouteId).length;
+      group.readyToAssign = Math.max(Number(group.readyToAssign || 0), readyFromJobs);
     });
     return Array.from(groups.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [jobs, areasQ.data]);
