@@ -49,7 +49,7 @@ export default function LocalHubManagementPage() {
     retry: 1,
   });
   const createHub = useMutation({
-    mutationFn: async () => unwrap(await api.post("/warehouse/me/local-hubs", { ...form, capacity: Number(form.capacity), serviceAreas: form.serviceAreas.split(/[,;]+|\\r?\\n/).map((value) => value.trim()).filter(Boolean), pickupRadiusKm: Number(form.pickupRadiusKm) })),
+    mutationFn: async () => unwrap(await api.post("/warehouse/me/local-hubs", { ...form, capacity: Number(form.capacity), serviceAreas: form.serviceAreas.split(/[,;]+|\r?\n/).map((value) => value.trim()).filter(Boolean), pickupRadiusKm: Number(form.pickupRadiusKm) })),
     onSuccess: (result) => {
       setCreatedCredentials(result);
       setForm({ name: "", district: "", state: "Tamil Nadu", address: "", capacity: "5000", managerName: "", username: "", email: "", serviceAreas: "", pickupRadiusKm: "15" });
@@ -188,7 +188,7 @@ export default function LocalHubManagementPage() {
           {(() => { const id = String(item.id || item._id); const draft = coverageDrafts[id] || { serviceAreas: (item.serviceAreas || []).join(", "), pickupRadiusKm: String(item.pickupRadiusKm || 15) }; return <div className="grid gap-3 rounded-lg bg-muted/30 p-3 md:grid-cols-[minmax(0,1fr)_150px_auto] md:items-end">
             <div className="space-y-1"><label className="text-xs font-medium">Pickup service areas</label><Input value={draft.serviceAreas} onChange={(e) => setCoverageDrafts((current) => ({ ...current, [id]: { ...draft, serviceAreas: e.target.value } }))} placeholder="Village/locality names, comma-separated" /></div>
             <div className="space-y-1"><label className="text-xs font-medium">Fallback radius (km)</label><Input type="number" min="1" max="100" value={draft.pickupRadiusKm} onChange={(e) => setCoverageDrafts((current) => ({ ...current, [id]: { ...draft, pickupRadiusKm: e.target.value } }))} /></div>
-            <Button size="sm" disabled={updateCoverage.isPending || !Number(draft.pickupRadiusKm) || Number(draft.pickupRadiusKm) < 1 || Number(draft.pickupRadiusKm) > 100} onClick={() => updateCoverage.mutate({ id, value: { serviceAreas: draft.serviceAreas.split(/[,;\\n]+/).map((value) => value.trim()).filter(Boolean), pickupRadiusKm: Number(draft.pickupRadiusKm) } })}>Save pickup coverage</Button>
+            <Button size="sm" disabled={updateCoverage.isPending || !Number(draft.pickupRadiusKm) || Number(draft.pickupRadiusKm) < 1 || Number(draft.pickupRadiusKm) > 100} onClick={() => updateCoverage.mutate({ id, value: { serviceAreas: draft.serviceAreas.split(/[,;]+|\r?\n/).map((value) => value.trim()).filter(Boolean), pickupRadiusKm: Number(draft.pickupRadiusKm) } })}>Save pickup coverage</Button>
             <p className="text-xs text-muted-foreground md:col-span-3">Explicit locality assignments are preferred. Verified farm GPS coordinates use the radius only when no explicit hub area matches.</p>
           </div>; })()}
         </div>)}</div>}
