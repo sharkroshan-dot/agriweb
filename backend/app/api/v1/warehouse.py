@@ -1707,7 +1707,31 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
     taluks.sort(key=lambda item: item["name"].casefold())
 
     # Build locality cards from the master first, retaining localities with zero orders.
+    # Tiruchirappalli's initial pickup-area directory includes the five taluk-level
+    # areas requested for the warehouse pickup workflow. Keep these visible even
+    # before farmers or orders exist there; administrators can extend the master
+    # with more villages/localities at any time.
     area_groups: Dict[str, Dict[str, Any]] = {}
+    default_district_areas = {
+        "tiruchirappalli": [
+            ("Manachanallur", "Manachanallur"),
+            ("Lalgudi", "Lalgudi"),
+            ("Srirangam", "Srirangam"),
+            ("Thuraiyur", "Thuraiyur"),
+            ("Musiri", "Musiri"),
+        ],
+    }
+    for district_key in coverage:
+        for canonical_district, default_areas in default_district_areas.items():
+            if canonical_district in normalize_collection_district(district_key):
+                for name, taluk in default_areas:
+                    key = "area:" + normalized_area(name)
+                    area_groups[key] = {
+                        "key": key, "name": name, "taluk": taluk,
+                        "district": "Tiruchirappalli", "aliases": [],
+                        "registeredFarmIds": set(), "readyFarmIds": set(),
+                        "collectionIds": [], "totalOrders": 0, "readyOrders": 0,
+                    }
     for master in area_master:
         name = str(master.get("name") or "").strip()
         if not name: continue
