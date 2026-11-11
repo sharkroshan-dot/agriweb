@@ -158,8 +158,14 @@ export default function PickupRoutesPage() {
         return String(job.districtMatchStatus || "") !== "district_mismatch";
       })
     : [];
+  // Keep assigned and in-progress jobs visible so B2B assignments made from
+  // either page are reflected here; only ready, unassigned jobs are selectable.
+  const PICKUP_VISIBLE = new Set([
+    "ready_for_pickup", "team_assigned", "en_route", "arrived_at_farm",
+    "collected", "departed_farm", "arrived_warehouse", "received", "completed",
+  ]);
   const jobs = districtJobs.filter((job) =>
-    READY.has(String(job.status || "").toLowerCase()) && !job.pickupRouteId && !job.collectionTeamId
+    PICKUP_VISIBLE.has(String(job.status || "").toLowerCase())
   );
   const eligibleTeams = teams.filter((team) => Number(team.capacity || team.vehicleCapacity || 0) > 0);
   const selectedTeam = eligibleTeams.find((team) => String(team.id) === teamId);
@@ -237,7 +243,7 @@ export default function PickupRoutesPage() {
     });
     groups.forEach((group) => {
       group.totalOrders = Math.max(Number(group.totalOrders || 0), group.jobs.length);
-      const readyFromJobs = group.jobs.filter((job) => READY.has(String(job.status || "")) && !job.pickupRouteId).length;
+      const readyFromJobs = group.jobs.filter((job) => READY.has(String(job.status || "")) && !job.pickupRouteId && !job.collectionTeamId).length;
       group.readyToAssign = Math.max(Number(group.readyToAssign || 0), readyFromJobs);
     });
     return Array.from(groups.values()).sort((a, b) => a.name.localeCompare(b.name));
@@ -292,7 +298,7 @@ export default function PickupRoutesPage() {
     const source = selectedArea === "all" ? jobs : filtered;
     return {
       total: source.length,
-      ready: source.filter((job) => READY.has(String(job.status || "")) && !job.pickupRouteId).length,
+      ready: source.filter((job) => READY.has(String(job.status || "")) && !job.pickupRouteId && !job.collectionTeamId).length,
       assigned: source.filter((job) => Boolean(job.pickupRouteId || job.collectionTeamId)),
       completed: source.filter((job) => ["arrived_warehouse", "received", "completed"].includes(String(job.status || ""))).length,
     };
@@ -321,7 +327,7 @@ export default function PickupRoutesPage() {
     if (selectedWeight > Number(selectedTeam.capacity || selectedTeam.vehicleCapacity || 0)) {
       toast.error(`Selected orders total ${selectedWeight.toFixed(1)} kg, above this vehicle's capacity.`); return;
     }
-    const invalid = selectedJobs.filter((job) => !READY.has(String(job.status || "")) || job.pickupRouteId);
+    const invalid = selectedJobs.filter((job) => !READY.has(String(job.status || "")) || job.pickupRouteId || job.collectionTeamId);
     if (invalid.length) { toast.error("Some selected orders are no longer eligible. Refresh and select again."); return; }
     setAssigning(true);
     try {
@@ -347,7 +353,7 @@ export default function PickupRoutesPage() {
 
   const searchedAreas = areas.filter((area) => area.name.toLowerCase().includes(areaSearch.trim().toLowerCase()));
   const registeredFarmTotal = areas.reduce((sum, area) => sum + Number((area as any).registeredFarmCount || 0), 0);
-  const readyFarmTotal = new Set(jobs.map((job) => String(job.farmerId || job.farmerUserId || job.farmId || idOf(job)))).size;
+  const readyFarmTotal = new Set(jobs.filter((job) => READY.has(String(job.status || "")) && !job.pickupRouteId && !job.collectionTeamId).map((job) => String(job.farmerId || job.farmerUserId || job.farmId || idOf(job)))).size;
 
   return (
     <main className="warehouse-pickup-routes-page w-full space-y-5 pb-8">
@@ -468,7 +474,7 @@ export default function PickupRoutesPage() {
             </div>
             {jobsQ.isLoading ? <div className="p-10 text-center text-sm text-slate-500">Loading pickup orders…</div> : jobsQ.isError ? <div className="p-8 text-center"><AlertTriangle className="mx-auto h-8 w-8 text-rose-500"/><p className="mt-2 text-sm font-medium">Unable to load pickup orders</p><Button className="mt-3" variant="outline" onClick={() => jobsQ.refetch()}>Try again</Button></div> : filtered.length === 0 ? <div className="p-10 text-center text-sm text-slate-500">No orders match the selected filters.</div> : <div className="max-h-[480px] divide-y overflow-y-auto">
               {filtered.map((job) => {
-                const id = idOf(job); const canAssign = READY.has(String(job.status || "")) && !job.pickupRouteId; const coords = coordinatesOf(job);
+                const id = idOf(job); const canAssign = READY.has(String(job.status || "")) && !job.pickupRouteId && !job.collectionTeamId; const coords = coordinatesOf(job);
                 return <div key={id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start">
                   <input type="checkbox" aria-label={`Select order ${job.orderNumber || id}`} checked={selectedIds.includes(id)} disabled={!canAssign} onChange={() => toggleOrder(id)} className="mt-1 h-4 w-4 accent-emerald-700 disabled:opacity-40"/>
                   <div className="min-w-0 flex-1">
