@@ -63,20 +63,24 @@ export default function PickupTeamPage() {
         meta={<span>{counts.approved} approved partners</span>}
         actions={<Button variant="outline" size="sm" onClick={() => q.refetch()} disabled={q.isFetching} className="gap-2"><RefreshCw className={`h-4 w-4 ${q.isFetching ? "animate-spin" : ""}`} /> Refresh</Button>}
       />
-      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-        <div className="grid grid-cols-2 divide-x divide-slate-100 sm:grid-cols-4">
-          {[
-            { label: "All applications", value: counts.all, icon: ClipboardCheck, tone: "text-slate-600 bg-slate-100" },
-            { label: "Awaiting review", value: counts.pending, icon: Clock3, tone: "text-amber-700 bg-amber-50" },
-            { label: "Approved", value: counts.approved, icon: CheckCircle2, tone: "text-emerald-700 bg-emerald-50" },
-            { label: "Rejected", value: counts.rejected, icon: XCircle, tone: "text-rose-700 bg-rose-50" },
-          ].map((item) => (
-            <div key={item.label} className="flex items-center gap-3 px-4 py-4 sm:px-6">
-              <span className={`rounded-lg p-2 ${item.tone}`}><item.icon className="h-4 w-4" /></span>
-              <span><strong className="block text-xl font-semibold tabular-nums text-slate-900">{q.isError ? "—" : item.value}</strong><span className="text-xs text-slate-500">{item.label}</span></span>
-            </div>
-          ))}
-        </div>
+      <section aria-label="Application summary" className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {[
+          { label: "All applications", value: counts.all, icon: ClipboardCheck, tone: "text-slate-600 bg-slate-100", accent: "border-l-slate-400" },
+          { label: "Awaiting review", value: counts.pending, icon: Clock3, tone: "text-amber-700 bg-amber-50", accent: "border-l-amber-400" },
+          { label: "Approved", value: counts.approved, icon: CheckCircle2, tone: "text-emerald-700 bg-emerald-50", accent: "border-l-emerald-500" },
+          { label: "Rejected", value: counts.rejected, icon: XCircle, tone: "text-rose-700 bg-rose-50", accent: "border-l-rose-400" },
+        ].map((item) => (
+          <Card key={item.label} className={`border border-slate-200 border-l-4 ${item.accent} bg-white shadow-sm transition-shadow hover:shadow-md`}>
+            <CardContent className="flex items-center justify-between gap-3 p-5">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-slate-500">{item.label}</p>
+                <p className="mt-2 text-3xl font-bold tracking-tight tabular-nums text-slate-900">{q.isError ? "—" : item.value}</p>
+                <p className="mt-1 text-xs text-slate-400">Pickup partner applications</p>
+              </div>
+              <span className={`shrink-0 rounded-xl p-3 ${item.tone}`}><item.icon className="h-5 w-5" /></span>
+            </CardContent>
+          </Card>
+        ))}
       </section>
 
       <section className="space-y-4">
