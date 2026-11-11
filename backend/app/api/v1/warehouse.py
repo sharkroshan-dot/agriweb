@@ -1463,6 +1463,54 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
 
     profiles_collection = MongoDB.get_collection("farmer_profiles")
     profiles = await profiles_collection.find({"deletedAt": None}).to_list(length=10000)
+    pickup_jobs = await warehouse_collection_repository.get_by_warehouse(str(warehouse["_id"]), None, limit=5000)
+    hubs = await MongoDB.get_collection("warehouses").find({
+        "parentWarehouseId": warehouse["_id"], "facilityType": "local_hub",
+        "status": "active", "deletedAt": None,
+    }).to_list(length=500)
+
+    def normalized_area(value: Any) -> str:
+        return " ".join(str(value or "").casefold().split())
+
+    def profile_coordinates(profile: dict) -> Optional[tuple]:
+        candidates = [profile.get("farmLocation"), profile.get("farmAddress"), profile.get("location"), profile.get("address")]
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            raw = candidate.get("coordinates")
+            if isinstance(raw, (list, tuple)) and len(raw) >= 2:
+                try:
+                    lon, lat = float(raw[0]), float(raw[1])
+                    if -180 <= lon <= 180 and -90 <= lat <= 90:
+                        return lat, lon
+                except (TypeError, ValueError):
+                    pass
+            for lat_key, lon_key in (("latitude", "longitude"), ("lat", "lng"), ("lat", "lon")):
+                try:
+                    lat, lon = float(candidate.get(lat_key)), float(candidate.get(lon_key))
+                    if -90 <= lat <= 90 and -180 <= lon <= 180:
+                        return lat, lon
+                except (TypeError, ValueError):
+                    pass
+        return None
+
+    def hub_coordinates(hub: dict) -> Optional[tuple]:
+        location = hub.get("location") or {}
+        raw = location.get("coordinates") if isinstance(location, dict) else None
+        if isinstance(raw, (list, tuple)) and len(raw) >= 2:
+            try:
+                lon, lat = float(raw[0]), float(raw[1])
+                if -180 <= lon <= 180 and -90 <= lat <= 90:
+                    return lat, lon
+            except (TypeError, ValueError):
+                return None
+        return None
+
+    def distance_km_local(a: tuple, b: tuple) -> float:
+        lat1, lon1, lat2, lon2 = map(math.radians, (a[0], a[1], b[0], b[1]))
+        dlat, dlon = lat2 - lat1, lon2 - lon1
+        value = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
+        return 6371.0 * 2 * math.asin(min(1.0, math.sqrt(value)))
     profile_by_id: Dict[str, dict] = {}
     profile_area_by_id: Dict[str, str] = {}
     profile_coords_by_id: Dict[str, tuple] = {}
