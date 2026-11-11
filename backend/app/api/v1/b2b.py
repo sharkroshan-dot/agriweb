@@ -5186,6 +5186,18 @@ async def update_b2b_warehouse_fulfillment(
             winner = (latest or {}).get("pickupTeamName") or (latest or {}).get("pickupTeam")
             raise HTTPException(status_code=409, detail=f"This B2B pickup was assigned in another page{f' to {winner}' if winner else ''}. Refresh to view the current assignment.")
 
+        async def release_b2b_pickup_claim() -> None:
+            # Release only this request's still-ready claim; never undo a pickup
+            # that has already started or been claimed by another partner.
+            await order_repo.collection.update_one(
+                {"_id": order["_id"], "status": ORDER_READY_FOR_PICKUP, "pickupTeam": pickup_partner_id},
+                {"$unset": {
+                    "pickupTeam": "", "pickupTeamName": "", "pickupVehicle": "",
+                    "pickupAssignedAt": "", "pickupAssignedBy": "",
+                    "pickupAssignmentSource": "",
+                }, "$set": {"updatedAt": datetime.utcnow()}},
+            )
+
         update.update({
             "sourceWarehouseId": pickup_warehouse_id,
             "assignedWarehouseId": pickup_warehouse_id,
@@ -5230,7 +5242,8 @@ async def update_b2b_warehouse_fulfillment(
             })
             collection_job = await warehouse_collection_repository.get_by_id(str(collection_id)) if collection_id else None
         if not collection_job:
-            raise HTTPException(status_code=500, detail="Pickup assignment was saved, but the shared farm collection job could not be created. Refresh and contact warehouse support.")
+            await release_b2b_pickup_claim()
+            raise HTTPException(status_code=500, detail="The shared farm collection job could not be created. The pickup assignment was released; refresh and try again.")
 
         # If Pickup Routes already planned this order in a multi-farm offer,
         # assigning it here assigns that complete route to this selected team.
@@ -5249,6 +5262,7 @@ async def update_b2b_warehouse_fulfillment(
             ]
         })
         if active_route and active_route.get("deliveryPartnerId") and str(active_route.get("deliveryPartnerId")) != pickup_partner_id:
+            await release_b2b_pickup_claim()
             raise HTTPException(status_code=409, detail="This B2B order is already included in a route assigned to another pickup partner.")
         if not active_route:
             route_payload = {
@@ -5300,7 +5314,8 @@ async def update_b2b_warehouse_fulfillment(
             route_id = await warehouse_pickup_route_repository.create_route(route_payload)
             active_route = await warehouse_pickup_route_repository.get_by_id(str(route_id)) if route_id else None
         if not active_route:
-            raise HTTPException(status_code=500, detail="Pickup assignment was saved, but its shared route could not be created.")
+            await release_b2b_pickup_claim()
+            raise HTTPException(status_code=500, detail="The shared pickup route could not be created. The pickup assignment was released; refresh and try again.")
         active_route["assignmentSource"] = assignment_source
         active_route["assignedBy"] = ObjectId(str(current_user["_id"])) if ObjectId.is_valid(str(current_user.get("_id") or "")) else None
         membership_for_route = {
@@ -5310,9 +5325,11 @@ async def update_b2b_warehouse_fulfillment(
         try:
             assigned_route = await assign_route(active_route, membership_for_route)
         except ValueError as exc:
+            await release_b2b_pickup_claim()
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         if not assigned_route:
-            raise HTTPException(status_code=500, detail="Pickup assignment could not be synchronized to the shared route.")
+            await release_b2b_pickup_claim()
+            raise HTTPException(status_code=500, detail="Pickup assignment could not be synchronized to the shared route. The order claim was released; refresh and retry.")
 
     elif action == "confirm_pickup":
         if role not in ("pickup_team", "pickup", "admin", "super_admin"):
