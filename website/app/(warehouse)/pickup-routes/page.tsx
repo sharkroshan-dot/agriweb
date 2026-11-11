@@ -18,6 +18,7 @@ const STATUS_LABEL: Record<string, string> = {
   scheduled: "Waiting for farmer", ready_for_pickup: "Ready for pickup",
   team_assigned: "Partner assigned", en_route: "En route", arrived_at_farm: "At farm",
   collected: "Collected", departed_farm: "Departed farm", arrived_warehouse: "At warehouse",
+  completed: "Pickup completed", received: "Received at warehouse", cancelled: "Cancelled",
 };
 
 function idOf(job: Job) { return String(job.id || job._id || ""); }
@@ -84,8 +85,16 @@ export default function PickupRoutesPage() {
       ? jobsQ.data.configuredFarmCollectionDistricts
       : [];
   const allowedDistrictKeys = new Set(configuredDistricts.map(normalizeDistrict).filter(Boolean));
+  // The API already scopes this collection list to the signed-in warehouse.
+  // Keep its assigned/in-progress/completed pickup jobs visible even when an
+  // older farmer profile has no district field serialized on the collection.
+  // Explicit district mismatches remain excluded from this warehouse's plan.
   const jobs = allowedDistrictKeys.size
-    ? allJobs.filter((job) => allowedDistrictKeys.has(normalizeDistrict(districtOf(job))))
+    ? allJobs.filter((job) => {
+        const districtKey = normalizeDistrict(districtOf(job));
+        if (districtKey) return allowedDistrictKeys.has(districtKey);
+        return String(job.districtMatchStatus || "") !== "district_mismatch";
+      })
     : [];
   const eligibleTeams = teams.filter((team) => Number(team.capacity || team.vehicleCapacity || 0) > 0);
   const selectedTeam = eligibleTeams.find((team) => String(team.id) === teamId);
@@ -116,7 +125,8 @@ export default function PickupRoutesPage() {
     return {
       total: source.length,
       ready: source.filter((job) => READY.has(String(job.status || "")) && !job.pickupRouteId).length,
-      assigned: source.filter((job) => Boolean(job.pickupRouteId || job.collectionTeamId)).length,
+      assigned: source.filter((job) => Boolean(job.pickupRouteId || job.collectionTeamId)),
+      completed: source.filter((job) => ["arrived_warehouse", "received", "completed"].includes(String(job.status || ""))).length,
     };
   }, [jobs, selectedArea]);
 
@@ -186,8 +196,8 @@ export default function PickupRoutesPage() {
           { label: "Farm pickup orders", value: areaSummary.total, icon: Package },
           { label: "Pickup areas", value: selectedArea === "all" ? areas.length : 1, icon: MapIcon },
           { label: "Ready to assign", value: areaSummary.ready, icon: Clock3 },
-          { label: "Already assigned", value: areaSummary.assigned, icon: Truck },
-          { label: "Collected / in progress", value: jobs.filter((job) => ["en_route", "arrived_at_farm", "collected", "departed_farm", "arrived_warehouse"].includes(String(job.status || ""))).length, icon: CheckCircle2 },
+          { label: "Already assigned", value: areaSummary.assigned.length, icon: Truck },
+          { label: "Pickup completed", value: areaSummary.completed, icon: CheckCircle2 },
         ].map((item) => <Card key={item.label} className="border-slate-200 shadow-sm"><CardContent className="flex items-center gap-3 p-4"><span className="rounded-lg bg-emerald-50 p-2 text-emerald-700"><item.icon className="h-5 w-5"/></span><div><p className="text-xs text-slate-500">{item.label}</p><p className="text-2xl font-bold tabular-nums text-slate-900">{jobsQ.isError ? "—" : item.value}</p></div></CardContent></Card>)}
       </section>
 
