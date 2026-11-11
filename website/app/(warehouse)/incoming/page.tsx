@@ -730,6 +730,31 @@ export default function WarehouseIncomingPage() {
         }
       />
 
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        {[
+          { label: "Total Incoming", value: incomingList.length, tone: "emerald", icon: Package },
+          { label: "Awaiting Receipt", value: incomingList.filter((item: any) => ["scheduled", "in_transit", "ready_for_pickup"].includes(String(item.status || "").toLowerCase())).length, tone: "amber", icon: Clock },
+          { label: "In Quality Check", value: incomingList.filter((item: any) => ["received", "quality_check"].includes(String(item.status || "").toLowerCase())).length, tone: "blue", icon: ShieldCheck },
+          { label: "Accepted / Stored", value: incomingList.filter((item: any) => ["stored"].includes(String(item.status || "").toLowerCase()) || String(item.qualityCheck || item.quality_check || "").toLowerCase() === "passed").length, tone: "violet", icon: CheckCircle },
+          { label: "Shortage / Hold", value: incomingList.filter((item: any) => ["rejected"].includes(String(item.status || "").toLowerCase()) || String(item.qualityCheck || item.quality_check || "").toLowerCase() === "failed").length, tone: "red", icon: XCircle },
+        ].map((metric) => {
+          const MetricIcon = metric.icon;
+          const tones: Record<string, string> = { emerald: "bg-emerald-50 text-emerald-700", amber: "bg-amber-50 text-amber-700", blue: "bg-blue-50 text-blue-700", violet: "bg-violet-50 text-violet-700", red: "bg-red-50 text-red-700" };
+          return <Card key={metric.label} className="rounded-xl border-slate-200 shadow-sm"><CardContent className="flex items-center gap-3 p-4"><span className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-full", tones[metric.tone])}><MetricIcon className="h-5 w-5"/></span><div className="min-w-0"><p className="text-xs font-medium text-slate-500">{metric.label}</p><p className="text-2xl font-bold tracking-tight text-slate-900">{metric.value}</p></div></CardContent></Card>;
+        })}
+      </div>
+
+      <div className="rounded-xl border border-emerald-100 bg-gradient-to-r from-emerald-50/90 to-white px-5 py-4 shadow-sm">
+        <div className="grid gap-4 md:grid-cols-[190px_1fr_1fr_1fr] md:items-center">
+          <p className="font-semibold text-slate-900">Incoming Stock Workflow</p>
+          {[
+            { number: "1", title: "Receive Collection", description: "Confirm and record receipt" },
+            { number: "2", title: "Quality Check", description: "Inspect quantity and quality" },
+            { number: "3", title: "Store / Next Step", description: "Move to inventory or continue fulfillment" },
+          ].map((step, index) => <div key={step.number} className="flex items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 font-bold text-emerald-800">{step.number}</span><div><p className="text-sm font-semibold text-slate-900">{step.title}</p><p className="text-xs text-slate-600">{step.description}</p></div>{index < 2 && <ArrowRight className="ml-auto hidden h-4 w-4 text-emerald-600 lg:block"/>}</div>)}
+        </div>
+      </div>
+
       <div className="grid gap-3 sm:grid-cols-3" role="tablist" aria-label="Incoming stock fulfillment type">
         {([
           { key: "received_warehouse", label: "Received from Other Warehouse", description: "Already-packed inter-district orders", count: incomingTypeCounts.received_warehouse },
@@ -758,11 +783,11 @@ export default function WarehouseIncomingPage() {
         ))}
       </div>
 
-      <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-        <span className="font-semibold">Action-first order:</span> shipments waiting for receipt appear first, followed by receipt/quality work. Orders whose receipt is complete are shown after pending work.
+      <div className="rounded-lg border border-amber-200/80 bg-amber-50/70 px-4 py-3 text-sm text-amber-950">
+        <span className="font-semibold">Action-first queue:</span> shipments waiting for receipt appear first, followed by receipt and quality work. Completed receipts remain available below pending work.
       </div>
 
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+      <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:flex-row sm:items-center">
         <div className="relative flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input placeholder="Search incoming shipments..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-9" /></div>
         <div className="flex gap-2">
           <Select value={statusFilter} onValueChange={setStatusFilter}><SelectTrigger className="w-[150px]"><SelectValue placeholder="Status" /></SelectTrigger><SelectContent><SelectItem value="all">All Status</SelectItem><SelectItem value="scheduled">Scheduled</SelectItem><SelectItem value="in_transit">In Transit</SelectItem><SelectItem value="received">Received</SelectItem><SelectItem value="quality_check">Quality Check</SelectItem><SelectItem value="stored">Stored</SelectItem><SelectItem value="rejected">Rejected</SelectItem></SelectContent></Select>
@@ -777,7 +802,7 @@ export default function WarehouseIncomingPage() {
       ) : incomingList.length === 0 ? (
         <Card className="p-12 text-center"><ArrowDown className="mx-auto h-12 w-12 text-muted-foreground" /><h3 className="mt-4 text-lg font-semibold">No incoming shipments</h3><p className="mt-2 text-muted-foreground">{statusFilter !== "all" ? `No ${statusLabels[statusFilter] || statusFilter} shipments` : "Shipments appear here after their farm pickup reaches the warehouse."}</p></Card>
       ) : (
-        <div className="space-y-6">{Array.from(incomingList.reduce((groups: Map<string, any[]>, item: any) => { const key = getFarmGroupKey(item); if (!groups.has(key)) groups.set(key, []); groups.get(key)!.push(item); return groups; }, new Map<string, any[]>()).entries()).map(([farmKey, farmItems]) => {
+        <div className="space-y-4">{Array.from(incomingList.reduce((groups: Map<string, any[]>, item: any) => { const key = getFarmGroupKey(item); if (!groups.has(key)) groups.set(key, []); groups.get(key)!.push(item); return groups; }, new Map<string, any[]>()).entries()).map(([farmKey, farmItems]) => {
           const eventFulfillmentGroup = farmItems.every((row: any) => isEventFulfillmentIncoming(row));
           const packedFarmerGroup = !eventFulfillmentGroup && farmItems.every((row: any) => isFarmerPackedIncoming(row));
           const expectedTotal = farmItems.reduce((sum: number, row: any) => sum + Number(row.quantity || 0), 0);
@@ -838,7 +863,7 @@ export default function WarehouseIncomingPage() {
               await refetch();
             } finally { setIsSaving(false); }
           };
-          return <section key={farmKey} className="overflow-hidden rounded-xl border bg-white shadow-sm"><div className="border-b bg-slate-50/80 px-4 py-4 sm:px-5"><div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h2 className="text-lg font-semibold tracking-tight">{farmItems[0].displayFarmName}</h2><Badge variant="outline">{eventFulfillmentGroup ? "Bulk/Event Order · Product receipt" : packedFarmerGroup ? "Farmer Fulfillment · Packed orders" : "Normal Warehouse Fulfillment · Bulk stock"}</Badge></div><p className="mt-1 text-sm text-muted-foreground">{farmItems[0].pickupLocation?.address || farmItems[0].farmAddress || "Farm address not available"}</p></div><div className="flex flex-wrap items-center gap-2">{canConfirmAllPackets && <Button size="sm" onClick={confirmAllPackets} disabled={isSaving}><CheckCircle className="mr-2 h-4 w-4" />{isSaving ? "Confirming..." : eventFulfillmentGroup ? "Confirm All Products Received" : "Confirm All Packets Received"}</Button>}{allPackedOrdersReceived && <Button size="sm" onClick={() => { window.location.href = farmContinueHref; }}><ArrowRight className="mr-2 h-4 w-4" />{farmContinueLabel}</Button>}{canReceiveAnyFarmStock && !packedFarmerGroup && <Button size="sm" onClick={() => openBulkReceiveDialog(eligibleToReceive)} disabled={isSaving}><Package className="mr-2 h-4 w-4" />{isSaving ? "Processing..." : "Receive All Stock"}</Button>} {!packedFarmerGroup && receivedCount > 0 && <Button size="sm" variant="outline" onClick={() => printFarmPackingLabels(farmItems.filter((row: any) => {
+          return <section key={farmKey} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-shadow hover:shadow-md"><div className="border-b border-slate-100 bg-slate-50/70 px-4 py-4 sm:px-5"><div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h2 className="text-lg font-semibold tracking-tight">{farmItems[0].displayFarmName}</h2><Badge variant="outline">{eventFulfillmentGroup ? "Bulk/Event Order · Product receipt" : packedFarmerGroup ? "Farmer Fulfillment · Packed orders" : "Normal Warehouse Fulfillment · Bulk stock"}</Badge></div><p className="mt-1 text-sm text-muted-foreground">{farmItems[0].pickupLocation?.address || farmItems[0].farmAddress || "Farm address not available"}</p></div><div className="flex flex-wrap items-center gap-2">{canConfirmAllPackets && <Button size="sm" onClick={confirmAllPackets} disabled={isSaving}><CheckCircle className="mr-2 h-4 w-4" />{isSaving ? "Confirming..." : eventFulfillmentGroup ? "Confirm All Products Received" : "Confirm All Packets Received"}</Button>}{allPackedOrdersReceived && <Button size="sm" onClick={() => { window.location.href = farmContinueHref; }}><ArrowRight className="mr-2 h-4 w-4" />{farmContinueLabel}</Button>}{canReceiveAnyFarmStock && !packedFarmerGroup && <Button size="sm" onClick={() => openBulkReceiveDialog(eligibleToReceive)} disabled={isSaving}><Package className="mr-2 h-4 w-4" />{isSaving ? "Processing..." : "Receive All Stock"}</Button>} {!packedFarmerGroup && receivedCount > 0 && <Button size="sm" variant="outline" onClick={() => printFarmPackingLabels(farmItems.filter((row: any) => {
               const status = String(row.status || "").toLowerCase();
               const hasReceipt = Boolean(row.receiptNumber || row.receipt?.receiptNumber || row.receivedAt || row.receivedDate || row.warehouseReceivedAt || row.quantityReceived !== undefined);
               return ["received", "quality_check", "stored"].includes(status) || hasReceipt;
