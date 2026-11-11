@@ -1437,7 +1437,7 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
 
     coverage = warehouse_collection_districts(warehouse)
     if not coverage:
-        return {"success": True, "data": {"districts": [], "areas": [], "directorySource": "farmer_profiles"}}
+        return {"success": True, "data": {"districts": [], "areas": [], "zones": [], "taluks": [], "directorySource": "farmer_profiles"}}
 
     def area_from_profile(profile: dict) -> Optional[str]:
         candidates = [
@@ -1471,6 +1471,27 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
 
     def normalized_area(value: Any) -> str:
         return " ".join(str(value or "").casefold().split())
+
+    def taluk_from_profile(profile: dict) -> Optional[str]:
+        candidates = [profile.get("farmTaluk"), profile.get("taluk"), profile.get("subDistrict"), profile.get("sub_district"), profile.get("tehsil"), profile.get("mandal")]
+        for container_key in ("farmLocation", "farmAddress", "address", "location"):
+            value = profile.get(container_key)
+            if isinstance(value, dict):
+                candidates.extend([value.get("taluk"), value.get("subDistrict"), value.get("sub_district"), value.get("tehsil"), value.get("mandal")])
+        for candidate in candidates:
+            if isinstance(candidate, str) and candidate.strip() and candidate.strip().casefold() not in {"unknown", "n/a", "na", "not available"}:
+                return " ".join(candidate.strip().split())
+        return None
+
+    def taluk_from_job(job: dict) -> Optional[str]:
+        location = job.get("farmLocation") or job.get("pickupLocation") or {}
+        candidates = [job.get("farmTaluk"), job.get("taluk"), job.get("subDistrict"), job.get("tehsil")]
+        if isinstance(location, dict):
+            candidates.extend([location.get("taluk"), location.get("subDistrict"), location.get("tehsil")])
+        for candidate in candidates:
+            if isinstance(candidate, str) and candidate.strip():
+                return " ".join(candidate.strip().split())
+        return None
 
     def profile_coordinates(profile: dict) -> Optional[tuple]:
         candidates = [profile.get("farmLocation"), profile.get("farmAddress"), profile.get("location"), profile.get("address")]
@@ -1512,19 +1533,25 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
         value = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
         return 6371.0 * 2 * math.asin(min(1.0, math.sqrt(value)))
     profile_area_by_id: Dict[str, str] = {}
+    profile_taluk_by_id: Dict[str, str] = {}
     profile_coords_by_id: Dict[str, tuple] = {}
+    profile_directory: List[Dict[str, Any]] = []
     for profile in profiles:
         location = profile.get("farmLocation") or profile.get("farmAddress") or profile.get("location") or profile.get("address") or {}
         if farmer_collection_district(profile, location, coverage) not in coverage:
             continue
         area_name = area_from_profile(profile)
         area_key = normalized_area(area_name) if area_name else ""
+        taluk_name = taluk_from_profile(profile)
         coords = profile_coordinates(profile)
+        profile_directory.append({"area": area_name, "taluk": taluk_name, "farmerId": str(profile.get("userId") or profile.get("farmerId") or profile.get("_id") or "")})
         for identity in (profile.get("_id"), profile.get("userId"), profile.get("farmerId")):
             if identity:
                 identity_key = str(identity)
                 if area_key:
                     profile_area_by_id[identity_key] = area_key
+                if taluk_name:
+                    profile_taluk_by_id[identity_key] = taluk_name
                 if coords:
                     profile_coords_by_id[identity_key] = coords
 
@@ -1609,12 +1636,68 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
     for zone in visible_zones:
         zone.pop("hubCoordinates", None)
     visible_zones.sort(key=lambda item: (item["name"] == "Other district farms", item["name"].casefold()))
+
+    # Taluk directory is the administrative view for pickup planning. It includes
+    # every known village/locality from farmer profiles, even when no order is ready.
+    taluk_groups: Dict[str, Dict[str, Any]] = {}
+    for item in profile_directory:
+        taluk_name = item.get("taluk") or "Taluk not identified"
+        taluk_key = normalized_area(taluk_name)
+        group = taluk_groups.setdefault(taluk_key, {
+            "key": "taluk:" + taluk_key, "name": taluk_name, "areaNames": set(),
+            "registeredFarmerIds": set(), "readyFarmerIds": set(),
+            "collectionIds": [], "readyOrders": 0, "totalOrders": 0,
+        })
+        if item.get("area"):
+            group["areaNames"].add(item["area"])
+        if item.get("farmerId"):
+            group["registeredFarmerIds"].add(item["farmerId"])
+
+    for job in pickup_jobs:
+        farmer_id = str(job.get("farmerId") or job.get("farmerUserId") or "")
+        taluk_name = profile_taluk_by_id.get(farmer_id) or taluk_from_job(job) or "Taluk not identified"
+        taluk_key = normalized_area(taluk_name)
+        group = taluk_groups.setdefault(taluk_key, {
+            "key": "taluk:" + taluk_key, "name": taluk_name, "areaNames": set(),
+            "registeredFarmerIds": set(), "readyFarmerIds": set(),
+            "collectionIds": [], "readyOrders": 0, "totalOrders": 0,
+        })
+        area_name = None
+        if farmer_id:
+            profile_area_key = profile_area_by_id.get(farmer_id)
+            if profile_area_key:
+                area_name = next((entry["area"] for entry in profile_directory if entry.get("area") and normalized_area(entry["area"]) == profile_area_key), None)
+        area_name = area_name or job.get("farmVillage") or job.get("farmAreaName") or job.get("village") or job.get("locality") or job.get("farmTown")
+        if area_name:
+            group["areaNames"].add(str(area_name).strip())
+        job_id = str(job.get("_id") or job.get("id") or "")
+        if job_id:
+            group["collectionIds"].append(job_id)
+        group["totalOrders"] += 1
+        if str(job.get("status") or "").strip().lower() == "ready_for_pickup" and not job.get("pickupRouteId"):
+            group["readyOrders"] += 1
+            if farmer_id:
+                group["readyFarmerIds"].add(farmer_id)
+
+    taluks = []
+    for group in taluk_groups.values():
+        areas_list = sorted(group["areaNames"], key=str.casefold)
+        taluks.append({
+            "key": group["key"], "name": group["name"],
+            "areaNames": areas_list, "areaCount": len(areas_list),
+            "registeredFarmCount": len(group["registeredFarmerIds"]),
+            "readyFarmCount": len(group["readyFarmerIds"]),
+            "readyOrders": group["readyOrders"], "totalOrders": group["totalOrders"],
+            "collectionIds": group["collectionIds"],
+        })
+    taluks.sort(key=lambda item: item["name"].casefold())
     return {
         "success": True,
         "data": {
             "districts": sorted(coverage),
             "areas": visible_zones,
             "zones": visible_zones,
+            "taluks": taluks,
             "directorySource": "local_hub_service_areas_with_gps_radius_fallback",
             "coverageMode": "explicit_locality_first_then_nearest_hub_radius",
             "defaultPickupRadiusKm": 15,
