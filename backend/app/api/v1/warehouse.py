@@ -1599,7 +1599,7 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
     # fallback for farms not covered by an explicit assignment.
     zones: List[Dict[str, Any]] = []
     for hub in hubs:
-        hub_district = normalizeDistrict(hub.get("district") or "")
+        hub_district = normalized_area(hub.get("district") or "")
         if hub_district and hub_district not in coverage:
             continue
         service_areas = sorted({normalized_area(x) for x in (hub.get("serviceAreas") or []) if str(x).strip()})
