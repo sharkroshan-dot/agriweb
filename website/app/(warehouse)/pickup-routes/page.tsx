@@ -60,8 +60,12 @@ export default function PickupRoutesPage() {
     refetchInterval: 15000,
   });
 
-  const jobs: Job[] = jobsQ.data?.data?.collections || [];
-  const teams: Job[] = teamsQ.data?.data?.members || [];
+  // Accept both direct API payloads and { data: ... } response envelopes.
+  // Guard arrays so malformed/alternate responses cannot crash page rendering.
+  const rawJobs = jobsQ.data?.collections ?? jobsQ.data?.data?.collections ?? jobsQ.data?.orders ?? jobsQ.data?.data?.orders;
+  const rawTeams = teamsQ.data?.members ?? teamsQ.data?.data?.members ?? teamsQ.data?.teams ?? teamsQ.data?.data?.teams;
+  const jobs: Job[] = Array.isArray(rawJobs) ? rawJobs.filter((job: unknown): job is Job => Boolean(job) && typeof job === "object") : [];
+  const teams: Job[] = Array.isArray(rawTeams) ? rawTeams.filter((team: unknown): team is Job => Boolean(team) && typeof team === "object") : [];
   const eligibleTeams = teams.filter((team) => Number(team.capacity || team.vehicleCapacity || 0) > 0);
   const selectedTeam = eligibleTeams.find((team) => String(team.id) === teamId);
 
