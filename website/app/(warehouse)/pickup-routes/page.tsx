@@ -268,7 +268,26 @@ export default function PickupRoutesPage() {
 
   const selectedJobs = jobs.filter((job) => selectedIds.includes(idOf(job)));
   const selectedWeight = selectedJobs.reduce((sum, job) => sum + Number(job.quantity || 0), 0);
-  const eligibleFiltered = filtered.filter((job) => READY.has(String(job.status || "")) && !job.pickupRouteId && idOf(job));
+  const selectedAreaJobs = useMemo(() => {
+    if (selectedArea === "all") return jobs;
+    const zone = areas.find((area) => area.key === selectedArea);
+    const taluk = taluks.find((item) => item.key === selectedArea);
+    const ids = new Set(taluk?.collectionIds || zone?.collectionIds || []);
+    return jobs.filter((job) => ids.has(idOf(job)) || Boolean(zone?.jobs.some((item) => idOf(item) === idOf(job))));
+  }, [jobs, areas, taluks, selectedArea]);
+  // Bulk selection deliberately ignores table search/status filters so it
+  // selects every eligible collection in this area, including rows below fold.
+  const eligibleAreaFarms = selectedAreaJobs.filter((job) =>
+    READY.has(String(job.status || "")) && !job.pickupRouteId && !job.collectionTeamId && idOf(job)
+  );
+  const allEligibleSelected = eligibleAreaFarms.length > 0 &&
+    eligibleAreaFarms.every((job) => selectedIds.includes(idOf(job)));
+  const selectAllEligibleFarms = () => setSelectedIds((current) => {
+    const ids = eligibleAreaFarms.map(idOf);
+    return allEligibleSelected
+      ? current.filter((id) => !ids.includes(id))
+      : Array.from(new Set([...current, ...ids]));
+  });
   const areaSummary = useMemo(() => {
     const source = selectedArea === "all" ? jobs : filtered;
     return {
@@ -364,7 +383,7 @@ export default function PickupRoutesPage() {
           <div className="max-h-[560px] space-y-2 overflow-y-auto p-3">
             <button
               type="button"
-              onClick={() => setSelectedArea("all")}
+              onClick={() => { setSelectedArea("all"); setActiveFarmId(""); setSelectedIds([]); }}
               className={"w-full rounded-lg border p-3 text-left transition-colors " + (selectedArea === "all" ? "border-emerald-300 bg-emerald-50" : "border-slate-200 hover:bg-slate-50")}
             >
               <span className="flex items-center justify-between gap-3 text-sm font-semibold text-slate-900">
@@ -437,7 +456,16 @@ export default function PickupRoutesPage() {
           <Card className="border-slate-200 shadow-sm">
             <div className="flex flex-col gap-3 border-b p-4 lg:flex-row lg:items-center lg:justify-between">
               <div><h2 className="font-semibold text-slate-900">Farms ready for collection</h2><p className="mt-1 text-xs text-slate-500">Only farm stock marked Ready for Pickup in this warehouse district is shown for pickup-partner assignment.</p></div>
-              <Button variant="outline" size="sm" onClick={selectVisible} disabled={!eligibleFiltered.length}>{eligibleFiltered.length && eligibleFiltered.every((job) => selectedIds.includes(idOf(job))) ? "Clear farm selection" : "Select ready farms"} ({eligibleFiltered.length})</Button>
+              <Button
+                variant={allEligibleSelected ? "secondary" : "outline"}
+                size="sm"
+                onClick={selectAllEligibleFarms}
+                disabled={!eligibleAreaFarms.length}
+                className="h-10 shrink-0 gap-2 rounded-xl border-emerald-200 px-3 font-semibold text-emerald-800 hover:bg-emerald-50"
+              >
+                <CheckCircle2 className="h-4 w-4"/>
+                {allEligibleSelected ? "Deselect all eligible farms" : "Select all eligible farms"} ({eligibleAreaFarms.length})
+              </Button>
             </div>
             <div className="grid gap-2 border-b border-slate-100 bg-slate-50/70 p-3 md:grid-cols-2">
               <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"><option value="all">All pickup statuses</option>{Object.entries(STATUS_LABEL).map(([key, value]) => <option key={key} value={key}>{value}</option>)}</select>
