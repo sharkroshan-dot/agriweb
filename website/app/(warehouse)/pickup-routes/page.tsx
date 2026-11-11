@@ -24,29 +24,37 @@ const STATUS_LABEL: Record<string, string> = {
 
 function idOf(job: Job) { return String(job.id || job._id || ""); }
 function areaOf(job: Job) {
-  const location = job.pickupLocation || job.farmLocation || {};
-  const directArea =
-    job.farmAreaName || job.farmVillage || job.village || location.village ||
-    job.farmTown || job.town || location.town ||
-    job.farmCity || job.city || location.city ||
-    job.locality || location.locality || job.area || location.area;
-  if (directArea && String(directArea).trim()) return String(directArea).trim();
+  const location = job.pickupLocation || job.farmLocation || job.farmAddress || {};
+  const farmer = job.farmerProfile || job.farmer || job.profile || {};
+  const farmerLocation = farmer.farmLocation || farmer.farmAddress || farmer.address || {};
+  const candidates = [
+    job.farmVillage, job.village, job.villageName, location.village, farmer.farmVillage, farmer.village,
+    job.farmAreaName, job.farmLocality, job.locality, job.area, location.locality, location.area,
+    farmer.farmAreaName, farmer.farmLocality, farmer.locality, farmer.area,
+    job.farmTaluk, job.taluk, job.subDistrict, location.taluk, location.subDistrict,
+    farmer.farmTaluk, farmer.taluk, farmerLocation.village, farmerLocation.locality,
+    farmerLocation.taluk, farmerLocation.town,
+    job.farmTown, job.town, location.town, farmer.farmTown, farmer.town,
+  ];
+  const directArea = candidates.find((value) => typeof value === "string" && value.trim() &&
+    !["unknown", "n/a", "na", "not available"].includes(value.trim().toLowerCase()));
+  if (directArea) return String(directArea).trim();
 
-  // The collections API can have legacy records with empty pickupLocation and
-  // null farmVillage/farmTown/farmCity, while still returning pickupAddress.
-  // Use the most local address segment instead of grouping every such order
-  // under "Area not identified".
+  // Prefer a known locality appearing anywhere in the address over a GPS
+  // status or the district/city suffix.
   const address = [
-    job.pickupAddress, job.farmAddress, location.address,
-    location.formattedAddress, job.address,
+    job.pickupAddress, job.farmAddress, location.address, location.formattedAddress,
+    farmer.pickupAddress, farmer.farmAddress, farmerLocation.address, job.address,
   ].find((value) => typeof value === "string" && value.trim());
   if (address) {
-    const parts = String(address).split(",").map((part) => part.trim()).filter(Boolean);
+    const parts = String(address).split(/[,;|]/).map((part) => part.trim()).filter(Boolean);
     const district = normalizeDistrict(districtOf(job));
-    const last = parts[parts.length - 1] || "";
-    const lastIsDistrict = district && normalizeDistrict(last) === district;
-    const candidate = lastIsDistrict ? (parts[parts.length - 2] || last) : last;
-    if (candidate) return candidate;
+    const usable = parts.filter((part) => {
+      const normalized = normalizeDistrict(part);
+      return normalized && normalized !== district && !/^(road|street|main road|india|tamil nadu)$/i.test(part);
+    });
+    const candidate = usable.length ? usable[usable.length - 1] : "";
+    if (candidate) return candidate.replace(/\\s*[-–].*$/, "").trim();
   }
   return "Area not identified";
 }
@@ -153,7 +161,7 @@ export default function PickupRoutesPage() {
     const areaAliases = new Map<string, string>();
     groups.forEach((area) => {
       area.collectionIds.forEach((id) => collectionToZone.set(id, area.key));
-      [area.name, ...(area.serviceAreas || [])].forEach((value) => {
+      [area.name, (area as any).taluk, ...(area.serviceAreas || [])].forEach((value) => {
         const normalized = areaKey(String(value || ""));
         if (normalized) areaAliases.set(normalized, area.key);
       });
@@ -161,22 +169,39 @@ export default function PickupRoutesPage() {
     jobs.forEach((job) => {
       const id = idOf(job);
       const location = job.pickupLocation || job.farmLocation || {};
+      const farmer = job.farmerProfile || job.farmer || job.profile || {};
+      const farmerLocation = farmer.farmLocation || farmer.farmAddress || farmer.address || {};
       const explicitAreas = [
-        job.farmVillage, job.farmAreaName, job.farmTown, job.farmTaluk,
-        job.village, job.locality, job.taluk, job.town,
-        location.village, location.locality, location.taluk, location.town,
+        job.farmVillage, job.farmAreaName, job.farmLocality, job.farmTown, job.farmTaluk,
+        job.village, job.villageName, job.locality, job.taluk, job.subDistrict, job.town, job.area,
+        location.village, location.locality, location.taluk, location.subDistrict, location.town, location.area,
+        farmer.farmVillage, farmer.village, farmer.farmAreaName, farmer.farmLocality,
+        farmer.locality, farmer.farmTaluk, farmer.taluk, farmer.subDistrict, farmer.farmTown, farmer.town,
+        farmerLocation.village, farmerLocation.locality, farmerLocation.taluk, farmerLocation.subDistrict,
+        farmerLocation.town, farmerLocation.area,
       ].filter((value): value is string => typeof value === "string" && Boolean(value.trim()));
-      const address = String(job.pickupAddress || job.farmAddress || "");
-      const addressParts = address.split(",").map((part) => areaKey(part)).filter(Boolean);
+      const address = [
+        job.pickupAddress, job.farmAddress, location.address, location.formattedAddress,
+        farmer.pickupAddress, farmer.farmAddress, farmerLocation.address, job.address,
+      ].filter((value) => typeof value === "string").join(", ");
+      const addressParts = address.split(/[,;|]/).map((part) => areaKey(part)).filter(Boolean);
+      const aliasMatches = Array.from(areaAliases.entries())
+        .filter(([alias]) => alias.length >= 3 && addressParts.some((part) => part === alias || part.includes(alias) || alias.includes(part)))
+        .sort((a, b) => b[0].length - a[0].length);
       const matchedKey = explicitAreas.map((value) => areaAliases.get(areaKey(value))).find(Boolean)
-        || addressParts.map((value) => areaAliases.get(value)).find(Boolean);
-      // A generic district or road address is not proof of a farm's taluk.
-      // Only a matching canonical area/alias or a backend collection ID can
-      // assign a job to an area. Unknown jobs stay visible for correction.
-      const key = collectionToZone.get(id) || matchedKey || "district-unassigned";
+        || addressParts.map((value) => areaAliases.get(value)).find(Boolean)
+        || aliasMatches[0]?.[1];
+      // GPS is never used to decide the pickup area. If the order has a
+      // registered village/taluk/locality that is not yet in the area master,
+      // keep it under that actual locality instead of a GPS-verification bucket.
+      const inferredArea = areaOf(job);
+      const hasInferredArea = inferredArea !== "Area not identified" &&
+        normalizeDistrict(inferredArea) !== normalizeDistrict(districtOf(job));
+      const key = collectionToZone.get(id) || matchedKey ||
+        (hasInferredArea ? "area:" + areaKey(inferredArea) : "district-unassigned");
       if (!groups.has(key)) {
-        const name = key === "district-unassigned" ? "Location verification needed" : areaOf(job);
-        groups.set(key, { key, name, areaType: "Farm location needs area-master mapping", jobs: [], totalOrders: 0, readyToAssign: 0, collectionIds: [] });
+        const name = key === "district-unassigned" ? "Area not identified" : (hasInferredArea ? inferredArea : areaOf(job));
+        groups.set(key, { key, name, areaType: key === "district-unassigned" ? "Farm locality not available in profile/address" : "Registered farm locality", jobs: [], totalOrders: 0, readyToAssign: 0, collectionIds: [] });
       }
       const group = groups.get(key)!;
       group.jobs.push(job);
