@@ -1779,18 +1779,26 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
         # Collection records do not always carry the same farmer reference as
         # the farmer profile. Resolve through the linked order/product exactly
         # as the Farm Collection list does before deciding that an area is absent.
+        # Resolve the entire pickup-job relationship chain. Older collection
+        # jobs may omit farmerId/orderId while the linked incoming-stock row
+        # still contains them; Farm Collection already follows these links.
+        incoming_id = str(job.get("incomingStockId") or "")
+        linked_incoming = None
+        if incoming_id and ObjectId.is_valid(incoming_id):
+            linked_incoming = await incoming_stock_repository.get_by_id(incoming_id)
+        order_id = str(job.get("orderId") or (linked_incoming or {}).get("orderId") or "")
         linked_order = None
-        order_id = str(job.get("orderId") or "")
         if order_id and ObjectId.is_valid(order_id):
             linked_order = await order_repository.get_by_id(order_id)
         order_items = (linked_order or {}).get("items") or []
         first_item = order_items[0] if order_items else {}
-        product_id = str(job.get("productId") or first_item.get("productId") or "")
+        product_id = str(job.get("productId") or (linked_incoming or {}).get("productId") or first_item.get("productId") or "")
         linked_product = None
         if product_id and ObjectId.is_valid(product_id):
             linked_product = await product_repository.get_by_id(product_id)
         farmer_refs = [
             job.get("farmerId"), job.get("farmerUserId"), job.get("farmId"),
+            (linked_incoming or {}).get("farmerId"), (linked_incoming or {}).get("farmerUserId"),
             (linked_order or {}).get("farmerId"), (linked_order or {}).get("farmer_id"),
             first_item.get("farmerId"), first_item.get("farmer_id"),
             (linked_product or {}).get("farmerId"), (linked_product or {}).get("farmer_id"),
