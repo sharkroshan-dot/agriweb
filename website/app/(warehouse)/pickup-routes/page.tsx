@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   MapPin, Truck, RefreshCw, Search, Package,
-  CheckCircle2, Clock3, AlertTriangle, Map as MapIcon,
+  AlertTriangle, Map as MapIcon,
   Sprout, ChevronRight, Users,
 } from "lucide-react";
 import { Card, CardContent } from "../../components/ui/card";
