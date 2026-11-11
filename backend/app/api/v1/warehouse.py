@@ -1470,7 +1470,17 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
                 if normalized_key in locality_keys and isinstance(value, str) and value.strip():
                     cleaned = " ".join(value.strip().split())
                     if cleaned.casefold() not in {"unknown", "n/a", "na", "not available", "none", "null"}:
-                        found.setdefault(normalized_key, cleaned)
+                        # A district/city label is not a farm pickup locality.
+                        # Keep searching lower-level address fields instead.
+                        district_labels = {normalized_area(value) for value in coverage}
+                        district_labels.update({
+                            "trichy", "trichirapalli", "tiruchirapalli",
+                            "kanyakumari", "pudukottai", "thirunelveli",
+                            "thiruvallur", "thiruvannamalai", "thiruvarur",
+                            "sivagangai", "tirupur",
+                        })
+                        if normalized_area(cleaned) not in district_labels:
+                            found.setdefault(normalized_key, cleaned)
                 if isinstance(value, dict):
                     pending.append(value)
                 elif isinstance(value, list):
