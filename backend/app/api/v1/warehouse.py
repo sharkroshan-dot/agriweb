@@ -1439,6 +1439,15 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
     if not coverage:
         return {"success": True, "data": {"districts": [], "areas": [], "zones": [], "taluks": [], "directorySource": "farmer_profiles"}}
 
+    def is_road_or_address_label(value: Any) -> bool:
+        text = " ".join(str(value or "").strip().casefold().split())
+        if not text:
+            return True
+        return bool(
+            re.search(r"\\b(main road|road|street|st\\.?|highway|hwy|bypass|cross street|roadways)\\b", text)
+            or (re.search(r"\\b(trichy|tiruchirappalli|tiruchirapalli)\\b", text) and len(text.split()) > 1)
+        )
+
     def area_from_profile(profile: dict) -> Optional[str]:
         # Farm location data has several legacy shapes. Inspect all nested
         # address objects and both camelCase/snake_case fields; GPS coordinates
@@ -1479,7 +1488,7 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
                             "thiruvallur", "thiruvannamalai", "thiruvarur",
                             "sivagangai", "tirupur",
                         })
-                        if normalized_area(cleaned) not in district_labels:
+                        if normalized_area(cleaned) not in district_labels and not is_road_or_address_label(cleaned):
                             found.setdefault(normalized_key, cleaned)
                 if isinstance(value, dict):
                     pending.append(value)
