@@ -5,9 +5,9 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Users, CheckCircle2, XCircle, Truck, ShieldCheck, Clock3,
   Search, RefreshCw, Package, Fuel, ClipboardCheck, AlertCircle,
-  ArrowUpRight,
 } from "lucide-react";
 import { Card, CardContent } from "../../components/ui/card";
+import { WarehousePageHeader } from "../../components/warehouse/warehouse-page-header";
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
 import { api } from "../../lib/api/client";
@@ -55,26 +55,15 @@ export default function PickupTeamPage() {
   };
 
   return (
-    <main className="warehouse-pickup-team-page mx-auto w-full max-w-[1500px] space-y-6 pb-8">
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="relative bg-gradient-to-r from-slate-950 via-slate-900 to-emerald-900 px-6 py-7 sm:px-8 sm:py-9">
-          <div className="pointer-events-none absolute -right-12 -top-24 h-72 w-72 rounded-full border-[36px] border-white/5" />
-          <div className="relative flex flex-col justify-between gap-5 md:flex-row md:items-center">
-            <div className="max-w-2xl">
-              <div className="inline-flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-1 text-xs font-medium text-emerald-100">
-                <ShieldCheck className="h-3.5 w-3.5" /> Warehouse team management
-              </div>
-              <h1 className="mt-3 text-2xl font-bold tracking-tight text-white sm:text-3xl">Pickup partners</h1>
-              <p className="mt-2 max-w-xl text-sm leading-6 text-slate-300">
-                Review delivery partner applications and choose who can join your warehouse pickup team.
-              </p>
-            </div>
-            <div className="flex shrink-0 items-center gap-2 rounded-xl border border-white/15 bg-white/10 px-4 py-3 text-sm text-white">
-              <Users className="h-5 w-5 text-emerald-300" />
-              <span><strong className="block text-lg leading-5">{counts.approved}</strong><span className="text-xs text-slate-300">Approved partners</span></span>
-            </div>
-          </div>
-        </div>
+    <main className="warehouse-pickup-team-page w-full space-y-6 pb-8">
+      <WarehousePageHeader
+        eyebrow="Warehouse team management"
+        title="Pickup Partners"
+        description="Review delivery partner applications and choose who can join your warehouse pickup team."
+        meta={<span>{counts.approved} approved partners</span>}
+        actions={<Button variant="outline" size="sm" onClick={() => q.refetch()} disabled={q.isFetching} className="gap-2"><RefreshCw className={`h-4 w-4 ${q.isFetching ? "animate-spin" : ""}`} /> Refresh</Button>}
+      />
+      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="grid grid-cols-2 divide-x divide-slate-100 sm:grid-cols-4">
           {[
             { label: "All applications", value: counts.all, icon: ClipboardCheck, tone: "text-slate-600 bg-slate-100" },
@@ -96,9 +85,7 @@ export default function PickupTeamPage() {
             <h2 className="text-lg font-semibold tracking-tight text-slate-900">Partner applications</h2>
             <p className="mt-1 text-sm text-slate-500">Check vehicle details and application status before making a decision.</p>
           </div>
-          <Button variant="outline" size="sm" onClick={() => q.refetch()} disabled={q.isFetching} className="gap-2 self-start sm:self-auto">
-            <RefreshCw className={`h-4 w-4 ${q.isFetching ? "animate-spin" : ""}`} /> Refresh
-          </Button>
+
         </div>
 
         <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
