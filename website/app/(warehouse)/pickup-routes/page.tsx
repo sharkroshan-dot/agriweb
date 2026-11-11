@@ -90,6 +90,11 @@ function coordinatesOf(job: Job): [number, number] | null {
   else { lat = Number(location.lat ?? location.latitude ?? job.latitude); lng = Number(location.lng ?? location.longitude ?? job.longitude); }
   return Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 ? [lat, lng] : null;
 }
+function isRoadOrAddressLabel(value: unknown) {
+  const text = String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
+  return !text || /\b(main road|road|street|st\.?|highway|hwy|bypass|cross street|roadways)\b/.test(text) ||
+    (/\b(trichy|tiruchirappalli|tiruchirapalli)\b/.test(text) && text.split(" ").length > 1);
+}
 function areaKey(value: string) { return value.toLowerCase().replace(/\s+/g, " ").trim(); }
 function escapeMapText(value: unknown) { return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/\'/g, "&#39;"); }
 
