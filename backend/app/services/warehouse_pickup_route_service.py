@@ -333,7 +333,7 @@ async def _sync_b2b_order_pickup_assignment(
     b2b_orders = MongoDB.get_collection("b2b_orders")
     # Never overwrite a different partner's active assignment. This also makes
     # route acceptance safe when the same order is visible in both warehouse UIs.
-    await b2b_orders.update_one(
+    result = await b2b_orders.update_one(
         {
             "_id": ObjectId(b2b_order_id),
             "status": "ready_for_pickup",
@@ -346,6 +346,7 @@ async def _sync_b2b_order_pickup_assignment(
         },
         {"$set": {
             "pickupTeam": partner_id,
+            "pickupRouteId": str(route.get("_id") or ""),
             "pickupTeamName": membership.get("name") or membership.get("partnerName") or membership.get("displayName") or route.get("deliveryPartnerName") or "Assigned pickup partner",
             "pickupVehicle": (
                 route.get("deliveryPartnerVehicleNumber")
@@ -365,6 +366,11 @@ async def _sync_b2b_order_pickup_assignment(
             "updatedAt": now,
         }},
     )
+    if result.matched_count != 1:
+        current_order = await b2b_orders.find_one({"_id": ObjectId(b2b_order_id)})
+        if current_order and str(current_order.get("pickupTeam") or "") == partner_id and str(current_order.get("pickupRouteId") or "") == str(route.get("_id") or ""):
+            return
+        raise ValueError("This B2B order was assigned through another warehouse page. Refresh both pages and retry.")
 
 
 async def assign_route(route: Dict[str, Any], membership: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -473,9 +479,30 @@ async def assign_route(route: Dict[str, Any], membership: Dict[str, Any]) -> Opt
         raise ValueError("The pickup route could not be confirmed. Refresh both pages and try again.")
 
     # Mirror the winning partner to every linked B2B order only after all route
-    # stops have been assigned successfully.
-    for previous in reserved_jobs:
-        await _sync_b2b_order_pickup_assignment(previous["job"], assigned_route, partner_id, membership)
+    # stops have been assigned successfully. Roll back this route if a B2B
+    # order was concurrently claimed from the other warehouse page.
+    try:
+        for previous in reserved_jobs:
+            await _sync_b2b_order_pickup_assignment(previous["job"], assigned_route, partner_id, membership)
+    except ValueError:
+        b2b_orders = MongoDB.get_collection("b2b_orders")
+        for previous in reserved_jobs:
+            job = previous["job"]
+            b2b_id = str(job.get("b2bOrderId") or (job.get("orderId") if str(job.get("collectionType") or "").lower() == "b2b" else "") or "")
+            if ObjectId.is_valid(b2b_id):
+                await b2b_orders.update_one(
+                    {"_id": ObjectId(b2b_id), "pickupTeam": partner_id, "pickupRouteId": route_id, "status": "ready_for_pickup"},
+                    {"$unset": {
+                        "pickupTeam": "", "pickupRouteId": "", "pickupTeamName": "",
+                        "pickupVehicle": "", "pickupAssignedAt": "", "pickupAssignedBy": "",
+                        "pickupWarehouseId": "", "pickupAssignmentSource": "",
+                        "warehouseCollectionStatus": "", "warehouseFulfillmentStage": "",
+                    }, "$set": {"updatedAt": datetime.utcnow()}},
+                )
+        for previous in reserved_jobs:
+            await warehouse_collection_repository.release_route_assignment(previous["id"], route_id, partner_id)
+        await warehouse_pickup_route_repository.unclaim_route(route_id, partner_id)
+        raise
     try:
         user_id = str(membership.get("deliveryPartnerUserId") or membership.get("userId") or "")
         if user_id:
