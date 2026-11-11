@@ -24,13 +24,30 @@ const STATUS_LABEL: Record<string, string> = {
 function idOf(job: Job) { return String(job.id || job._id || ""); }
 function areaOf(job: Job) {
   const location = job.pickupLocation || job.farmLocation || {};
-  return String(
+  const directArea =
     job.farmAreaName || job.farmVillage || job.village || location.village ||
     job.farmTown || job.town || location.town ||
     job.farmCity || job.city || location.city ||
-    job.locality || location.locality || job.area || location.area ||
-    "Area not identified"
-  ).trim();
+    job.locality || location.locality || job.area || location.area;
+  if (directArea && String(directArea).trim()) return String(directArea).trim();
+
+  // The collections API can have legacy records with empty pickupLocation and
+  // null farmVillage/farmTown/farmCity, while still returning pickupAddress.
+  // Use the most local address segment instead of grouping every such order
+  // under "Area not identified".
+  const address = [
+    job.pickupAddress, job.farmAddress, location.address,
+    location.formattedAddress, job.address,
+  ].find((value) => typeof value === "string" && value.trim());
+  if (address) {
+    const parts = String(address).split(",").map((part) => part.trim()).filter(Boolean);
+    const district = normalizeDistrict(districtOf(job));
+    const last = parts[parts.length - 1] || "";
+    const lastIsDistrict = district && normalizeDistrict(last) === district;
+    const candidate = lastIsDistrict ? (parts[parts.length - 2] || last) : last;
+    if (candidate) return candidate;
+  }
+  return "Area not identified";
 }
 function districtOf(job: Job) {
   const location = job.pickupLocation || job.farmLocation || {};
