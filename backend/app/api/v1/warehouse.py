@@ -1075,7 +1075,128 @@ async def get_my_collections(
         len(jobs),
     )
 
-    # Reload after reconciliation so newly-created pickup jobs appear immediately.
+    # Reconcile B2B Ready-for-Pickup orders into the same collection jobs
+    # used by Pickup Routes. This makes B2B orders assignable from either page.
+    b2b_orders_collection = MongoDB.get_collection("b2b_orders")
+    warehouse_refs = [ObjectId(warehouse_id), warehouse_id]
+    b2b_candidates = await b2b_orders_collection.find({
+        "$and": [
+            {"deletedAt": None},
+            {"status": {"$in": ["ready_for_pickup", "picked_up"]}},
+            {"$or": [
+                {"sourceWarehouseId": {"$in": warehouse_refs}},
+                {"assignedWarehouseId": {"$in": warehouse_refs}},
+                {"pickupWarehouseId": {"$in": warehouse_refs}},
+                {"warehouseId": {"$in": warehouse_refs}},
+            ]},
+        ],
+    }).to_list(length=1000)
+    for b2b_order in b2b_candidates:
+        b2b_order_id = str(b2b_order.get("_id") or "")
+        if not ObjectId.is_valid(b2b_order_id):
+            continue
+        existing_b2b_jobs = await warehouse_collection_repository.get_by_order(b2b_order_id, "b2b")
+        collection_job = next(
+            (row for row in existing_b2b_jobs if str(row.get("status") or "") not in ("cancelled", "completed", "received", "arrived_warehouse")),
+            None,
+        )
+        farmer_id = str(b2b_order.get("farmerId") or "")
+        farmer_profile = await farmer_repository.get_by_id(farmer_id) if ObjectId.is_valid(farmer_id) else None
+        farm_location = (
+            (farmer_profile or {}).get("farmLocation")
+            or (farmer_profile or {}).get("location")
+            or (farmer_profile or {}).get("farmAddress")
+            or (farmer_profile or {}).get("address")
+            or b2b_order.get("farmLocation")
+            or b2b_order.get("pickupLocation")
+            or {}
+        )
+        if isinstance(farm_location, str):
+            farm_location = {"formattedAddress": farm_location}
+        order_quantity = float(
+            b2b_order.get("packedQuantityKg")
+            or b2b_order.get("quantityKg")
+            or b2b_order.get("quantity")
+            or 0
+        )
+        order_number = b2b_order.get("orderNumber") or b2b_order.get("orderNo") or f"B2B-{b2b_order_id[-6:]}"
+        farmer_name = (
+            (farmer_profile or {}).get("farmName")
+            or (farmer_profile or {}).get("ownerName")
+            or (farmer_profile or {}).get("name")
+            or b2b_order.get("farmerName")
+            or "Farmer"
+        )
+        pickup_team_id = str(b2b_order.get("pickupTeam") or "")
+        pickup_route = await warehouse_pickup_route_repository.find_one({
+            "$and": [
+                {"warehouseId": {"$in": warehouse_refs}},
+                {"deletedAt": None},
+                {"status": {"$nin": ["cancelled", "closed", "archived", "returned_to_warehouse"]}},
+                {"$or": [
+                    {"b2bOrderId": b2b_order_id},
+                    {"stops.b2bOrderId": b2b_order_id},
+                    {"stops.orderId": b2b_order_id},
+                    {"stops.orders.b2bOrderId": b2b_order_id},
+                ]},
+            ],
+        })
+        initial_collection_status = (
+            "collected" if b2b_order.get("status") == "picked_up"
+            else "team_assigned" if pickup_team_id
+            else "ready_for_pickup"
+        )
+        if not collection_job:
+            collection_id = await warehouse_collection_repository.create_job({
+                "warehouseId": ObjectId(warehouse_id),
+                "orderId": ObjectId(b2b_order_id),
+                "b2bOrderId": b2b_order_id,
+                "orderNumber": order_number,
+                "farmerId": ObjectId(farmer_id) if ObjectId.is_valid(farmer_id) else None,
+                "farmerName": farmer_name,
+                "productName": b2b_order.get("productName") or "B2B produce",
+                "quantity": order_quantity,
+                "pickupLocation": farm_location if isinstance(farm_location, dict) else {},
+                "pickupAddress": (farmer_profile or {}).get("farmAddress") or (farmer_profile or {}).get("address") or b2b_order.get("farmAddress") or "Farm address not provided",
+                "collectionType": "b2b",
+                "status": initial_collection_status,
+                "collectionTeamId": ObjectId(pickup_team_id) if ObjectId.is_valid(pickup_team_id) else None,
+                "collectionTeamName": b2b_order.get("pickupTeamName"),
+                "collectionVehicleNumber": b2b_order.get("pickupVehicle"),
+                "pickupRouteId": ObjectId(str(pickup_route.get("_id"))) if pickup_route and ObjectId.is_valid(str(pickup_route.get("_id"))) else None,
+                "pickupRouteStatus": "assigned" if pickup_team_id else "offered" if pickup_route else None,
+                "pickupAssignmentSource": b2b_order.get("pickupAssignmentSource"),
+                "createdFrom": "b2b_order",
+            })
+            if not collection_id:
+                logger.warning("Could not reconcile B2B pickup collection job for order %s", b2b_order_id)
+        else:
+            sync_fields = {
+                "b2bOrderId": b2b_order_id,
+                "orderNumber": order_number,
+                "collectionType": "b2b",
+                "farmerName": farmer_name,
+                "productName": b2b_order.get("productName") or collection_job.get("productName") or "B2B produce",
+                "quantity": order_quantity or collection_job.get("quantity") or 0,
+                "pickupLocation": farm_location if isinstance(farm_location, dict) else collection_job.get("pickupLocation") or {},
+                "pickupAddress": (farmer_profile or {}).get("farmAddress") or (farmer_profile or {}).get("address") or b2b_order.get("farmAddress") or collection_job.get("pickupAddress") or "Farm address not provided",
+            }
+            if pickup_team_id and ObjectId.is_valid(pickup_team_id):
+                sync_fields.update({
+                    "collectionTeamId": ObjectId(pickup_team_id),
+                    "collectionTeamName": b2b_order.get("pickupTeamName") or "Assigned pickup partner",
+                    "collectionVehicleNumber": b2b_order.get("pickupVehicle"),
+                    "status": "team_assigned" if b2b_order.get("status") == "ready_for_pickup" else collection_job.get("status"),
+                    "pickupAssignmentSource": b2b_order.get("pickupAssignmentSource") or "b2b_fulfillment",
+                })
+            if pickup_route and pickup_route.get("_id"):
+                sync_fields.update({
+                    "pickupRouteId": pickup_route["_id"],
+                    "pickupRouteStatus": pickup_route.get("status") or "offered",
+                })
+            await warehouse_collection_repository.update_job(str(collection_job["_id"]), sync_fields)
+
+    # Reload after reconciliation so newly-created general and B2B pickup jobs appear immediately.
     jobs = await warehouse_collection_repository.get_by_warehouse(warehouse_id, status_filter, limit=1000)
 
     async def display_name_for_profile(profile: Optional[Dict[str, Any]], default: str) -> str:
