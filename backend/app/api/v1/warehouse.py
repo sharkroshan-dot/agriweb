@@ -1308,8 +1308,33 @@ async def get_my_collections(
                 ]
                 pickup_address = ", ".join(part for part in address_parts if part) or None
 
+        # Preserve locality fields separately so Pickup Routes can group farms
+        # by village/town within the warehouse district instead of showing one
+        # generic "Area not identified" group.
+        farm_address = (
+            farmer_profile.get("farmAddress") or farmer_profile.get("address") or farmer_profile.get("location") or {}
+        ) if isinstance(farmer_profile, dict) else {}
+        if not isinstance(farm_address, dict):
+            farm_address = {}
+        locality = (
+            readable(pickup_location.get("village")) if isinstance(pickup_location, dict) else None
+        ) or readable(farm_address.get("village")) or readable((farmer_profile or {}).get("farmVillage") if isinstance(farmer_profile, dict) else None)
+        town = (
+            readable(pickup_location.get("town")) if isinstance(pickup_location, dict) else None
+        ) or readable(farm_address.get("town")) or readable((farmer_profile or {}).get("farmTown") if isinstance(farmer_profile, dict) else None)
+        city = (
+            readable(pickup_location.get("city")) if isinstance(pickup_location, dict) else None
+        ) or readable(farm_address.get("city")) or readable((farmer_profile or {}).get("farmCity") if isinstance(farmer_profile, dict) else None)
+        farm_area_name = locality or town or city or (
+            readable(pickup_location.get("locality")) if isinstance(pickup_location, dict) else None
+        ) or (readable(farm_address.get("locality")) if isinstance(farm_address, dict) else None)
+
         item.update({
             "farmerName": farmer_name,
+            "farmVillage": locality,
+            "farmTown": town,
+            "farmCity": city,
+            "farmAreaName": farm_area_name,
             "productName": product_name,
             "orderNumber": order_number,
             "eventOrderNumber": event_order_number,
