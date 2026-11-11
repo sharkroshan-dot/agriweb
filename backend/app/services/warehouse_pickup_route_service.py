@@ -404,18 +404,21 @@ async def assign_route(route: Dict[str, Any], membership: Dict[str, Any]) -> Opt
                 raise ValueError("This farm pickup is already assigned to another pickup partner. Refresh both warehouse pages.")
             if existing_route and existing_route != route_id:
                 raise ValueError("This farm pickup already belongs to another active pickup route.")
-            await warehouse_collection_repository.update_job(collection_id, {
-                "pickupRouteId": ObjectId(route_id),
-                "pickupRouteStatus": "assigned",
-                "collectionTeamId": ObjectId(partner_id),
-                "collectionTeamName": route_update["deliveryPartnerName"],
-                "collectionVehicleNumber": route_update["deliveryPartnerVehicleNumber"],
-                "status": "team_assigned",
-                "teamAssignedAt": now,
-                "pickupAssignmentSource": route.get("assignmentSource") or "pickup_routes",
-            })
+            assigned_job = await warehouse_collection_repository.assign_job_to_route(
+                collection_id,
+                route_id,
+                partner_id,
+                {
+                    "pickupRouteStatus": "assigned",
+                    "collectionTeamName": route_update["deliveryPartnerName"],
+                    "collectionVehicleNumber": route_update["deliveryPartnerVehicleNumber"],
+                    "pickupAssignmentSource": route.get("assignmentSource") or "pickup_routes",
+                },
+            )
+            if not assigned_job:
+                raise ValueError("This farm pickup was assigned by another warehouse workflow. Refresh both pages before continuing.")
             await _sync_b2b_order_pickup_assignment(
-                collection_job,
+                assigned_job,
                 assigned_route,
                 partner_id,
                 membership,
