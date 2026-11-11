@@ -355,7 +355,7 @@ export default function PickupRoutesPage() {
         ].map((item) => <Card key={item.label} className="border-slate-200 shadow-sm"><CardContent className="flex items-center gap-3 p-4"><span className="rounded-lg bg-emerald-50 p-2 text-emerald-700"><item.icon className="h-5 w-5"/></span><div><p className="text-xs text-slate-500">{item.label}</p><p className="text-2xl font-bold tabular-nums text-slate-900">{jobsQ.isError ? "—" : item.value}</p></div></CardContent></Card>)}
       </section>
 
-      <section className="grid items-start gap-5 xl:grid-cols-[minmax(220px,0.72fr)_minmax(0,1.55fr)_minmax(275px,0.92fr)]">
+      <section className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(225px,0.72fr)_minmax(420px,1.55fr)_minmax(290px,0.92fr)]">
         <Card className="h-fit overflow-hidden rounded-2xl border-slate-200 shadow-sm">
           <div className="border-b border-slate-100 p-4">
             <div className="flex items-center justify-between gap-2"><div><h2 className="font-semibold text-slate-950">Pickup areas</h2><p className="mt-1 text-xs text-slate-500">Areas in this warehouse district</p></div><Badge className="border-emerald-100 bg-emerald-50 text-emerald-800">{areas.length} areas</Badge></div>
@@ -461,8 +461,8 @@ export default function PickupRoutesPage() {
             </div>}
           </Card>
         </div>
-<Card className="h-fit overflow-hidden rounded-2xl border-slate-200 shadow-sm 2xl:sticky 2xl:top-4">
-        <div className="flex flex-col gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-center sm:justify-between">
+<Card className="h-fit min-w-0 overflow-hidden rounded-2xl border-slate-200 shadow-sm xl:col-start-3 xl:row-start-1 xl:sticky xl:top-4">
+        <div className="flex flex-col gap-3 border-b border-slate-100 p-4">
           <div className="flex items-center gap-3">
             <span className="rounded-xl bg-emerald-50 p-2.5 text-emerald-700"><Truck className="h-5 w-5"/></span>
             <div><h2 className="font-semibold text-slate-950">Assign pickup partner</h2><p className="mt-0.5 text-xs text-slate-500">Assign the selected farm collections to an approved partner and vehicle.</p></div>
