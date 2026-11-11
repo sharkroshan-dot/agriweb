@@ -384,6 +384,7 @@ async def assign_route(route: Dict[str, Any], membership: Dict[str, Any]) -> Opt
         "status": "assigned",
         "assignedAt": route.get("assignedAt") or now,
         "assignedBy": route.get("assignedBy"),
+        "assignmentSource": route.get("assignmentSource") or "pickup_routes",
         "updatedAt": now,
     }
     current_route = await warehouse_pickup_route_repository.get_by_id(route_id)
