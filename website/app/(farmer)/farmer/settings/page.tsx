@@ -88,6 +88,7 @@ export default function FarmerSettingsPage() {
     city: "",
     weeklyPickupWindow: "Mon - Thu, 6 AM - 11 AM",
     farmAddress: "",
+    farmTaluk: "",
     pickupInstructions: "",
     profileImage: "",
   });
@@ -157,6 +158,7 @@ export default function FarmerSettingsPage() {
         city: p.city || "",
         weeklyPickupWindow: p.weeklyPickupWindow || "Mon - Thu, 6 AM - 11 AM",
         farmAddress: p.farmAddress || "",
+        farmTaluk: p.farmTaluk || p.taluk || p.subDistrict || "",
         pickupInstructions: p.pickupInstructions || "",
         profileImage: p.profileImage || "",
       });
@@ -277,7 +279,7 @@ export default function FarmerSettingsPage() {
           <div className="grid min-w-0 gap-4 sm:grid-cols-2 lg:col-span-2">
             {[
               ["ownerName", "Full Name"], ["email", "Email Address"], ["phone", "Phone Number"],
-              ["farmAddress", "Farm Address"], ["city", "City"], ["farmName", "Farm Name"],
+              ["farmAddress", "Farm Address"], ["city", "City"], ["farmName", "Farm Name"], ["farmTaluk", "Farm Taluk"],
             ].map(([key, label]) => <div key={key} className="min-w-0"><label className="mb-1.5 block text-xs font-semibold text-slate-700">{label}</label><Input className="h-10 w-full rounded-lg border-slate-200 bg-white" value={profile[key as keyof typeof profile]} onChange={(event) => setProfile((current) => ({ ...current, [key]: event.target.value }))} /></div>)}
             <div className="sm:col-span-2"><label className="mb-1.5 block text-xs font-semibold text-slate-700">Pickup Instructions</label><Input className="h-10 w-full rounded-lg border-slate-200" value={profile.pickupInstructions} onChange={(event) => setProfile((current) => ({ ...current, pickupInstructions: event.target.value }))} placeholder="Landmark, gate details or contact instructions" /></div>
             <div className="sm:col-span-2"><label className="mb-1.5 block text-xs font-semibold text-slate-700">Weekly Pickup Window</label><Input className="h-10 w-full rounded-lg border-slate-200" value={profile.weeklyPickupWindow} onChange={(event) => setProfile((current) => ({ ...current, weeklyPickupWindow: event.target.value }))} /></div>
