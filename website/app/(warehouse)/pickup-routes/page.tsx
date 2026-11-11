@@ -163,6 +163,14 @@ export default function PickupRoutesPage() {
     return Array.from(groups.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [jobs, areasQ.data]);
 
+  const taluks: Job[] = useMemo(() => {
+    const rows = areasQ.data?.data?.taluks ?? areasQ.data?.taluks ?? [];
+    return Array.isArray(rows) ? rows.filter((item: unknown): item is Job => Boolean(item) && typeof item === "object") : [];
+  }, [areasQ.data]);
+  const selectedTaluk = taluks.find((taluk) => taluk.key === selectedArea);
+  const selectedZone = areas.find((area) => area.key === selectedArea);
+  const selectedGroupName = selectedTaluk?.name || selectedZone?.name || "All areas";
+
   const filtered = useMemo(() => {
     const zone = areas.find((area) => area.key === selectedArea);
     const taluk = taluks.find((item) => item.key === selectedArea);
@@ -175,14 +183,6 @@ export default function PickupRoutesPage() {
       return areaMatch && statusMatch && (!term || text.includes(term));
     });
   }, [jobs, areas, taluks, selectedArea, statusFilter, search]);
-
-  const taluks: Job[] = useMemo(() => {
-    const rows = areasQ.data?.data?.taluks ?? areasQ.data?.taluks ?? [];
-    return Array.isArray(rows) ? rows.filter((item: unknown): item is Job => Boolean(item) && typeof item === "object") : [];
-  }, [areasQ.data]);
-  const selectedTaluk = taluks.find((taluk) => taluk.key === selectedArea);
-  const selectedZone = areas.find((area) => area.key === selectedArea);
-  const selectedGroupName = selectedTaluk?.name || selectedZone?.name || "All areas";
 
   const selectedJobs = jobs.filter((job) => selectedIds.includes(idOf(job)));
   const selectedWeight = selectedJobs.reduce((sum, job) => sum + Number(job.quantity || 0), 0);
