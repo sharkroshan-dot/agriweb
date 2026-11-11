@@ -1444,15 +1444,19 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
             profile.get("farmVillage"), profile.get("villageName"), profile.get("village"),
             profile.get("farmAreaName"), profile.get("gramPanchayat"), profile.get("panchayat"),
             profile.get("farmLocality"), profile.get("locality"), profile.get("area"),
-            profile.get("farmTown"), profile.get("town"), profile.get("taluk"),
+            # Farmer settings store the selected pickup area in farmTaluk.
+            # Include it before generic city/address values so Trichy is not
+            # mistaken for the farm's actual pickup locality.
+            profile.get("farmTaluk"), profile.get("taluk"), profile.get("subDistrict"),
+            profile.get("farmTown"), profile.get("town"),
         ]
         for container_key in ("farmLocation", "farmAddress", "address", "location"):
             value = profile.get(container_key)
             if isinstance(value, dict):
                 candidates.extend([
                     value.get("village"), value.get("villageName"), value.get("farmVillage"),
-                    value.get("locality"), value.get("area"), value.get("town"),
-                    value.get("taluk"), value.get("gramPanchayat"), value.get("panchayat"),
+                    value.get("locality"), value.get("area"), value.get("gramPanchayat"), value.get("panchayat"),
+                    value.get("farmTaluk"), value.get("taluk"), value.get("subDistrict"), value.get("town"),
                 ])
         for candidate in candidates:
             if isinstance(candidate, str) and candidate.strip():
@@ -1550,9 +1554,24 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
     profile_taluk_by_id: Dict[str, str] = {}
     profile_coords_by_id: Dict[str, tuple] = {}
     profile_directory: List[Dict[str, Any]] = []
+    # Collection jobs are already assigned to this warehouse. Use their farmer
+    # references as an authoritative link when older farmer profiles do not
+    # contain a district field that the district resolver can recognize.
+    job_farmer_refs = set()
+    for job in pickup_jobs:
+        for field in ("farmerId", "farmerUserId", "farmId"):
+            value = job.get(field)
+            if value:
+                job_farmer_refs.add(str(value))
     for profile in profiles:
         location = profile.get("farmLocation") or profile.get("farmAddress") or profile.get("location") or profile.get("address") or {}
-        if farmer_collection_district(profile, location, coverage) not in coverage:
+        profile_ids = {
+            str(value) for value in (
+                profile.get("_id"), profile.get("userId"), profile.get("farmerId")
+            ) if value
+        }
+        district_match = farmer_collection_district(profile, location, coverage)
+        if district_match not in coverage and not (profile_ids & job_farmer_refs):
             continue
         area_name = area_from_profile(profile)
         matched_master = canonical_area(area_name)
