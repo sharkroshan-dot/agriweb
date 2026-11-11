@@ -1533,6 +1533,7 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
         value = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
         return 6371.0 * 2 * math.asin(min(1.0, math.sqrt(value)))
     profile_area_by_id: Dict[str, str] = {}
+    profile_area_name_by_id: Dict[str, str] = {}
     profile_taluk_by_id: Dict[str, str] = {}
     profile_coords_by_id: Dict[str, tuple] = {}
     profile_directory: List[Dict[str, Any]] = []
@@ -1550,6 +1551,7 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
                 identity_key = str(identity)
                 if area_key:
                     profile_area_by_id[identity_key] = area_key
+                    profile_area_name_by_id[identity_key] = area_name or ""
                 if taluk_name:
                     profile_taluk_by_id[identity_key] = taluk_name
                 if coords:
@@ -1662,11 +1664,7 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
             "registeredFarmerIds": set(), "readyFarmerIds": set(),
             "collectionIds": [], "readyOrders": 0, "totalOrders": 0,
         })
-        area_name = None
-        if farmer_id:
-            profile_area_key = profile_area_by_id.get(farmer_id)
-            if profile_area_key:
-                area_name = next((entry["area"] for entry in profile_directory if entry.get("area") and normalized_area(entry["area"]) == profile_area_key), None)
+        area_name = profile_area_name_by_id.get(farmer_id)
         area_name = area_name or job.get("farmVillage") or job.get("farmAreaName") or job.get("village") or job.get("locality") or job.get("farmTown")
         if area_name:
             group["areaNames"].add(str(area_name).strip())
