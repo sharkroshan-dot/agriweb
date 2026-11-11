@@ -22,7 +22,21 @@ const STATUS_LABEL: Record<string, string> = {
 
 function idOf(job: Job) { return String(job.id || job._id || ""); }
 function areaOf(job: Job) {
-  return String(job.farmDistrict || job.district || job.pickupLocation?.district || job.pickupLocation?.city || job.pickupAddress || "Area not identified").trim();
+  const location = job.pickupLocation || job.farmLocation || {};
+  return String(
+    job.farmVillage || job.village || location.village ||
+    job.farmTown || job.town || location.town ||
+    job.farmCity || job.city || location.city ||
+    job.locality || location.locality || job.area || location.area ||
+    "Area not identified"
+  ).trim();
+}
+function districtOf(job: Job) {
+  const location = job.pickupLocation || job.farmLocation || {};
+  return String(job.farmDistrict || job.district || location.district || "").trim();
+}
+function normalizeDistrict(value: unknown) {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 function typeOf(job: Job): "B2B" | "Normal" {
   const value = [job.orderType, job.orderCategory, job.customerType, job.businessId, job.businessName, job.buyerType, job.collectionType].filter(Boolean).join(" ").toLowerCase();
@@ -62,10 +76,22 @@ export default function PickupRoutesPage() {
 
   // Accept both direct API payloads and { data: ... } response envelopes.
   // Guard arrays so malformed/alternate responses cannot crash page rendering.
-  const rawJobs = jobsQ.data?.collections ?? jobsQ.data?.data?.collections ?? jobsQ.data?.orders ?? jobsQ.data?.data?.orders;
-  const rawTeams = teamsQ.data?.members ?? teamsQ.data?.data?.members ?? teamsQ.data?.teams ?? teamsQ.data?.data?.teams;
-  const jobs: Job[] = Array.isArray(rawJobs) ? rawJobs.filter((job: unknown): job is Job => Boolean(job) && typeof job === "object") : [];
+  const rawJobs = jobsQ.data?.data?.collections ?? jobsQ.data?.collections ?? jobsQ.data?.orders ?? jobsQ.data?.data?.orders;
+  const rawTeams = teamsQ.data?.data?.members ?? teamsQ.data?.members ?? teamsQ.data?.teams ?? teamsQ.data?.data?.teams;
+  const allJobs: Job[] = Array.isArray(rawJobs) ? rawJobs.filter((job: unknown): job is Job => Boolean(job) && typeof job === "object") : [];
   const teams: Job[] = Array.isArray(rawTeams) ? rawTeams.filter((team: unknown): team is Job => Boolean(team) && typeof team === "object") : [];
+  // Use the same district coverage returned by Farm Collection. The backend
+  // defaults this to the warehouse Settings location district when no explicit
+  // Farm Collection district coverage has been configured.
+  const configuredDistricts: string[] = Array.isArray(jobsQ.data?.data?.configuredFarmCollectionDistricts)
+    ? jobsQ.data.data.configuredFarmCollectionDistricts
+    : Array.isArray(jobsQ.data?.configuredFarmCollectionDistricts)
+      ? jobsQ.data.configuredFarmCollectionDistricts
+      : [];
+  const allowedDistrictKeys = new Set(configuredDistricts.map(normalizeDistrict).filter(Boolean));
+  const jobs = allowedDistrictKeys.size
+    ? allJobs.filter((job) => allowedDistrictKeys.has(normalizeDistrict(districtOf(job))))
+    : [];
   const eligibleTeams = teams.filter((team) => Number(team.capacity || team.vehicleCapacity || 0) > 0);
   const selectedTeam = eligibleTeams.find((team) => String(team.id) === teamId);
 
@@ -155,12 +181,14 @@ export default function PickupRoutesPage() {
           <div>
             <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-emerald-700"><MapIcon className="h-4 w-4" /> Geographical pickup planning</div>
             <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Area-wise Pickup Routes</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">View normal and B2B farm pickup orders by area, explore pickup locations and assign eligible orders to approved pickup partners.</p>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Plan normal and B2B farm pickups only within this warehouse’s configured district coverage. Orders are grouped into local areas, towns and villages inside that district.</p>
+            <p className="mt-2 text-xs font-medium text-emerald-700">{configuredDistricts.length ? `District coverage: ${configuredDistricts.join(", ")}` : "District coverage is not configured. Set the warehouse district in Settings before planning pickups."}</p>
           </div>
           <Button variant="outline" onClick={() => { jobsQ.refetch(); teamsQ.refetch(); }} disabled={jobsQ.isFetching} className="gap-2 self-start"><RefreshCw className={`h-4 w-4 ${jobsQ.isFetching ? "animate-spin" : ""}`} /> Refresh</Button>
         </div>
       </section>
 
+      {!jobsQ.isLoading && !jobsQ.isError && allowedDistrictKeys.size === 0 && <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">Farm Collection district coverage is missing. Pickup Routes is intentionally not showing orders from other districts. Configure this warehouse’s district in Warehouse Settings, then refresh.</div>}
       <section className="grid gap-3 grid-cols-2 xl:grid-cols-5">
         {[
           { label: "Orders in view", value: areaSummary.total, icon: Package },
