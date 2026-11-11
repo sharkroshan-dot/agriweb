@@ -1576,7 +1576,17 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
         chosen = None
         # First match an explicit locality to one configured hub's service area.
         if area_key:
-            chosen = next((zone for zone in zones if area_key in zone["serviceAreas"]), None)
+            explicit_matches = [zone for zone in zones if area_key in zone["serviceAreas"]]
+            if len(explicit_matches) == 1:
+                chosen = explicit_matches[0]
+            elif len(explicit_matches) > 1 and coords:
+                chosen = min(
+                    explicit_matches,
+                    key=lambda zone: distance_km_local(coords, zone["hubCoordinates"])
+                    if zone["hubCoordinates"] else float("inf"),
+                )
+            elif explicit_matches:
+                chosen = sorted(explicit_matches, key=lambda zone: zone["name"].casefold())[0]
         # Radius is a fallback only when no explicit service-area match exists.
         if chosen is None and coords:
             nearby = []
