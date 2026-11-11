@@ -24,7 +24,7 @@ function idOf(job: Job) { return String(job.id || job._id || ""); }
 function areaOf(job: Job) {
   const location = job.pickupLocation || job.farmLocation || {};
   return String(
-    job.farmVillage || job.village || location.village ||
+    job.farmAreaName || job.farmVillage || job.village || location.village ||
     job.farmTown || job.town || location.town ||
     job.farmCity || job.city || location.city ||
     job.locality || location.locality || job.area || location.area ||
