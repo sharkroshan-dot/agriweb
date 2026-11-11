@@ -1,218 +1,246 @@
 "use client";
 
-import React from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { MapPin, Route, Plus, CheckCircle2, Users, PackageCheck, Truck, ExternalLink } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
+import {
+  MapPin, Route, Users, Truck, RefreshCw, Search, Package,
+  CheckCircle2, Clock3, AlertTriangle, Map, Layers3, Building2,
+} from "lucide-react";
+import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
 import { api } from "../../lib/api/client";
 import toast from "react-hot-toast";
 
-const routeStatusLabel = (value: string) => ({
-  offered: "Waiting for partner",
-  assigned: "Assigned to partner",
-  started: "Pickup in progress",
-  arrived_at_farm: "At farm",
-  collected: "Collection recorded",
-  departed_farm: "All farms departed",
-  completed: "Route completed",
-  returned_to_warehouse: "Returned to warehouse",
-  received: "Received",
-  stored: "Stored in inventory",
-} as Record<string, string>)[value] || value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
-
-const formatDateTime = (value: any) => {
-  if (!value) return "Not recorded";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+type Job = Record<string, any>;
+const READY = new Set(["ready_for_pickup", "team_assigned"]);
+const STATUS_LABEL: Record<string, string> = {
+  scheduled: "Waiting for farmer", ready_for_pickup: "Ready for pickup",
+  team_assigned: "Partner assigned", en_route: "En route", arrived_at_farm: "At farm",
+  collected: "Collected", departed_farm: "Departed farm", arrived_warehouse: "At warehouse",
 };
 
-const stopStatusLabel = (value: string) => ({
-  pending: "Waiting for pickup",
-  ready_for_pickup: "Ready for pickup",
-  team_assigned: "Team assigned",
-  en_route: "On the way",
-  started: "Pickup started",
-  arrived_at_farm: "Arrived at farm",
-  collected: "Collected",
-  departed_farm: "Departed farm",
-  arrived_warehouse: "At warehouse",
-} as Record<string, string>)[value] || value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+function idOf(job: Job) { return String(job.id || job._id || ""); }
+function areaOf(job: Job) {
+  return String(job.farmDistrict || job.district || job.pickupLocation?.district || job.pickupLocation?.city || job.pickupAddress || "Area not identified").trim();
+}
+function typeOf(job: Job): "B2B" | "Normal" {
+  const value = [job.orderType, job.orderCategory, job.customerType, job.businessId, job.businessName, job.buyerType, job.collectionType].filter(Boolean).join(" ").toLowerCase();
+  return value.includes("b2b") || value.includes("business") || Boolean(job.businessId || job.businessName) ? "B2B" : "Normal";
+}
+function coordinatesOf(job: Job): [number, number] | null {
+  const location = job.pickupLocation || job.farmLocation || {};
+  const raw = location.coordinates || location.coords;
+  let lat: number, lng: number;
+  if (Array.isArray(raw) && raw.length >= 2) { lng = Number(raw[0]); lat = Number(raw[1]); }
+  else if (raw && typeof raw === "object") { lat = Number(raw.lat ?? raw.latitude); lng = Number(raw.lng ?? raw.longitude ?? raw.lon); }
+  else { lat = Number(location.lat ?? location.latitude ?? job.latitude); lng = Number(location.lng ?? location.longitude ?? job.longitude); }
+  return Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 ? [lat, lng] : null;
+}
+function areaKey(value: string) { return value.toLowerCase().replace(/\\s+/g, " ").trim(); }
 
 export default function PickupRoutesPage() {
-  const routesQ = useQuery({
-    queryKey: ["warehousePickupRoutes"],
-    queryFn: () => api.get("/warehouse/me/pickup-routes"),
+  const [selectedArea, setSelectedArea] = useState("all");
+  const [orderType, setOrderType] = useState<"all" | "B2B" | "Normal">("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [search, setSearch] = useState("");
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [teamId, setTeamId] = useState("");
+  const [assigning, setAssigning] = useState(false);
+
+  const jobsQ = useQuery({
+    queryKey: ["warehousePickupAreaPlanning"],
+    queryFn: () => api.get("/warehouse/me/collections", { params: { status: "all" } }),
     refetchInterval: 10000,
+    staleTime: 0,
   });
   const teamsQ = useQuery({
-    queryKey: ["warehousePickupTeams"],
+    queryKey: ["warehousePickupAreaTeams"],
     queryFn: () => api.get("/warehouse/me/pickup-team/members"),
     refetchInterval: 15000,
   });
 
-  const routes = routesQ.data?.data?.routes || [];
-  const teams = teamsQ.data?.data?.members || [];
-  const [selectedTeamId, setSelectedTeamId] = React.useState("");
+  const jobs: Job[] = jobsQ.data?.data?.collections || [];
+  const teams: Job[] = teamsQ.data?.data?.members || [];
+  const eligibleTeams = teams.filter((team) => Number(team.capacity || team.vehicleCapacity || 0) > 0);
+  const selectedTeam = eligibleTeams.find((team) => String(team.id) === teamId);
 
-  const selectedTeam = teams.find((team: any) => team.id === selectedTeamId);
+  const areas = useMemo(() => {
+    const groups = new Map<string, { key: string; name: string; jobs: Job[] }>();
+    jobs.forEach((job) => {
+      const name = areaOf(job); const key = areaKey(name);
+      if (!groups.has(key)) groups.set(key, { key, name, jobs: [] });
+      groups.get(key)!.jobs.push(job);
+    });
+    return Array.from(groups.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [jobs]);
 
-  const createRoutes = async () => {
-    const capacity = Number(selectedTeam?.capacity || 0);
-    if (!selectedTeamId || capacity <= 0) {
-      toast.error("Select an approved pickup vehicle with a registered carrying capacity.");
-      return;
+  const filtered = useMemo(() => jobs.filter((job) => {
+    const areaMatch = selectedArea === "all" || areaKey(areaOf(job)) === selectedArea;
+    const typeMatch = orderType === "all" || typeOf(job) === orderType;
+    const statusMatch = statusFilter === "all" || String(job.status || "") === statusFilter;
+    const term = search.trim().toLowerCase();
+    const text = [job.farmerName, job.orderNumber, job.orderId, job.productName, job.pickupAddress, areaOf(job)].join(" ").toLowerCase();
+    return areaMatch && typeMatch && statusMatch && (!term || text.includes(term));
+  }), [jobs, selectedArea, orderType, statusFilter, search]);
+
+  const selectedJobs = jobs.filter((job) => selectedIds.includes(idOf(job)));
+  const selectedWeight = selectedJobs.reduce((sum, job) => sum + Number(job.quantity || 0), 0);
+  const eligibleFiltered = filtered.filter((job) => READY.has(String(job.status || "")) && !job.pickupRouteId && idOf(job));
+  const areaSummary = useMemo(() => {
+    const source = selectedArea === "all" ? jobs : jobs.filter((job) => areaKey(areaOf(job)) === selectedArea);
+    return {
+      total: source.length,
+      b2b: source.filter((job) => typeOf(job) === "B2B").length,
+      normal: source.filter((job) => typeOf(job) === "Normal").length,
+      ready: source.filter((job) => READY.has(String(job.status || "")) && !job.pickupRouteId).length,
+      assigned: source.filter((job) => Boolean(job.pickupRouteId || job.collectionTeamId)).length,
+    };
+  }, [jobs, selectedArea]);
+
+  const mapBounds = useMemo(() => {
+    const coords = filtered.map(coordinatesOf).filter(Boolean) as [number, number][];
+    if (!coords.length) return null;
+    const lats = coords.map((p) => p[0]), lngs = coords.map((p) => p[1]);
+    const padLat = Math.max((Math.max(...lats) - Math.min(...lats)) * 0.2, 0.015);
+    const padLng = Math.max((Math.max(...lngs) - Math.min(...lngs)) * 0.2, 0.015);
+    return [Math.min(...lngs) - padLng, Math.min(...lats) - padLat, Math.max(...lngs) + padLng, Math.max(...lats) + padLat].join(",");
+  }, [filtered]);
+
+  const toggleOrder = (id: string) => setSelectedIds((current) => current.includes(id) ? current.filter((x) => x !== id) : [...current, id]);
+  const selectVisible = () => setSelectedIds((current) => {
+    const ids = eligibleFiltered.map(idOf);
+    return ids.every((id) => current.includes(id)) ? current.filter((id) => !ids.includes(id)) : Array.from(new Set([...current, ...ids]));
+  });
+
+  const assignAreaOrders = async () => {
+    if (!selectedIds.length) { toast.error("Select eligible pickup orders first."); return; }
+    if (!selectedTeam) { toast.error("Select an approved pickup partner with registered vehicle capacity."); return; }
+    if (!selectedTeam.deliveryPartnerId) { toast.error("The selected pickup team has no linked delivery partner."); return; }
+    if (selectedWeight > Number(selectedTeam.capacity || selectedTeam.vehicleCapacity || 0)) {
+      toast.error(`Selected orders total ${selectedWeight.toFixed(1)} kg, above this vehicle's capacity.`); return;
     }
+    const invalid = selectedJobs.filter((job) => !READY.has(String(job.status || "")) || job.pickupRouteId);
+    if (invalid.length) { toast.error("Some selected orders are no longer eligible. Refresh and select again."); return; }
+    setAssigning(true);
     try {
-      await api.post("/warehouse/me/pickup-routes", { maxWeightKg: capacity });
-      toast.success("Pickup route(s) created. Approved partners will receive offers; otherwise eligible delivery partners can pick them up.");
-      await routesQ.refetch();
-    } catch (e: any) {
-      toast.error(e?.message || "No ready farms available");
-    }
+      const result = await api.post("/warehouse/me/pickup-routes", {
+        collectionIds: selectedIds,
+        maxWeightKg: Number(selectedTeam.capacity || selectedTeam.vehicleCapacity),
+        assignmentMode: "assign_team",
+        deliveryPartnerId: selectedTeam.deliveryPartnerId,
+      });
+      toast.success(result?.message || result?.data?.message || "Selected area pickups assigned successfully.");
+      setSelectedIds([]);
+      await Promise.all([jobsQ.refetch(), teamsQ.refetch()]);
+    } catch (error: any) {
+      toast.error(error?.message || "Unable to assign selected pickups.");
+    } finally { setAssigning(false); }
+  };
+
+  const openLocation = (job: Job) => {
+    const coords = coordinatesOf(job);
+    const query = coords ? `${coords[0]},${coords[1]}` : job.pickupAddress || areaOf(job);
+    window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`, "_blank", "noopener,noreferrer");
   };
 
   return (
-    <div className="warehouse-pickup-routes-page space-y-6">
-      <div className="rounded-2xl bg-gradient-to-r from-emerald-700 via-emerald-600 to-teal-600 p-6 text-white shadow-sm sm:p-8">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <main className="warehouse-pickup-routes-page w-full space-y-6 pb-8">
+      <section className="rounded-xl border border-slate-200 border-l-4 border-l-emerald-600 bg-white p-5 shadow-sm sm:p-6">
+        <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
           <div>
-            <div className="flex items-center gap-2 text-emerald-100 text-base">
-              <Route className="h-4 w-4" /> Daily pickup planning
-            </div>
-            <h1 className="mt-2 text-3xl font-bold">Pickup Routes</h1>
-            <p className="mt-2 max-w-2xl text-base leading-relaxed text-emerald-50">
-              Routes are sized by the selected vehicle capacity. The system adds as many farm stops as that vehicle can carry; there is no fixed stop limit. The first eligible partner to accept wins the route.
-            </p>
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-emerald-700"><Map className="h-4 w-4" /> Geographical pickup planning</div>
+            <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Area-wise Pickup Routes</h1>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">View normal and B2B farm pickup orders by area, explore pickup locations and assign eligible orders to approved pickup partners.</p>
           </div>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-            <label className="text-sm font-medium text-emerald-50">
-              <span className="mb-1 flex items-center gap-1"><Truck className="h-4 w-4" /> Planning vehicle</span>
-              <select value={selectedTeamId} onChange={(e) => setSelectedTeamId(e.target.value)} className="h-11 min-w-56 rounded-lg border border-white/30 bg-white px-3 text-base text-slate-900">
-                <option value="">Select vehicle</option>
-                {teams.map((team: any) => (
-                  <option key={team.id} value={team.id} disabled={!team.capacity}>
-                    {team.name || "Pickup Partner"} · {team.vehicleType || "Vehicle"} · {team.capacity ? `${team.capacity} kg` : "Capacity not registered"}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <Button variant="secondary" onClick={createRoutes} disabled={!selectedTeamId || !selectedTeam?.capacity}>
-              <Plus className="mr-2 h-4 w-4" /> Create & Offer Routes
-            </Button>
-          </div>
+          <Button variant="outline" onClick={() => { jobsQ.refetch(); teamsQ.refetch(); }} disabled={jobsQ.isFetching} className="gap-2 self-start"><RefreshCw className={`h-4 w-4 ${jobsQ.isFetching ? "animate-spin" : ""}`} /> Refresh</Button>
         </div>
-      </div>
+      </section>
 
-      {selectedTeam && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-base leading-relaxed text-emerald-900"><strong>{selectedTeam.name || "Selected vehicle"}</strong> · {selectedTeam.vehicleType || "Vehicle"} · <strong>{selectedTeam.capacity} kg capacity</strong>. Route planning will continue adding farm stops until this capacity is reached.</div>}
+      <section className="grid gap-3 grid-cols-2 xl:grid-cols-5">
+        {[
+          { label: "Orders in view", value: areaSummary.total, icon: Package },
+          { label: "Normal orders", value: areaSummary.normal, icon: Package },
+          { label: "B2B orders", value: areaSummary.b2b, icon: Building2 },
+          { label: "Ready to assign", value: areaSummary.ready, icon: Clock3 },
+          { label: "Already assigned", value: areaSummary.assigned, icon: CheckCircle2 },
+        ].map((item) => <Card key={item.label} className="border-slate-200 shadow-sm"><CardContent className="flex items-center gap-3 p-4"><span className="rounded-lg bg-emerald-50 p-2 text-emerald-700"><item.icon className="h-5 w-5"/></span><div><p className="text-xs text-slate-500">{item.label}</p><p className="text-2xl font-bold tabular-nums text-slate-900">{jobsQ.isError ? "—" : item.value}</p></div></CardContent></Card>)}
+      </section>
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Card><CardContent className="p-5"><p className="text-sm text-muted-foreground">All Pickup Routes</p><p className="text-2xl font-bold">{routes.length}</p></CardContent></Card>
-        <Card><CardContent className="p-5"><p className="text-xs text-muted-foreground">Total Farm Stops</p><p className="text-2xl font-bold">{routes.reduce((n: number, r: any) => n + (r.totalStops || 0), 0)}</p></CardContent></Card>
-        <Card><CardContent className="p-5"><p className="text-xs text-muted-foreground">Approved Pickup Partners</p><p className="text-2xl font-bold">{teams.length}</p></CardContent></Card>
-      </div>
+      <section className="grid gap-5 xl:grid-cols-[minmax(250px,0.75fr)_minmax(0,2fr)]">
+        <Card className="h-fit border-slate-200 shadow-sm">
+          <div className="border-b p-4"><h2 className="font-semibold text-slate-900">Pickup areas</h2><p className="mt-1 text-xs text-slate-500">Select an area to view its orders and locations.</p></div>
+          <div className="max-h-[620px] space-y-2 overflow-y-auto p-3">
+            <button onClick={() => setSelectedArea("all")} className={`w-full rounded-lg border p-3 text-left ${selectedArea === "all" ? "border-emerald-300 bg-emerald-50" : "border-transparent hover:bg-slate-50"}`}>
+              <span className="flex items-center justify-between text-sm font-semibold">All areas <span className="tabular-nums">{jobs.length}</span></span>
+              <span className="mt-1 block text-xs text-slate-500">{areaSummary.ready} ready for assignment</span>
+            </button>
+            {areas.map((area) => {
+              const ready = area.jobs.filter((job) => READY.has(String(job.status || "")) && !job.pickupRouteId).length;
+              const b2b = area.jobs.filter((job) => typeOf(job) === "B2B").length;
+              return <button key={area.key} onClick={() => setSelectedArea(area.key)} className={`w-full rounded-lg border p-3 text-left ${selectedArea === area.key ? "border-emerald-300 bg-emerald-50" : "border-transparent hover:bg-slate-50"}`}>
+                <span className="flex items-center justify-between gap-2 text-sm font-semibold text-slate-800"><span className="truncate">{area.name}</span><span className="tabular-nums">{area.jobs.length}</span></span>
+                <span className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500"><span>{ready} ready</span><span>·</span><span>{b2b} B2B</span></span>
+              </button>;
+            })}
+          </div>
+        </Card>
 
-      <div className="space-y-4">
-        {routes.length === 0 ? (
-          <Card className="p-12 text-center">
-            <Route className="mx-auto h-12 w-12 text-muted-foreground" />
-            <h2 className="mt-4 font-semibold">No unfinished pickup routes</h2>
-            <p className="mt-2 text-sm text-muted-foreground">All routes may be completed or no routes have been created yet. Unfinished routes from previous days will remain visible here until they are completed, cancelled, or closed. To create a new route, select eligible pickups in Farm Collection.</p>
+        <div className="space-y-4">
+          <Card className="overflow-hidden border-slate-200 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b p-4">
+              <div><h2 className="flex items-center gap-2 font-semibold text-slate-900"><MapPin className="h-4 w-4 text-emerald-700"/> Pickup location map</h2><p className="mt-1 text-xs text-slate-500">{filtered.filter(coordinatesOf).length} located orders · {filtered.filter((job) => !coordinatesOf(job)).length} without coordinates</p></div>
+              <Badge variant="outline">{selectedArea === "all" ? "All areas" : areas.find((a) => a.key === selectedArea)?.name || "Selected area"}</Badge>
+            </div>
+            {mapBounds ? <iframe title="Pickup area map" className="h-[340px] w-full border-0" loading="lazy" src={`https://www.openstreetmap.org/export/embed.html?bbox=${mapBounds}&layer=mapnik`} /> : <div className="flex h-[260px] flex-col items-center justify-center gap-2 bg-slate-50 text-center"><MapPin className="h-8 w-8 text-slate-400"/><p className="text-sm font-medium text-slate-700">No verified coordinates in this selection</p><p className="text-xs text-slate-500">Orders remain available in the area list; add farm coordinates to display them on the map.</p></div>}
+            <div className="flex flex-wrap gap-3 border-t bg-slate-50 px-4 py-3 text-xs text-slate-600"><span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-emerald-600"/> Normal order</span><span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-blue-600"/> B2B order</span><span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5"/> Open exact pickup location from an order</span></div>
           </Card>
-        ) : routes.map((r: any) => (
-          <Card key={r.id} className="overflow-hidden">
-            <CardHeader className="border-b bg-slate-50/70">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <CardTitle className="text-base">🚚 {r.routeNumber || "Pickup Route"}</CardTitle>
-                  <p className="mt-1 text-base text-muted-foreground">
-                    Assignment date: {r.routeDate || (r.createdAt ? new Date(r.createdAt).toLocaleDateString() : "Date unavailable")} · {r.totalStops || (r.stops || []).length} farms · {r.totalOrders || (r.stops || []).reduce((sum: number, stop: any) => sum + (stop.orderCount || stop.orders?.length || 1), 0)} orders · {r.totalQuantity || 0} kg
-                  </p>
-                </div>
-                <Badge className="px-4 py-2 text-sm font-bold tracking-normal">{routeStatusLabel(String(r.status || "offered"))}</Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="p-5">
-              {r.status === "returned_to_warehouse" && (
-                <div className="mb-4 flex flex-col gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <p className="flex items-center gap-2 font-semibold text-blue-900"><PackageCheck className="h-4 w-4" />Ready for Warehouse Receiving</p>
-                    <p className="mt-1 text-xs text-blue-800">The pickup partner returned this route. Receive each incoming stock record, complete quality check, then Store it to update warehouse inventory.</p>
+
+          <Card className="border-slate-200 shadow-sm">
+            <div className="flex flex-col gap-3 border-b p-4 lg:flex-row lg:items-center lg:justify-between">
+              <div><h2 className="font-semibold text-slate-900">Orders by selected area</h2><p className="mt-1 text-xs text-slate-500">Only Ready for Pickup orders that are not already route-assigned can be selected.</p></div>
+              <Button variant="outline" size="sm" onClick={selectVisible} disabled={!eligibleFiltered.length}>{eligibleFiltered.length && eligibleFiltered.every((job) => selectedIds.includes(idOf(job))) ? "Clear eligible selection" : "Select eligible orders"} ({eligibleFiltered.length})</Button>
+            </div>
+            <div className="grid gap-3 border-b bg-slate-50/70 p-3 md:grid-cols-3">
+              <select value={orderType} onChange={(e) => setOrderType(e.target.value as any)} className="h-10 rounded-lg border bg-white px-3 text-sm"><option value="all">All order types</option><option value="Normal">Normal orders</option><option value="B2B">B2B orders</option></select>
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-10 rounded-lg border bg-white px-3 text-sm"><option value="all">All pickup statuses</option>{Object.entries(STATUS_LABEL).map(([key, value]) => <option key={key} value={key}>{value}</option>)}</select>
+              <div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"/><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search farmer, order, product…" className="h-10 w-full rounded-lg border bg-white pl-9 pr-3 text-sm outline-none focus:border-emerald-500"/></div>
+            </div>
+            {jobsQ.isLoading ? <div className="p-10 text-center text-sm text-slate-500">Loading pickup orders…</div> : jobsQ.isError ? <div className="p-8 text-center"><AlertTriangle className="mx-auto h-8 w-8 text-rose-500"/><p className="mt-2 text-sm font-medium">Unable to load pickup orders</p><Button className="mt-3" variant="outline" onClick={() => jobsQ.refetch()}>Try again</Button></div> : filtered.length === 0 ? <div className="p-10 text-center text-sm text-slate-500">No orders match the selected filters.</div> : <div className="max-h-[540px] divide-y overflow-y-auto">
+              {filtered.map((job) => {
+                const id = idOf(job); const canAssign = READY.has(String(job.status || "")) && !job.pickupRouteId; const coords = coordinatesOf(job);
+                return <div key={id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start">
+                  <input type="checkbox" aria-label={`Select order ${job.orderNumber || id}`} checked={selectedIds.includes(id)} disabled={!canAssign} onChange={() => toggleOrder(id)} className="mt-1 h-4 w-4 accent-emerald-700 disabled:opacity-40"/>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-slate-900">{job.orderNumber || job.eventOrderNumber || "Pickup order"}</span><Badge className={typeOf(job) === "B2B" ? "border-blue-200 bg-blue-50 text-blue-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}>{typeOf(job)}</Badge><Badge variant="outline">{STATUS_LABEL[String(job.status)] || String(job.status || "Unknown").replace(/_/g, " ")}</Badge></div>
+                    <p className="mt-1 text-sm text-slate-700">{job.farmerName || "Farmer details unavailable"} · {job.productName || "Product details unavailable"}</p>
+                    <p className="mt-1 flex items-start gap-1.5 text-xs text-slate-500"><MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0"/>{job.pickupAddress || "Farm address not provided"} · {areaOf(job)}</p>
+                    <p className="mt-1 text-xs text-slate-500">{Number(job.quantity || 0)} kg {job.collectionTeamName && `· ${job.collectionTeamName}`}</p>
+                    {job.districtMatchStatus && job.districtMatchStatus !== "matched" && <p className="mt-2 flex items-center gap-1 text-xs text-amber-700"><AlertTriangle className="h-3.5 w-3.5"/>{job.districtMatchMessage || "Verify farm district before assignment."}</p>}
                   </div>
-                  <Button variant="outline" onClick={() => { window.location.href = "/incoming"; }}>Open Incoming</Button>
-                </div>
-              )}
-              <div className="space-y-3">
-                {(r.stops || []).map((s: any, i: number) => {
-                  const orderCount = Number(s.orderCount || (Array.isArray(s.orders) ? s.orders.length : 0) || 0);
-                  return (
-                    <div key={s.farmKey || s.collectionId || i} className="flex items-start gap-3 rounded-xl border border-emerald-200 p-3">
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-base font-bold text-emerald-700">{i + 1}</div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-base font-semibold">{s.farmerName || "Farmer details unavailable"}</p>
-                        <p className="mt-1 flex items-center gap-2 text-sm leading-relaxed text-muted-foreground"><MapPin className="h-4 w-4 shrink-0" /> {s.pickupAddress || "Farm address not provided"}</p>
-                        <p className="mt-1 text-base font-medium text-muted-foreground">{orderCount} {orderCount === 1 ? "order" : "orders"} · {s.quantity || 0} kg total</p>
-                        {s.distanceFromPreviousKm != null && <p className="mt-1 text-sm text-muted-foreground">Distance from previous stop: {Number(s.distanceFromPreviousKm).toFixed(1)} km</p>}
-                        {(s.arrivedAt || s.collectedAt || s.departedAt || s.completedAt) && <div className="mt-2 flex flex-wrap gap-x-4 gap-y-2 text-sm text-muted-foreground">{s.arrivedAt && <span>Arrived: {formatDateTime(s.arrivedAt)}</span>}{s.collectedAt && <span>Collected: {formatDateTime(s.collectedAt)}</span>}{s.departedAt && <span>Departed: {formatDateTime(s.departedAt)}</span>}</div>}
-                        <div className="mt-3">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="default"
-                            onClick={() => {
-                              const params = new URLSearchParams();
-                              params.set("search", String(s.farmerName || ""));
-                              if (s.farmKey) params.set("focusFarm", String(s.farmKey));
-                              if (Array.isArray(s.collectionIds) && s.collectionIds.length) params.set("focusCollections", s.collectionIds.join(","));
-                              else if (s.collectionId) params.set("focusCollections", String(s.collectionId));
-                              window.location.href = `/collections?${params.toString()}`;
-                            }}
-                          >
-                            <ExternalLink className="mr-2 h-4 w-4" /> View Orders
-                          </Button>
-                        </div>
-                      </div>
-                      <Badge variant="outline" className="shrink-0 px-3 py-2 text-sm font-semibold tracking-normal">{stopStatusLabel(String(s.status || "pending"))}</Badge>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="mt-5 flex flex-col gap-3 rounded-xl bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <p className="flex items-center gap-2 text-sm font-semibold">
-                    {r.deliveryPartnerId ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : <Users className="h-4 w-4 text-amber-600" />}
-                    {r.deliveryPartnerId
-                      ? "Route Accepted"
-                      : r.assignmentMode === "delivery_marketplace"
-                        ? "Open to Delivery Partners"
-                        : "Waiting for Pickup Partner Acceptance"}
-                  </p>
-                  {r.deliveryPartnerId ? (
-                    <div className="mt-2 space-y-2 text-base">
-                      <p><span className="font-medium">Accepted by:</span> {r.deliveryPartnerName || "Pickup Partner"}</p>
-                      <p className="text-muted-foreground">
-                        🚚 {r.deliveryPartnerVehicleType || "Vehicle not specified"} · {r.deliveryPartnerVehicleNumber || "Vehicle number not specified"}
-                      </p>
-                      <p className="text-sm font-medium text-emerald-700">This route is now assigned exclusively to this pickup partner.</p>
-                    </div>
-                  ) : (
-                    <p className="text-sm leading-relaxed text-muted-foreground">
-                      {r.assignmentMode === "delivery_marketplace"
-                        ? "No approved pickup partner is available. Eligible delivery partners can accept this route based on vehicle capacity and availability."
-                        : "All approved pickup partners can see and accept this route. First acceptance wins."}
-                    </p>
-                  )}
-                </div>
-                <Badge variant={r.deliveryPartnerId ? "default" : "outline"} className="shrink-0 px-4 py-2 text-sm font-bold tracking-normal">
-                  {r.deliveryPartnerId ? "Assigned" : r.assignmentMode === "delivery_marketplace" ? "Delivery Marketplace" : "Open Offer"}
-                </Badge>
-              </div>
-            </CardContent>
+                  <div className="flex shrink-0 items-center gap-2"><span className={`text-xs font-medium ${canAssign ? "text-emerald-700" : "text-slate-400"}`}>{canAssign ? "Eligible" : "Not assignable"}</span><Button size="sm" variant="outline" onClick={() => openLocation(job)} disabled={!coords && !job.pickupAddress}>Map</Button></div>
+                </div>;
+              })}
+            </div>}
           </Card>
-        ))}
-      </div>
-    </div>
+        </div>
+      </section>
+
+      <Card className="border-emerald-200 shadow-sm">
+        <CardContent className="flex flex-col gap-4 p-4 sm:p-5">
+          <div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="font-semibold text-slate-900">Assign pickup partner by area</h2><p className="mt-1 text-xs text-slate-500">Assignments are saved through the existing pickup-route workflow and appear in Farm Collection automatically.</p></div><Badge variant="outline">{selectedIds.length} selected</Badge></div>
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-end">
+            <label className="space-y-1.5 text-sm font-medium text-slate-700">Approved pickup partner and vehicle
+              <select value={teamId} onChange={(e) => setTeamId(e.target.value)} className="h-11 w-full rounded-lg border bg-white px-3 font-normal"><option value="">Select partner / vehicle</option>{eligibleTeams.map((team) => <option key={team.id} value={team.id}>{team.name || "Pickup partner"} · {team.vehicleType || "Vehicle"} · {team.capacity || team.vehicleCapacity} kg</option>)}</select>
+            </label>
+            <div className="rounded-lg bg-slate-50 p-3 text-sm"><p className="text-slate-500">Selected pickup load</p><p className="mt-1 font-semibold text-slate-900">{selectedJobs.length} orders · {selectedWeight.toFixed(1)} kg</p><p className="mt-1 text-xs text-slate-500">{selectedTeam ? `Vehicle capacity: ${selectedTeam.capacity || selectedTeam.vehicleCapacity} kg` : "Choose a partner to validate capacity"}</p></div>
+            <Button onClick={assignAreaOrders} disabled={assigning || !selectedIds.length || !selectedTeam} className="h-11 bg-emerald-700 hover:bg-emerald-800"><Truck className="mr-2 h-4 w-4"/>{assigning ? "Assigning…" : "Assign selected orders"}</Button>
+          </div>
+          {selectedTeam && selectedWeight > Number(selectedTeam.capacity || selectedTeam.vehicleCapacity || 0) && <p className="text-sm text-rose-700">Selected quantity exceeds the selected vehicle capacity. Remove orders or choose a larger vehicle.</p>}
+          {eligibleTeams.length === 0 && <p className="text-sm text-amber-700">No approved pickup partner with registered vehicle capacity is available. Review Pickup Partners first.</p>}
+        </CardContent>
+      </Card>
+      <p className="text-center text-xs text-slate-400">Order and assignment status refresh automatically. Farm Collection remains the source of truth for pickup execution and its existing rules.</p>
+    </main>
   );
 }
