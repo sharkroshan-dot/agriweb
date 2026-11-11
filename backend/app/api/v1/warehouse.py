@@ -1450,7 +1450,7 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
             profile.get("farmTaluk"), profile.get("taluk"), profile.get("subDistrict"),
             profile.get("farmTown"), profile.get("town"),
         ]
-        for container_key in ("farmLocation", "farmAddress", "address", "location"):
+        for container_key in ("farmLocation", "farmAddress", "pickupLocation", "address", "location"):
             value = profile.get(container_key)
             if isinstance(value, dict):
                 candidates.extend([
@@ -1818,6 +1818,7 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
         raw_name = (
             profile_area_name_by_id.get(farmer_id)
             or area_from_profile(linked_profile or {})
+            or area_from_profile(linked_incoming or {})
             or area_from_profile(job)
             or job.get("farmVillage") or job.get("farmAreaName")
             or job.get("village") or job.get("locality") or job.get("farmTown")
