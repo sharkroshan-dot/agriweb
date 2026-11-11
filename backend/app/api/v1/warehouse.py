@@ -1315,35 +1315,46 @@ async def get_my_collections(
         # Farmer profiles in older records use different address containers.
         # Inspect all known structured locations and their nested address objects.
         address_sources = [
-            pickup_location,
-            profile.get("farmLocation"),
-            profile.get("farmAddress"),
-            profile.get("address"),
-            profile.get("location"),
+            job.get("pickupLocation"), job.get("farmLocation"),
+            (order or {}).get("farmLocation"), (order or {}).get("farmerLocation"),
+            profile.get("farmLocation"), profile.get("farmAddress"),
+            profile.get("address"), profile.get("location"),
+            (product or {}).get("farmLocation"), (product or {}).get("farmAddress"),
         ]
-        address_sources = [value for value in address_sources if isinstance(value, dict)]
-        nested_sources = []
-        for source in address_sources:
-            nested = source.get("address")
-            if isinstance(nested, dict):
-                nested_sources.append(nested)
-        address_sources.extend(nested_sources)
+        # Older records store the address as a nested object (sometimes several
+        # levels deep) or use snake_case keys. Walk the complete address tree.
+        flattened_sources: List[Dict[str, Any]] = []
+        pending = list(address_sources)
+        while pending:
+            source = pending.pop(0)
+            if isinstance(source, dict):
+                flattened_sources.append(source)
+                pending.extend(value for value in source.values() if isinstance(value, dict))
+            elif isinstance(source, list):
+                pending.extend(value for value in source if isinstance(value, dict))
+        address_sources = flattened_sources
 
         def first_address_value(*keys: str) -> Optional[str]:
+            normalized_keys = {key.casefold() for key in keys}
             for source in address_sources:
-                for key in keys:
-                    value = readable(source.get(key))
-                    if value:
-                        return value
+                for key, raw_value in source.items():
+                    if str(key).casefold() in normalized_keys:
+                        value = readable(raw_value)
+                        if value:
+                            return value
             for key in keys:
                 value = readable(profile.get(key))
                 if value:
                     return value
             return None
 
-        locality = first_address_value("village", "villageName", "farmVillage", "locality", "localityName", "area", "areaName")
-        town = first_address_value("town", "townName", "taluk", "talukName", "tehsil", "mandal")
-        city = first_address_value("city", "cityName", "farmCity", "municipality")
+        locality = first_address_value(
+            "village", "villageName", "village_name", "farmVillage", "farm_village",
+            "locality", "localityName", "locality_name", "area", "areaName", "area_name",
+            "panchayat", "gramPanchayat", "gram_panchayat", "hamlet", "ward",
+        )
+        town = first_address_value("town", "townName", "town_name", "taluk", "talukName", "taluk_name", "tehsil", "mandal", "block")
+        city = first_address_value("city", "cityName", "city_name", "farmCity", "farm_city", "municipality")
         farm_area_name = locality or town or city
 
         item.update({
