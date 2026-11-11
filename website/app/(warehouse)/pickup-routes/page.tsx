@@ -63,7 +63,22 @@ function districtOf(job: Job) {
   return String(job.farmDistrict || job.district || location.district || "").trim();
 }
 function normalizeDistrict(value: unknown) {
-  return String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const normalized = String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const aliases: Record<string, string> = {
+    trichy: "tiruchirappalli",
+    trichirapalli: "tiruchirappalli",
+    tiruchirapalli: "tiruchirappalli",
+    tiruchirappalli: "tiruchirappalli",
+    kanyakumari: "kanniyakumari",
+    pudukottai: "pudukkottai",
+    thirunelveli: "tirunelveli",
+    thiruvallur: "tiruvallur",
+    thiruvannamalai: "tiruvannamalai",
+    thiruvarur: "tiruvarur",
+    sivagangai: "sivaganga",
+    tirupur: "tiruppur",
+  };
+  return aliases[normalized] || normalized;
 }
 function coordinatesOf(job: Job): [number, number] | null {
   const location = job.pickupLocation || job.farmLocation || {};
