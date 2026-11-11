@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   MapPin, Route, Users, Truck, RefreshCw, Search, Package,
-  CheckCircle2, Clock3, AlertTriangle, Map, Layers3, Building2,
+  CheckCircle2, Clock3, AlertTriangle, Map as MapIcon, Layers3, Building2,
 } from "lucide-react";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
@@ -153,7 +153,7 @@ export default function PickupRoutesPage() {
       <section className="rounded-xl border border-slate-200 border-l-4 border-l-emerald-600 bg-white p-5 shadow-sm sm:p-6">
         <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
           <div>
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-emerald-700"><Map className="h-4 w-4" /> Geographical pickup planning</div>
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-emerald-700"><MapIcon className="h-4 w-4" /> Geographical pickup planning</div>
             <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Area-wise Pickup Routes</h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">View normal and B2B farm pickup orders by area, explore pickup locations and assign eligible orders to approved pickup partners.</p>
           </div>
