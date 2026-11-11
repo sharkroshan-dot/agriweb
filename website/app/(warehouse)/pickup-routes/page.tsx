@@ -10,6 +10,7 @@ import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
 import { api } from "../../lib/api/client";
+import { Map as SharedMap } from "../../components/shared/map";
 import toast from "react-hot-toast";
 
 type Job = Record<string, any>;
@@ -173,14 +174,20 @@ export default function PickupRoutesPage() {
     };
   }, [jobs, selectedArea]);
 
-  const mapBounds = useMemo(() => {
-    const coords = filtered.map(coordinatesOf).filter(Boolean) as [number, number][];
-    if (!coords.length) return null;
-    const lats = coords.map((p) => p[0]), lngs = coords.map((p) => p[1]);
-    const padLat = Math.max((Math.max(...lats) - Math.min(...lats)) * 0.2, 0.015);
-    const padLng = Math.max((Math.max(...lngs) - Math.min(...lngs)) * 0.2, 0.015);
-    return [Math.min(...lngs) - padLng, Math.min(...lats) - padLat, Math.max(...lngs) + padLng, Math.max(...lats) + padLat].join(",");
-  }, [filtered]);
+  const farmMarkers = useMemo(() => filtered.flatMap((job) => {
+    const coords = coordinatesOf(job);
+    if (!coords) return [];
+    return [{
+      id: idOf(job),
+      lat: coords[0],
+      lng: coords[1],
+      title: job.farmerName || "Farm pickup",
+      info: `${job.orderNumber || job.eventOrderNumber || "Pickup order"} · ${job.productName || "Product"} · ${Number(job.quantity || 0)} kg · ${STATUS_LABEL[String(job.status)] || String(job.status || "Unknown").replace(/_/g, " ")}`,
+    }];
+  }), [filtered]);
+  const mapCenter = useMemo(() => farmMarkers.length
+    ? { lat: farmMarkers.reduce((sum, marker) => sum + marker.lat, 0) / farmMarkers.length, lng: farmMarkers.reduce((sum, marker) => sum + marker.lng, 0) / farmMarkers.length }
+    : { lat: 10.7905, lng: 78.7047 }, [farmMarkers]);
 
   const toggleOrder = (id: string) => setSelectedIds((current) => current.includes(id) ? current.filter((x) => x !== id) : [...current, id]);
   const selectVisible = () => setSelectedIds((current) => {
@@ -268,8 +275,8 @@ export default function PickupRoutesPage() {
               <div><h2 className="flex items-center gap-2 font-semibold text-slate-900"><MapPin className="h-4 w-4 text-emerald-700"/> Pickup location map</h2><p className="mt-1 text-xs text-slate-500">{filtered.filter(coordinatesOf).length} located orders · {filtered.filter((job) => !coordinatesOf(job)).length} without coordinates</p></div>
               <Badge variant="outline">{selectedArea === "all" ? "All areas" : areas.find((a) => a.key === selectedArea)?.name || "Selected area"}</Badge>
             </div>
-            {mapBounds ? <iframe title="Pickup area map" className="h-[340px] w-full border-0" loading="lazy" src={`https://www.openstreetmap.org/export/embed.html?bbox=${mapBounds}&layer=mapnik`} /> : <div className="flex h-[260px] flex-col items-center justify-center gap-2 bg-slate-50 text-center"><MapPin className="h-8 w-8 text-slate-400"/><p className="text-sm font-medium text-slate-700">No verified coordinates in this selection</p><p className="text-xs text-slate-500">Orders remain available in the area list; add farm coordinates to display them on the map.</p></div>}
-            <div className="flex flex-wrap gap-3 border-t bg-slate-50 px-4 py-3 text-xs text-slate-600"><span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5"/> Open a farm pickup location from its order</span><span>Only farms in this warehouse district are included</span></div>
+            {farmMarkers.length ? <SharedMap center={mapCenter} zoom={11} markers={farmMarkers} drawRoute={false} height="340px" className="w-full" /> : <div className="flex h-[260px] flex-col items-center justify-center gap-2 bg-slate-50 text-center"><MapPin className="h-8 w-8 text-slate-400"/><p className="text-sm font-medium text-slate-700">No verified farm coordinates in this area</p><p className="text-xs text-slate-500">Orders remain available below. Add verified GPS coordinates to the farmer's farm profile to show a marker.</p></div>}
+            <div className="flex flex-wrap gap-3 border-t bg-slate-50 px-4 py-3 text-xs text-slate-600"><span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5"/> Each marker represents a farm pickup order</span><span>Only farms in this warehouse district are included</span></div>
           </Card>
 
           <Card className="border-slate-200 shadow-sm">
