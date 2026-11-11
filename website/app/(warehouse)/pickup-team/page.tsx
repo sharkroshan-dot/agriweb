@@ -92,15 +92,16 @@ export default function PickupTeamPage() {
 
         </div>
 
-        <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-wrap gap-1">
+        <div className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm lg:grid-cols-[minmax(0,1fr)_minmax(260px,340px)] lg:items-center">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {(["all", "pending", "approved", "rejected"] as ApplicationStatus[]).map((key) => (
-              <button key={key} onClick={() => setStatus(key)} className={`rounded-lg px-3 py-2 text-xs font-semibold capitalize transition-colors ${status === key ? "bg-emerald-700 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"}`}>
-                {key === "all" ? "All applications" : key} <span className={status === key ? "ml-1 text-emerald-100" : "ml-1 text-slate-400"}>{counts[key]}</span>
+              <button key={key} onClick={() => setStatus(key)} className={`flex min-w-0 items-center justify-center gap-1.5 rounded-lg px-2 py-2.5 text-xs font-semibold capitalize transition-colors ${status === key ? "bg-emerald-700 text-white shadow-sm" : "bg-slate-50 text-slate-600 hover:bg-slate-100"}`}>
+                <span className="truncate">{key === "all" ? "All applications" : key}</span>
+                <span className={`shrink-0 tabular-nums ${status === key ? "text-emerald-100" : "text-slate-400"}`}>{counts[key]}</span>
               </button>
             ))}
           </div>
-          <div className="relative w-full sm:max-w-xs">
+          <div className="relative w-full">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search vehicle or application…" aria-label="Search pickup partner applications" className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 pl-9 pr-3 text-sm outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-100" />
           </div>
