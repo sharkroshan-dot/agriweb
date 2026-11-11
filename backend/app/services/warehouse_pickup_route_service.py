@@ -386,11 +386,35 @@ async def assign_route(route: Dict[str, Any], membership: Dict[str, Any]) -> Opt
         "assignedBy": route.get("assignedBy"),
         "updatedAt": now,
     }
-    assigned_route = {**route, **route_update, "_id": route.get("_id")}
+    current_route = await warehouse_pickup_route_repository.get_by_id(route_id)
+    if not current_route:
+        raise ValueError("This pickup route no longer exists. Refresh both warehouse pages.")
+    current_partner_id = str(current_route.get("deliveryPartnerId") or "")
+    claimed_here = False
+    if str(current_route.get("status") or "") == "offered" and not current_partner_id:
+        claimed_route = await warehouse_pickup_route_repository.claim_route(
+            route_id,
+            partner_id,
+            assigned_by=str(route.get("assignedBy") or ""),
+            partner_name=route_update["deliveryPartnerName"],
+            vehicle_type=route_update["deliveryPartnerVehicleType"],
+            vehicle_number=route_update["deliveryPartnerVehicleNumber"],
+        )
+        if not claimed_route:
+            latest = await warehouse_pickup_route_repository.get_by_id(route_id)
+            if not latest or str(latest.get("deliveryPartnerId") or "") != partner_id:
+                raise ValueError("Another pickup partner or warehouse page claimed this route first. Refresh both pages.")
+            current_route = latest
+        else:
+            current_route = claimed_route
+            claimed_here = True
+    elif current_partner_id != partner_id:
+        raise ValueError("This pickup route is already assigned to another pickup partner.")
+    assigned_route = {**current_route, **route_update, "_id": current_route.get("_id")}
     reserved_jobs: List[Dict[str, Any]] = []
 
-    # Claim every collection row before publishing the route as assigned. Each
-    # update is conditional, so an assignment from the other page wins safely.
+    # Claim every collection row conditionally. If any stop was claimed from
+    # another page, roll back only the rows and route claim made by this call.
     for stop in assigned_route.get("stops") or []:
         collection_ids = stop.get("collectionIds") or [
             str(item.get("collectionId") or "") for item in (stop.get("orders") or [])
@@ -402,23 +426,23 @@ async def assign_route(route: Dict[str, Any], membership: Dict[str, Any]) -> Opt
             collection_job = await warehouse_collection_repository.get_by_id(collection_id)
             if not collection_job:
                 for previous in reserved_jobs:
-                    await warehouse_collection_repository.release_route_assignment(
-                        previous["id"], route_id, partner_id
-                    )
+                    await warehouse_collection_repository.release_route_assignment(previous["id"], route_id, partner_id)
+                if claimed_here:
+                    await warehouse_pickup_route_repository.unclaim_route(route_id, partner_id)
                 raise ValueError("A farm pickup in this route no longer exists. Refresh both warehouse pages.")
             existing_team = str(collection_job.get("collectionTeamId") or "")
             existing_route = str(collection_job.get("pickupRouteId") or "")
             if existing_team and existing_team != partner_id:
                 for previous in reserved_jobs:
-                    await warehouse_collection_repository.release_route_assignment(
-                        previous["id"], route_id, partner_id
-                    )
+                    await warehouse_collection_repository.release_route_assignment(previous["id"], route_id, partner_id)
+                if claimed_here:
+                    await warehouse_pickup_route_repository.unclaim_route(route_id, partner_id)
                 raise ValueError("This farm pickup is already assigned to another pickup partner. Refresh both warehouse pages.")
             if existing_route and existing_route != route_id:
                 for previous in reserved_jobs:
-                    await warehouse_collection_repository.release_route_assignment(
-                        previous["id"], route_id, partner_id
-                    )
+                    await warehouse_collection_repository.release_route_assignment(previous["id"], route_id, partner_id)
+                if claimed_here:
+                    await warehouse_pickup_route_repository.unclaim_route(route_id, partner_id)
                 raise ValueError("This farm pickup already belongs to another active pickup route.")
             assigned_job = await warehouse_collection_repository.assign_job_to_route(
                 collection_id,
@@ -433,29 +457,24 @@ async def assign_route(route: Dict[str, Any], membership: Dict[str, Any]) -> Opt
             )
             if not assigned_job:
                 for previous in reserved_jobs:
-                    await warehouse_collection_repository.release_route_assignment(
-                        previous["id"], route_id, partner_id
-                    )
+                    await warehouse_collection_repository.release_route_assignment(previous["id"], route_id, partner_id)
+                if claimed_here:
+                    await warehouse_pickup_route_repository.unclaim_route(route_id, partner_id)
                 raise ValueError("This farm pickup was assigned by another warehouse workflow. Refresh both pages before continuing.")
             reserved_jobs.append({"id": collection_id, "job": assigned_job})
 
     route_updated = await warehouse_pickup_route_repository.update_route(route_id, route_update)
     if not route_updated:
         for previous in reserved_jobs:
-            await warehouse_collection_repository.release_route_assignment(
-                previous["id"], route_id, partner_id
-            )
+            await warehouse_collection_repository.release_route_assignment(previous["id"], route_id, partner_id)
+        if claimed_here:
+            await warehouse_pickup_route_repository.unclaim_route(route_id, partner_id)
         raise ValueError("The pickup route could not be confirmed. Refresh both pages and try again.")
 
     # Mirror the winning partner to every linked B2B order only after all route
     # stops have been assigned successfully.
     for previous in reserved_jobs:
-        await _sync_b2b_order_pickup_assignment(
-            previous["job"],
-            assigned_route,
-            partner_id,
-            membership,
-        )
+        await _sync_b2b_order_pickup_assignment(previous["job"], assigned_route, partner_id, membership)
     try:
         user_id = str(membership.get("deliveryPartnerUserId") or membership.get("userId") or "")
         if user_id:
