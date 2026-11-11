@@ -1526,34 +1526,157 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
                 farmer_area_by_id[str(identity)] = area_key
 
     pickup_jobs = await warehouse_collection_repository.get_by_warehouse(str(warehouse["_id"]), None, limit=5000)
-    for job in pickup_jobs:
-        farmer_id = job.get("farmerId") or job.get("farmerUserId")
-        area_key = farmer_area_by_id.get(str(farmer_id)) if farmer_id else None
-        if not area_key:
-            # Use explicit structured area fields on the collection only. Do not
-            # infer a village from an unstructured road/address string.
-            explicit = job.get("farmVillage") or job.get("farmAreaName") or job.get("village") or job.get("locality") or job.get("farmTown")
-            if isinstance(explicit, str) and explicit.strip():
-                area_key = " ".join(explicit.casefold().split())
-                area_profiles.setdefault(area_key, {"key": area_key, "name": " ".join(explicit.split()), "areaType": "Registered pickup locality", "totalOrders": 0, "readyToAssign": 0})
-        if not area_key or area_key not in area_profiles:
+    hubs = await MongoDB.get_collection("warehouses").find({
+        "parentWarehouseId": warehouse["_id"], "facilityType": "local_hub",
+        "status": "active", "deletedAt": None,
+    }).to_list(length=500)
+
+    def normalized_area(value: Any) -> str:
+        return " ".join(str(value or "").casefold().split())
+
+    def profile_coordinates(profile: dict) -> Optional[tuple]:
+        candidates = [profile.get("farmLocation"), profile.get("farmAddress"), profile.get("location"), profile.get("address")]
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            raw = candidate.get("coordinates")
+            if isinstance(raw, (list, tuple)) and len(raw) >= 2:
+                try:
+                    # Mongo GeoJSON stores longitude first.
+                    lon, lat = float(raw[0]), float(raw[1])
+                    if -180 <= lon <= 180 and -90 <= lat <= 90:
+                        return lat, lon
+                except (TypeError, ValueError):
+                    pass
+            for lat_key, lon_key in (("latitude", "longitude"), ("lat", "lng"), ("lat", "lon")):
+                try:
+                    lat, lon = float(candidate.get(lat_key)), float(candidate.get(lon_key))
+                    if -90 <= lat <= 90 and -180 <= lon <= 180:
+                        return lat, lon
+                except (TypeError, ValueError):
+                    pass
+        return None
+
+    def hub_coordinates(hub: dict) -> Optional[tuple]:
+        location = hub.get("location") or {}
+        raw = location.get("coordinates") if isinstance(location, dict) else None
+        if isinstance(raw, (list, tuple)) and len(raw) >= 2:
+            try:
+                lon, lat = float(raw[0]), float(raw[1])
+                if -180 <= lon <= 180 and -90 <= lat <= 90:
+                    return lat, lon
+            except (TypeError, ValueError):
+                return None
+        return None
+
+    def distance_km_local(a: tuple, b: tuple) -> float:
+        lat1, lon1, lat2, lon2 = map(math.radians, (a[0], a[1], b[0], b[1]))
+        dlat, dlon = lat2 - lat1, lon2 - lon1
+        value = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
+        return 6371.0 * 2 * math.asin(min(1.0, math.sqrt(value)))
+
+    profile_by_id: Dict[str, dict] = {}
+    profile_area_by_id: Dict[str, str] = {}
+    profile_coords_by_id: Dict[str, tuple] = {}
+    for profile in profiles:
+        location = profile.get("farmLocation") or profile.get("farmAddress") or profile.get("location") or profile.get("address") or {}
+        if farmer_collection_district(profile, location, coverage) not in coverage:
             continue
-        area = area_profiles[area_key]
-        area["totalOrders"] += 1
+        area_name = area_from_profile(profile)
+        area_key = normalized_area(area_name) if area_name else ""
+        coords = profile_coordinates(profile)
+        for identity in (profile.get("_id"), profile.get("userId"), profile.get("farmerId")):
+            if identity:
+                identity_key = str(identity)
+                profile_by_id[identity_key] = profile
+                if area_key:
+                    profile_area_by_id[identity_key] = area_key
+                if coords:
+                    profile_coords_by_id[identity_key] = coords
+
+    # Operational zones are Local Hubs, not hundreds of village records.
+    # Explicit village/locality assignment takes precedence; GPS radius is the
+    # fallback for farms not covered by an explicit assignment.
+    zones: List[Dict[str, Any]] = []
+    for hub in hubs:
+        hub_district = normalizeDistrict(hub.get("district") or "")
+        if hub_district and hub_district not in coverage:
+            continue
+        service_areas = sorted({normalized_area(x) for x in (hub.get("serviceAreas") or []) if str(x).strip()})
+        zones.append({
+            "key": str(hub["_id"]), "hubId": str(hub["_id"]),
+            "name": str(hub.get("name") or "Local Hub"),
+            "areaType": "Local hub pickup zone",
+            "serviceAreas": service_areas,
+            "pickupRadiusKm": float(hub.get("pickupRadiusKm") or 15),
+            "totalOrders": 0, "readyToAssign": 0, "collectionIds": [],
+            "hubCoordinates": hub_coordinates(hub),
+        })
+
+    unassigned_zone = {
+        "key": "district-unassigned", "hubId": None,
+        "name": "Other district farms", "areaType": "Outside configured local hub coverage",
+        "serviceAreas": [], "pickupRadiusKm": 0,
+        "totalOrders": 0, "readyToAssign": 0, "collectionIds": [],
+        "hubCoordinates": None,
+    }
+    job_area_keys: Dict[str, str] = {}
+    for job in pickup_jobs:
+        farmer_id = str(job.get("farmerId") or job.get("farmerUserId") or "")
+        area_key = profile_area_by_id.get(farmer_id)
+        if not area_key:
+            explicit = job.get("farmVillage") or job.get("farmAreaName") or job.get("village") or job.get("locality") or job.get("farmTown")
+            area_key = normalized_area(explicit) if explicit else ""
+        coords = profile_coords_by_id.get(farmer_id)
+        if not coords:
+            location = job.get("farmLocation") or job.get("pickupLocation") or {}
+            raw = location.get("coordinates") if isinstance(location, dict) else None
+            if isinstance(raw, (list, tuple)) and len(raw) >= 2:
+                try:
+                    coords = (float(raw[1]), float(raw[0]))
+                except (TypeError, ValueError):
+                    coords = None
+
+        chosen = None
+        # First match an explicit locality to one configured hub's service area.
+        if area_key:
+            chosen = next((zone for zone in zones if area_key in zone["serviceAreas"]), None)
+        # Radius is a fallback only when no explicit service-area match exists.
+        if chosen is None and coords:
+            nearby = []
+            for zone in zones:
+                hub_point = zone["hubCoordinates"]
+                if not hub_point:
+                    continue
+                distance = distance_km_local(coords, hub_point)
+                if distance <= zone["pickupRadiusKm"]:
+                    nearby.append((distance, zone))
+            if nearby:
+                chosen = min(nearby, key=lambda item: item[0])[1]
+        if chosen is None:
+            chosen = unassigned_zone
+
+        chosen["totalOrders"] += 1
+        chosen["collectionIds"].append(str(job.get("_id") or job.get("id") or ""))
         status_value = str(job.get("status") or "").strip().lower()
         if status_value == "ready_for_pickup" and not job.get("pickupRouteId"):
-            area["readyToAssign"] += 1
+            chosen["readyToAssign"] += 1
+        job_area_keys[str(job.get("_id") or job.get("id") or "")] = chosen["key"]
 
-    areas = sorted(area_profiles.values(), key=lambda item: item["name"].casefold())
+    visible_zones = zones + [unassigned_zone]
+    for zone in visible_zones:
+        zone.pop("hubCoordinates", None)
+    visible_zones.sort(key=lambda item: (item["name"] == "Other district farms", item["name"].casefold()))
     return {
         "success": True,
         "data": {
             "districts": sorted(coverage),
-            "areas": areas,
-            "directorySource": "district_administration_village_panchayat_lists_and_active_farmer_profiles",
-            "officialVillagePanchayatCount": 404,
-            "officialAreaDirectoryUrl": "https://tiruchirappalli.nic.in/rural-development/",
-            "note": "Includes the district administration published 14 development blocks and 404 village panchayats, plus additional registered farmer localities. Village panchayats are not the same as the 507 revenue villages.",
+            "areas": visible_zones,
+            "zones": visible_zones,
+            "directorySource": "local_hub_service_areas_with_gps_radius_fallback",
+            "coverageMode": "explicit_locality_first_then_nearest_hub_radius",
+            "defaultPickupRadiusKm": 15,
+            "message": "Local Hub zones are operational pickup areas. Assign village/locality coverage in Local Hub Management; farms without an explicit match are assigned to the nearest hub only when verified farm and hub coordinates fall within its configured radius.",
         },
     }
 
