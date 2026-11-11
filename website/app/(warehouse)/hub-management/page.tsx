@@ -49,7 +49,7 @@ export default function LocalHubManagementPage() {
     retry: 1,
   });
   const createHub = useMutation({
-    mutationFn: async () => unwrap(await api.post("/warehouse/me/local-hubs", { ...form, capacity: Number(form.capacity), serviceAreas: form.serviceAreas.split(/[\\n,;]+/).map((value) => value.trim()).filter(Boolean), pickupRadiusKm: Number(form.pickupRadiusKm) })),
+    mutationFn: async () => unwrap(await api.post("/warehouse/me/local-hubs", { ...form, capacity: Number(form.capacity), serviceAreas: form.serviceAreas.split(/[,;]+|\\r?\\n/).map((value) => value.trim()).filter(Boolean), pickupRadiusKm: Number(form.pickupRadiusKm) })),
     onSuccess: (result) => {
       setCreatedCredentials(result);
       setForm({ name: "", district: "", state: "Tamil Nadu", address: "", capacity: "5000", managerName: "", username: "", email: "", serviceAreas: "", pickupRadiusKm: "15" });
