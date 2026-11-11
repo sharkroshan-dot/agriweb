@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   MapPin, Truck, RefreshCw, Search, Package,
-  AlertTriangle, Map as MapIcon,
+  AlertTriangle, CheckCircle2, Map as MapIcon,
   Sprout, ChevronRight, Users,
 } from "lucide-react";
 import { Card, CardContent } from "../../components/ui/card";
@@ -314,11 +314,6 @@ export default function PickupRoutesPage() {
     : { lat: 10.7905, lng: 78.7047 }, [farmMarkers]);
 
   const toggleOrder = (id: string) => setSelectedIds((current) => current.includes(id) ? current.filter((x) => x !== id) : [...current, id]);
-  const selectVisible = () => setSelectedIds((current) => {
-    const ids = eligibleFiltered.map(idOf);
-    return ids.every((id) => current.includes(id)) ? current.filter((id) => !ids.includes(id)) : Array.from(new Set([...current, ...ids]));
-  });
-
   const assignAreaOrders = async () => {
     if (!selectedIds.length) { toast.error("Select eligible pickup orders first."); return; }
     if (!selectedTeam) { toast.error("Select an approved pickup partner with registered vehicle capacity."); return; }
