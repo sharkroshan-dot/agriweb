@@ -4,13 +4,13 @@ import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { PackageCheck, Truck, Warehouse, RefreshCw, CheckCircle2, MapPin, ClipboardCheck } from "lucide-react";
 import toast from "react-hot-toast";
-import { api } from "../../lib/api/client";
-import { Card, CardContent } from "../../components/ui/card";
-import { Button } from "../../components/ui/button";
-import { Input } from "../../components/ui/input";
-import { Badge } from "../../components/ui/badge";
-import { WarehousePageHeader } from "../../components/warehouse/warehouse-page-header";
-import { PageToolbar } from "../../components/common/page-primitives";
+import { api } from "../../../lib/api/client";
+import { Card, CardContent } from "../../../components/ui/card";
+import { Button } from "../../../components/ui/button";
+import { Input } from "../../../components/ui/input";
+import { Badge } from "../../../components/ui/badge";
+import { WarehousePageHeader } from "../../../components/warehouse/warehouse-page-header";
+import { PageToolbar } from "../../../components/common/page-primitives";
 
 const label = (value: string) => String(value || "unknown").replace(/_/g, " ");
 export default function B2BFulfillmentPage() {
