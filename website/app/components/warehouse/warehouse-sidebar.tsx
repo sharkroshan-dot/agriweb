@@ -61,7 +61,6 @@ const navSections = [
   {
     title: "Warehouse Management",
     items: [
-      { name: "Warehouse Inventory", href: "/stock", icon: Package },
       { name: "Cold Storage", href: "/cold-storage", icon: Snowflake },
       { name: "Transfers", href: "/transfers", icon: ArrowLeftRight },
       { name: "Analytics", href: "/warehouse/analytics", icon: BarChart },
