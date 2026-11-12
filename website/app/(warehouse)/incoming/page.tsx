@@ -990,8 +990,8 @@ export default function WarehouseIncomingPage() {
 
       <Dialog open={showReceiptDialog} onOpenChange={setShowReceiptDialog}>
         <DialogContent
-          className="!max-w-none overflow-hidden rounded-2xl border-slate-200 p-0 shadow-2xl"
-          style={{ width: "min(96vw, 980px)", maxWidth: "980px", maxHeight: "calc(100dvh - 28px)" }}
+          className="!w-[min(96vw,980px)] !max-w-none overflow-hidden rounded-2xl border-slate-200 p-0 shadow-2xl"
+          style={{ width: "min(96vw, 980px)", minWidth: "min(96vw, 980px)", maxWidth: "980px", height: "auto", maxHeight: "calc(100dvh - 40px)" }}
         >
           {selectedIncoming && (() => {
             const receipt = selectedIncoming.receipt || {};
@@ -1018,7 +1018,7 @@ export default function WarehouseIncomingPage() {
             const rejected = receipt.rejectedQuantity ?? selectedIncoming.quantityRejected ?? Math.max(0, receivedQuantity - usable);
             const productName = selectedIncoming.displayProductName || selectedIncoming.productName || selectedIncoming.product?.name || "Product details unavailable";
             const compactCard = "min-w-0 rounded-xl border border-slate-200 bg-white p-3";
-            return <div className="flex max-h-[calc(100dvh-28px)] min-h-0 flex-col overflow-hidden">
+            return <div className="flex min-h-0 flex-col overflow-hidden">
               <div className="flex shrink-0 items-center justify-between gap-4 border-b border-slate-200 bg-slate-50 px-5 py-3.5 sm:px-6">
                 <div className="min-w-0">
                   <div className="mb-1 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-700"><Package className="h-3.5 w-3.5"/>AgriConnect · Warehouse</div>
@@ -1030,7 +1030,7 @@ export default function WarehouseIncomingPage() {
                 <Badge variant="outline" className={cn("shrink-0 px-3 py-1 text-xs font-semibold", quality === "passed" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : quality === "failed" ? "border-red-200 bg-red-50 text-red-700" : "border-amber-200 bg-amber-50 text-amber-800")}>{qualityLabel}</Badge>
               </div>
 
-              <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-y-auto overflow-x-hidden p-4 sm:p-5 lg:grid-cols-[1.15fr_0.85fr]">
+              <div className="grid min-h-0 grid-cols-1 gap-3 overflow-hidden p-4 sm:grid-cols-[1.15fr_0.85fr] sm:gap-4 sm:p-5">
                 <div className="flex min-w-0 flex-col gap-3">
                   <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50/70 px-4 py-3">
                     <div className="min-w-0">
@@ -1044,7 +1044,7 @@ export default function WarehouseIncomingPage() {
                     </div>
                   </div>
 
-                  <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2">
+                  <div className="grid min-w-0 grid-cols-2 gap-2">
                     <div className={compactCard}>
                       <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Order & product</p>
                       <p className="mt-1 break-words text-sm font-semibold text-slate-900">{orderReference}</p>
