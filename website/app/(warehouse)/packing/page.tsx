@@ -402,7 +402,7 @@ export default function WarehousePackingPage() {
                   )
                 ) : (
                   <>
-                    visibleTasks.map((task: any) => {
+                    {visibleTasks.map((task: any) => {
                   const taskFarm = getFarmDetails(task);
                   const taskStatus = String(task.status || "ready_for_packing").toLowerCase();
                   const active = String(selectedTask?.id) === String(task.id);
