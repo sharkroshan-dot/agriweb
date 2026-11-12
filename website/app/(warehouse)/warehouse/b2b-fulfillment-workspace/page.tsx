@@ -220,7 +220,7 @@ export default function B2BFulfillmentPage() {
       </section>
       <aside className="min-w-0 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
         {selectedOrder ? <><div className="mb-3 flex items-start justify-between gap-2 border-b border-slate-100 pb-3"><div className="min-w-0"><p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">Selected B2B order</p><h2 className="mt-1 break-all text-lg font-bold text-slate-900">{selectedOrder.orderNumber||`B2B-${selectedOrder.id.slice(-6)}`}</h2><p className="text-xs text-slate-500">{selectedOrder.rfqNumber||selectedOrder.rfqId||"RFQ reference unavailable"}</p></div><Badge>{label(selectedOrder.status)}</Badge></div><div className="mb-3 grid grid-cols-2 gap-2 text-xs"><div className="rounded-lg bg-slate-50 p-2"><p className="text-slate-500">Farm</p><p className="mt-1 break-words font-semibold text-slate-900">{farmNameOf(selectedOrder)}</p></div><div className="rounded-lg bg-slate-50 p-2"><p className="text-slate-500">Pickup area</p><p className="mt-1 break-words font-semibold text-slate-900">{areaNameOf(selectedOrder)}</p></div><div className="rounded-lg bg-slate-50 p-2"><p className="text-slate-500">Product & Qty</p><p className="mt-1 break-words font-semibold text-slate-900">{productNameOf(selectedOrder)} · {selectedOrder.quantityKg??"—"} kg</p></div><div className="rounded-lg bg-slate-50 p-2"><p className="text-slate-500">Delivery type</p><p className="mt-1 break-words font-semibold text-slate-900">{label(selectedOrder.fulfillmentRoute||selectedOrder.deliveryType||"to_warehouse")}</p></div><div className="col-span-2 rounded-lg bg-slate-50 p-2"><p className="text-slate-500">Business buyer</p><p className="mt-1 break-words font-semibold text-slate-900">{businessNameOf(selectedOrder)}</p></div></div><div className="mb-2 flex items-center gap-2 text-xs font-semibold text-slate-700"><CalendarDays className="h-4 w-4 text-emerald-700"/>Expected pickup: {selectedOrder.pickupDate?new Date(selectedOrder.pickupDate).toLocaleDateString("en-IN"):"Not scheduled"}</div></> : <p className="py-8 text-center text-sm text-slate-500">Select an order to view its details.</p>}
-        <div className="max-h-[70vh] overflow-y-auto border-t border-slate-100 pt-3"><div className="space-y-4">{selectedOrder ? [selectedOrder].map((o: any) => {
+        <div className="max-h-[70vh] overflow-y-auto border-t border-slate-100 pt-3"><div className="space-y-4">{[selectedOrder].filter(Boolean).map((o: any) => {
       const f = form(o.id);
       const teamId = String(f.pickupTeam || o.pickupTeam || "");
       const team = teams.find((t: any) => String(t.deliveryPartnerId || t.userId || t.id || t._id) === teamId);
@@ -339,7 +339,7 @@ export default function B2BFulfillmentPage() {
          {["delivered", "completed"].includes(o.status) && <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">Business delivery recorded. Final status: {label(o.status)}.</p>}
         </>}
       </CardContent></Card>;
-    })}</div>}</div>
+    })}</div>
       </aside>
     </div>}
 
