@@ -324,7 +324,7 @@ export default function WarehousePackingPage() {
 
       {packingError && <Card className="border-red-200 bg-red-50"><CardContent className="p-4 text-sm text-red-700">Unable to load warehouse packing tasks. Check the backend logs or refresh the page.</CardContent></Card>}
       {isLoading ? <div className="h-32 animate-pulse rounded-lg bg-muted"/> : (
-        <div className={`grid items-start gap-4 ${queueTab === "shortage" ? "grid-cols-1" : "xl:grid-cols-[minmax(390px,0.92fr)_minmax(0,1.65fr)]"}`}>
+        <div className="grid items-start gap-4 xl:grid-cols-[minmax(390px,0.92fr)_minmax(0,1.65fr)]">
           <Card className="overflow-hidden border-slate-200 shadow-sm">
             <CardContent className="space-y-3 p-3 sm:p-4">
               <div className="grid grid-cols-4 gap-1 rounded-xl bg-slate-100 p-1">
