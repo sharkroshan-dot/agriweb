@@ -1044,7 +1044,7 @@ export default function WarehouseIncomingPage() {
                 <div className="rounded-xl border border-slate-200 p-4">
                   <div className="flex items-center justify-between gap-3"><h3 className="text-sm font-semibold text-slate-900">Quality inspection</h3><Badge variant="outline" className={cn(quality === "passed" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : quality === "failed" ? "border-red-200 bg-red-50 text-red-700" : "border-amber-200 bg-amber-50 text-amber-800")}>{qualityLabel}</Badge></div>
                   <p className="mt-2 text-sm leading-relaxed text-slate-600">{receipt.qualityNotes || selectedIncoming.qualityNotes || selectedIncoming.notes || (quality === "pending" ? "Quality inspection has not been completed yet." : "No inspection notes recorded.")}</p>
-                  {quality === "pending" && !isPackedFarmerTransfer(selectedIncoming) && <div className="mt-4 space-y-3 border-t border-slate-100 pt-4">
+                  {quality === "pending" && !isFarmerPackedIncoming(selectedIncoming) && <div className="mt-4 space-y-3 border-t border-slate-100 pt-4">
                     <div><label className="mb-1.5 block text-xs font-semibold text-slate-700">Inspection notes (optional)</label><Input value={qualityNotes} onChange={(event) => setQualityNotes(event.target.value)} placeholder="Describe freshness, damage, weight or other observations" /></div>
                     <div className="flex flex-col gap-2 sm:flex-row">
                       <Button type="button" variant="destructive" className="flex-1" disabled={isSaving} onClick={() => handleQuality("failed")}><ShieldAlert className="mr-2 h-4 w-4"/>{isSaving ? "Saving..." : "Mark Quality Failed"}</Button>
