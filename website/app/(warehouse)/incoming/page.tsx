@@ -989,7 +989,10 @@ export default function WarehouseIncomingPage() {
       </Dialog>
 
       <Dialog open={showReceiptDialog} onOpenChange={setShowReceiptDialog}>
-        <DialogContent className="!w-[min(94vw,900px)] !max-w-[900px] max-h-[90vh] overflow-y-auto rounded-2xl border-slate-200 p-0">
+        <DialogContent
+          className="!max-w-none overflow-hidden rounded-2xl border-slate-200 p-0 shadow-2xl"
+          style={{ width: "min(96vw, 980px)", maxWidth: "980px", maxHeight: "calc(100dvh - 28px)" }}
+        >
           {selectedIncoming && (() => {
             const receipt = selectedIncoming.receipt || {};
             const order = selectedIncoming.order || {};
@@ -1013,50 +1016,83 @@ export default function WarehouseIncomingPage() {
             const receivedQuantity = Number(receipt.receivedQuantity ?? selectedIncoming.quantityReceived ?? selectedIncoming.quantity ?? 0);
             const usable = Number(receipt.usableQuantity ?? selectedIncoming.usableQuantity ?? selectedIncoming.quantityReceived ?? selectedIncoming.quantity ?? 0);
             const rejected = receipt.rejectedQuantity ?? selectedIncoming.quantityRejected ?? Math.max(0, receivedQuantity - usable);
-            return <div className="space-y-0">
-              <div className="flex items-start justify-between gap-4 border-b border-slate-200 bg-slate-50/80 px-6 py-5">
+            const productName = selectedIncoming.displayProductName || selectedIncoming.productName || selectedIncoming.product?.name || "Product details unavailable";
+            const compactCard = "min-w-0 rounded-xl border border-slate-200 bg-white p-3";
+            return <div className="flex max-h-[calc(100dvh-28px)] min-h-0 flex-col overflow-hidden">
+              <div className="flex shrink-0 items-center justify-between gap-4 border-b border-slate-200 bg-slate-50 px-5 py-3.5 sm:px-6">
                 <div className="min-w-0">
-                  <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-emerald-700"><Package className="h-4 w-4"/>AgriConnect · Warehouse</div>
-                  <DialogHeader className="space-y-1 text-left">
-                    <DialogTitle className="text-xl font-bold tracking-tight text-slate-900">Warehouse receipt</DialogTitle>
-                    <DialogDescription className="text-sm text-slate-500">Receipt record and quality inspection summary</DialogDescription>
+                  <div className="mb-1 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-700"><Package className="h-3.5 w-3.5"/>AgriConnect · Warehouse</div>
+                  <DialogHeader className="space-y-0 text-left">
+                    <DialogTitle className="text-lg font-bold tracking-tight text-slate-900">Warehouse receipt</DialogTitle>
+                    <DialogDescription className="text-xs text-slate-500">Receipt, shipment and quality inspection details</DialogDescription>
                   </DialogHeader>
                 </div>
-                <Badge variant="outline" className={cn("mt-1 shrink-0 px-3 py-1 text-xs font-semibold", quality === "passed" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : quality === "failed" ? "border-red-200 bg-red-50 text-red-700" : "border-amber-200 bg-amber-50 text-amber-800")}>{qualityLabel}</Badge>
+                <Badge variant="outline" className={cn("shrink-0 px-3 py-1 text-xs font-semibold", quality === "passed" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : quality === "failed" ? "border-red-200 bg-red-50 text-red-700" : "border-amber-200 bg-amber-50 text-amber-800")}>{qualityLabel}</Badge>
               </div>
-              <div className="space-y-5 px-6 py-5">
-                <div className="flex flex-col gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div><p className="text-xs font-medium uppercase tracking-wide text-emerald-800">Human-readable receipt number</p><p className="mt-1 font-mono text-xl font-bold tracking-wide text-slate-900">{receiptNumber}</p><p className="mt-1 text-xs text-slate-600">Use this reference when discussing this receipt with warehouse staff.</p></div>
-                  <div className="text-left sm:text-right"><p className="text-xs text-slate-500">Receipt date & time</p><p className="mt-1 text-sm font-semibold text-slate-800">{receivedAt ? new Date(receivedAt).toLocaleString() : "Not recorded"}</p></div>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-xl border border-slate-200 p-4"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Order reference</p><p className="mt-1 break-all text-sm font-semibold text-slate-900">{orderReference}</p><p className="mt-1 text-xs text-slate-500">Product: {selectedIncoming.displayProductName || selectedIncoming.productName || selectedIncoming.product?.name || "Product details unavailable"}</p></div>
-                  <div className="rounded-xl border border-slate-200 p-4"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Warehouse</p><p className="mt-1 text-sm font-semibold text-slate-900">{warehouseName}</p><p className="mt-1 text-xs text-slate-500">Source farm: {farmName}</p></div>
-                  <div className="rounded-xl border border-slate-200 p-4"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Customer</p><p className="mt-1 text-sm font-semibold text-slate-900">{customerName}</p><p className="mt-1 text-xs text-slate-500">{customerPhone || "Phone not available"}</p></div>
-                  <div className="rounded-xl border border-slate-200 p-4"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Delivery address</p><p className="mt-1 text-sm leading-relaxed text-slate-800">{addressText || "Address not available"}</p></div>
-                </div>
-                <div>
-                  <div className="mb-2 flex items-center justify-between"><h3 className="text-sm font-semibold text-slate-900">Quantity summary</h3><span className="text-xs text-slate-500">Unit: {quantityUnit}</span></div>
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                    {[{label:"Declared",value:declared},{label:"Received",value:receivedQuantity},{label:"Usable",value:usable},{label:"Rejected",value:rejected}].map((metric)=> <div key={metric.label} className="rounded-xl bg-slate-50 p-3"><p className="text-xs font-medium text-slate-500">{metric.label}</p><p className="mt-1 text-lg font-bold tabular-nums text-slate-900">{metric.value} <span className="text-xs font-medium text-slate-500">{quantityUnit}</span></p></div>)}
+
+              <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-y-auto overflow-x-hidden p-4 sm:p-5 lg:grid-cols-[1.15fr_0.85fr]">
+                <div className="flex min-w-0 flex-col gap-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50/70 px-4 py-3">
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-800">Receipt number</p>
+                      <p className="mt-0.5 break-all font-mono text-lg font-bold tracking-wide text-slate-900">{receiptNumber}</p>
+                      <p className="text-[10px] text-slate-600">Use this reference for receipt enquiries</p>
+                    </div>
+                    <div className="shrink-0 text-left sm:text-right">
+                      <p className="text-[10px] text-slate-500">Received on</p>
+                      <p className="mt-1 text-xs font-semibold text-slate-800">{receivedAt ? new Date(receivedAt).toLocaleString() : "Not recorded"}</p>
+                    </div>
+                  </div>
+
+                  <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2">
+                    <div className={compactCard}>
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Order & product</p>
+                      <p className="mt-1 break-words text-sm font-semibold text-slate-900">{orderReference}</p>
+                      <p className="mt-1 text-xs text-slate-600">{productName}</p>
+                    </div>
+                    <div className={compactCard}>
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Warehouse & source farm</p>
+                      <p className="mt-1 break-words text-sm font-semibold text-slate-900">{warehouseName}</p>
+                      <p className="mt-1 break-words text-xs text-slate-600">Farm: {farmName}</p>
+                    </div>
+                    <div className={compactCard}>
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Customer</p>
+                      <p className="mt-1 break-words text-sm font-semibold text-slate-900">{customerName}</p>
+                      <p className="mt-1 break-words text-xs text-slate-600">{customerPhone || "Phone not available"}</p>
+                    </div>
+                    <div className={compactCard}>
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Delivery address</p>
+                      <p className="mt-1 break-words text-xs leading-relaxed text-slate-700">{addressText || "Address not available"}</p>
+                    </div>
                   </div>
                 </div>
-                <div className="rounded-xl border border-slate-200 p-4">
-                  <div className="flex items-center justify-between gap-3"><h3 className="text-sm font-semibold text-slate-900">Quality inspection</h3><Badge variant="outline" className={cn(quality === "passed" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : quality === "failed" ? "border-red-200 bg-red-50 text-red-700" : "border-amber-200 bg-amber-50 text-amber-800")}>{qualityLabel}</Badge></div>
-                  <p className="mt-2 text-sm leading-relaxed text-slate-600">{receipt.qualityNotes || selectedIncoming.qualityNotes || selectedIncoming.notes || (quality === "pending" ? "Quality inspection has not been completed yet." : "No inspection notes recorded.")}</p>
-                  {quality === "pending" && !isFarmerPackedIncoming(selectedIncoming) && <div className="mt-4 space-y-3 border-t border-slate-100 pt-4">
-                    <div><label className="mb-1.5 block text-xs font-semibold text-slate-700">Inspection notes (optional)</label><Input value={qualityNotes} onChange={(event) => setQualityNotes(event.target.value)} placeholder="Describe freshness, damage, weight or other observations" /></div>
-                    <div className="flex flex-col gap-2 sm:flex-row">
-                      <Button type="button" variant="destructive" className="flex-1" disabled={isSaving} onClick={() => handleQuality("failed")}><ShieldAlert className="mr-2 h-4 w-4"/>{isSaving ? "Saving..." : "Mark Quality Failed"}</Button>
-                      <Button type="button" className="flex-1" disabled={isSaving} onClick={() => handleQuality("passed")}><CheckCircle className="mr-2 h-4 w-4"/>{isSaving ? "Saving..." : "Approve Quality"}</Button>
+
+                <div className="flex min-w-0 flex-col gap-3">
+                  <section className="rounded-xl border border-slate-200 p-3">
+                    <div className="mb-2 flex items-center justify-between"><h3 className="text-xs font-bold text-slate-900">Quantity summary</h3><span className="text-[10px] text-slate-500">Unit: {quantityUnit}</span></div>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[{label:"Declared",value:declared},{label:"Received",value:receivedQuantity},{label:"Usable",value:usable},{label:"Rejected",value:rejected}].map((metric)=> <div key={metric.label} className="rounded-lg bg-slate-50 px-3 py-2"><p className="text-[10px] font-medium text-slate-500">{metric.label}</p><p className="mt-0.5 text-base font-bold tabular-nums text-slate-900">{metric.value} <span className="text-[10px] font-medium text-slate-500">{quantityUnit}</span></p></div>)}
                     </div>
-                  </div>}
+                  </section>
+
+                  <section className="min-w-0 rounded-xl border border-slate-200 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-xs font-bold text-slate-900">Quality inspection</h3><Badge variant="outline" className={cn("text-[10px]", quality === "passed" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : quality === "failed" ? "border-red-200 bg-red-50 text-red-700" : "border-amber-200 bg-amber-50 text-amber-800")}>{qualityLabel}</Badge></div>
+                    <p className="mt-1.5 text-xs leading-relaxed text-slate-600">{receipt.qualityNotes || selectedIncoming.qualityNotes || selectedIncoming.notes || (quality === "pending" ? "Quality inspection has not been completed yet." : "No inspection notes recorded.")}</p>
+                    {quality === "pending" && !isFarmerPackedIncoming(selectedIncoming) && <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
+                      <div><label className="mb-1 block text-[10px] font-semibold text-slate-700">Inspection notes (optional)</label><Input className="h-9 text-xs" value={qualityNotes} onChange={(event) => setQualityNotes(event.target.value)} placeholder="Freshness, damage, weight or observations"/></div>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <Button type="button" size="sm" variant="destructive" className="w-full" disabled={isSaving} onClick={() => handleQuality("failed")}><ShieldAlert className="mr-1.5 h-3.5 w-3.5"/>{isSaving ? "Saving..." : "Mark Failed"}</Button>
+                        <Button type="button" size="sm" className="w-full" disabled={isSaving} onClick={() => handleQuality("passed")}><CheckCircle className="mr-1.5 h-3.5 w-3.5"/>{isSaving ? "Saving..." : "Approve Quality"}</Button>
+                      </div>
+                    </div>}
+                  </section>
+                  {!selectedIncoming.receipt && <p className="rounded-lg border border-blue-200 bg-blue-50 p-2.5 text-[10px] leading-relaxed text-blue-900">Legacy receipt: details are reconstructed from the shipment information currently available.</p>}
                 </div>
-                {!selectedIncoming.receipt && <p className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs leading-relaxed text-blue-900">This is an older receipt record. Details shown above are reconstructed from the shipment information currently available.</p>}
-                <div className="flex flex-col-reverse gap-2 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
-                  <Button type="button" variant="outline" onClick={() => setShowReceiptDialog(false)}>Close</Button>
-                  {quality !== "pending" ? <Button type="button" onClick={() => printIncomingPackingReceipt(selectedIncoming, receivedQuantity, usable)}><Package className="mr-2 h-4 w-4"/>Reprint Receipt</Button> : <p className="text-xs text-amber-700">Complete the quality check above to enable receipt reprinting.</p>}
-                </div>
+              </div>
+
+              <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-white px-4 py-3 sm:px-5">
+                <Button type="button" size="sm" variant="outline" onClick={() => setShowReceiptDialog(false)}>Close</Button>
+                {quality !== "pending" ? <Button type="button" size="sm" onClick={() => printIncomingPackingReceipt(selectedIncoming, receivedQuantity, usable)}><Package className="mr-2 h-4 w-4"/>Reprint Receipt</Button> : <p className="text-[10px] text-amber-700">Complete quality inspection to enable reprinting.</p>}
               </div>
             </div>;
           })()}
