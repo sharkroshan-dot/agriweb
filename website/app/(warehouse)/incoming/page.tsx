@@ -167,12 +167,6 @@ export default function WarehouseIncomingPage() {
   const [showScheduleDialog, setShowScheduleDialog] = useState(false);
   const [showReceiveDialog, setShowReceiveDialog] = useState(false);
   const [showQualityDialog, setShowQualityDialog] = useState(false);
-  const [showStoreDialog, setShowStoreDialog] = useState(false);
-  const [storeForm, setStoreForm] = useState({ usableQuantity: "", storageLocation: "", storageType: "ambient" });
-  const [bulkStoreItems, setBulkStoreItems] = useState<any[]>([]);
-  const [bulkStoreForm, setBulkStoreForm] = useState({ storageLocation: "", storageType: "ambient", usableQuantities: {} as Record<string, string> });
-  const [showBulkStoreDialog, setShowBulkStoreDialog] = useState(false);
-  const [bulkStoreErrors, setBulkStoreErrors] = useState<string[]>([]);
   const [showTrackDialog, setShowTrackDialog] = useState(false);
   const [showReceiptDialog, setShowReceiptDialog] = useState(false);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
@@ -747,8 +741,6 @@ export default function WarehouseIncomingPage() {
           const isBulkLotReceived = (row: any) => Boolean(row.bulkShipmentReceivedAt || row.bulkShipmentMeasuredTotal !== undefined || /Bulk lot receipt:/i.test(String(row.notes || row.qualityNotes || "")));
           const isPhysicallyReceived = (row: any) => ["received", "quality_check", "stored", "rejected"].includes(String(row.status || "").toLowerCase()) || Boolean(row.receivedAt || row.receivedDate || row.warehouseReceivedAt || row.bulkShipmentReceivedAt);
           const receivedCount = farmItems.filter((row: any) => isPhysicallyReceived(row)).length;
-          const passedBulkItems = farmItems.filter((row: any) => !isFarmerPackedIncoming(row) && ["received", "quality_check"].includes(String(row.status || "").toLowerCase()) && isReceiptQualityPassed(row));
-          const storedBulkItems = farmItems.filter((row: any) => !isFarmerPackedIncoming(row) && String(row.status || "").toLowerCase() === "stored");
           const pendingCount = Math.max(0, farmItems.length - receivedCount);
           // Bulk lot measured weight is duplicated across its product-reference rows;
           // count the lot-level measured total once, not once per product line.
