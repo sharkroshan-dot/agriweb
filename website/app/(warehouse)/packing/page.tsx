@@ -125,12 +125,15 @@ export default function WarehousePackingPage() {
     });
   }, [tasks, searchTerm, dateFilter, requestedOrderId, requestedFarm]);
 
+  const unresolvedShortages = shortages.filter((item: any) => !["resolved", "cancelled"].includes(String(item.status || "").toLowerCase()));
+  const shortageOrderIds = new Set(unresolvedShortages.flatMap((item: any) => [item.orderId, item.orderNumber, item.order?._id, item.order?.id].filter(Boolean).map(String)));
+  const taskHasOpenShortage = (task: any) => [task.orderId, task.orderNumber, task.order?.id, task.order?._id, task.id].filter(Boolean).some((id: any) => shortageOrderIds.has(String(id)));
   const visibleTasks = useMemo(() => {
-    if (queueTab === "completed") return filteredTasks.filter((task: any) => ["packed", "verified", "ready_for_dispatch", "dispatched"].includes(String(task.status || "").toLowerCase()));
-    if (queueTab === "shortage") return filteredTasks.filter((task: any) => String(task.status || "").toLowerCase() === "customer_approval_pending");
-    if (queueTab === "packing") return filteredTasks.filter((task: any) => ["assigned", "packing", "partially_packed"].includes(String(task.status || "").toLowerCase()));
-    return filteredTasks.filter(isUnfinishedPackingTask);
-  }, [filteredTasks, queueTab]);
+    if (queueTab === "completed") return filteredTasks.filter((task: any) => ["packed", "verified", "ready_for_dispatch", "dispatched"].includes(String(task.status || "").toLowerCase()) && !taskHasOpenShortage(task));
+    if (queueTab === "shortage") return filteredTasks.filter((task: any) => taskHasOpenShortage(task) || String(task.status || "").toLowerCase() === "customer_approval_pending");
+    if (queueTab === "packing") return filteredTasks.filter((task: any) => ["assigned", "packing", "partially_packed"].includes(String(task.status || "").toLowerCase()) && !taskHasOpenShortage(task));
+    return filteredTasks.filter((task: any) => String(task.status || "").toLowerCase() === "ready_for_packing" && !taskHasOpenShortage(task));
+  }, [filteredTasks, queueTab, shortageData]);
   const selectedTask = visibleTasks.find((task: any) => String(task.id) === selectedOrderId) || visibleTasks[0] || null;
   const selectedItems = selectedTask?.packingItems?.length ? selectedTask.packingItems : selectedTask?.items || [];
   const totalRequired = selectedItems.reduce((sum: number, item: any) => sum + Number(item.quantityRequired ?? item.quantity ?? 0), 0);
@@ -148,10 +151,10 @@ export default function WarehousePackingPage() {
     return Array.from(groups.values());
   }, [visibleTasks]);
 
-  const unfinishedCount = filteredTasks.filter(isUnfinishedPackingTask).length;
-  const packingCount = filteredTasks.filter((task: any) => ["assigned", "packing", "partially_packed"].includes(String(task.status || "").toLowerCase())).length;
-  const completedCount = filteredTasks.filter((task: any) => ["packed", "verified", "ready_for_dispatch", "dispatched"].includes(String(task.status || "").toLowerCase())).length;
-  const shortageTaskCount = filteredTasks.filter((task: any) => String(task.status || "").toLowerCase() === "customer_approval_pending").length;
+  const unfinishedCount = filteredTasks.filter((task: any) => String(task.status || "").toLowerCase() === "ready_for_packing" && !taskHasOpenShortage(task)).length;
+  const packingCount = filteredTasks.filter((task: any) => ["assigned", "packing", "partially_packed"].includes(String(task.status || "").toLowerCase()) && !taskHasOpenShortage(task)).length;
+  const completedCount = filteredTasks.filter((task: any) => ["packed", "verified", "ready_for_dispatch", "dispatched"].includes(String(task.status || "").toLowerCase()) && !taskHasOpenShortage(task)).length;
+  const shortageTaskCount = filteredTasks.filter((task: any) => taskHasOpenShortage(task) || String(task.status || "").toLowerCase() === "customer_approval_pending").length;
   const finishedCount = filteredTasks.filter((task: any) => !isUnfinishedPackingTask(task)).length;
 
   const assignFarmTeam = async (farm: { key: string; name: string; tasks: any[] }) => {
@@ -305,28 +308,8 @@ export default function WarehousePackingPage() {
           <Button type="button" variant="outline" onClick={() => { void Promise.all([refetch(), refetchShortages()]); }}><RefreshCw className="mr-2 h-4 w-4"/>Refresh</Button>
         </div>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <Card className="border-emerald-200 bg-emerald-50/60"><CardContent className="p-4"><p className="text-xs font-medium text-emerald-800">Packing queue</p><p className="mt-1 text-2xl font-bold text-emerald-950">{filteredTasks.filter((t:any)=>String(t.status||"").toLowerCase()==="ready_for_packing").length}</p><p className="text-xs text-emerald-800">Ready to start</p></CardContent></Card>
-        <Card className="border-amber-200 bg-amber-50/60"><CardContent className="p-4"><p className="text-xs font-medium text-amber-800">In packing</p><p className="mt-1 text-2xl font-bold text-amber-950">{filteredTasks.filter((t:any)=>["assigned","packing","partially_packed"].includes(String(t.status||"").toLowerCase())).length}</p><p className="text-xs text-amber-800">Being processed</p></CardContent></Card>
-        <Card className="border-violet-200 bg-violet-50/60"><CardContent className="p-4"><p className="text-xs font-medium text-violet-800">Packed / not finished</p><p className="mt-1 text-2xl font-bold text-violet-950">{filteredTasks.filter((t:any)=>String(t.status||"").toLowerCase()==="packed").length}</p><p className="text-xs text-violet-800">Awaiting next step</p></CardContent></Card>
-        <Card className="border-red-200 bg-red-50/60"><CardContent className="p-4"><p className="text-xs font-medium text-red-800">Open shortages</p><p className="mt-1 text-2xl font-bold text-red-950">{shortages.filter((s:any)=>!["resolved","cancelled"].includes(String(s.status||"").toLowerCase())).length}</p><p className="text-xs text-red-800">Dispatch blocked until resolved</p></CardContent></Card>
-        <Card className="border-blue-200 bg-blue-50/60"><CardContent className="p-4"><p className="text-xs font-medium text-blue-800">Finished / moved on</p><p className="mt-1 text-2xl font-bold text-blue-950">{finishedCount}</p><p className="text-xs text-blue-800">Continue in Outgoing / Dispatch</p></CardContent></Card>
-      </div>
-      <Card className="border-slate-200 shadow-sm"><CardContent className="space-y-3 p-4">
-        <div className="flex flex-col gap-3 lg:flex-row">
-          <div className="relative min-w-0 flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"/><Input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search order, customer, farmer, product or delivery address…" className="h-10 pl-9"/></div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-1 text-sm text-muted-foreground"><Clock3 className="h-4 w-4"/>Date:</span>
-            {([{value:"today",label:"Today"},{value:"yesterday",label:"Yesterday"},{value:"week",label:"This Week"},{value:"all",label:"All Time"}] as const).map((option) => <Button key={option.value} type="button" size="sm" variant={dateFilter === option.value ? "default" : "outline"} onClick={() => setDateFilter(option.value)}>{option.label}</Button>)}
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-xs text-muted-foreground">
-          <span>Showing {visibleTasks.length} remaining packing order(s) · Finished orders automatically leave this queue.</span>
-          <span>{dateFilter === "today" ? "Today" : dateFilter === "yesterday" ? "Yesterday" : dateFilter === "week" ? "This Week (Monday-start)" : "All Time"}</span>
-        </div>
-      </CardContent></Card>
       {shortages.filter((x:any) => !["resolved", "cancelled"].includes(String(x.status || "").toLowerCase())).length > 0 && (
-        <details className="group overflow-hidden rounded-xl border border-red-200 bg-white shadow-sm">
+        <details open className="group overflow-hidden rounded-xl border border-red-200 bg-white shadow-sm">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-3 bg-red-50/70 px-4 py-3 marker:hidden">
             <span className="flex min-w-0 items-center gap-2"><AlertTriangle className="h-5 w-5 shrink-0 text-red-600"/><span><span className="block text-sm font-semibold text-red-900">Shortage resolution required</span><span className="block text-xs text-red-700">{shortages.filter((x:any) => !["resolved", "cancelled"].includes(String(x.status || "").toLowerCase())).length} unresolved case(s) · Dispatch remains blocked until resolved</span></span></span>
             <span className="shrink-0 text-xs font-semibold text-red-700 group-open:hidden">View cases</span><span className="hidden shrink-0 text-xs font-semibold text-red-700 group-open:inline">Hide cases</span>
@@ -384,6 +367,27 @@ export default function WarehousePackingPage() {
           </div>
         </details>
       )}
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <Card className="border-emerald-200 bg-emerald-50/60"><CardContent className="p-4"><p className="text-xs font-medium text-emerald-800">Packing queue</p><p className="mt-1 text-2xl font-bold text-emerald-950">{filteredTasks.filter((t:any)=>String(t.status||"").toLowerCase()==="ready_for_packing").length}</p><p className="text-xs text-emerald-800">Ready to start</p></CardContent></Card>
+        <Card className="border-amber-200 bg-amber-50/60"><CardContent className="p-4"><p className="text-xs font-medium text-amber-800">In packing</p><p className="mt-1 text-2xl font-bold text-amber-950">{filteredTasks.filter((t:any)=>["assigned","packing","partially_packed"].includes(String(t.status||"").toLowerCase())).length}</p><p className="text-xs text-amber-800">Being processed</p></CardContent></Card>
+        <Card className="border-violet-200 bg-violet-50/60"><CardContent className="p-4"><p className="text-xs font-medium text-violet-800">Packed / not finished</p><p className="mt-1 text-2xl font-bold text-violet-950">{filteredTasks.filter((t:any)=>String(t.status||"").toLowerCase()==="packed").length}</p><p className="text-xs text-violet-800">Awaiting next step</p></CardContent></Card>
+        <Card className="border-red-200 bg-red-50/60"><CardContent className="p-4"><p className="text-xs font-medium text-red-800">Open shortages</p><p className="mt-1 text-2xl font-bold text-red-950">{shortages.filter((s:any)=>!["resolved","cancelled"].includes(String(s.status||"").toLowerCase())).length}</p><p className="text-xs text-red-800">Dispatch blocked until resolved</p></CardContent></Card>
+        <Card className="border-blue-200 bg-blue-50/60"><CardContent className="p-4"><p className="text-xs font-medium text-blue-800">Finished / moved on</p><p className="mt-1 text-2xl font-bold text-blue-950">{finishedCount}</p><p className="text-xs text-blue-800">Continue in Outgoing / Dispatch</p></CardContent></Card>
+      </div>
+      <Card className="border-slate-200 shadow-sm"><CardContent className="space-y-3 p-4">
+        <div className="flex flex-col gap-3 lg:flex-row">
+          <div className="relative min-w-0 flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"/><Input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search order, customer, farmer, product or delivery address…" className="h-10 pl-9"/></div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1 text-sm text-muted-foreground"><Clock3 className="h-4 w-4"/>Date:</span>
+            {([{value:"today",label:"Today"},{value:"yesterday",label:"Yesterday"},{value:"week",label:"This Week"},{value:"all",label:"All Time"}] as const).map((option) => <Button key={option.value} type="button" size="sm" variant={dateFilter === option.value ? "default" : "outline"} onClick={() => setDateFilter(option.value)}>{option.label}</Button>)}
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-xs text-muted-foreground">
+          <span>Showing {visibleTasks.length} remaining packing order(s) · Finished orders automatically leave this queue.</span>
+          <span>{dateFilter === "today" ? "Today" : dateFilter === "yesterday" ? "Yesterday" : dateFilter === "week" ? "This Week (Monday-start)" : "All Time"}</span>
+        </div>
+      </CardContent></Card>
+
       {packingError && <Card className="border-red-200 bg-red-50"><CardContent className="p-4 text-sm text-red-700">Unable to load warehouse packing tasks. Check the backend logs or refresh the page.</CardContent></Card>}
       {isLoading ? <div className="h-32 animate-pulse rounded-lg bg-muted"/> : !packingError && visibleTasks.length === 0 ? (
         <Card className="p-12 text-center"><PackageCheck className="mx-auto h-12 w-12 text-muted-foreground"/><h3 className="mt-4 font-semibold">{searchTerm.trim() ? "No remaining orders match your search" : "No orders waiting for packing"}</h3><p className="mt-2 text-sm text-muted-foreground">"All eligible orders have finished packing or are waiting in the separate shortage-resolution process. Finished orders continue in Outgoing / Dispatch."</p></Card>
