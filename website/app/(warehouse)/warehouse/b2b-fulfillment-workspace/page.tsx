@@ -339,7 +339,7 @@ export default function B2BFulfillmentPage() {
          {["delivered", "completed"].includes(o.status) && <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">Business delivery recorded. Final status: {label(o.status)}.</p>}
         </>}
       </CardContent></Card>;
-    })}</div>
+    })}</div></div>
       </aside>
     </div>}
 
