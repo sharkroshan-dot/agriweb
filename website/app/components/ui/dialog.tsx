@@ -9,10 +9,11 @@ interface DialogProps {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   wide?: boolean;
+  contentClassName?: string;
   children: React.ReactNode;
 }
 
-export function Dialog({ open = false, onOpenChange, wide = false, children }: DialogProps) {
+export function Dialog({ open = false, onOpenChange, wide = false, contentClassName, children }: DialogProps) {
   React.useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -32,7 +33,7 @@ export function Dialog({ open = false, onOpenChange, wide = false, children }: D
         if (event.target === event.currentTarget) onOpenChange?.(false);
       }}
     >
-      <div className={`relative max-h-[calc(100vh-2rem)] w-full ${wide ? "max-w-2xl" : "max-w-lg"} overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl sm:p-7`}>
+      <div className={cn(`relative max-h-[calc(100vh-2rem)] w-full ${wide ? "max-w-2xl" : "max-w-lg"} overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl sm:p-7`, contentClassName)}>
         {onOpenChange && (
           <button
             type="button"
