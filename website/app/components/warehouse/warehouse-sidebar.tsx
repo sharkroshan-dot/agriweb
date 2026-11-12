@@ -31,6 +31,7 @@ const navSections = [
       { name: "Pickup Routes", href: "/pickup-routes", icon: Route },
       { name: "Incoming Stock", href: "/incoming", icon: ArrowDown },
       { name: "B2B Pickup & Fulfillment", href: "/warehouse/b2b-fulfillment", icon: Truck },
+      { name: "B2B Fulfillment Workspace", href: "/warehouse/b2b-fulfillment-workspace", icon: PackageCheck },
     ],
   },
   {
