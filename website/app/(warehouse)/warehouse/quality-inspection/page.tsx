@@ -66,6 +66,8 @@ export default function WarehouseQualityInspectionPage() {
   const [incomingQuality, setIncomingQuality] = useState<"passed" | "failed">("passed");
   const [incomingUsableQuantity, setIncomingUsableQuantity] = useState("");
   const [incomingQualityNotes, setIncomingQualityNotes] = useState("");
+  const [queueSearch, setQueueSearch] = useState("");
+  const [priorityFilter, setPriorityFilter] = useState("all");
 
   const { data, isLoading, isFetching, error, refetch } = useQuery({
     queryKey: ["warehouseQualityQueue"],
@@ -192,6 +194,12 @@ export default function WarehouseQualityInspectionPage() {
       .filter((row: Inspection) => Boolean(row.id));
   }, [data]);
 
+  const visibleQueue = useMemo(() => queue.filter(item => {
+    const q = queueSearch.trim().toLowerCase();
+    const matchesSearch = !q || [item.batch?.cropName, item.batch?.lotNumber, item.id].some(value => String(value || "").toLowerCase().includes(q));
+    return matchesSearch && (priorityFilter === "all" || (item.priority || "normal") === priorityFilter);
+  }), [queue, queueSearch, priorityFilter]);
+
   const claimMutation = useMutation({
     mutationFn: (id: string) => api.post(`/quality/inspections/${id}/claim`, { notes: "Inspector assigned for physical inspection" }),
     onSuccess: async (_result, id) => {
@@ -253,202 +261,85 @@ export default function WarehouseQualityInspectionPage() {
   };
 
   return (
-    <div className="warehouse-quality-page space-y-6">
-      <div>
-        <div className="flex items-center gap-2">
-          <ShieldCheck className="h-7 w-7 text-emerald-600" />
-          <h1 className="text-3xl font-bold">Quality Inspection</h1>
+    <div className="warehouse-quality-page space-y-6 pb-8">
+      <header className="flex flex-col justify-between gap-4 rounded-2xl border border-slate-200 bg-gradient-to-r from-white via-white to-emerald-50/70 p-5 shadow-sm lg:flex-row lg:items-center">
+        <div className="flex items-start gap-3">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700"><ShieldCheck className="h-6 w-6"/></div>
+          <div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700">Warehouse operations</p><h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">Quality Inspection</h1><p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600">Review farmer-submitted evidence, inspect received produce and record an authorized quality decision.</p></div>
         </div>
-        <p className="mt-1 text-muted-foreground">
-          Independent physical inspection for harvested batches. Farmers cannot approve their own produce.
-        </p>
+        <Button type="button" variant="outline" onClick={() => { refetch(); incomingQuery.refetch(); farmerTransfersQuery.refetch(); }} disabled={isFetching || incomingQuery.isFetching} className="shrink-0 bg-white"><Clock3 className="mr-2 h-4 w-4"/>{isFetching || incomingQuery.isFetching ? "Refreshing…" : "Refresh queues"}</Button>
+      </header>
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Card className="rounded-2xl border-slate-200 shadow-sm"><CardContent className="flex items-center justify-between p-4"><div><p className="text-sm font-medium text-slate-500">Farmer inspections</p><p className="mt-1 text-3xl font-bold tabular-nums text-slate-950">{queue.length}</p><p className="mt-1 text-xs text-slate-500">Evidence submitted for review</p></div><div className="rounded-xl bg-sky-50 p-3 text-sky-700"><Camera className="h-5 w-5"/></div></CardContent></Card>
+        <Card className="rounded-2xl border-slate-200 shadow-sm"><CardContent className="flex items-center justify-between p-4"><div><p className="text-sm font-medium text-slate-500">Urgent inspections</p><p className="mt-1 text-3xl font-bold tabular-nums text-amber-600">{queue.filter(x => x.priority === "critical" || x.priority === "urgent").length}</p><p className="mt-1 text-xs text-slate-500">Critical or urgent priority</p></div><div className="rounded-xl bg-amber-50 p-3 text-amber-700"><AlertTriangle className="h-5 w-5"/></div></CardContent></Card>
+        <Card className="rounded-2xl border-slate-200 shadow-sm"><CardContent className="flex items-center justify-between p-4"><div><p className="text-sm font-medium text-slate-500">Incoming quality checks</p><p className="mt-1 text-3xl font-bold tabular-nums text-slate-950">{incomingQualityQueue.length}</p><p className="mt-1 text-xs text-slate-500">Warehouse fulfillment only</p></div><div className="rounded-xl bg-violet-50 p-3 text-violet-700"><PackageCheck className="h-5 w-5"/></div></CardContent></Card>
+        <Card className="rounded-2xl border-emerald-200 bg-emerald-50/60 shadow-sm"><CardContent className="flex items-center gap-3 p-4"><div className="rounded-xl bg-white p-3 text-emerald-700"><ShieldCheck className="h-5 w-5"/></div><div><p className="text-sm font-semibold text-emerald-900">Inspection standard</p><p className="mt-1 text-xs leading-5 text-emerald-800">Only an authorized warehouse inspector can approve or reject produce.</p></div></CardContent></Card>
       </div>
 
-      <Card className="border-emerald-200 bg-emerald-50/50">
-        <CardContent className="grid gap-4 p-5 md:grid-cols-3">
-          <div><p className="text-xs uppercase tracking-wide text-muted-foreground">Pending</p><p className="text-2xl font-bold">{queue.length}</p></div>
-          <div><p className="text-xs uppercase tracking-wide text-muted-foreground">Critical / urgent</p><p className="text-2xl font-bold text-orange-600">{queue.filter(x => x.priority === "critical" || x.priority === "urgent").length}</p></div>
-          <div><p className="text-xs uppercase tracking-wide text-muted-foreground">Rule</p><p className="text-sm font-medium">Approval requires physical inspection evidence</p></div>
-        </CardContent>
-      </Card>
+      {error && <Card className="rounded-xl border-red-200 bg-red-50"><CardContent className="flex flex-col gap-3 p-4 text-sm text-red-800 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold">Unable to load inspection queue</p><p className="mt-1">{(error as Error).message || "The quality inspection API returned an error."}</p></div><Button type="button" size="sm" variant="outline" onClick={() => queryClient.invalidateQueries({ queryKey: ["warehouseQualityQueue"] })}>Retry queue</Button></CardContent></Card>}
 
-      {error && <Card className="border-red-200 bg-red-50"><CardContent className="space-y-2 p-4 text-sm text-red-700"><p className="font-semibold">Unable to load inspection queue.</p><p>{(error as Error).message || "The quality inspection API returned an error."}</p><Button type="button" size="sm" variant="outline" onClick={() => queryClient.invalidateQueries({ queryKey: ["warehouseQualityQueue"] })}>Retry queue</Button></CardContent></Card>}
-
-      <Card className="border-amber-200">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Clock3 className="h-5 w-5 text-amber-600" />Incoming Stock — Pending Quality Recheck</CardTitle>
-          <p className="text-sm text-muted-foreground">Only Warehouse Fulfillment orders awaiting quality inspection appear here. Farmer Fulfillment and unrelated orders are excluded. Recheck pending shipments and save the final result; approved stock can then continue to Store.</p>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {incomingQuery.isLoading && <p className="text-sm text-muted-foreground">Loading pending incoming receipts…</p>}
-          {incomingQuery.isError && <p className="text-sm text-red-600">Could not load incoming receipt quality checks. Refresh and try again.</p>}
-          {!incomingQuery.isLoading && !incomingQuery.isError && incomingQualityQueue.length === 0 && <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No incoming shipments are waiting for a quality recheck.</p>}
-          {incomingQualityQueue.map((item: any) => (
-            <div key={item.id} className="flex flex-col gap-3 rounded-xl border p-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0">
-                <p className="font-semibold">{item.orderNumber || item.order?.orderNumber || item.orderId || item.id} · {item.productName || item.displayProductName || "Product"}</p>
-                <p className="mt-1 text-sm text-muted-foreground">Farm: {item.farmName || item.farmerName || "Farm details unavailable"} · Received: {item.quantityReceived ?? item.quantity ?? "—"} {item.unit || "kg"}</p>
-                <p className="mt-1 text-sm text-amber-700">Quality: Pending · {item.qualityNotes || item.notes || "Recheck required"}</p>
-              </div>
-              <Button type="button" onClick={() => openIncomingRecheck(item)}><ShieldCheck className="mr-2 h-4 w-4" />Recheck Quality</Button>
-            </div>
-          ))}
+      <Card className="overflow-hidden rounded-2xl border-slate-200 shadow-sm">
+        <CardHeader className="border-b border-slate-100 bg-white pb-4"><div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><div><CardTitle className="text-lg text-slate-900">Incoming Stock · Quality Recheck</CardTitle><p className="mt-1 text-sm leading-5 text-slate-500">Only received Warehouse Fulfillment shipments awaiting inspection appear here. Farmer Fulfillment orders are excluded.</p></div><Badge variant="outline" className="w-fit border-amber-200 bg-amber-50 text-amber-800">{incomingQualityQueue.length} awaiting recheck</Badge></div></CardHeader>
+        <CardContent className="space-y-3 p-4">
+          {incomingQuery.isLoading && <p className="text-sm text-slate-500">Loading incoming quality checks…</p>}
+          {incomingQuery.isError && <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700">Could not load incoming receipt quality checks. Refresh and try again.</p>}
+          {!incomingQuery.isLoading && !incomingQuery.isError && incomingQualityQueue.length === 0 && <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-5 text-center"><CheckCircle2 className="mx-auto h-6 w-6 text-emerald-600"/><p className="mt-2 text-sm font-semibold text-slate-800">No incoming quality rechecks pending</p><p className="mt-1 text-xs text-slate-500">New eligible warehouse receipts will appear here.</p></div>}
+          <div className="grid gap-3 lg:grid-cols-2">{incomingQualityQueue.map((item: any) => <div key={item.id} className="flex flex-col justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4 transition hover:border-emerald-300 hover:shadow-sm sm:flex-row sm:items-center"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><p className="font-semibold text-slate-900">{item.orderNumber || item.order?.orderNumber || item.orderId || item.id}</p><Badge variant="warning">Quality pending</Badge></div><p className="mt-1 text-sm font-medium text-slate-700">{item.productName || item.displayProductName || "Product"}</p><p className="mt-1 text-xs text-slate-500">Farm: {item.farmName || item.farmerName || "Farm details unavailable"} · Received: {item.quantityReceived ?? item.quantity ?? "—"} {item.unit || "kg"}</p></div><Button type="button" onClick={() => openIncomingRecheck(item)} className="shrink-0"><ShieldCheck className="mr-2 h-4 w-4"/>Review quality</Button></div>)}</div>
         </CardContent>
       </Card>
 
       <Dialog open={Boolean(selectedIncoming)} onOpenChange={(open) => { if (!open && !incomingQualityMutation.isPending) setSelectedIncoming(null); }}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-xl">
-          <DialogHeader>
-            <DialogTitle>Recheck Incoming Shipment Quality</DialogTitle>
-            <DialogDescription>Review the existing receipt and save the final quality result. This does not receive the shipment again.</DialogDescription>
-          </DialogHeader>
+        <DialogContent className="max-h-[85vh] overflow-y-auto rounded-2xl sm:max-w-xl">
+          <DialogHeader><DialogTitle>Review incoming shipment quality</DialogTitle><DialogDescription>Confirm usable quantity and save the final quality result. This does not receive the shipment again.</DialogDescription></DialogHeader>
           {selectedIncoming && <div className="space-y-4">
-            <div className="rounded-lg border p-3">
-              <p className="font-semibold">{selectedIncoming.orderNumber || selectedIncoming.orderId || selectedIncoming.id} · {selectedIncoming.productName || selectedIncoming.displayProductName || "Product"}</p>
-              <p className="mt-1 text-sm text-muted-foreground">Farm: {selectedIncoming.farmName || selectedIncoming.farmerName || "Farm details unavailable"}</p>
-              <div className="mt-3 grid grid-cols-2 gap-3">
-                <div className="rounded-md bg-muted/50 p-3"><p className="text-xs text-muted-foreground">Declared quantity</p><p className="font-semibold">{selectedIncoming.quantity ?? "—"} {selectedIncoming.unit || "kg"}</p></div>
-                <div className="rounded-md bg-muted/50 p-3"><p className="text-xs text-muted-foreground">Actually received</p><p className="font-semibold">{selectedIncoming.quantityReceived ?? selectedIncoming.receivedQuantity ?? "—"} {selectedIncoming.unit || "kg"}</p></div>
-              </div>
-            </div>
-            <div><label className="text-sm font-medium">Usable quantity</label><input type="number" min="0" max={Number(selectedIncoming.quantityReceived ?? selectedIncoming.receivedQuantity ?? selectedIncoming.quantity ?? 0)} step="0.01" value={incomingUsableQuantity} onChange={e => setIncomingUsableQuantity(e.target.value)} className="mt-1 w-full rounded-lg border bg-background p-2" /></div>
-            <div><label className="text-sm font-medium">Final quality result</label><select value={incomingQuality} onChange={e => setIncomingQuality(e.target.value as "passed" | "failed")} className="mt-1 w-full rounded-lg border bg-background p-2"><option value="passed">Passed — continue to Store</option><option value="failed">Failed — reject / hold</option></select></div>
-            <div><label className="text-sm font-medium">Recheck notes</label><textarea value={incomingQualityNotes} onChange={e => setIncomingQualityNotes(e.target.value)} placeholder="Record what was rechecked and the result" className="mt-1 min-h-20 w-full rounded-lg border bg-background p-3" required /></div>
-            <div className="flex flex-wrap justify-end gap-2"><Button type="button" variant="outline" onClick={() => setSelectedIncoming(null)} disabled={incomingQualityMutation.isPending}>Cancel</Button><Button type="button" variant={incomingQuality === "failed" ? "destructive" : "default"} onClick={() => incomingQualityMutation.mutate(incomingQuality)} disabled={incomingQualityMutation.isPending || !incomingUsableQuantity.trim() || !Number.isFinite(Number(incomingUsableQuantity)) || Number(incomingUsableQuantity) < 0 || Number(incomingUsableQuantity) > Number(selectedIncoming.quantityReceived ?? selectedIncoming.receivedQuantity ?? selectedIncoming.quantity ?? 0) || !incomingQualityNotes.trim()}>{incomingQualityMutation.isPending ? "Saving result…" : incomingQuality === "passed" ? "Save Passed Result" : "Save Failed Result"}</Button></div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4"><p className="font-semibold text-slate-900">{selectedIncoming.orderNumber || selectedIncoming.orderId || selectedIncoming.id} · {selectedIncoming.productName || selectedIncoming.displayProductName || "Product"}</p><p className="mt-1 text-sm text-slate-500">Farm: {selectedIncoming.farmName || selectedIncoming.farmerName || "Farm details unavailable"}</p><div className="mt-3 grid grid-cols-2 gap-3"><div className="rounded-lg bg-white p-3"><p className="text-xs text-slate-500">Declared quantity</p><p className="mt-1 text-base font-semibold text-slate-900">{selectedIncoming.quantity ?? "—"} {selectedIncoming.unit || "kg"}</p></div><div className="rounded-lg bg-white p-3"><p className="text-xs text-slate-500">Actually received</p><p className="mt-1 text-base font-semibold text-slate-900">{selectedIncoming.quantityReceived ?? selectedIncoming.receivedQuantity ?? "—"} {selectedIncoming.unit || "kg"}</p></div></div></div>
+            <div><label className="text-sm font-medium text-slate-800">Usable quantity</label><input type="number" min="0" max={Number(selectedIncoming.quantityReceived ?? selectedIncoming.receivedQuantity ?? selectedIncoming.quantity ?? 0)} step="0.01" value={incomingUsableQuantity} onChange={e => setIncomingUsableQuantity(e.target.value)} className="mt-1 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"/></div>
+            <div><label className="text-sm font-medium text-slate-800">Final quality result</label><select value={incomingQuality} onChange={e => setIncomingQuality(e.target.value as "passed" | "failed")} className="mt-1 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"><option value="passed">Passed — continue to Store</option><option value="failed">Failed — reject / hold</option></select></div>
+            <div><label className="text-sm font-medium text-slate-800">Inspection notes</label><textarea value={incomingQualityNotes} onChange={e => setIncomingQualityNotes(e.target.value)} placeholder="Record what was checked and the result" className="mt-1 min-h-24 w-full rounded-lg border border-slate-300 p-3 text-sm" required/></div>
+            <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-4"><Button type="button" variant="outline" onClick={() => setSelectedIncoming(null)} disabled={incomingQualityMutation.isPending}>Cancel</Button><Button type="button" variant={incomingQuality === "failed" ? "destructive" : "default"} onClick={() => incomingQualityMutation.mutate(incomingQuality)} disabled={incomingQualityMutation.isPending || !incomingUsableQuantity.trim() || !Number.isFinite(Number(incomingUsableQuantity)) || Number(incomingUsableQuantity) < 0 || Number(incomingUsableQuantity) > Number(selectedIncoming.quantityReceived ?? selectedIncoming.receivedQuantity ?? selectedIncoming.quantity ?? 0) || !incomingQualityNotes.trim()}>{incomingQualityMutation.isPending ? "Saving result…" : incomingQuality === "passed" ? "Save passed result" : "Save failed result"}</Button></div>
           </div>}
         </DialogContent>
       </Dialog>
 
-      <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-        <Card>
-          <CardHeader>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <CardTitle>Inspection Queue ({queue.length})</CardTitle>
-              <Button type="button" size="sm" variant="outline" onClick={() => refetch()} disabled={isFetching}>
-                {isFetching ? "Refreshing…" : "Refresh queue"}
-              </Button>
-            </div>
+      <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(300px,0.85fr)_minmax(0,1.4fr)]">
+        <Card className="overflow-hidden rounded-2xl border-slate-200 shadow-sm">
+          <CardHeader className="space-y-3 border-b border-slate-100 bg-white pb-4">
+            <div className="flex items-center justify-between gap-2"><div><CardTitle className="text-lg text-slate-900">Inspection queue</CardTitle><p className="mt-1 text-sm text-slate-500">Farmer-submitted harvest evidence</p></div><Badge variant="outline">{visibleQueue.length} shown</Badge></div>
+            <input value={queueSearch} onChange={e => setQueueSearch(e.target.value)} placeholder="Search crop, lot or inspection ID…" className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm placeholder:text-slate-400"/>
+            <div className="flex flex-wrap gap-2">{["all","critical","urgent","normal"].map(value=><button type="button" key={value} onClick={()=>setPriorityFilter(value)} className={`rounded-full border px-3 py-1.5 text-xs font-medium capitalize transition ${priorityFilter===value?"border-emerald-700 bg-emerald-700 text-white":"border-slate-200 bg-white text-slate-600 hover:border-emerald-300"}`}>{value==="all"?"All priorities":value}</button>)}</div>
           </CardHeader>
-          <CardContent className="space-y-3">
-            {isLoading ? <p className="text-sm text-muted-foreground">Loading inspection requests…</p> : null}
-            {!isLoading && !error && queue.length === 0 ? <div className="rounded-lg border border-dashed p-5 text-sm text-muted-foreground"><p className="font-medium text-slate-700">No inspections are currently assigned to this warehouse.</p><p className="mt-1">Evidence submitted by farmers appears here after district routing. If an item is missing, check that the farmer profile has a valid farm district and that this warehouse is configured to serve that district.</p></div> : null}
-            {queue.map((item) => (
-              <button key={item.id} onClick={() => openInspection(item)} className="w-full rounded-xl border p-4 text-left transition hover:border-emerald-400 hover:bg-emerald-50/40">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="font-semibold">{item.batch?.cropName || "Produce"} · {item.batch?.lotNumber}</p>
-                    <p className="mt-1 text-sm text-muted-foreground">{item.batch?.quantityKg ?? "—"} kg · {item.batch?.storageType || "normal"} storage</p>
-                  </div>
-                  <Badge variant={item.priority === "critical" ? "destructive" : item.priority === "urgent" ? "warning" : "default"}>{item.priority || "normal"}</Badge>
-                </div>
-                <div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground">
-                  <span className="inline-flex items-center gap-1"><Clock3 className="h-3.5 w-3.5" />Due {item.inspectionDueAt ? new Date(item.inspectionDueAt).toLocaleString() : "—"}</span>
-                  <span className="inline-flex items-center gap-1"><MapPin className="h-3.5 w-3.5" />Visit batch location</span>
-                </div>
-              </button>
-            ))}
+          <CardContent className="space-y-2 p-3">
+            {isLoading && <p className="p-4 text-sm text-slate-500">Loading inspection requests…</p>}
+            {!isLoading && !error && queue.length === 0 && <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center"><CheckCircle2 className="mx-auto h-7 w-7 text-emerald-600"/><p className="mt-2 text-sm font-semibold text-slate-800">Queue is clear</p><p className="mt-1 text-xs leading-5 text-slate-500">Farmer evidence submitted for this warehouse district will appear here.</p></div>}
+            {!isLoading && !error && queue.length > 0 && visibleQueue.length === 0 && <p className="p-5 text-center text-sm text-slate-500">No inspections match these filters.</p>}
+            {visibleQueue.map(item=><button type="button" key={item.id} onClick={()=>openInspection(item)} className={`w-full rounded-xl border p-4 text-left transition ${selected?.id===item.id?"border-emerald-400 bg-emerald-50/70 shadow-sm":"border-slate-200 bg-white hover:border-emerald-300 hover:bg-slate-50"}`}><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate font-semibold text-slate-900">{item.batch?.cropName || "Produce"}</p><p className="mt-1 text-xs text-slate-500">Lot {item.batch?.lotNumber || "—"} · {item.batch?.quantityKg ?? "—"} kg</p></div><Badge variant={item.priority==="critical"?"destructive":item.priority==="urgent"?"warning":"secondary"}>{item.priority || "normal"}</Badge></div><div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3 text-xs text-slate-500"><span className="inline-flex items-center gap-1"><Clock3 className="h-3.5 w-3.5"/>{item.inspectionDueAt?new Date(item.inspectionDueAt).toLocaleString():"Due date not set"}</span><span className="font-medium text-emerald-700">{item.inspectionStatus==="in_progress"?"In progress":"Awaiting claim"}</span></div></button>)}
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader><CardTitle>{selected ? "Physical Inspection" : "Select a batch"}</CardTitle></CardHeader>
-          <CardContent>
-            {!selected ? (
-              <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
-                Select a farmer request, review the submitted photos/videos, claim it, then record Passed or Failed.
-              </div>
-            ) : (
-              <div className="space-y-5">
-                <div className="rounded-xl bg-muted/50 p-4">
-                  <p className="font-semibold">{selected.batch?.cropName} · {selected.batch?.lotNumber}</p>
-                  <p className="text-sm text-muted-foreground">{selected.batch?.quantityKg} kg · harvested {selected.batch?.harvestDate ? new Date(selected.batch.harvestDate).toLocaleDateString() : "—"}</p>
-                </div>
-                <div className="rounded-xl border p-4 space-y-3">
-                  <div><p className="font-semibold">Farmer-submitted evidence</p><p className="text-xs text-muted-foreground">Review these photos and videos before recording your decision.</p></div>
-                  {(selected as any).photos?.length ? (
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      {(selected as any).photos.map((storedUrl: string, index: number) => {
-                        const mediaUrl = resolveEvidenceMediaUrl(storedUrl);
-                        return (
-                          <a key={storedUrl + index} href={mediaUrl} target="_blank" rel="noreferrer" className="group block overflow-hidden rounded-xl border bg-slate-50">
-                            <img
-                              src={mediaUrl}
-                              alt={`Farmer evidence ${index + 1}`}
-                              loading="lazy"
-                              className="h-56 w-full bg-slate-100 object-contain transition-transform group-hover:scale-[1.02]"
-                              onError={(event) => {
-                                event.currentTarget.style.display = "none";
-                                const fallback = event.currentTarget.nextElementSibling as HTMLElement | null;
-                                if (fallback) fallback.classList.remove("hidden");
-                              }}
-                            />
-                            <div className="hidden min-h-32 items-center justify-center gap-2 p-4 text-center text-sm text-rose-700">
-                              <span>Image could not be loaded.</span>
-                              <span className="text-xs text-slate-500">Check that the backend upload URL is accessible.</span>
-                            </div>
-                            <p className="border-t bg-white px-3 py-2 text-xs text-slate-500">Photo {index + 1} · Open full size</p>
-                          </a>
-                        );
-                      })}
-                    </div>
-                  ) : <p className="text-sm text-muted-foreground">No photos submitted.</p>}
-                  {(selected as any).videos?.length ? (
-                    <div className="space-y-3">
-                      {(selected as any).videos.map((storedUrl: string, index: number) => (
-                        <div key={storedUrl + index} className="overflow-hidden rounded-xl border bg-black">
-                          <video
-                            src={resolveEvidenceMediaUrl(storedUrl)}
-                            controls
-                            playsInline
-                            preload="metadata"
-                            className="max-h-80 w-full"
-                          />
-                          <p className="bg-white px-3 py-2 text-xs text-slate-500">Farmer video {index + 1}</p>
-                        </div>
-                      ))}
-                    </div>
-                  ) : <p className="text-sm text-muted-foreground">No videos submitted.</p>}
-                  {(selected as any).evidenceNotes && <p className="rounded-md bg-muted/50 p-3 text-sm">{(selected as any).evidenceNotes}</p>}
-                  <p className="text-xs text-muted-foreground">Submitted: {(selected as any).evidenceSubmittedAt ? new Date((selected as any).evidenceSubmittedAt).toLocaleString() : "—"}</p>
-                </div>
-
-                {selected.inspectionStatus !== "in_progress" && (
-                  <Button className="w-full" onClick={() => claimMutation.mutate(selected.id)} disabled={claimMutation.isPending}>
-                    {claimMutation.isPending ? "Assigning…" : "Claim Inspection"}
-                  </Button>
-                )}
-
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="text-sm">Grade<select value={grade} onChange={e => setGrade(e.target.value)} className="mt-1 w-full rounded-lg border bg-background p-2"><option>A</option><option>B</option><option>C</option></select></label>
-                  <label className="text-sm">Freshness %<input value={freshness} onChange={e => setFreshness(e.target.value)} type="number" min="0" max="100" className="mt-1 w-full rounded-lg border p-2" /></label>
-                  <label className="text-sm">Damaged %<input value={damagedPct} onChange={e => setDamagedPct(e.target.value)} type="number" min="0" max="100" className="mt-1 w-full rounded-lg border p-2" /></label>
-                  <label className="text-sm">Measured kg<input value={weightKg} onChange={e => setWeightKg(e.target.value)} type="number" min="0" className="mt-1 w-full rounded-lg border p-2" /></label>
-                </div>
-
-                <div className="rounded-xl border border-dashed p-4">
-                  <div className="flex items-center gap-2 font-medium"><Camera className="h-4 w-4" /> Evidence</div>
-                  <p className="mt-1 text-xs text-muted-foreground">Record the physical condition, measured weight and inspection notes. Photo upload can be connected to your existing storage service.</p>
-                </div>
-
-                <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Inspection notes and findings" className="min-h-24 w-full rounded-lg border p-3 text-sm" />
-
-                <Button className="w-full" onClick={() => verifyMutation.mutate(selected.id)} disabled={verifyMutation.isPending || selected.inspectionStatus !== "in_progress"}>
-                  <CheckCircle2 className="mr-2 h-4 w-4" />{verifyMutation.isPending ? "Approving…" : "Approve Quality"}
-                </Button>
-
-                <div className="border-t pt-4">
-                  <textarea value={rejectReason} onChange={e => setRejectReason(e.target.value)} placeholder="Reason for rejection" className="min-h-20 w-full rounded-lg border p-3 text-sm" />
-                  <Button variant="destructive" className="mt-2 w-full" onClick={() => rejectMutation.mutate(selected.id)} disabled={!rejectReason.trim() || rejectMutation.isPending || selected.inspectionStatus !== "in_progress"}>
-                    <XCircle className="mr-2 h-4 w-4" />Reject Batch
-                  </Button>
-                </div>
-
-                <div className="flex items-start gap-2 rounded-lg bg-amber-50 p-3 text-xs text-amber-800">
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                  AI may assist with screening, but it cannot replace the authorized physical inspection or approve the batch by itself.
-                </div>
-              </div>
-            )}
+        <Card className="min-w-0 overflow-hidden rounded-2xl border-slate-200 shadow-sm">
+          <CardHeader className="border-b border-slate-100 bg-white pb-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><CardTitle className="text-lg text-slate-900">{selected?"Inspection workspace":"Inspection details"}</CardTitle><p className="mt-1 text-sm text-slate-500">{selected?"Review evidence and record the physical inspection result.":"Select an inspection from the queue to begin."}</p></div>{selected && <Badge variant={selected.inspectionStatus==="in_progress"?"success":"warning"}>{selected.inspectionStatus==="in_progress"?"Claimed by inspector":"Awaiting claim"}</Badge>}</div></CardHeader>
+          <CardContent className="p-4 sm:p-5">
+            {!selected ? <div className="flex min-h-[360px] flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50/70 p-8 text-center"><div className="rounded-2xl bg-white p-4 text-emerald-700 shadow-sm"><ClipboardCheck className="h-8 w-8"/></div><p className="mt-4 font-semibold text-slate-900">Choose a batch to inspect</p><p className="mt-1 max-w-sm text-sm leading-6 text-slate-500">Review farmer-submitted photos and videos, claim the inspection, then record your measured quality findings.</p></div> : <div className="space-y-5">
+              <div className="grid gap-3 sm:grid-cols-3"><div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Product</p><p className="mt-1 font-semibold text-slate-900">{selected.batch?.cropName || "Produce"}</p></div><div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Lot number</p><p className="mt-1 font-semibold text-slate-900">{selected.batch?.lotNumber || "—"}</p></div><div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Harvest quantity</p><p className="mt-1 font-semibold text-slate-900">{selected.batch?.quantityKg ?? "—"} kg</p></div></div>
+              <section className="rounded-xl border border-slate-200 p-4"><div className="mb-3 flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-semibold text-slate-900">Farmer-submitted evidence</h3><p className="mt-1 text-xs text-slate-500">Review the condition shown before recording a decision.</p></div><Badge variant="outline">{((selected as any).photos?.length||0)+((selected as any).videos?.length||0)} files</Badge></div>
+                {(selected as any).photos?.length ? <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">{(selected as any).photos.map((storedUrl:string,index:number)=>{const mediaUrl=resolveEvidenceMediaUrl(storedUrl);return <a key={storedUrl+index} href={mediaUrl} target="_blank" rel="noreferrer" className="group overflow-hidden rounded-xl border bg-slate-50"><img src={mediaUrl} alt={`Farmer evidence ${index+1}`} loading="lazy" className="h-48 w-full bg-slate-100 object-contain transition group-hover:scale-[1.02]" onError={event=>{event.currentTarget.style.display="none";const fallback=event.currentTarget.nextElementSibling as HTMLElement|null;if(fallback)fallback.classList.remove("hidden");}}/><div className="hidden min-h-32 items-center justify-center p-4 text-sm text-rose-700">Image could not be loaded. Check backend upload access.</div><p className="border-t bg-white px-3 py-2 text-xs text-slate-500">Photo {index+1} · Open full size</p></a>;})}</div> : <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-500">No photos submitted.</p>}
+                {(selected as any).videos?.length ? <div className="mt-3 grid gap-3 sm:grid-cols-2">{(selected as any).videos.map((storedUrl:string,index:number)=><div key={storedUrl+index} className="overflow-hidden rounded-xl border bg-black"><video src={resolveEvidenceMediaUrl(storedUrl)} controls playsInline preload="metadata" className="max-h-64 w-full"/><p className="bg-white px-3 py-2 text-xs text-slate-500">Farmer video {index+1}</p></div>)}</div> : <p className="mt-3 text-sm text-slate-500">No videos submitted.</p>}
+                {(selected as any).evidenceNotes && <p className="mt-3 rounded-lg bg-blue-50 p-3 text-sm text-blue-900">{(selected as any).evidenceNotes}</p>}<p className="mt-3 text-xs text-slate-500">Evidence submitted: {(selected as any).evidenceSubmittedAt?new Date((selected as any).evidenceSubmittedAt).toLocaleString():"—"}</p>
+              </section>
+              {selected.inspectionStatus!=="in_progress" && <Button type="button" className="w-full" onClick={()=>claimMutation.mutate(selected.id)} disabled={claimMutation.isPending}>{claimMutation.isPending?"Claiming inspection…":"Claim inspection"}</Button>}
+              <section className="rounded-xl border border-slate-200 p-4"><div className="mb-4"><h3 className="font-semibold text-slate-900">Physical quality assessment</h3><p className="mt-1 text-xs text-slate-500">Enter measurements from the actual warehouse inspection.</p></div><div className="grid gap-3 sm:grid-cols-2">
+                <label className="text-sm font-medium text-slate-700">Quality grade<select value={grade} onChange={e=>setGrade(e.target.value)} className="mt-1 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"><option>A</option><option>B</option><option>C</option></select></label>
+                <label className="text-sm font-medium text-slate-700">Freshness (%)<input value={freshness} onChange={e=>setFreshness(e.target.value)} type="number" min="0" max="100" className="mt-1 h-10 w-full rounded-lg border border-slate-300 px-3 text-sm"/></label>
+                <label className="text-sm font-medium text-slate-700">Damaged produce (%)<input value={damagedPct} onChange={e=>setDamagedPct(e.target.value)} type="number" min="0" max="100" className="mt-1 h-10 w-full rounded-lg border border-slate-300 px-3 text-sm"/></label>
+                <label className="text-sm font-medium text-slate-700">Measured weight (kg)<input value={weightKg} onChange={e=>setWeightKg(e.target.value)} type="number" min="0" className="mt-1 h-10 w-full rounded-lg border border-slate-300 px-3 text-sm"/></label>
+              </div><label className="mt-4 block text-sm font-medium text-slate-700">Inspection notes<textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Record appearance, freshness, damage, weight variance and other findings…" className="mt-1 min-h-24 w-full rounded-lg border border-slate-300 p-3 text-sm"/></label>
+                <label className="mt-4 block text-sm font-medium text-slate-700">Reason for rejection (required to reject)<textarea value={rejectReason} onChange={e=>setRejectReason(e.target.value)} placeholder="Explain the quality issue and why the batch cannot be approved…" className="mt-1 min-h-20 w-full rounded-lg border border-slate-300 p-3 text-sm"/></label>
+                <div className="mt-4 grid gap-2 sm:grid-cols-2"><Button type="button" onClick={()=>verifyMutation.mutate(selected.id)} disabled={verifyMutation.isPending||selected.inspectionStatus!=="in_progress"}><CheckCircle2 className="mr-2 h-4 w-4"/>{verifyMutation.isPending?"Saving approval…":"Approve quality"}</Button><Button type="button" variant="destructive" onClick={()=>rejectMutation.mutate(selected.id)} disabled={!rejectReason.trim()||rejectMutation.isPending||selected.inspectionStatus!=="in_progress"}><XCircle className="mr-2 h-4 w-4"/>{rejectMutation.isPending?"Rejecting…":"Reject batch"}</Button></div>
+                {selected.inspectionStatus!=="in_progress" && <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">Claim this inspection before approving or rejecting it.</p>}
+              </section>
+              <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0"/>AI may assist with screening, but it cannot replace the authorized physical inspection or approve the batch by itself.</div>
+            </div>}
           </CardContent>
         </Card>
       </div>
