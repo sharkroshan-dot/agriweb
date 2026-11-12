@@ -146,6 +146,8 @@ export default function WarehousePackingPage() {
     return filteredTasks.filter((task: any) => String(task.status || "").toLowerCase() === "ready_for_packing" && !taskHasOpenShortage(task));
   }, [filteredTasks, queueTab, shortageData]);
   const selectedTask = visibleTasks.find((task: any) => String(task.id) === selectedOrderId) || visibleTasks[0] || null;
+  const selectedShortage = unresolvedShortages.find((item: any) => String(item.id || item._id) === selectedOrderId) || unresolvedShortages[0] || null;
+  const selectedShortageTask = selectedShortage ? filteredTasks.find((task: any) => [task.orderId, task.orderNumber, task.order?.id, task.order?._id, task.id].filter(Boolean).some((id: any) => [selectedShortage.orderId, selectedShortage.orderNumber, selectedShortage.order?.id, selectedShortage.order?._id].filter(Boolean).map(String).includes(String(id)))) : null;
   const selectedItems = selectedTask?.packingItems?.length ? selectedTask.packingItems : selectedTask?.items || [];
   const totalRequired = selectedItems.reduce((sum: number, item: any) => sum + Number(item.quantityRequired ?? item.quantity ?? 0), 0);
   const totalPacked = selectedItems.reduce((sum: number, item: any) => sum + Number(item.packedQuantity ?? item.actualPackedQuantity ?? 0), 0);
@@ -362,7 +364,7 @@ export default function WarehousePackingPage() {
                             <p className="mt-1 text-sm text-red-800">Shortages are confirmed from physical packed quantities. Resolve each case and then verify the final packing quantities before dispatch.</p>
                             <div className="mt-4 space-y-3">
                               {unresolvedShortages.map((x:any) => (
-                                <div key={x.id} className="rounded-md border border-red-200 bg-white p-4 text-sm">
+                                <button key={x.id} type="button" onClick={() => setSelectedOrderId(String(x.id || x._id))} className={`block w-full rounded-md border bg-white p-4 text-left text-sm transition-colors ${String(selectedShortage?.id || selectedShortage?._id) === String(x.id || x._id) ? "border-red-400 bg-red-50/40 ring-1 ring-red-100" : "border-red-200 hover:border-red-300"}`}>
                                   <div className="flex flex-wrap items-start justify-between gap-2">
                                     <div className="font-semibold">Order #{x.orderNumber || x.orderId?.slice(-8)} · {x.productName || "Product"}</div>
                                     <Badge variant="outline" className="border-red-200 text-red-700">{String(x.status || "open").replace(/_/g, " ")}</Badge>
@@ -399,7 +401,7 @@ export default function WarehousePackingPage() {
                                       catch (e:any) { toast.error(e?.response?.data?.detail || e?.message || "Could not record cancellation/refund."); }
                                     }}>Record Approved Cancel / Refund</Button>
                                   </div>
-                                </div>
+                                </button>
                               ))}
                             </div>
                           </div>
@@ -442,7 +444,42 @@ export default function WarehousePackingPage() {
             </CardContent>
           </Card>
 
-          {queueTab !== "shortage" && (selectedTask ? (
+          {queueTab === "shortage" ? (
+            selectedShortage ? (
+              <Card className="overflow-hidden border-red-200 shadow-sm">
+                <CardContent className="space-y-5 p-4 sm:p-6">
+                  <div className="flex flex-wrap items-start justify-between gap-3 border-b pb-4">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-50 text-red-700"><AlertTriangle className="h-5 w-5"/></div>
+                        <h2 className="text-xl font-bold text-slate-900">#{selectedShortage.orderNumber || selectedShortageTask?.orderNumber || selectedShortage.orderId || "Shortage order"}</h2>
+                        <Badge variant="outline" className="border-red-200 bg-red-50 text-red-700">{String(selectedShortage.status || "open").replace(/_/g, " ")}</Badge>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
+                        <span className="inline-flex items-center gap-1"><Users className="h-3.5 w-3.5"/>{selectedShortageTask?.customer?.name || selectedShortage.customerName || "Customer details unavailable"}</span>
+                        {selectedShortageTask?.customer?.phone && <span className="inline-flex items-center gap-1"><Phone className="h-3.5 w-3.5"/>{selectedShortageTask.customer.phone}</span>}
+                        <span className="inline-flex items-center gap-1"><MapPin className="h-3.5 w-3.5"/>{[selectedShortageTask?.deliveryAddress?.city, selectedShortageTask?.deliveryAddress?.district, selectedShortageTask?.deliveryAddress?.state].filter(Boolean).join(", ") || "Delivery location unavailable"}</span>
+                      </div>
+                    </div>
+                    <div className="rounded-xl bg-red-50 px-4 py-3"><p className="text-[11px] font-medium text-red-800">Short quantity</p><p className="text-xl font-bold text-red-950">{Number(selectedShortage.shortageQuantity ?? Math.max(0, Number(selectedShortage.requiredQuantity || 0) - Number(selectedShortage.availableQuantity || 0)))} {selectedShortage.unit || "kg"}</p></div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Order confirmed</p><CheckCircle2 className="mx-auto mt-2 h-5 w-5 text-emerald-600"/></div>
+                    <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Preparing</p><CheckCircle2 className="mx-auto mt-2 h-5 w-5 text-emerald-600"/></div>
+                    <div className="rounded-lg bg-red-50 p-3"><p className="text-xs font-semibold text-red-700">Packing shortage</p><AlertTriangle className="mx-auto mt-2 h-5 w-5 text-red-600"/></div>
+                  </div>
+                  <div>
+                    <h3 className="mb-3 font-bold text-slate-900">Shortage product details</h3>
+                    <div className="overflow-hidden rounded-xl border">
+                      <div className="grid grid-cols-4 gap-2 bg-slate-50 px-3 py-3 text-xs font-semibold text-slate-600"><span>Product</span><span>Required</span><span>Available</span><span>Shortage</span></div>
+                      <div className="grid grid-cols-4 gap-2 px-3 py-4 text-sm"><span className="font-semibold text-slate-800">{selectedShortage.productName || "Product"}</span><span>{Number(selectedShortage.requiredQuantity || 0)} {selectedShortage.unit || "kg"}</span><span>{Number(selectedShortage.availableQuantity || 0)} {selectedShortage.unit || "kg"}</span><span className="font-bold text-red-700">{Number(selectedShortage.shortageQuantity ?? Math.max(0, Number(selectedShortage.requiredQuantity || 0) - Number(selectedShortage.availableQuantity || 0)))} {selectedShortage.unit || "kg"}</span></div>
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-4"><p className="text-sm font-semibold text-amber-900">Dispatch is blocked</p><p className="mt-1 text-xs text-amber-800">Resolve this shortage using the actions on the left. Once the customer decision or replenishment is recorded, refresh the queue to update the order.</p></div>
+                </CardContent>
+              </Card>
+            ) : <Card className="flex min-h-[420px] items-center justify-center border-dashed"><CardContent className="text-center"><CheckCircle2 className="mx-auto h-12 w-12 text-emerald-500"/><h3 className="mt-3 font-semibold text-slate-800">No open shortage cases</h3><p className="mt-1 text-sm text-slate-500">There are no shortage orders to review.</p></CardContent></Card>
+          ) : (selectedTask ? (
             <Card className="overflow-hidden border-slate-200 shadow-sm">
               <CardContent className="space-y-5 p-4 sm:p-6">
                 <div className="flex flex-wrap items-start justify-between gap-3 border-b pb-4">
