@@ -294,7 +294,7 @@ export default function WarehousePackingPage() {
   return (
     <>
     {printLabelData && <div aria-hidden="true" style={{ position: "fixed", left: "-10000px", top: 0 }}><div ref={printQrRef}><QRCodeSVG value={typeof window !== "undefined" ? window.location.origin + "/delivery/deliveries?orderId=" + encodeURIComponent(String(printLabelData.orderId || printLabelData.order?.id || printLabelData.order?._id || printLabelData.orderNumber || "")) : ""} size={160} level="M" /></div></div>}
-      <div className="warehouse-packing-page space-y-5 bg-slate-50/50">
+      <div className="warehouse-packing-page w-full space-y-5 bg-slate-50/50 px-3 py-4 sm:px-5 lg:px-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><PackageCheck className="h-6 w-6"/></div>
@@ -326,8 +326,12 @@ export default function WarehousePackingPage() {
         </div>
       </CardContent></Card>
       {shortages.filter((x:any) => !["resolved", "cancelled"].includes(String(x.status || "").toLowerCase())).length > 0 && (
-        <Card className="border-red-200 bg-red-50/70">
-          <CardContent className="p-5">
+        <details className="group overflow-hidden rounded-xl border border-red-200 bg-white shadow-sm">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 bg-red-50/70 px-4 py-3 marker:hidden">
+            <span className="flex min-w-0 items-center gap-2"><AlertTriangle className="h-5 w-5 shrink-0 text-red-600"/><span><span className="block text-sm font-semibold text-red-900">Shortage resolution required</span><span className="block text-xs text-red-700">{shortages.filter((x:any) => !["resolved", "cancelled"].includes(String(x.status || "").toLowerCase())).length} unresolved case(s) · Dispatch remains blocked until resolved</span></span></span>
+            <span className="shrink-0 text-xs font-semibold text-red-700 group-open:hidden">View cases</span><span className="hidden shrink-0 text-xs font-semibold text-red-700 group-open:inline">Hide cases</span>
+          </summary>
+          <div className="border-t border-red-100 p-4">
             <div className="flex items-start gap-3">
               <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-600"/>
               <div className="flex-1">
@@ -377,14 +381,14 @@ export default function WarehousePackingPage() {
                 </div>
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </details>
       )}
       {packingError && <Card className="border-red-200 bg-red-50"><CardContent className="p-4 text-sm text-red-700">Unable to load warehouse packing tasks. Check the backend logs or refresh the page.</CardContent></Card>}
       {isLoading ? <div className="h-32 animate-pulse rounded-lg bg-muted"/> : !packingError && visibleTasks.length === 0 ? (
         <Card className="p-12 text-center"><PackageCheck className="mx-auto h-12 w-12 text-muted-foreground"/><h3 className="mt-4 font-semibold">{searchTerm.trim() ? "No remaining orders match your search" : "No orders waiting for packing"}</h3><p className="mt-2 text-sm text-muted-foreground">"All eligible orders have finished packing or are waiting in the separate shortage-resolution process. Finished orders continue in Outgoing / Dispatch."</p></Card>
       ) : (
-        <div className="grid items-start gap-4 xl:grid-cols-[minmax(340px,0.88fr)_minmax(620px,1.55fr)]">
+        <div className="grid items-start gap-4 xl:grid-cols-[minmax(390px,0.92fr)_minmax(0,1.65fr)]">
           <Card className="overflow-hidden border-slate-200 shadow-sm">
             <CardContent className="space-y-3 p-3 sm:p-4">
               <div className="grid grid-cols-4 gap-1 rounded-xl bg-slate-100 p-1">
@@ -395,7 +399,7 @@ export default function WarehousePackingPage() {
                   { id: "completed", label: "Completed", count: completedCount },
                 ] as const).map((tab) => (
                   <button key={tab.id} type="button" onClick={() => { setQueueTab(tab.id); setSelectedOrderId(""); }} className={`min-w-0 rounded-lg px-2 py-2 text-center transition-colors ${queueTab === tab.id ? "bg-emerald-700 text-white shadow-sm" : "text-slate-600 hover:bg-white"}`}>
-                    <span className="block truncate text-[11px] font-semibold sm:text-xs">{tab.label}</span>
+                    <span className="block truncate text-xs font-semibold sm:text-sm">{tab.label}</span>
                     <span className="mt-0.5 block text-sm font-bold">{tab.count}</span>
                   </button>
                 ))}
@@ -408,7 +412,7 @@ export default function WarehousePackingPage() {
                 <span>{visibleTasks.length} order(s) in this view</span>
                 <span>{dateFilter === "today" ? "Today" : dateFilter === "yesterday" ? "Yesterday" : dateFilter === "week" ? "This Week" : "All Time"}</span>
               </div>
-              <div className="max-h-[780px] space-y-2 overflow-y-auto pr-1">
+              <div className="max-h-[min(72vh,820px)] space-y-2 overflow-y-auto pr-1">
                 {visibleTasks.map((task: any) => {
                   const taskFarm = getFarmDetails(task);
                   const taskStatus = String(task.status || "ready_for_packing").toLowerCase();
@@ -420,9 +424,9 @@ export default function WarehousePackingPage() {
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <p className="truncate text-sm font-bold text-slate-900">#{task.orderNumber || task.orderId?.slice(-8) || task.id}</p>
-                          <p className="mt-1 flex items-center gap-1 truncate text-xs text-slate-600"><Users className="h-3 w-3 shrink-0"/>{task.customer?.name || "Customer details unavailable"}</p>
-                          <p className="mt-1 flex items-center gap-1 truncate text-xs text-slate-500"><MapPin className="h-3 w-3 shrink-0"/>{[task.deliveryAddress?.city, task.deliveryAddress?.district, task.deliveryAddress?.state].filter(Boolean).join(", ") || taskFarm.name}</p>
-                          <p className="mt-1 flex items-center gap-1 text-xs text-slate-500"><Box className="h-3 w-3"/>{taskItems.length} product(s) · {quantity} {taskItems[0]?.unit || "kg"}</p>
+                          <p className="mt-1 flex items-center gap-1 truncate text-sm text-slate-600"><Users className="h-3 w-3 shrink-0"/>{task.customer?.name || "Customer details unavailable"}</p>
+                          <p className="mt-1 flex items-center gap-1 truncate text-sm text-slate-500"><MapPin className="h-3 w-3 shrink-0"/>{[task.deliveryAddress?.city, task.deliveryAddress?.district, task.deliveryAddress?.state].filter(Boolean).join(", ") || taskFarm.name}</p>
+                          <p className="mt-1 flex items-center gap-1 text-sm text-slate-500"><Box className="h-3 w-3"/>{taskItems.length} product(s) · {quantity} {taskItems[0]?.unit || "kg"}</p>
                         </div>
                         <div className="flex shrink-0 flex-col items-end gap-2">
                           <Badge variant="outline" className={taskStatus === "customer_approval_pending" ? "border-amber-200 bg-amber-50 text-amber-800" : ["packed","verified","ready_for_dispatch","dispatched"].includes(taskStatus) ? "border-blue-200 bg-blue-50 text-blue-700" : taskStatus === "ready_for_packing" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-800"}>{taskStatus.replace(/_/g, " ")}</Badge>
@@ -439,7 +443,7 @@ export default function WarehousePackingPage() {
 
           {selectedTask ? (
             <Card className="overflow-hidden border-slate-200 shadow-sm">
-              <CardContent className="space-y-4 p-4 sm:p-5">
+              <CardContent className="space-y-5 p-4 sm:p-6">
                 <div className="flex flex-wrap items-start justify-between gap-3 border-b pb-4">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
