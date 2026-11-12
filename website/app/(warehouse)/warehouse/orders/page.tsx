@@ -74,31 +74,50 @@ const hasWarehouseTransfer = (order: any) => {
     ["warehouse_to_warehouse", "inter_warehouse", "warehouse_transfer", "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner"].includes(mode);
 };
 
-const getJourneySteps = (order: any) => hasWarehouseTransfer(order) ? TRANSFER_JOURNEY : STANDARD_JOURNEY;
+const getJourneySteps = (_order: any) => TRANSFER_JOURNEY;
 
 const getJourneyIndex = (order: any, rawStage: string) => {
   const stage = normalizeStage(rawStage);
   if (["cancelled", "canceled", "refunded"].includes(stage)) return -1;
-  const steps = getJourneySteps(order);
+
   const transferStatus = normalizeStage(order?.transferStatus || order?.warehouseTransfer?.status || order?.transfer?.status);
   const deliveryStatus = normalizeStage(order?.deliveryStatus);
-  if (deliveryStatus === "delivered" || ["delivered", "completed"].includes(normalizeStage(order?.orderStatus))) return steps.length - 1;
+  const collectionStatus = normalizeStage(order?.warehouseCollectionStatus);
+  const history = Array.isArray(order?.statusHistory) ? order.statusHistory : [];
+  const latestEvent = [...history].reverse().find((event: any) => event?.eventType || event?.title);
+  const eventType = normalizeStage(latestEvent?.eventType);
+  const eventText = normalizeStage(latestEvent?.title);
 
-  if (steps === TRANSFER_JOURNEY) {
-    if (["received", "completed", "received_at_destination", "destination_warehouse_received", "received_at_consolidation"].includes(transferStatus)) return 8;
-    if (["in_transit", "transfer_in_transit"].includes(transferStatus)) return 7;
-    if (["dispatched", "transfer_dispatched", "dispatched_to_destination"].includes(transferStatus)) return 6;
-    if (["pending", "transfer_pending", "transfer_ready", "ready_for_transfer"].includes(transferStatus)) return 5;
-  }
+  if (["delivered", "completed"].includes(stage) || ["delivered", "completed"].includes(deliveryStatus)) return 11;
 
-  const found = steps.findIndex((step) => step.aliases.includes(stage));
-  if (found >= 0) return found;
+  // Prefer the explicit operational stage/status values. The latest tracking
+  // event is a fallback for workflows that record an event without updating
+  // warehouseFulfillmentStage on the parent order.
+  const candidates = [transferStatus, stage, collectionStatus, eventType, eventText].filter(Boolean);
 
-  // The warehouse fulfillment stage is authoritative for the standard route.
-  if (steps === STANDARD_JOURNEY) {
-    if (["ready_for_dispatch", "delivery_decision", "verified"].includes(stage)) return 3;
-    if (["dispatched", "in_transit", "out_for_delivery", "delivery_assigned"].includes(stage)) return 4;
-    if (["delivered", "completed"].includes(stage)) return 5;
+  const eventRules: Array<[number, string[]]> = [
+    [11, ["delivered", "order_status_delivered", "completed_delivery"]],
+    [10, ["out_for_delivery", "final_delivery_in_transit", "delivery_in_transit"]],
+    [9, ["final_delivery_assigned", "delivery_assigned", "partner_assigned"]],
+    [8, ["destination_warehouse_received", "received_at_destination", "received_at_consolidation", "transfer_completed"]],
+    [7, ["transfer_in_transit", "in_transit"]],
+    [6, ["transfer_dispatched", "dispatched_to_destination"]],
+    [5, ["transfer_pending", "transfer_ready", "ready_for_transfer"]],
+    [4, ["warehouse_quality_check", "quality_inspection", "quality_passed_at_warehouse"]],
+    [3, ["received_transfer", "warehouse_received", "arrived_warehouse", "source_warehouse_received", "stored_transfer", "warehouse_received_stored"]],
+    [2, ["ready_for_pickup", "pickup_assigned", "pickup_started", "collected_from_farm", "picked_up_from_farm", "farmer_fulfillment_ready_for_pickup", "warehouse_pickup_requested"]],
+    [1, ["preparing", "farm_preparation", "fulfillment_packed", "customer_order_packed"]],
+    [0, ["confirmed", "accepted", "processing", "pending", "fulfillment_selected"]],
+  ];
+
+  for (const candidate of candidates) {
+    for (const [index, aliases] of eventRules) {
+      if (aliases.includes(candidate) || aliases.some((alias) => candidate.includes(alias))) return index;
+    }
+    if (["ready_for_dispatch", "delivery_decision", "verified", "packed", "packing_complete", "fulfillment_packed"].includes(candidate)) return 5;
+    if (["dispatched", "shipped", "delivery_assigned"].includes(candidate)) return 10;
+    if (["quality_check", "quality_checked", "quality_passed", "quality_approved"].includes(candidate)) return 4;
+    if (["preparing", "incoming", "ready_for_packing", "packing_team_assigned", "packing", "partially_packed"].includes(candidate)) return 1;
   }
   return 0;
 };
