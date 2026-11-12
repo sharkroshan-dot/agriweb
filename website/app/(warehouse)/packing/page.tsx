@@ -364,42 +364,18 @@ export default function WarehousePackingPage() {
                             <p className="mt-1 text-sm text-red-800">Shortages are confirmed from physical packed quantities. Resolve each case and then verify the final packing quantities before dispatch.</p>
                             <div className="mt-4 space-y-3">
                               {unresolvedShortages.map((x:any) => (
-                                <button key={x.id} type="button" onClick={() => setSelectedOrderId(String(x.id || x._id))} className={`block w-full rounded-md border bg-white p-4 text-left text-sm transition-colors ${String(selectedShortage?.id || selectedShortage?._id) === String(x.id || x._id) ? "border-red-400 bg-red-50/40 ring-1 ring-red-100" : "border-red-200 hover:border-red-300"}`}>
-                                  <div className="flex flex-wrap items-start justify-between gap-2">
-                                    <div className="font-semibold">Order #{x.orderNumber || x.orderId?.slice(-8)} · {x.productName || "Product"}</div>
-                                    <Badge variant="outline" className="border-red-200 text-red-700">{String(x.status || "open").replace(/_/g, " ")}</Badge>
-                                  </div>
-                                  <div className="mt-2 grid gap-2 sm:grid-cols-3">
-                                    <div className="rounded bg-slate-50 p-2"><span className="text-xs text-muted-foreground">Required</span><p className="font-semibold">{Number(x.requiredQuantity || 0)} {x.unit || "kg"}</p></div>
-                                    <div className="rounded bg-slate-50 p-2"><span className="text-xs text-muted-foreground">Physically available</span><p className="font-semibold">{Number(x.availableQuantity || 0)} {x.unit || "kg"}</p></div>
-                                    <div className="rounded bg-red-50 p-2"><span className="text-xs text-red-700">Short quantity</span><p className="font-semibold text-red-800">{Number(x.shortageQuantity ?? Math.max(0, Number(x.requiredQuantity || 0) - Number(x.availableQuantity || 0)))} {x.unit || "kg"}</p></div>
-                                  </div>
-                                  <p className="mt-2 text-xs text-muted-foreground">Available product remains usable. Choose a resolution below; dispatch stays blocked while any shortage is unresolved.</p>
-                                  <div className="mt-3 flex flex-wrap gap-2">
-                                    <Button type="button" size="sm" variant="outline" disabled={["replenishment_requested"].includes(String(x.status || "").toLowerCase())} onClick={async () => {
-                                      try { const r = await api.put("/warehouse/me/shortages/" + x.id + "/resolution", { resolutionType: "farmer_replenishment", notes: "Warehouse requested replenishment for the physically confirmed shortage." }); toast.success(r?.data?.message || "Replenishment request recorded."); await Promise.all([refetch(), refetchShortages()]); }
-                                      catch (e:any) { toast.error(e?.response?.data?.detail || e?.message || "Could not request replenishment."); }
-                                    }}>Request Replenishment</Button>
-                                    <Button type="button" size="sm" variant="outline" disabled={["customer_approval_pending"].includes(String(x.status || "").toLowerCase())} onClick={async () => {
-                                      try { const r = await api.put("/warehouse/me/shortages/" + x.id + "/resolution", { resolutionType: "customer_approval_pending", approvedQuantity: Number(x.availableQuantity || 0), notes: "Customer must approve reduced quantity or choose cancellation before dispatch." }); toast.success(r?.data?.message || "Customer approval requested."); await Promise.all([refetch(), refetchShortages()]); }
-                                      catch (e:any) { toast.error(e?.response?.data?.detail || e?.message || "Could not request customer approval."); }
-                                    }}>Request Customer Decision</Button>
-                                    <Button type="button" size="sm" variant="outline" onClick={async () => {
-                                      const productId = window.prompt("Enter the substitute product ID. The customer must approve this substitution before it can be packed.");
-                                      if (!productId) return;
-                                      try { const r = await api.put("/warehouse/me/shortages/" + x.id + "/resolution", { resolutionType: "substitution_pending", substituteProductId: productId.trim(), notes: "Substitute proposed; customer approval required before packing." }); toast.success(r?.data?.message || "Substitution proposal recorded."); await Promise.all([refetch(), refetchShortages()]); }
-                                      catch (e:any) { toast.error(e?.response?.data?.detail || e?.message || "Could not propose substitution."); }
-                                    }}>Propose Substitute</Button>
-                                    <Button type="button" size="sm" variant="destructive" onClick={async () => {
-                                      const shortQty = Math.max(0, Number(x.requiredQuantity || 0) - Number(x.availableQuantity || 0));
-                                      const raw = window.prompt("Enter the unavailable quantity approved by the customer for cancellation/refund (maximum " + shortQty + "). Do not proceed without customer approval.", String(shortQty));
-                                      if (raw === null) return;
-                                      const qty = Number(raw);
-                                      if (!Number.isFinite(qty) || qty <= 0 || qty > shortQty) { toast.error("Enter a quantity greater than 0 and no more than " + shortQty + "."); return; }
-                                      if (!window.confirm("Confirm the customer has approved cancellation/refund of " + qty + " units? This updates the order quantity and payable/refund record.")) return;
-                                      try { const r = await api.put("/warehouse/me/shortages/" + x.id + "/resolution", { resolutionType: "refund_cancellation", resolvedQuantity: qty, notes: "Customer-approved cancellation/refund of unavailable quantity." }); toast.success(r?.data?.message || "Cancellation/refund quantity recorded."); await Promise.all([refetch(), refetchShortages()]); }
-                                      catch (e:any) { toast.error(e?.response?.data?.detail || e?.message || "Could not record cancellation/refund."); }
-                                    }}>Record Approved Cancel / Refund</Button>
+                                <button key={x.id || x._id} type="button" onClick={() => setSelectedOrderId(String(x.id || x._id))} className={`w-full rounded-xl border p-3 text-left transition-all ${String(selectedShortage?.id || selectedShortage?._id) === String(x.id || x._id) ? "border-red-400 bg-red-50/70 shadow-sm ring-1 ring-red-100" : "border-slate-200 bg-white hover:border-red-300 hover:bg-red-50/30"}`}>
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div className="min-w-0">
+                                      <p className="truncate text-sm font-bold text-slate-900">#{x.orderNumber || x.orderId?.slice(-8) || "Shortage order"}</p>
+                                      <p className="mt-1 truncate text-sm text-slate-600">{x.productName || "Product"} · Required {Number(x.requiredQuantity || 0)} {x.unit || "kg"}</p>
+                                      <p className="mt-1 text-xs text-slate-500">Available {Number(x.availableQuantity || 0)} {x.unit || "kg"}</p>
+                                    </div>
+                                    <div className="flex shrink-0 flex-col items-end gap-2">
+                                      <Badge variant="outline" className="border-red-200 bg-red-50 text-red-700">{String(x.status || "open").replace(/_/g, " ")}</Badge>
+                                      <span className="text-xs font-semibold text-red-700">Short {Number(x.shortageQuantity ?? Math.max(0, Number(x.requiredQuantity || 0) - Number(x.availableQuantity || 0)))} {x.unit || "kg"}</span>
+                                      <ChevronRight className="h-4 w-4 text-slate-400"/>
+                                    </div>
                                   </div>
                                 </button>
                               ))}
@@ -475,7 +451,36 @@ export default function WarehousePackingPage() {
                       <div className="grid grid-cols-4 gap-2 px-3 py-4 text-sm"><span className="font-semibold text-slate-800">{selectedShortage.productName || "Product"}</span><span>{Number(selectedShortage.requiredQuantity || 0)} {selectedShortage.unit || "kg"}</span><span>{Number(selectedShortage.availableQuantity || 0)} {selectedShortage.unit || "kg"}</span><span className="font-bold text-red-700">{Number(selectedShortage.shortageQuantity ?? Math.max(0, Number(selectedShortage.requiredQuantity || 0) - Number(selectedShortage.availableQuantity || 0)))} {selectedShortage.unit || "kg"}</span></div>
                     </div>
                   </div>
-                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-4"><p className="text-sm font-semibold text-amber-900">Dispatch is blocked</p><p className="mt-1 text-xs text-amber-800">Resolve this shortage using the actions on the left. Once the customer decision or replenishment is recorded, refresh the queue to update the order.</p></div>
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-4"><p className="text-sm font-semibold text-amber-900">Dispatch is blocked</p><p className="mt-1 text-xs text-amber-800">Review the shortage details and choose the appropriate resolution below. Dispatch remains blocked until this case is resolved.</p></div>
+                  <section className="space-y-3">
+                    <h3 className="font-semibold text-slate-900">Shortage resolution actions</h3>
+                                  <div className="flex flex-wrap gap-2">
+                                    <Button type="button" size="sm" variant="outline" disabled={["replenishment_requested"].includes(String(x.status || "").toLowerCase())} onClick={async () => {
+                                      try { const r = await api.put("/warehouse/me/shortages/" + selectedShortage.id || selectedShortage._id + "/resolution", { resolutionType: "farmer_replenishment", notes: "Warehouse requested replenishment for the physically confirmed shortage." }); toast.success(r?.data?.message || "Replenishment request recorded."); await Promise.all([refetch(), refetchShortages()]); }
+                                      catch (e:any) { toast.error(e?.response?.data?.detail || e?.message || "Could not request replenishment."); }
+                                    }}>Request Replenishment</Button>
+                                    <Button type="button" size="sm" variant="outline" disabled={["customer_approval_pending"].includes(String(x.status || "").toLowerCase())} onClick={async () => {
+                                      try { const r = await api.put("/warehouse/me/shortages/" + selectedShortage.id || selectedShortage._id + "/resolution", { resolutionType: "customer_approval_pending", approvedQuantity: Number(x.availableQuantity || 0), notes: "Customer must approve reduced quantity or choose cancellation before dispatch." }); toast.success(r?.data?.message || "Customer approval requested."); await Promise.all([refetch(), refetchShortages()]); }
+                                      catch (e:any) { toast.error(e?.response?.data?.detail || e?.message || "Could not request customer approval."); }
+                                    }}>Request Customer Decision</Button>
+                                    <Button type="button" size="sm" variant="outline" onClick={async () => {
+                                      const productId = window.prompt("Enter the substitute product ID. The customer must approve this substitution before it can be packed.");
+                                      if (!productId) return;
+                                      try { const r = await api.put("/warehouse/me/shortages/" + selectedShortage.id || selectedShortage._id + "/resolution", { resolutionType: "substitution_pending", substituteProductId: productId.trim(), notes: "Substitute proposed; customer approval required before packing." }); toast.success(r?.data?.message || "Substitution proposal recorded."); await Promise.all([refetch(), refetchShortages()]); }
+                                      catch (e:any) { toast.error(e?.response?.data?.detail || e?.message || "Could not propose substitution."); }
+                                    }}>Propose Substitute</Button>
+                                    <Button type="button" size="sm" variant="destructive" onClick={async () => {
+                                      const shortQty = Math.max(0, Number(x.requiredQuantity || 0) - Number(x.availableQuantity || 0));
+                                      const raw = window.prompt("Enter the unavailable quantity approved by the customer for cancellation/refund (maximum " + shortQty + "). Do not proceed without customer approval.", String(shortQty));
+                                      if (raw === null) return;
+                                      const qty = Number(raw);
+                                      if (!Number.isFinite(qty) || qty <= 0 || qty > shortQty) { toast.error("Enter a quantity greater than 0 and no more than " + shortQty + "."); return; }
+                                      if (!window.confirm("Confirm the customer has approved cancellation/refund of " + qty + " units? This updates the order quantity and payable/refund record.")) return;
+                                      try { const r = await api.put("/warehouse/me/shortages/" + selectedShortage.id || selectedShortage._id + "/resolution", { resolutionType: "refund_cancellation", resolvedQuantity: qty, notes: "Customer-approved cancellation/refund of unavailable quantity." }); toast.success(r?.data?.message || "Cancellation/refund quantity recorded."); await Promise.all([refetch(), refetchShortages()]); }
+                                      catch (e:any) { toast.error(e?.response?.data?.detail || e?.message || "Could not record cancellation/refund."); }
+                                    }}>Record Approved Cancel / Refund</Button>
+                                  </div>
+                  </section>
                 </CardContent>
               </Card>
             ) : <Card className="flex min-h-[420px] items-center justify-center border-dashed"><CardContent className="text-center"><CheckCircle2 className="mx-auto h-12 w-12 text-emerald-500"/><h3 className="mt-3 font-semibold text-slate-800">No open shortage cases</h3><p className="mt-1 text-sm text-slate-500">There are no shortage orders to review.</p></CardContent></Card>
