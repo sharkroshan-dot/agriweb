@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Camera, CheckCircle2, Clock3, MapPin, ShieldCheck, XCircle, ClipboardCheck, PackageCheck } from "lucide-react";
 import { api } from "../../../lib/api/client";
+import { WarehousePageHeader } from "../../../components/warehouse/warehouse-page-header";
 import { Button } from "../../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Badge } from "../../../components/ui/badge";
@@ -262,13 +263,16 @@ export default function WarehouseQualityInspectionPage() {
 
   return (
     <div className="warehouse-quality-page space-y-6 pb-8">
-      <header className="flex flex-col justify-between gap-4 rounded-2xl border border-slate-200 bg-gradient-to-r from-white via-white to-emerald-50/70 p-5 shadow-sm lg:flex-row lg:items-center">
-        <div className="flex items-start gap-3">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700"><ShieldCheck className="h-6 w-6"/></div>
-          <div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700">Warehouse operations</p><h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">Quality Inspection</h1><p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600">Review farmer-submitted evidence, inspect received produce and record an authorized quality decision.</p></div>
-        </div>
-        <Button type="button" variant="outline" onClick={() => { refetch(); incomingQuery.refetch(); farmerTransfersQuery.refetch(); }} disabled={isFetching || incomingQuery.isFetching} className="shrink-0 bg-white"><Clock3 className="mr-2 h-4 w-4"/>{isFetching || incomingQuery.isFetching ? "Refreshing…" : "Refresh queues"}</Button>
-      </header>
+      <WarehousePageHeader
+        eyebrow="Warehouse operations"
+        title="Quality Inspection"
+        description="Review farmer-submitted evidence, inspect received produce and record an authorized quality decision."
+        actions={
+          <Button type="button" variant="outline" onClick={() => { refetch(); incomingQuery.refetch(); farmerTransfersQuery.refetch(); }} disabled={isFetching || incomingQuery.isFetching}>
+            <Clock3 className="mr-2 h-4 w-4" />{isFetching || incomingQuery.isFetching ? "Refreshing…" : "Refresh queues"}
+          </Button>
+        }
+      />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Card className="rounded-2xl border-slate-200 shadow-sm"><CardContent className="flex items-center justify-between p-4"><div><p className="text-sm font-medium text-slate-500">Farmer inspections</p><p className="mt-1 text-3xl font-bold tabular-nums text-slate-950">{queue.length}</p><p className="mt-1 text-xs text-slate-500">Evidence submitted for review</p></div><div className="rounded-xl bg-sky-50 p-3 text-sky-700"><Camera className="h-5 w-5"/></div></CardContent></Card>
