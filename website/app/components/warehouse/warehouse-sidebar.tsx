@@ -45,7 +45,7 @@ const navSections = [
     title: "Warehouse Fulfillment Orders",
     items: [
       { name: "Quality Inspection", href: "/warehouse/quality-inspection", icon: ClipboardCheck },
-      { name: "Stock Management", href: "/stock", icon: Package },
+
       { name: "Customer Orders", href: "/warehouse/orders", icon: PackageCheck },
       { name: "Order Packing", href: "/packing", icon: PackageCheck },
       { name: "Outgoing / Dispatch", href: "/outgoing", icon: ArrowUp },
@@ -61,6 +61,7 @@ const navSections = [
   {
     title: "Warehouse Management",
     items: [
+      { name: "Warehouse Inventory", href: "/stock", icon: Package },
       { name: "Cold Storage", href: "/cold-storage", icon: Snowflake },
       { name: "Transfers", href: "/transfers", icon: ArrowLeftRight },
       { name: "Analytics", href: "/warehouse/analytics", icon: BarChart },
