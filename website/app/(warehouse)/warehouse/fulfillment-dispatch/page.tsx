@@ -3,7 +3,8 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { AlertTriangle, ArrowDownToLine, ArrowLeftRight, ArrowRight, CheckCircle2, ChevronDown, ChevronRight, Clock3, Filter, Leaf, MapPin, Package, RefreshCw, Route, Search, Truck, Warehouse } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, ArrowRight, CheckCircle2, ChevronDown, ChevronRight, ClipboardCheck, Leaf, MapPin, Package, RefreshCw, Route, Search, Truck, Warehouse } from "lucide-react";
+import toast from "react-hot-toast";
 import { Card, CardContent } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
 import { Badge } from "../../../components/ui/badge";
@@ -11,240 +12,195 @@ import { Input } from "../../../components/ui/input";
 import { api } from "../../../lib/api/client";
 
 type Source = "farmer" | "warehouse";
-type Stage = "to_receive" | "to_route" | "in_transfer" | "to_dispatch" | "delivered" | "review";
-type RouteKey = "nearby" | "same_district" | "inter_district" | "multi_warehouse" | "needs_location" | "route_review";
-
-const ROUTES: { key: RouteKey; label: string; description: string }[] = [
-  { key: "nearby", label: "Nearby Direct Delivery", description: "Within the configured nearby threshold; no warehouse transfer." },
-  { key: "same_district", label: "Same-District Route", description: "Same-district route through the designated local hub or warehouse, as required." },
-  { key: "inter_district", label: "Inter-District Transfer", description: "Transfer to the destination district warehouse before final delivery." },
-  { key: "multi_warehouse", label: "Multi-Warehouse Consolidation", description: "Order portions from multiple source warehouses must be consolidated." },
-  { key: "route_review", label: "Route Review Required", description: "Route or operational prerequisites need staff review." },
-  { key: "needs_location", label: "Needs Location Data", description: "Customer or warehouse location data is missing or incomplete." },
+type RouteKey = "nearby" | "same_district" | "inter_district" | "multi_warehouse" | "route_review" | "needs_location";
+const ROUTES: {key:RouteKey;label:string;description:string}[] = [
+  {key:"nearby",label:"Nearby Direct Delivery",description:"Within 15 km; direct delivery is configured."},
+  {key:"same_district",label:"Same-District Warehouse Route",description:"Same district; use the configured local-hub route."},
+  {key:"inter_district",label:"Inter-District Warehouse Transfer",description:"Transfer to the destination district warehouse."},
+  {key:"multi_warehouse",label:"Multi-Warehouse Consolidation",description:"One customer order needs portions from multiple source warehouses."},
+  {key:"route_review",label:"Route Review Required",description:"Route configuration or operational prerequisites need review."},
+  {key:"needs_location",label:"Needs Location Data",description:"Customer or warehouse location details are incomplete."},
 ];
-
-const norm = (value: any) => String(value ?? "").trim().toLowerCase().replace(/[\\s_-]+/g, "_");
-const routeOf = (item: any): RouteKey => {
-  const value = norm(item.routeCategory || item.farmerFulfillmentRouteType || item.warehouseRouteCategory);
-  if (["nearby", "direct", "nearby_delivery"].includes(value)) return "nearby";
-  if (["same_district", "local_hub", "same_district_warehouse"].includes(value)) return "same_district";
-  if (["inter_district", "destination_warehouse", "warehouse_transfer"].includes(value)) return "inter_district";
-  if (["multi_warehouse", "consolidation"].includes(value)) return "multi_warehouse";
-  if (["needs_location", "location_missing"].includes(value) || item.routeDataComplete === false) return "needs_location";
-  if (value === "route_review" || !value) return "route_review";
-  return "route_review";
-};
-
-function farmerStage(item: any): Stage {
-  const status = norm(item.status || item.fulfillmentStatus || item.currentStage);
-  if (item.physicalReceiptConfirmed && item.routeDataComplete && ["destination_warehouse_in_transit", "consolidation_in_transit", "source_portion_in_transit", "hub_handoff_pending", "in_transit"].includes(status)) return "in_transfer";
-  if (["destination_warehouse_in_transit", "consolidation_in_transit", "source_portion_in_transit", "hub_handoff_pending", "in_transit"].includes(status)) return "in_transfer";
-  if (["dispatched", "local_hub_ready", "delivered", "completed"].includes(status)) return status === "delivered" || status === "completed" ? "delivered" : "to_dispatch";
-  if (item.physicalReceiptConfirmed && item.routeDataComplete && item.currentWarehouseRole !== "assigned") return "to_route";
-  if (item.routeCategory === "needs_location") return "review";
-  return "to_receive";
+const norm=(v:any)=>String(v??"").trim().toLowerCase().replace(/[\\s-]+/g,"_");
+const normDistrict=(v:any)=>String(v??"").trim().toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
+function classify(row:any,source:Source):RouteKey {
+  const raw=norm(row.routeCategory||row.farmerFulfillmentRouteType||row.warehouseRouteCategory);
+  if(raw==="multi_warehouse"||raw==="consolidation") return "multi_warehouse";
+  if(row.routeDataComplete===false) return "needs_location";
+  if(["needs_location","location_missing"].includes(raw)) return "needs_location";
+  if(["route_review","review_required"].includes(raw)) return "route_review";
+  if(["nearby","direct","nearby_delivery"].includes(raw)) return "nearby";
+  if(["same_district","local_hub","same_district_warehouse"].includes(raw)) return "same_district";
+  if(["inter_district","destination_warehouse","warehouse_transfer"].includes(raw)) return "inter_district";
+  const from=normDistrict(row.sourceDistrict||row.sourceWarehouseDistrict);
+  const to=normDistrict(row.destinationDistrict||row.deliveryDistrict||row.customerDistrict||row.deliveryAddress?.district);
+  if(!from||!to) return "needs_location";
+  if(from!==to) return "inter_district";
+  const distance=Number(row.routeDistanceKm);
+  const hasDistance=row.routeDistanceKm!==null&&row.routeDistanceKm!==undefined&&row.routeDistanceKm!=="";
+  const threshold=Number(row.nearbyThresholdKm??15);
+  if(hasDistance&&Number.isFinite(distance)&&distance<=threshold) return row.directDeliveryConfigured?"nearby":"route_review";
+  if(hasDistance&&Number.isFinite(distance)&&distance>threshold) return "same_district";
+  return source==="farmer" ? "route_review" : "route_review";
 }
-
-function warehouseStage(item: any): Stage {
-  const status = norm(item.status);
-  if (["dispatched", "in_transit"].includes(status)) return "in_transfer";
-  if (["delivered", "completed"].includes(status)) return "delivered";
-  if (item.routeDataComplete === false || !item.routeCategory || ["needs_location", "route_review"].includes(norm(item.routeCategory))) return "review";
-  if (["pending", "packed", "ready_for_dispatch"].includes(status)) return "to_route";
-  return "to_dispatch";
+const statusText=(v:any)=>String(v??"Unknown").replace(/_/g," ");
+const destinationName=(x:any)=>x.destinationWarehouseName||x.destinationWarehouse?.name||x.assignedDestinationWarehouseName||x.consolidationWarehouseName||x.destinationDistrict||x.deliveryDistrict||x.customerDistrict||"Destination not assigned";
+function farmerStage(x:any) {
+  const s=norm(x.status||x.fulfillmentStatus||x.currentStage||x.stage);
+  if(["delivered","completed"].includes(s))return "Delivered";
+  if(["destination_warehouse_in_transit","consolidation_in_transit","source_portion_in_transit","hub_handoff_pending","in_transit"].includes(s))return "In Transfer";
+  if(x.physicalReceiptConfirmed)return "To Route";
+  return "To Receive";
 }
-
-const stageMeta: Record<Stage, { label: string; short: string }> = {
-  to_receive: { label: "To Receive", short: "Awaiting physical receipt" },
-  to_route: { label: "To Route", short: "Ready for route classification" },
-  in_transfer: { label: "In Transfer", short: "Warehouse / delivery handoff underway" },
-  to_dispatch: { label: "To Dispatch", short: "Ready for dispatch action" },
-  delivered: { label: "Delivered", short: "Delivery completed" },
-  review: { label: "Needs Review", short: "Resolve route or location issue" },
-};
-
-function warehouseName(item: any) {
-  return item.destinationWarehouseName || item.destinationWarehouse?.name || item.assignedDestinationWarehouseName || item.consolidationWarehouseName || item.destinationDistrict || item.deliveryDistrict || item.customerDistrict || "Destination not assigned";
+function warehouseStage(x:any) {
+  const s=norm(x.status);
+  if(["delivered","completed"].includes(s))return "Delivered";
+  if(["dispatched","in_transit"].includes(s))return "In Transfer";
+  if(["pending","packed","ready_for_dispatch"].includes(s))return "To Route";
+  return "To Dispatch";
 }
-
-function normalizeFarmer(item: any) {
-  const stage = farmerStage(item);
-  return {
-    ...item,
-    id: String(item.id || item.orderId || item.orderNumber),
-    orderId: String(item.orderId || item.id || ""),
-    orderNumber: item.orderNumber || item.orderId || item.id || "Farmer order",
-    source: "farmer" as Source,
-    stage,
-    route: routeOf(item),
-    destinationGroup: warehouseName(item),
-    customerName: item.customerName || item.customer?.name || item.businessName || "Customer details unavailable",
-    district: item.destinationDistrict || item.deliveryDistrict || item.customerDistrict || item.customer?.district || "Location unavailable",
-    itemSummary: item.productName || item.items?.map((x: any) => x.productName || x.name).filter(Boolean).join(", ") || "Order items",
-    quantitySummary: item.totalQuantity != null ? String(item.totalQuantity) : item.quantity != null ? String(item.quantity) : "—",
-    currentStatus: item.status || item.fulfillmentStatus || item.currentStage || "Awaiting receipt",
-  };
+function normalizeFarmer(x:any) {
+  const category=classify(x,"farmer");
+  return {...x,id:String(x.id||x.orderId||x.orderNumber),orderId:String(x.orderId||x.id||""),orderNumber:x.orderNumber||x.orderId||x.id||"Farmer order",source:"farmer" as Source,route:category,stage:farmerStage(x),destinationGroup:destinationName(x),customerName:x.customerName||x.customer?.name||x.businessName||"Customer details unavailable",district:x.destinationDistrict||x.deliveryDistrict||x.customerDistrict||"Location unavailable",itemSummary:x.items?.map((i:any)=>i.productName||i.name).filter(Boolean).join(", ")||x.productName||"Order items",quantitySummary:x.totalQuantity??x.quantity??"—",currentStatus:x.transferStatus||x.status||x.stage||"Awaiting receipt"};
 }
-
-function normalizeWarehouse(item: any) {
-  const stage = warehouseStage(item);
-  return {
-    ...item,
-    id: String(item.id || item.orderId || item.orderNumber),
-    orderId: String(item.orderId || ""),
-    orderNumber: item.orderNumber || item.orderId || "Warehouse order",
-    source: "warehouse" as Source,
-    stage,
-    route: routeOf(item),
-    destinationGroup: warehouseName(item),
-    customerName: item.customerName || item.customer?.name || "Customer details unavailable",
-    district: item.destinationDistrict || item.deliveryDistrict || item.customerDistrict || "Location unavailable",
-    itemSummary: item.productName || item.items?.map((x: any) => x.productName || x.name).filter(Boolean).join(", ") || "Order items",
-    quantitySummary: item.totalQuantity != null ? String(item.totalQuantity) : item.quantity != null ? String(item.quantity) : "—",
-    currentStatus: item.status || "Ready for route review",
-  };
+function normalizeWarehouse(x:any) {
+  const category=classify(x,"warehouse");
+  return {...x,id:String(x.id||x.orderId||x.orderNumber),orderId:String(x.orderId||""),orderNumber:x.orderNumber||x.orderId||"Warehouse order",source:"warehouse" as Source,route:category,stage:warehouseStage(x),destinationGroup:destinationName(x),customerName:x.customerName||x.customer?.name||"Customer details unavailable",district:x.destinationDistrict||x.deliveryDistrict||x.customerDistrict||"Location unavailable",itemSummary:x.items?.map((i:any)=>i.productName||i.name).filter(Boolean).join(", ")||x.productName||"Order items",quantitySummary:x.totalQuantity??x.quantity??"—",currentStatus:x.status||"Ready for route review"};
 }
 
 export default function FulfillmentDispatchPage() {
-  const [search, setSearch] = useState("");
-  const [activeStage, setActiveStage] = useState<Stage | "all">("all");
-  const [activeRoute, setActiveRoute] = useState<RouteKey | "all">("all");
-  const [selectedId, setSelectedId] = useState<string>("");
-  const [expandedDestinations, setExpandedDestinations] = useState<string[]>([]);
-  const farmerQuery = useQuery({
-    queryKey: ["unifiedFarmerFulfillmentTransfers"],
-    queryFn: () => api.get("/warehouse/me/farmer-fulfillment-transfers"),
-    refetchInterval: 20000,
-  });
-  const outgoingQuery = useQuery({
-    queryKey: ["unifiedWarehouseOutgoing"],
-    queryFn: () => api.get("/warehouse/me/outgoing", { params: { limit: 100 } }),
-    refetchInterval: 20000,
-  });
-  const consolidationQuery = useQuery({
-    queryKey: ["unifiedFarmerConsolidations"],
-    queryFn: () => api.get("/warehouse/me/farmer-fulfillment-consolidations"),
-    refetchInterval: 30000,
-  });
-
-  const farmerRows = farmerQuery.data?.data?.transfers || farmerQuery.data?.transfers || [];
-  const warehouseRows = outgoingQuery.data?.data?.outgoing || outgoingQuery.data?.outgoing || [];
-  const orders = useMemo(() => {
-    const farmer = farmerRows.map(normalizeFarmer);
-    const warehouse = warehouseRows.map(normalizeWarehouse);
-    const seen = new Set<string>();
-    return [...farmer, ...warehouse].filter((row: any) => {
-      const key = row.source + ":" + (row.id || row.orderNumber);
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  }, [farmerRows, warehouseRows]);
-
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return orders.filter((row: any) => {
-      if (activeStage !== "all" && row.stage !== activeStage) return false;
-      if (activeRoute !== "all" && row.route !== activeRoute) return false;
-      if (!q) return true;
-      return [row.orderNumber, row.orderId, row.customerName, row.district, row.destinationGroup, row.itemSummary, row.currentStatus].some((v) => String(v || "").toLowerCase().includes(q));
-    });
-  }, [orders, search, activeStage, activeRoute]);
-
-  const selected = filtered.find((row: any) => row.source + ":" + row.id === selectedId) || filtered[0] || null;
-  const stageCounts = useMemo(() => Object.fromEntries((Object.keys(stageMeta) as Stage[]).map((stage) => [stage, orders.filter((row: any) => row.stage === stage).length])) as Record<Stage, number>, [orders]);
-  const routeCounts = useMemo(() => Object.fromEntries(ROUTES.map((route) => [route.key, orders.filter((row: any) => row.route === route.key).length])) as Record<RouteKey, number>, [orders]);
-  const destinationGroups = useMemo(() => {
-    const groups = new Map<string, any[]>();
-    filtered.forEach((row: any) => {
-      const key = row.destinationGroup || "Destination not assigned";
-      groups.set(key, [...(groups.get(key) || []), row]);
-    });
-    return [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  }, [filtered]);
-  const refresh = async () => {
-    await Promise.all([farmerQuery.refetch(), outgoingQuery.refetch(), consolidationQuery.refetch()]);
+  const [search,setSearch]=useState("");
+  const [activeRoute,setActiveRoute]=useState<RouteKey|"all">("all");
+  const [activeStage,setActiveStage]=useState("All");
+  const [selectedKey,setSelectedKey]=useState("");
+  const [expanded,setExpanded]=useState<string[]>([]);
+  const [selectedOrders,setSelectedOrders]=useState<Record<string,boolean>>({});
+  const [partnerByOrder,setPartnerByOrder]=useState<Record<string,string>>({});
+  const [busy,setBusy]=useState("");
+  const farmerQuery=useQuery({queryKey:["unifiedFarmerFulfillmentTransfers"],queryFn:()=>api.get("/warehouse/me/farmer-fulfillment-transfers"),refetchInterval:15000});
+  const outgoingQuery=useQuery({queryKey:["unifiedWarehouseOutgoing"],queryFn:()=>api.get("/warehouse/me/outgoing",{params:{limit:100}}),refetchInterval:20000});
+  const teamsQuery=useQuery({queryKey:["unifiedFulfillmentPickupTeams"],queryFn:()=>api.get("/warehouse/me/pickup-team/members"),refetchInterval:30000});
+  const hubsQuery=useQuery({queryKey:["unifiedFulfillmentLocalHubs"],queryFn:()=>api.get("/warehouse/me/local-hubs"),refetchInterval:30000});
+  const teams=(teamsQuery.data?.data?.members||[]).map((m:any)=>({id:String(m.deliveryPartnerId||m.id||m._id),name:m.name||m.partnerName||m.firstName||"Delivery partner",vehicle:m.vehicleType||m.vehicle||"Vehicle",capacity:Number(m.capacity||m.vehicleCapacity||0)}));
+  const hubs=hubsQuery.data?.data?.hubs||hubsQuery.data?.hubs||[];
+  const farmerRows=farmerQuery.data?.data?.transfers||farmerQuery.data?.transfers||[];
+  const outgoingRows=outgoingQuery.data?.data?.outgoing||outgoingQuery.data?.outgoing||[];
+  const orders=useMemo(()=>[...farmerRows.map(normalizeFarmer),...outgoingRows.map(normalizeWarehouse)], [farmerRows,outgoingRows]);
+  const filtered=useMemo(()=>{
+    const q=search.trim().toLowerCase();
+    return orders.filter((o:any)=>(activeRoute==="all"||o.route===activeRoute)&&(activeStage==="All"||o.stage===activeStage)&&(!q||[o.orderNumber,o.orderId,o.customerName,o.district,o.destinationGroup,o.itemSummary,o.currentStatus].some(v=>String(v||"").toLowerCase().includes(q))));
+  },[orders,search,activeRoute,activeStage]);
+  const selected=filtered.find((o:any)=>o.source+":"+o.id===selectedKey)||filtered[0]||null;
+  const routeCounts=Object.fromEntries(ROUTES.map(r=>[r.key,orders.filter((o:any)=>o.route===r.key).length])) as Record<RouteKey,number>;
+  const stageNames=["To Receive","To Route","In Transfer","To Dispatch","Delivered"];
+  const stageCounts=Object.fromEntries(stageNames.map(s=>[s,orders.filter((o:any)=>o.stage===s).length])) as Record<string,number>;
+  const groups=useMemo(()=>{const m=new Map<string,any[]>();filtered.forEach((o:any)=>m.set(o.destinationGroup,[...(m.get(o.destinationGroup)||[]),o]));return [...m.entries()].sort((a,b)=>a[0].localeCompare(b[0]));},[filtered]);
+  const refresh=()=>Promise.all([farmerQuery.refetch(),outgoingQuery.refetch(),teamsQuery.refetch(),hubsQuery.refetch()]);
+  const toggleGroup=(name:string)=>setExpanded(v=>v.includes(name)?v.filter(x=>x!==name):[...v,name]);
+  const setWorking=(key:string)=>setBusy(key);
+  const act=async(order:any,action:string)=>{
+    const id=order.id;
+    try {
+      setWorking(id+action);
+      if(order.source==="farmer"){
+        if(action==="recover") await api.post("/warehouse/me/farmer-fulfillment/"+id+"/recover-source-warehouse");
+        else if(action==="nearby") {
+          const partner=partnerByOrder[id]; if(!partner) throw new Error("Select an approved delivery partner first");
+          await api.put("/warehouse/me/farmer-fulfillment/"+id+"/assign-nearby-delivery-partner",undefined,{params:{deliveryPartnerId:partner}});
+        } else if(action==="same") await api.post("/warehouse/me/farmer-fulfillment/"+id+"/dispatch-to-local-hub");
+        else if(action==="destination") {
+          let result:any;
+          if(!order.destinationWarehouseId) result=await api.post("/warehouse/me/farmer-fulfillment/"+id+"/assign-destination-warehouse");
+          if(result?.data?.destinationWarehouseCapacityOverrideRequired) throw new Error(result.message||"Destination warehouse capacity needs review");
+          await api.post("/warehouse/me/farmer-fulfillment/"+id+"/dispatch-to-destination");
+        } else if(action==="assign-transfer") {
+          const partner=partnerByOrder[id];if(!partner)throw new Error("Select an approved transfer team first");
+          await api.put("/warehouse/me/farmer-fulfillment/"+id+"/assign-destination-pickup-team",undefined,{params:{deliveryPartnerId:partner}});
+        } else if(action==="destination-receive") await api.post("/warehouse/me/farmer-fulfillment/"+id+"/receive-at-destination");
+        else if(action==="hub-handoff") await api.post("/warehouse/me/farmer-fulfillment/"+id+"/handoff-local-hub");
+        else if(action==="hub-receive") await api.post("/warehouse/me/farmer-fulfillment/"+id+"/receive-local-hub");
+        else if(action==="consolidation-receive") await api.post("/warehouse/me/farmer-fulfillment/"+id+"/receive-at-consolidation");
+        else if(action==="consolidation-complete") await api.post("/warehouse/me/farmer-fulfillment/"+id+"/complete-consolidation");
+        else if(action==="consolidation-handoff") await api.post("/warehouse/me/farmer-fulfillment/"+id+"/handoff-local-hub");
+      } else {
+        if(!order.orderId) throw new Error("Customer order reference is missing");
+        const check=await api.get("/warehouse/me/orders/"+order.orderId+"/fulfillment-check");
+        const audit=check?.data||check;
+        if(!audit?.readyForDispatch) throw new Error("Packing verification is incomplete. Complete Order Packing first.");
+        if(action==="nearby") {
+          await api.post("/warehouse/me/outgoing/"+id+"/delivery-route",{route:"nearby",radius:order.nearbyThresholdKm??15});
+          await api.put("/warehouse/me/outgoing/"+id+"/status",undefined,{params:{status:"dispatched"}});
+        } else if(action==="same") {
+          const hub=hubs.find((h:any)=>h.id);
+          if(!hub) throw new Error("No local hub is available. Verify the destination local hub first.");
+          const district=String(order.destinationDistrict||"").toLowerCase();
+          const chosen=hubs.find((h:any)=>String(h.district||h.districtName||h.address?.district||"").toLowerCase()===district);
+          if(!chosen?.id) throw new Error("No verified local hub matches the customer's district.");
+          await api.post("/warehouse/me/local-hubs/"+chosen.id+"/orders/"+order.orderId+"/dispatch",{});
+        } else if(action==="destination") await api.post("/warehouse/me/outgoing/"+id+"/inter-district-dispatch");
+        else throw new Error("This order needs route review or consolidation.");
+      }
+      toast.success("Order action completed");
+      await refresh();
+    } catch(e:any) {toast.error(e?.message||"Unable to process this order");}
+    finally {setWorking("");}
   };
-  const isLoading = farmerQuery.isLoading || outgoingQuery.isLoading;
-  const hasError = farmerQuery.isError && outgoingQuery.isError;
-  const toggleDestination = (name: string) => setExpandedDestinations((current) => current.includes(name) ? current.filter((x) => x !== name) : [...current, name]);
+  const bulkPlan=async(route:"same_district"|"inter_district")=>{
+    const chosen=filtered.filter((o:any)=>o.source==="farmer"&&o.route===route&&selectedOrders[o.source+":"+o.id]&&o.physicalReceiptConfirmed);
+    if(!chosen.length){toast.error("Select received farmer orders in this route group first");return;}
+    setWorking("bulk");
+    let done=0;const errors:string[]=[];
+    for(const o of chosen){try{if(route==="same_district")await api.post("/warehouse/me/farmer-fulfillment/"+o.id+"/dispatch-to-local-hub");else{if(!o.destinationWarehouseId)await api.post("/warehouse/me/farmer-fulfillment/"+o.id+"/assign-destination-warehouse");await api.post("/warehouse/me/farmer-fulfillment/"+o.id+"/dispatch-to-destination");}done++;}catch(e:any){errors.push((o.orderNumber||o.id)+": "+(e?.message||"failed"));}}
+    if(done)toast.success("Planned "+done+" route(s)");
+    if(errors.length)toast.error(errors.slice(0,2).join("; "));
+    setWorking("");await refresh();
+  };
 
-  return (
-    <div className="mx-auto w-full max-w-[1700px] space-y-5 pb-8">
-      <div className="flex flex-col gap-3 rounded-2xl border border-emerald-100 bg-white p-5 shadow-sm lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex items-start gap-3">
-          <div className="rounded-xl bg-emerald-50 p-3 text-emerald-700"><Truck className="h-6 w-6"/></div>
-          <div><h1 className="text-2xl font-bold tracking-tight text-slate-950">Fulfillment & Dispatch</h1><p className="mt-1 text-sm text-slate-600">One workspace for Farmer and Warehouse orders, grouped by their next action and destination.</p><p className="mt-2 text-xs text-slate-500">Receive → Quality Check → Route Classification → Transfer (if required) → Dispatch → Delivery</p></div>
-        </div>
-        <Button variant="outline" onClick={refresh} disabled={farmerQuery.isFetching || outgoingQuery.isFetching}><RefreshCw className={`mr-2 h-4 w-4 ${farmerQuery.isFetching || outgoingQuery.isFetching ? "animate-spin" : ""}`}/>Refresh</Button>
-      </div>
+  const loading=farmerQuery.isLoading||outgoingQuery.isLoading;
+  return <div className="mx-auto w-full max-w-[1700px] space-y-4 pb-8">
+    <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3"><div className="rounded-xl bg-emerald-50 p-3 text-emerald-700"><Truck className="h-6 w-6"/></div><div><h1 className="text-2xl font-bold">Fulfillment &amp; Dispatch</h1><p className="text-sm text-muted-foreground">Unified operational workspace for Farmer and Warehouse orders.</p><p className="text-xs text-muted-foreground">Receive → Quality Check → Route Classification → Transfer (if required) → Dispatch → Delivery</p></div></div><div className="flex gap-2"><Button variant="outline" onClick={()=>refresh()} disabled={farmerQuery.isFetching||outgoingQuery.isFetching}><RefreshCw className="mr-2 h-4 w-4"/>Refresh</Button><Button asChild><Link href="/warehouse/consolidation">Consolidation workspace <ArrowRight className="ml-2 h-4 w-4"/></Link></Button></div></div>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
-        <Card><CardContent className="p-4"><p className="text-xs text-slate-500">All Orders</p><p className="mt-1 text-2xl font-bold">{orders.length}</p><p className="text-xs text-slate-500">Across both sources</p></CardContent></Card>
-        <Card className="border-emerald-200 bg-emerald-50/50"><CardContent className="p-4"><p className="text-xs text-emerald-800">Farmer Orders</p><p className="mt-1 text-2xl font-bold">{orders.filter((x: any) => x.source === "farmer").length}</p><p className="text-xs text-emerald-700">Farmer-packed</p></CardContent></Card>
-        <Card className="border-blue-200 bg-blue-50/50"><CardContent className="p-4"><p className="text-xs text-blue-800">Warehouse Orders</p><p className="mt-1 text-2xl font-bold">{orders.filter((x: any) => x.source === "warehouse").length}</p><p className="text-xs text-blue-700">Warehouse-packed</p></CardContent></Card>
-        {(Object.keys(stageMeta) as Stage[]).slice(0, 4).map((stage) => <Card key={stage}><CardContent className="p-4"><p className="text-xs text-slate-500">{stageMeta[stage].label}</p><p className="mt-1 text-2xl font-bold">{stageCounts[stage]}</p><p className="text-xs text-slate-500">{stageMeta[stage].short}</p></CardContent></Card>)}
-      </div>
-
-      <Card className="border-emerald-100"><CardContent className="p-4">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><div><h2 className="font-semibold text-slate-900">Route Classification</h2><p className="text-xs text-slate-500">Orders from both fulfillment sources are classified together. Source labels and order histories remain separate.</p></div><Badge variant="outline">{orders.length} orders</Badge></div>
-        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
-          {ROUTES.map((route) => <button key={route.key} type="button" onClick={() => setActiveRoute(activeRoute === route.key ? "all" : route.key)} className={`rounded-xl border p-3 text-left transition-colors ${activeRoute === route.key ? "border-emerald-500 bg-emerald-50 ring-1 ring-emerald-100" : "border-slate-200 bg-white hover:border-emerald-200"}`}>
-            <div className="flex items-center justify-between gap-2"><span className="text-sm font-semibold text-slate-800">{route.label}</span><Badge variant="secondary">{routeCounts[route.key]}</Badge></div><p className="mt-1 text-xs text-slate-500">{route.description}</p>
-          </button>)}
-        </div>
-      </CardContent></Card>
-
-      <div className="flex flex-col gap-3 rounded-xl border bg-white p-3 shadow-sm lg:flex-row lg:items-center">
-        <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant={activeStage === "all" ? "default" : "outline"} onClick={() => setActiveStage("all")}>All ({orders.length})</Button>
-          {(Object.keys(stageMeta) as Stage[]).map((stage) => <Button key={stage} size="sm" variant={activeStage === stage ? "default" : "outline"} onClick={() => setActiveStage(activeStage === stage ? "all" : stage)}>{stageMeta[stage].label} ({stageCounts[stage]})</Button>)}
-        </div>
-        <div className="flex min-w-0 flex-1 items-center gap-2 lg:justify-end"><div className="relative w-full max-w-md"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"/><Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search order, customer, product or destination..." className="pl-9"/></div><Button variant="outline" size="sm" onClick={() => {setActiveStage("all");setActiveRoute("all");setSearch("");}}>Clear filters</Button></div>
-      </div>
-
-      {hasError && <Card className="border-red-200 bg-red-50"><CardContent className="p-4 text-sm text-red-800">Could not load either fulfillment queue. Refresh the page or check warehouse access.</CardContent></Card>}
-      {isLoading ? <Card><CardContent className="p-10 text-center text-sm text-slate-500">Loading fulfillment orders…</CardContent></Card> : filtered.length === 0 ? <Card><CardContent className="p-12 text-center"><Package className="mx-auto h-10 w-10 text-slate-300"/><h3 className="mt-3 font-semibold text-slate-800">No orders in this view</h3><p className="mt-1 text-sm text-slate-500">Try another stage or route filter.</p></CardContent></Card> : (
-        <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(420px,1fr)]">
-          <div className="space-y-3">
-            <div className="flex items-center justify-between"><h2 className="font-semibold text-slate-900">Orders grouped by destination</h2><Badge variant="outline">{filtered.length} shown</Badge></div>
-            {destinationGroups.map(([destination, rows]) => <Card key={destination} className="overflow-hidden">
-              <button type="button" onClick={() => toggleDestination(destination)} className="flex w-full items-center justify-between gap-3 bg-slate-50 px-4 py-3 text-left hover:bg-slate-100">
-                <div className="flex min-w-0 items-center gap-2"><Warehouse className="h-5 w-5 shrink-0 text-emerald-700"/><div className="min-w-0"><p className="truncate font-semibold text-slate-900">{destination}</p><p className="text-xs text-slate-500">{rows.length} order(s) · Farmer {rows.filter((x: any) => x.source === "farmer").length} · Warehouse {rows.filter((x: any) => x.source === "warehouse").length}</p></div></div>
-                {expandedDestinations.includes(destination) ? <ChevronDown className="h-4 w-4"/> : <ChevronRight className="h-4 w-4"/>}
-              </button>
-              {(!expandedDestinations.length || expandedDestinations.includes(destination)) && <CardContent className="space-y-2 p-3">
-                {rows.map((row: any) => {
-                  const key = row.source + ":" + row.id;
-                  const active = selected?.source + ":" + selected?.id === key;
-                  return <button key={key} type="button" onClick={() => setSelectedId(key)} className={`w-full rounded-xl border p-3 text-left transition-colors ${active ? "border-emerald-400 bg-emerald-50/60 ring-1 ring-emerald-100" : "border-slate-200 hover:border-emerald-200"}`}>
-                    <div className="flex items-start justify-between gap-2"><div className="min-w-0"><p className="truncate text-sm font-bold text-slate-900">#{row.orderNumber}</p><p className="mt-1 truncate text-xs text-slate-600">{row.customerName}</p><p className="mt-1 truncate text-xs text-slate-500">{row.itemSummary} · {row.quantitySummary}</p></div><div className="flex shrink-0 flex-col items-end gap-1"><Badge className={row.source === "farmer" ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-100" : "bg-blue-100 text-blue-800 hover:bg-blue-100"}>{row.source === "farmer" ? <><Leaf className="mr-1 h-3 w-3"/>Farmer</> : <><Warehouse className="mr-1 h-3 w-3"/>Warehouse</>}</Badge><Badge variant="outline">{stageMeta[row.stage as Stage].label}</Badge></div></div>
-                  </button>;
-                })}
-              </CardContent>}
-            </Card>)}
-          </div>
-
-          <div className="xl:sticky xl:top-20">
-            {selected ? <Card className="overflow-hidden">
-              <CardContent className="space-y-4 p-5">
-                <div className="flex items-start justify-between gap-3 border-b pb-4"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h2 className="text-lg font-bold text-slate-900">#{selected.orderNumber}</h2><Badge className={selected.source === "farmer" ? "bg-emerald-100 text-emerald-800" : "bg-blue-100 text-blue-800"}>{selected.source === "farmer" ? "Farmer Fulfillment" : "Warehouse Fulfillment"}</Badge></div><p className="mt-1 text-sm text-slate-600">{selected.customerName}</p><p className="mt-1 flex items-center gap-1 text-xs text-slate-500"><MapPin className="h-3.5 w-3.5"/>{selected.district}</p></div><Badge variant="outline">{stageMeta[selected.stage as Stage].label}</Badge></div>
-                <div className="grid grid-cols-3 gap-2">{(["to_receive","to_route","in_transfer"] as Stage[]).map((stage) => <div key={stage} className={`rounded-lg p-2 text-center text-xs ${selected.stage === stage ? "bg-emerald-100 text-emerald-900" : "bg-slate-50 text-slate-500"}`}>{stageMeta[stage].label}</div>)}</div>
-                <div className="grid grid-cols-2 gap-2"><div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Current status</p><p className="mt-1 break-words text-sm font-semibold">{String(selected.currentStatus).replace(/_/g, " ")}</p></div><div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Destination group</p><p className="mt-1 break-words text-sm font-semibold">{selected.destinationGroup}</p></div></div>
-                <div className="rounded-lg border p-3"><p className="text-xs text-slate-500">Route classification</p><p className="mt-1 font-semibold">{ROUTES.find((x) => x.key === selected.route)?.label}</p><p className="mt-1 text-xs text-slate-500">{ROUTES.find((x) => x.key === selected.route)?.description}</p></div>
-                <div className="rounded-lg border p-3"><p className="text-xs text-slate-500">Products / quantity</p><p className="mt-1 text-sm font-semibold">{selected.itemSummary} · {selected.quantitySummary}</p></div>
-                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"><AlertTriangle className="mr-1 inline h-4 w-4"/>Operational actions continue in the existing source workflow. This unified page does not bypass pickup, receipt, quality, packing, transfer or dispatch validations.</div>
-                <div className="flex flex-wrap gap-2">
-                  {selected.source === "farmer" ? <Button asChild className="flex-1"><Link href="/warehouse/farmer-fulfillment">Open Farmer Fulfillment workflow <ArrowRight className="ml-2 h-4 w-4"/></Link></Button> : <Button asChild className="flex-1"><Link href="/outgoing">Open Outgoing / Dispatch workflow <ArrowRight className="ml-2 h-4 w-4"/></Link></Button>}
-                  {selected.source === "farmer" && <Button asChild variant="outline"><Link href="/warehouse/consolidation">Consolidation</Link></Button>}
-                  {selected.source === "warehouse" && <Button asChild variant="outline"><Link href="/packing">Order Packing</Link></Button>}
-                </div>
-              </CardContent>
-            </Card> : <Card><CardContent className="p-10 text-center text-sm text-slate-500">Select an order to view its details.</CardContent></Card>}
-          </div>
-        </div>
-      )}
-      <p className="text-xs text-slate-500">This is a unified monitoring and navigation workspace. Existing Farmer Fulfillment and Outgoing / Dispatch pages remain available and continue to own their current operational actions and validations.</p>
+    <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8">
+      <Card><CardContent className="p-3"><p className="text-xs text-muted-foreground">All Orders</p><p className="text-2xl font-bold">{orders.length}</p><p className="text-xs text-muted-foreground">Both sources</p></CardContent></Card>
+      <Card className="border-emerald-200 bg-emerald-50/50"><CardContent className="p-3"><p className="text-xs text-emerald-800">Farmer Orders</p><p className="text-2xl font-bold">{orders.filter((x:any)=>x.source==="farmer").length}</p><p className="text-xs">Farmer-packed</p></CardContent></Card>
+      <Card className="border-blue-200 bg-blue-50/50"><CardContent className="p-3"><p className="text-xs text-blue-800">Warehouse Orders</p><p className="text-2xl font-bold">{orders.filter((x:any)=>x.source==="warehouse").length}</p><p className="text-xs">Warehouse-packed</p></CardContent></Card>
+      {stageNames.slice(0,3).map(s=><Card key={s}><CardContent className="p-3"><p className="text-xs text-muted-foreground">{s}</p><p className="text-2xl font-bold">{stageCounts[s]||0}</p><p className="text-xs text-muted-foreground">{s==="To Receive"?"Awaiting physical receipt":s==="To Route"?"Ready for route classification":"Handoff underway"}</p></CardContent></Card>)}
+      <Card><CardContent className="p-3"><p className="text-xs text-muted-foreground">To Dispatch</p><p className="text-2xl font-bold">{stageCounts["To Dispatch"]||0}</p><p className="text-xs">Dispatch action</p></CardContent></Card>
+      <Card><CardContent className="p-3"><p className="text-xs text-muted-foreground">Needs Review</p><p className="text-2xl font-bold">{routeCounts.route_review+routeCounts.needs_location}</p><p className="text-xs">Route / location</p></CardContent></Card>
     </div>
-  );
+
+    <Card className="border-emerald-100"><CardContent className="p-4"><div className="mb-3 flex flex-wrap items-center justify-between gap-2"><div><h2 className="font-semibold">Route Classification</h2><p className="text-xs text-muted-foreground">Classify both fulfillment sources together; source and order histories remain separate.</p></div><Badge variant="outline">{orders.length} orders</Badge></div><div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-6">{ROUTES.map(r=><button key={r.key} onClick={()=>setActiveRoute(activeRoute===r.key?"all":r.key)} className={"rounded-xl border p-3 text-left "+(activeRoute===r.key?"border-emerald-500 bg-emerald-50":"hover:border-emerald-300")}><div className="flex items-center justify-between gap-2"><span className="text-sm font-semibold">{r.label}</span><Badge variant="secondary">{routeCounts[r.key]}</Badge></div><p className="mt-1 text-xs text-muted-foreground">{r.description}</p></button>)}</div></CardContent></Card>
+
+    <div className="flex flex-col gap-3 rounded-xl border bg-white p-3 lg:flex-row lg:items-center lg:justify-between"><div className="flex flex-wrap gap-2"><Button size="sm" variant={activeStage==="All"?"default":"outline"} onClick={()=>setActiveStage("All")}>All ({orders.length})</Button>{stageNames.map(s=><Button key={s} size="sm" variant={activeStage===s?"default":"outline"} onClick={()=>setActiveStage(activeStage===s?"All":s)}>{s} ({stageCounts[s]||0})</Button>)}</div><div className="flex min-w-0 gap-2"><div className="relative min-w-0 flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"/><Input className="pl-9" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search order ID, customer, product or destination..."/></div><Button size="sm" variant="outline" onClick={()=>{setSearch("");setActiveRoute("all");setActiveStage("All");}}>Clear</Button></div></div>
+
+    <div className="grid items-start gap-4 xl:grid-cols-[minmax(300px,0.8fr)_minmax(0,2fr)]">
+      <Card><CardContent className="space-y-3 p-4"><div className="flex items-center justify-between"><h2 className="font-semibold">Route groups</h2><Badge variant="outline">{filtered.length} orders</Badge></div>{ROUTES.map(r=><button key={r.key} onClick={()=>setActiveRoute(activeRoute===r.key?"all":r.key)} className={"flex w-full items-center gap-3 rounded-xl border p-3 text-left "+(activeRoute===r.key?"border-emerald-400 bg-emerald-50":"hover:bg-muted/40")}><span className="rounded-lg bg-muted p-2">{r.key==="nearby"?<Truck className="h-4 w-4"/>:r.key==="inter_district"?<ArrowLeftRight className="h-4 w-4"/>:r.key==="multi_warehouse"?<Package className="h-4 w-4"/>:<MapPin className="h-4 w-4"/>}</span><span className="min-w-0 flex-1"><span className="block text-sm font-semibold">{r.label}</span><span className="block text-xs text-muted-foreground">{r.description}</span></span><Badge variant="secondary">{routeCounts[r.key]}</Badge></button>)}
+      <div className="border-t pt-3"><p className="mb-2 text-sm font-semibold">Bulk route planning</p><Button size="sm" className="mb-2 w-full" disabled={busy==="bulk"} onClick={()=>bulkPlan("same_district")}>Plan selected same-district farmer routes</Button><Button size="sm" variant="outline" className="w-full" disabled={busy==="bulk"} onClick={()=>bulkPlan("inter_district")}>Plan selected inter-district farmer routes</Button><p className="mt-2 text-xs text-muted-foreground">Bulk planning only processes selected, physically received farmer orders. Warehouse orders use their packing verification and dispatch checks.</p></div></CardContent></Card>
+
+      <div className="space-y-3"><div className="flex items-center justify-between"><h2 className="font-semibold">Orders grouped by destination</h2><Badge variant="outline">{filtered.length} shown</Badge></div>
+        {loading?<Card><CardContent className="p-8 text-center text-sm text-muted-foreground">Loading orders…</CardContent></Card>:groups.length===0?<Card><CardContent className="p-10 text-center"><Package className="mx-auto h-9 w-9 text-muted-foreground"/><p className="mt-3 font-semibold">No orders in this view</p><p className="text-sm text-muted-foreground">Change the route or stage filter.</p></CardContent></Card>:groups.map(([name,rows])=><Card key={name} className="overflow-hidden"><button onClick={()=>toggleGroup(name)} className="flex w-full items-center justify-between gap-3 bg-muted/30 p-3 text-left"><span className="flex min-w-0 items-center gap-2"><Warehouse className="h-5 w-5 text-emerald-700"/><span className="min-w-0"><span className="block font-semibold">{name}</span><span className="block text-xs text-muted-foreground">{rows.length} orders · Farmer {rows.filter((x:any)=>x.source==="farmer").length} · Warehouse {rows.filter((x:any)=>x.source==="warehouse").length}</span></span></span>{expanded.includes(name)?<ChevronDown className="h-4 w-4"/>:<ChevronRight className="h-4 w-4"/>}</button>{(!expanded.length||expanded.includes(name))&&<CardContent className="space-y-2 p-3">{rows.map((o:any)=>{const key=o.source+":"+o.id;const active=selected?.source+":"+selected?.id===key;return <div key={key} className={"rounded-xl border p-3 "+(active?"border-emerald-400 bg-emerald-50/50":"")}><div className="flex flex-wrap items-start gap-3"><input aria-label={"Select "+o.orderNumber+" for route planning"} type="checkbox" checked={Boolean(selectedOrders[key])} onChange={e=>setSelectedOrders(v=>({...v,[key]:e.target.checked}))} className="mt-1" disabled={o.source!=="farmer"||!o.physicalReceiptConfirmed||!["same_district","inter_district"].includes(o.route)}/><button className="min-w-0 flex-1 text-left" onClick={()=>setSelectedKey(key)}><p className="break-all text-sm font-bold">{o.orderNumber}</p><p className="mt-1 text-xs text-muted-foreground">{o.customerName} · {o.district}</p><p className="mt-1 text-xs text-muted-foreground">{o.itemSummary} · {o.quantitySummary}</p></button><div className="flex flex-wrap gap-1"><Badge className={o.source==="farmer"?"bg-emerald-100 text-emerald-800":"bg-blue-100 text-blue-800"}>{o.source==="farmer"?<><Leaf className="mr-1 h-3 w-3"/>Farmer</>:<><Warehouse className="mr-1 h-3 w-3"/>Warehouse</>}</Badge><Badge variant="outline">{o.stage}</Badge><Badge variant="outline">{ROUTES.find(r=>r.key===o.route)?.label}</Badge></div></div></div>})}</CardContent>}</Card>)}
+      </div>
+    </div>
+
+    {selected&&<Card className="overflow-hidden border-emerald-200"><CardContent className="space-y-4 p-5"><div className="flex flex-wrap items-start justify-between gap-3 border-b pb-3"><div><div className="flex flex-wrap items-center gap-2"><h2 className="text-lg font-bold">#{selected.orderNumber}</h2><Badge className={selected.source==="farmer"?"bg-emerald-100 text-emerald-800":"bg-blue-100 text-blue-800"}>{selected.source==="farmer"?"Farmer Fulfillment":"Warehouse Fulfillment"}</Badge></div><p className="mt-1 text-sm text-muted-foreground">{selected.customerName} · {selected.district}</p></div><Badge variant="outline">{selected.stage}</Badge></div>
+      <div className="grid gap-2 sm:grid-cols-4"><div className="rounded-lg bg-muted/40 p-3"><p className="text-xs text-muted-foreground">Current status</p><p className="mt-1 text-sm font-semibold">{statusText(selected.currentStatus)}</p></div><div className="rounded-lg bg-muted/40 p-3"><p className="text-xs text-muted-foreground">Route</p><p className="mt-1 text-sm font-semibold">{ROUTES.find(r=>r.key===selected.route)?.label}</p></div><div className="rounded-lg bg-muted/40 p-3"><p className="text-xs text-muted-foreground">Source warehouse</p><p className="mt-1 text-sm font-semibold">{selected.sourceWarehouseName||"Current warehouse"}</p></div><div className="rounded-lg bg-muted/40 p-3"><p className="text-xs text-muted-foreground">Destination warehouse</p><p className="mt-1 text-sm font-semibold">{selected.destinationWarehouseName||selected.destinationGroup}</p></div></div>
+      <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Products / quantity</p><p className="mt-1 text-sm font-semibold">{selected.itemSummary} · {selected.quantitySummary}</p></div>
+      {selected.source==="farmer"?<div className="space-y-3"><div className="flex flex-wrap items-center gap-2"><Button asChild size="sm" variant="outline"><Link href={"/incoming?search="+encodeURIComponent(selected.orderNumber)}><ClipboardCheck className="mr-2 h-4 w-4"/>Open receipt / quality check</Link></Button><Button asChild size="sm" variant="outline"><Link href={"/collections?search="+encodeURIComponent(selected.orderNumber)}>Track farm pickup</Link></Button></div>
+        {!selected.physicalReceiptConfirmed&&<p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">This farmer-packed order must be physically received and pass the required quality checks before route planning.</p>}
+        {selected.isUnassigned&&selected.physicalReceiptConfirmed&&<Button size="sm" disabled={!!busy} onClick={()=>act(selected,"recover")}>Link received shipment to this warehouse</Button>}
+        {selected.physicalReceiptConfirmed&&selected.route==="nearby"&&!selected.deliveryPartnerId&&<div className="flex flex-wrap gap-2"><select className="h-9 rounded-md border bg-background px-2 text-sm" value={partnerByOrder[selected.id]||""} onChange={e=>setPartnerByOrder(v=>({...v,[selected.id]:e.target.value}))}><option value="">Select approved delivery partner</option>{teams.map((t:any)=><option key={t.id} value={t.id}>{t.name} · {t.vehicle} · {t.capacity} kg</option>)}</select><Button size="sm" disabled={!!busy||!partnerByOrder[selected.id]} onClick={()=>act(selected,"nearby")}>Assign delivery partner</Button></div>}
+        {selected.physicalReceiptConfirmed&&selected.route==="same_district"&&<Button size="sm" disabled={!!busy} onClick={()=>act(selected,"same")}>Create local-hub transfer</Button>}
+        {selected.physicalReceiptConfirmed&&selected.route==="inter_district"&&<div className="flex flex-wrap gap-2"><Button size="sm" disabled={!!busy} onClick={()=>act(selected,"destination")}>Assign destination &amp; create transfer</Button>{selected.transferStatus==="destination_warehouse_transfer_pending"&&<><select className="h-9 rounded-md border bg-background px-2 text-sm" value={partnerByOrder[selected.id]||""} onChange={e=>setPartnerByOrder(v=>({...v,[selected.id]:e.target.value}))}><option value="">Select transfer team</option>{teams.map((t:any)=><option key={t.id} value={t.id}>{t.name} · {t.capacity} kg</option>)}</select><Button size="sm" disabled={!!busy||!partnerByOrder[selected.id]} onClick={()=>act(selected,"assign-transfer")}>Assign transfer team</Button></>}</div>}
+        {selected.currentWarehouseRole==="destination"&&selected.transferStatus==="destination_warehouse_arrived_pending_receipt"&&<Button size="sm" disabled={!!busy} onClick={()=>act(selected,"destination-receive")}>Confirm destination receipt</Button>}
+        {selected.transferStatus==="destination_warehouse_received"&&<Button size="sm" disabled={!!busy} onClick={()=>act(selected,"hub-handoff")}>Send to local hub</Button>}
+        {selected.transferStatus==="hub_arrived_pending_receipt"&&<Button size="sm" disabled={!!busy} onClick={()=>act(selected,"hub-receive")}>Confirm local hub receipt</Button>}
+        {selected.consolidation?.canReceive&&<Button size="sm" disabled={!!busy} onClick={()=>act(selected,"consolidation-receive")}>Receive consolidation portions</Button>}
+        {selected.consolidation?.canComplete&&<Button size="sm" disabled={!!busy} onClick={()=>act(selected,"consolidation-complete")}>Complete consolidation</Button>}
+        {selected.consolidation?.canHandoffLocalHub&&<Button size="sm" disabled={!!busy} onClick={()=>act(selected,"consolidation-handoff")}>Send consolidated order to local hub</Button>}
+      </div>:<div className="space-y-3"><p className="rounded-lg bg-blue-50 p-3 text-sm text-blue-900">Warehouse orders become eligible here only after Order Packing confirms the packed quantities. The dispatch action checks the backend fulfillment audit before proceeding.</p><div className="flex flex-wrap gap-2"><Button asChild size="sm" variant="outline"><Link href={"/packing?search="+encodeURIComponent(selected.orderNumber)}>Open Order Packing</Link></Button>{selected.route==="nearby"&&<Button size="sm" disabled={!!busy} onClick={()=>act(selected,"nearby")}>Verify packing &amp; dispatch to delivery</Button>}{selected.route==="same_district"&&<Button size="sm" disabled={!!busy} onClick={()=>act(selected,"same")}>Assign local hub &amp; dispatch</Button>}{selected.route==="inter_district"&&<Button size="sm" disabled={!!busy} onClick={()=>act(selected,"destination")}>Create destination warehouse transfer</Button>}{selected.route==="multi_warehouse"&&<Button asChild size="sm"><Link href="/warehouse/consolidation">Open consolidation</Link></Button>}</div></div>}
+      {(selected.route==="route_review"||selected.route==="needs_location")&&<div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><AlertTriangle className="mr-2 inline h-4 w-4"/>{selected.route==="needs_location"?"Complete source and customer district/location data before routing.":"Review route configuration and direct-delivery eligibility before processing."} Dispatch is blocked until the route is valid.</div>}
+      <div className="flex flex-wrap gap-2 border-t pt-3"><Button asChild size="sm" variant="outline"><Link href={selected.source==="farmer"?"/warehouse/farmer-fulfillment":"/outgoing"}>Open original workflow</Link></Button><Button asChild size="sm" variant="outline"><Link href="/warehouse/consolidation">Multi-warehouse consolidation</Link></Button></div>
+    </CardContent></Card>}
+    <p className="text-xs text-muted-foreground">The original Farmer Fulfillment and Outgoing / Dispatch pages remain available. This unified page uses their existing backend operations and validations; it does not change pickup, receipt, quality inspection, packing or delivery rules.</p>
+  </div>;
 }
