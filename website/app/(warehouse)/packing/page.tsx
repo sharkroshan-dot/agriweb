@@ -308,85 +308,6 @@ export default function WarehousePackingPage() {
           <Button type="button" variant="outline" onClick={() => { void Promise.all([refetch(), refetchShortages()]); }}><RefreshCw className="mr-2 h-4 w-4"/>Refresh</Button>
         </div>
       </div>
-      {shortages.filter((x:any) => !["resolved", "cancelled"].includes(String(x.status || "").toLowerCase())).length > 0 && (
-        <details open className="group overflow-hidden rounded-xl border border-red-200 bg-white shadow-sm">
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 bg-red-50/70 px-4 py-3 marker:hidden">
-            <span className="flex min-w-0 items-center gap-2"><AlertTriangle className="h-5 w-5 shrink-0 text-red-600"/><span><span className="block text-sm font-semibold text-red-900">Shortage resolution required</span><span className="block text-xs text-red-700">{shortages.filter((x:any) => !["resolved", "cancelled"].includes(String(x.status || "").toLowerCase())).length} unresolved case(s) · Dispatch remains blocked until resolved</span></span></span>
-            <span className="shrink-0 text-xs font-semibold text-red-700 group-open:hidden">View cases</span><span className="hidden shrink-0 text-xs font-semibold text-red-700 group-open:inline">Hide cases</span>
-          </summary>
-          <div className="border-t border-red-100 p-4">
-            <div className="flex items-start gap-3">
-              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-600"/>
-              <div className="flex-1">
-                <p className="font-semibold text-red-900">Shortage Resolution — dispatch blocked</p>
-                <p className="mt-1 text-sm text-red-800">Shortages are confirmed from physical packed quantities. Resolve each case and then verify the final packing quantities before dispatch.</p>
-                <div className="mt-4 space-y-3">
-                  {shortages.filter((x:any) => !["resolved", "cancelled"].includes(String(x.status || "").toLowerCase())).map((x:any) => (
-                    <div key={x.id} className="rounded-md border border-red-200 bg-white p-4 text-sm">
-                      <div className="flex flex-wrap items-start justify-between gap-2">
-                        <div className="font-semibold">Order #{x.orderNumber || x.orderId?.slice(-8)} · {x.productName || "Product"}</div>
-                        <Badge variant="outline" className="border-red-200 text-red-700">{String(x.status || "open").replace(/_/g, " ")}</Badge>
-                      </div>
-                      <div className="mt-2 grid gap-2 sm:grid-cols-3">
-                        <div className="rounded bg-slate-50 p-2"><span className="text-xs text-muted-foreground">Required</span><p className="font-semibold">{Number(x.requiredQuantity || 0)} {x.unit || "kg"}</p></div>
-                        <div className="rounded bg-slate-50 p-2"><span className="text-xs text-muted-foreground">Physically available</span><p className="font-semibold">{Number(x.availableQuantity || 0)} {x.unit || "kg"}</p></div>
-                        <div className="rounded bg-red-50 p-2"><span className="text-xs text-red-700">Short quantity</span><p className="font-semibold text-red-800">{Number(x.shortageQuantity ?? Math.max(0, Number(x.requiredQuantity || 0) - Number(x.availableQuantity || 0)))} {x.unit || "kg"}</p></div>
-                      </div>
-                      <p className="mt-2 text-xs text-muted-foreground">Available product remains usable. Choose a resolution below; dispatch stays blocked while any shortage is unresolved.</p>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <Button type="button" size="sm" variant="outline" disabled={["replenishment_requested"].includes(String(x.status || "").toLowerCase())} onClick={async () => {
-                          try { const r = await api.put("/warehouse/me/shortages/" + x.id + "/resolution", { resolutionType: "farmer_replenishment", notes: "Warehouse requested replenishment for the physically confirmed shortage." }); toast.success(r?.data?.message || "Replenishment request recorded."); await Promise.all([refetch(), refetchShortages()]); }
-                          catch (e:any) { toast.error(e?.response?.data?.detail || e?.message || "Could not request replenishment."); }
-                        }}>Request Replenishment</Button>
-                        <Button type="button" size="sm" variant="outline" disabled={["customer_approval_pending"].includes(String(x.status || "").toLowerCase())} onClick={async () => {
-                          try { const r = await api.put("/warehouse/me/shortages/" + x.id + "/resolution", { resolutionType: "customer_approval_pending", approvedQuantity: Number(x.availableQuantity || 0), notes: "Customer must approve reduced quantity or choose cancellation before dispatch." }); toast.success(r?.data?.message || "Customer approval requested."); await Promise.all([refetch(), refetchShortages()]); }
-                          catch (e:any) { toast.error(e?.response?.data?.detail || e?.message || "Could not request customer approval."); }
-                        }}>Request Customer Decision</Button>
-                        <Button type="button" size="sm" variant="outline" onClick={async () => {
-                          const productId = window.prompt("Enter the substitute product ID. The customer must approve this substitution before it can be packed.");
-                          if (!productId) return;
-                          try { const r = await api.put("/warehouse/me/shortages/" + x.id + "/resolution", { resolutionType: "substitution_pending", substituteProductId: productId.trim(), notes: "Substitute proposed; customer approval required before packing." }); toast.success(r?.data?.message || "Substitution proposal recorded."); await Promise.all([refetch(), refetchShortages()]); }
-                          catch (e:any) { toast.error(e?.response?.data?.detail || e?.message || "Could not propose substitution."); }
-                        }}>Propose Substitute</Button>
-                        <Button type="button" size="sm" variant="destructive" onClick={async () => {
-                          const shortQty = Math.max(0, Number(x.requiredQuantity || 0) - Number(x.availableQuantity || 0));
-                          const raw = window.prompt("Enter the unavailable quantity approved by the customer for cancellation/refund (maximum " + shortQty + "). Do not proceed without customer approval.", String(shortQty));
-                          if (raw === null) return;
-                          const qty = Number(raw);
-                          if (!Number.isFinite(qty) || qty <= 0 || qty > shortQty) { toast.error("Enter a quantity greater than 0 and no more than " + shortQty + "."); return; }
-                          if (!window.confirm("Confirm the customer has approved cancellation/refund of " + qty + " units? This updates the order quantity and payable/refund record.")) return;
-                          try { const r = await api.put("/warehouse/me/shortages/" + x.id + "/resolution", { resolutionType: "refund_cancellation", resolvedQuantity: qty, notes: "Customer-approved cancellation/refund of unavailable quantity." }); toast.success(r?.data?.message || "Cancellation/refund quantity recorded."); await Promise.all([refetch(), refetchShortages()]); }
-                          catch (e:any) { toast.error(e?.response?.data?.detail || e?.message || "Could not record cancellation/refund."); }
-                        }}>Record Approved Cancel / Refund</Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        </details>
-      )}
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <Card className="border-emerald-200 bg-emerald-50/60"><CardContent className="p-4"><p className="text-xs font-medium text-emerald-800">Packing queue</p><p className="mt-1 text-2xl font-bold text-emerald-950">{filteredTasks.filter((t:any)=>String(t.status||"").toLowerCase()==="ready_for_packing").length}</p><p className="text-xs text-emerald-800">Ready to start</p></CardContent></Card>
-        <Card className="border-amber-200 bg-amber-50/60"><CardContent className="p-4"><p className="text-xs font-medium text-amber-800">In packing</p><p className="mt-1 text-2xl font-bold text-amber-950">{filteredTasks.filter((t:any)=>["assigned","packing","partially_packed"].includes(String(t.status||"").toLowerCase())).length}</p><p className="text-xs text-amber-800">Being processed</p></CardContent></Card>
-        <Card className="border-violet-200 bg-violet-50/60"><CardContent className="p-4"><p className="text-xs font-medium text-violet-800">Packed / not finished</p><p className="mt-1 text-2xl font-bold text-violet-950">{filteredTasks.filter((t:any)=>String(t.status||"").toLowerCase()==="packed").length}</p><p className="text-xs text-violet-800">Awaiting next step</p></CardContent></Card>
-        <Card className="border-red-200 bg-red-50/60"><CardContent className="p-4"><p className="text-xs font-medium text-red-800">Open shortages</p><p className="mt-1 text-2xl font-bold text-red-950">{shortages.filter((s:any)=>!["resolved","cancelled"].includes(String(s.status||"").toLowerCase())).length}</p><p className="text-xs text-red-800">Dispatch blocked until resolved</p></CardContent></Card>
-        <Card className="border-blue-200 bg-blue-50/60"><CardContent className="p-4"><p className="text-xs font-medium text-blue-800">Finished / moved on</p><p className="mt-1 text-2xl font-bold text-blue-950">{finishedCount}</p><p className="text-xs text-blue-800">Continue in Outgoing / Dispatch</p></CardContent></Card>
-      </div>
-      <Card className="border-slate-200 shadow-sm"><CardContent className="space-y-3 p-4">
-        <div className="flex flex-col gap-3 lg:flex-row">
-          <div className="relative min-w-0 flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"/><Input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search order, customer, farmer, product or delivery address…" className="h-10 pl-9"/></div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-1 text-sm text-muted-foreground"><Clock3 className="h-4 w-4"/>Date:</span>
-            {([{value:"today",label:"Today"},{value:"yesterday",label:"Yesterday"},{value:"week",label:"This Week"},{value:"all",label:"All Time"}] as const).map((option) => <Button key={option.value} type="button" size="sm" variant={dateFilter === option.value ? "default" : "outline"} onClick={() => setDateFilter(option.value)}>{option.label}</Button>)}
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-xs text-muted-foreground">
-          <span>Showing {visibleTasks.length} remaining packing order(s) · Finished orders automatically leave this queue.</span>
-          <span>{dateFilter === "today" ? "Today" : dateFilter === "yesterday" ? "Yesterday" : dateFilter === "week" ? "This Week (Monday-start)" : "All Time"}</span>
-        </div>
-      </CardContent></Card>
 
       {packingError && <Card className="border-red-200 bg-red-50"><CardContent className="p-4 text-sm text-red-700">Unable to load warehouse packing tasks. Check the backend logs or refresh the page.</CardContent></Card>}
       {isLoading ? <div className="h-32 animate-pulse rounded-lg bg-muted"/> : !packingError && visibleTasks.length === 0 ? (
@@ -417,7 +338,90 @@ export default function WarehousePackingPage() {
                 <span>{dateFilter === "today" ? "Today" : dateFilter === "yesterday" ? "Yesterday" : dateFilter === "week" ? "This Week" : "All Time"}</span>
               </div>
               <div className="max-h-[min(72vh,820px)] space-y-2 overflow-y-auto pr-1">
-                {visibleTasks.map((task: any) => {
+                {queueTab === "shortage" ? (
+                  unresolvedShortages.length > 0 ? (
+                {unresolvedShortages.length > 0 && (
+                  <details open className="group overflow-hidden rounded-xl border border-red-200 bg-white shadow-sm">
+                    <summary className="flex cursor-pointer list-none items-center justify-between gap-3 bg-red-50/70 px-4 py-3 marker:hidden">
+                      <span className="flex min-w-0 items-center gap-2"><AlertTriangle className="h-5 w-5 shrink-0 text-red-600"/><span><span className="block text-sm font-semibold text-red-900">Shortage resolution required</span><span className="block text-xs text-red-700">{unresolvedShortages.length} unresolved case(s) · Dispatch remains blocked until resolved</span></span></span>
+                      <span className="shrink-0 text-xs font-semibold text-red-700 group-open:hidden">View cases</span><span className="hidden shrink-0 text-xs font-semibold text-red-700 group-open:inline">Hide cases</span>
+                    </summary>
+                    <div className="border-t border-red-100 p-4">
+                      <div className="flex items-start gap-3">
+                        <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-600"/>
+                        <div className="flex-1">
+                          <p className="font-semibold text-red-900">Shortage Resolution — dispatch blocked</p>
+                          <p className="mt-1 text-sm text-red-800">Shortages are confirmed from physical packed quantities. Resolve each case and then verify the final packing quantities before dispatch.</p>
+                          <div className="mt-4 space-y-3">
+                            {unresolvedShortages.map((x:any) => (
+                              <div key={x.id} className="rounded-md border border-red-200 bg-white p-4 text-sm">
+                                <div className="flex flex-wrap items-start justify-between gap-2">
+                                  <div className="font-semibold">Order #{x.orderNumber || x.orderId?.slice(-8)} · {x.productName || "Product"}</div>
+                                  <Badge variant="outline" className="border-red-200 text-red-700">{String(x.status || "open").replace(/_/g, " ")}</Badge>
+                                </div>
+                                <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                                  <div className="rounded bg-slate-50 p-2"><span className="text-xs text-muted-foreground">Required</span><p className="font-semibold">{Number(x.requiredQuantity || 0)} {x.unit || "kg"}</p></div>
+                                  <div className="rounded bg-slate-50 p-2"><span className="text-xs text-muted-foreground">Physically available</span><p className="font-semibold">{Number(x.availableQuantity || 0)} {x.unit || "kg"}</p></div>
+                                  <div className="rounded bg-red-50 p-2"><span className="text-xs text-red-700">Short quantity</span><p className="font-semibold text-red-800">{Number(x.shortageQuantity ?? Math.max(0, Number(x.requiredQuantity || 0) - Number(x.availableQuantity || 0)))} {x.unit || "kg"}</p></div>
+                                </div>
+                                <p className="mt-2 text-xs text-muted-foreground">Available product remains usable. Choose a resolution below; dispatch stays blocked while any shortage is unresolved.</p>
+                                <div className="mt-3 flex flex-wrap gap-2">
+                                  <Button type="button" size="sm" variant="outline" disabled={["replenishment_requested"].includes(String(x.status || "").toLowerCase())} onClick={async () => {
+                                    try { const r = await api.put("/warehouse/me/shortages/" + x.id + "/resolution", { resolutionType: "farmer_replenishment", notes: "Warehouse requested replenishment for the physically confirmed shortage." }); toast.success(r?.data?.message || "Replenishment request recorded."); await Promise.all([refetch(), refetchShortages()]); }
+                                    catch (e:any) { toast.error(e?.response?.data?.detail || e?.message || "Could not request replenishment."); }
+                                  }}>Request Replenishment</Button>
+                                  <Button type="button" size="sm" variant="outline" disabled={["customer_approval_pending"].includes(String(x.status || "").toLowerCase())} onClick={async () => {
+                                    try { const r = await api.put("/warehouse/me/shortages/" + x.id + "/resolution", { resolutionType: "customer_approval_pending", approvedQuantity: Number(x.availableQuantity || 0), notes: "Customer must approve reduced quantity or choose cancellation before dispatch." }); toast.success(r?.data?.message || "Customer approval requested."); await Promise.all([refetch(), refetchShortages()]); }
+                                    catch (e:any) { toast.error(e?.response?.data?.detail || e?.message || "Could not request customer approval."); }
+                                  }}>Request Customer Decision</Button>
+                                  <Button type="button" size="sm" variant="outline" onClick={async () => {
+                                    const productId = window.prompt("Enter the substitute product ID. The customer must approve this substitution before it can be packed.");
+                                    if (!productId) return;
+                                    try { const r = await api.put("/warehouse/me/shortages/" + x.id + "/resolution", { resolutionType: "substitution_pending", substituteProductId: productId.trim(), notes: "Substitute proposed; customer approval required before packing." }); toast.success(r?.data?.message || "Substitution proposal recorded."); await Promise.all([refetch(), refetchShortages()]); }
+                                    catch (e:any) { toast.error(e?.response?.data?.detail || e?.message || "Could not propose substitution."); }
+                                  }}>Propose Substitute</Button>
+                                  <Button type="button" size="sm" variant="destructive" onClick={async () => {
+                                    const shortQty = Math.max(0, Number(x.requiredQuantity || 0) - Number(x.availableQuantity || 0));
+                                    const raw = window.prompt("Enter the unavailable quantity approved by the customer for cancellation/refund (maximum " + shortQty + "). Do not proceed without customer approval.", String(shortQty));
+                                    if (raw === null) return;
+                                    const qty = Number(raw);
+                                    if (!Number.isFinite(qty) || qty <= 0 || qty > shortQty) { toast.error("Enter a quantity greater than 0 and no more than " + shortQty + "."); return; }
+                                    if (!window.confirm("Confirm the customer has approved cancellation/refund of " + qty + " units? This updates the order quantity and payable/refund record.")) return;
+                                    try { const r = await api.put("/warehouse/me/shortages/" + x.id + "/resolution", { resolutionType: "refund_cancellation", resolvedQuantity: qty, notes: "Customer-approved cancellation/refund of unavailable quantity." }); toast.success(r?.data?.message || "Cancellation/refund quantity recorded."); await Promise.all([refetch(), refetchShortages()]); }
+                                    catch (e:any) { toast.error(e?.response?.data?.detail || e?.message || "Could not record cancellation/refund."); }
+                                  }}>Record Approved Cancel / Refund</Button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </details>
+                )}
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                  <Card className="border-emerald-200 bg-emerald-50/60"><CardContent className="p-4"><p className="text-xs font-medium text-emerald-800">Packing queue</p><p className="mt-1 text-2xl font-bold text-emerald-950">{filteredTasks.filter((t:any)=>String(t.status||"").toLowerCase()==="ready_for_packing").length}</p><p className="text-xs text-emerald-800">Ready to start</p></CardContent></Card>
+                  <Card className="border-amber-200 bg-amber-50/60"><CardContent className="p-4"><p className="text-xs font-medium text-amber-800">In packing</p><p className="mt-1 text-2xl font-bold text-amber-950">{filteredTasks.filter((t:any)=>["assigned","packing","partially_packed"].includes(String(t.status||"").toLowerCase())).length}</p><p className="text-xs text-amber-800">Being processed</p></CardContent></Card>
+                  <Card className="border-violet-200 bg-violet-50/60"><CardContent className="p-4"><p className="text-xs font-medium text-violet-800">Packed / not finished</p><p className="mt-1 text-2xl font-bold text-violet-950">{filteredTasks.filter((t:any)=>String(t.status||"").toLowerCase()==="packed").length}</p><p className="text-xs text-violet-800">Awaiting next step</p></CardContent></Card>
+                  <Card className="border-red-200 bg-red-50/60"><CardContent className="p-4"><p className="text-xs font-medium text-red-800">Open shortages</p><p className="mt-1 text-2xl font-bold text-red-950">{shortages.filter((s:any)=>!["resolved","cancelled"].includes(String(s.status||"").toLowerCase())).length}</p><p className="text-xs text-red-800">Dispatch blocked until resolved</p></CardContent></Card>
+                  <Card className="border-blue-200 bg-blue-50/60"><CardContent className="p-4"><p className="text-xs font-medium text-blue-800">Finished / moved on</p><p className="mt-1 text-2xl font-bold text-blue-950">{finishedCount}</p><p className="text-xs text-blue-800">Continue in Outgoing / Dispatch</p></CardContent></Card>
+                </div>
+                <Card className="border-slate-200 shadow-sm"><CardContent className="space-y-3 p-4">
+                  <div className="flex flex-col gap-3 lg:flex-row">
+                    <div className="relative min-w-0 flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"/><Input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search order, customer, farmer, product or delivery address…" className="h-10 pl-9"/></div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="inline-flex items-center gap-1 text-sm text-muted-foreground"><Clock3 className="h-4 w-4"/>Date:</span>
+                      {([{value:"today",label:"Today"},{value:"yesterday",label:"Yesterday"},{value:"week",label:"This Week"},{value:"all",label:"All Time"}] as const).map((option) => <Button key={option.value} type="button" size="sm" variant={dateFilter === option.value ? "default" : "outline"} onClick={() => setDateFilter(option.value)}>{option.label}</Button>)}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-xs text-muted-foreground">
+                    <span>Showing {visibleTasks.length} remaining packing order(s) · Finished orders automatically leave this queue.</span>
+                    <span>{dateFilter === "today" ? "Today" : dateFilter === "yesterday" ? "Yesterday" : dateFilter === "week" ? "This Week (Monday-start)" : "All Time"}</span>
+                  </div>
+                </CardContent></Card>
+
+                  ) : <div className="rounded-xl border border-dashed p-8 text-center"><CheckCircle2 className="mx-auto h-8 w-8 text-emerald-500"/><p className="mt-2 text-sm font-semibold text-slate-700">No open shortage cases</p><p className="mt-1 text-xs text-slate-500">Orders with shortages will appear here until resolved.</p></div>
+                ) : visibleTasks.map((task: any) => {
                   const taskFarm = getFarmDetails(task);
                   const taskStatus = String(task.status || "ready_for_packing").toLowerCase();
                   const active = String(selectedTask?.id) === String(task.id);
@@ -440,7 +444,7 @@ export default function WarehousePackingPage() {
                     </button>
                   );
                 })}
-                {visibleTasks.length === 0 && <div className="rounded-xl border border-dashed p-8 text-center"><PackageCheck className="mx-auto h-8 w-8 text-slate-300"/><p className="mt-2 text-sm font-semibold text-slate-700">No orders in this section</p><p className="mt-1 text-xs text-slate-500">Choose another tab or date range.</p></div>}
+                {queueTab !== "shortage" && visibleTasks.length === 0 && <div className="rounded-xl border border-dashed p-8 text-center"><PackageCheck className="mx-auto h-8 w-8 text-slate-300"/><p className="mt-2 text-sm font-semibold text-slate-700">No orders in this section</p><p className="mt-1 text-xs text-slate-500">Choose another tab or date range.</p></div>}
               </div>
             </CardContent>
           </Card>
