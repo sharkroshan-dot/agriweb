@@ -26,6 +26,7 @@ import { Progress } from "../../components/ui/progress";
 import { cn, formatPrice } from "../../lib/utils";
 import { PageErrorState } from "../../components/common/page-state";
 import { api } from "../../lib/api/client";
+import { WarehousePageHeader } from "../../components/warehouse/warehouse-page-header";
 import toast from "react-hot-toast";
 
 const statusColors: Record<string, string> = {
@@ -291,7 +292,7 @@ export default function WarehouseStockPage() {
   if (isError) {
     return (
       <div className="space-y-6">
-        <div><h1 className="text-3xl font-bold">Stock Management</h1><p className="text-muted-foreground">Manage warehouse inventory</p></div>
+        <WarehousePageHeader eyebrow="Warehouse management" title="Warehouse Inventory" description="Monitor accepted stock, reservations, storage conditions, low-stock levels and expiry. This inventory view supports fulfillment; it does not replace receiving, quality inspection or order packing." />
         <PageErrorState title="Unable to load warehouse stock" description="The warehouse inventory service did not return stock data. Retry without changing your inventory." retry={() => { void refetch(); }} />
       </div>
     );
@@ -300,7 +301,7 @@ export default function WarehouseStockPage() {
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <div className="flex items-center justify-between"><div><h1 className="text-3xl font-bold">Stock Management</h1><p className="text-muted-foreground">Manage warehouse inventory</p></div></div>
+        <WarehousePageHeader eyebrow="Warehouse management" title="Warehouse Inventory" description="Monitor accepted stock, reservations, storage conditions, low-stock levels and expiry. This inventory view supports fulfillment; it does not replace receiving, quality inspection or order packing." />
         {[1, 2, 3, 4, 5, 6].map((i) => <div key={i} className="h-24 animate-pulse rounded-lg bg-muted" />)}
       </div>
     );
@@ -308,10 +309,7 @@ export default function WarehouseStockPage() {
 
   return (
     <div className="warehouse-stock-page space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div><h1 className="text-3xl font-bold">Stock Management</h1><p className="text-muted-foreground">{stockItems.length} items in inventory</p></div>
-        <div className="flex items-center gap-2"><Button variant="outline" size="sm"><Download className="mr-2 h-4 w-4" />Export</Button><Button variant="outline" size="icon" onClick={() => refetch()}><RefreshCw className="h-4 w-4" /></Button><Button onClick={openAddDialog}><Plus className="mr-2 h-4 w-4" />Add Stock</Button></div>
-      </div>
+      <WarehousePageHeader eyebrow="Warehouse management" title="Warehouse Inventory" description="Monitor accepted stock, reservations, storage conditions, low-stock levels and expiry. This inventory view supports fulfillment; it does not replace receiving, quality inspection or order packing." meta={<span>{stockItems.length} inventory items</span>} actions={<div className="flex flex-wrap items-center gap-2"><Button variant="outline" size="sm"><Download className="mr-2 h-4 w-4" />Export</Button><Button variant="outline" size="icon" onClick={() => refetch()}><RefreshCw className="h-4 w-4" /></Button><Button onClick={openAddDialog}><Plus className="mr-2 h-4 w-4" />Adjust / Add Stock</Button></div>} />
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {[
