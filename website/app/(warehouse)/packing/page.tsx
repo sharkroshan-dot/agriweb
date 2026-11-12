@@ -124,8 +124,8 @@ export default function WarehousePackingPage() {
   }, [tasks, searchTerm, dateFilter, requestedOrderId, requestedFarm]);
 
   const visibleTasks = useMemo(
-    () => showRemainingOnly ? filteredTasks.filter(isUnfinishedPackingTask) : filteredTasks,
-    [filteredTasks, showRemainingOnly],
+    () => filteredTasks.filter(isUnfinishedPackingTask),
+    [filteredTasks],
   );
 
   const farmGroups = useMemo(() => {
@@ -140,7 +140,7 @@ export default function WarehousePackingPage() {
   }, [visibleTasks]);
 
   const unfinishedCount = filteredTasks.filter(isUnfinishedPackingTask).length;
-  const finishedCount = filteredTasks.length - unfinishedCount;
+  const finishedCount = filteredTasks.filter((task: any) => !isUnfinishedPackingTask(task)).length;
 
   const assignFarmTeam = async (farm: { key: string; name: string; tasks: any[] }) => {
     const teamId = (farmTeam[farm.key] || "").trim();
@@ -282,46 +282,36 @@ export default function WarehousePackingPage() {
   return (
     <>
     {printLabelData && <div aria-hidden="true" style={{ position: "fixed", left: "-10000px", top: 0 }}><div ref={printQrRef}><QRCodeSVG value={typeof window !== "undefined" ? window.location.origin + "/delivery/deliveries?orderId=" + encodeURIComponent(String(printLabelData.orderId || printLabelData.order?.id || printLabelData.order?._id || printLabelData.orderNumber || "")) : ""} size={160} level="M" /></div></div>}
-      <div className="warehouse-packing-page space-y-6">
-      <Card className="border-blue-100 bg-blue-50/60"><CardContent className="flex gap-3 p-4"><Info className="mt-0.5 h-5 w-5 shrink-0 text-blue-600"/><div className="text-sm text-blue-900"><p className="font-semibold">Only warehouse-fulfilled orders appear here.</p><p className="mt-1 text-xs leading-5 text-blue-800">Bulk farm stock is received, quality-checked, and stored first. Then the warehouse allocates stock to each customer order and packs each order separately. Farmer-fulfilled long-distance orders are already packed and must never be repacked here.</p></div></CardContent></Card>
-      <div className="grid gap-3 md:grid-cols-2">
-        <Card className="border-amber-200 bg-amber-50/60"><CardContent className="p-4">
-          <div className="flex items-center gap-2"><span className="flex h-7 w-7 items-center justify-center rounded-full bg-amber-600 text-sm font-bold text-white">3</span><h2 className="font-semibold text-amber-950">Finish Packing &amp; Check Shortage</h2></div>
-          <p className="mt-2 text-sm text-amber-900">Bulk stock is received before packing, so no shortage is shown from inventory estimates. Click Finish Order, enter the actual quantity physically packed for each item, and only then the system records any shortage. Short orders wait for the customer decision and cannot be dispatched.</p>
-          <p className="mt-2 text-xs text-amber-800">Ready to pack: {tasks.filter((t:any)=>["packing","partially_packed"].includes(t.status)).length} · Shortage cases: {shortages.filter((s:any)=>!["resolved","cancelled"].includes(String(s.status||"").toLowerCase())).length}</p>
-        </CardContent></Card>
-        <Card className="border-blue-200 bg-blue-50/60"><CardContent className="p-4">
-          <div className="flex items-center gap-2"><span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-600 text-sm font-bold text-white">4</span><h2 className="font-semibold text-blue-950">Verify &amp; Dispatch</h2></div>
-          <p className="mt-2 text-sm text-blue-900">When every item is fully packed, click Verify Packed Order. Successful verification creates dispatch records and changes the order to Ready for Dispatch.</p>
-          <p className="mt-2 text-xs text-blue-800">Finish Order checks actual quantities and automatically prepares complete orders for dispatch. Shortage orders wait for the customer decision.</p>
-          <Button className="mt-3" variant="outline" size="sm" onClick={()=>{window.location.href="/outgoing";}}>Open Dispatch</Button>
-        </CardContent></Card>
-      </div>
-      <div className="flex items-center justify-between">
-        <div><h1 className="text-3xl font-bold">Order Packing</h1><p className="text-muted-foreground">Pack each customer order separately after warehouse receiving.</p></div>
-        <div className="flex flex-wrap items-center gap-2"><Button type="button" variant="outline" onClick={() => { window.location.assign("/outgoing"); }}><PackageCheck className="mr-2 h-4 w-4"/>Open Outgoing / Dispatch</Button><Button type="button" variant="outline" size="icon" onClick={() => { void Promise.all([refetch(), refetchShortages()]); }} aria-label="Refresh packing tasks"><RefreshCw className="h-4 w-4"/></Button></div>
-      </div>
-      <Card className="border-slate-200"><CardContent className="space-y-4 p-4">
-        <div className="grid gap-3 sm:grid-cols-3">
-          <button type="button" onClick={() => setShowRemainingOnly(false)} className={"rounded-lg border p-3 text-left transition " + (!showRemainingOnly ? "border-emerald-600 bg-emerald-50" : "border-slate-200 bg-white hover:bg-slate-50")}>
-            <p className="text-sm text-muted-foreground">Matching orders</p><p className="mt-1 text-2xl font-bold">{filteredTasks.length}</p>
-          </button>
-          <button type="button" onClick={() => setShowRemainingOnly(true)} className={"rounded-lg border p-3 text-left transition " + (showRemainingOnly ? "border-amber-500 bg-amber-50" : "border-slate-200 bg-white hover:bg-slate-50")}>
-            <p className="text-sm text-muted-foreground">Remaining — not finished</p><p className="mt-1 text-2xl font-bold">{unfinishedCount}</p>
-            <p className="mt-1 text-xs text-muted-foreground">Ready for Packing · Assigned · Packing · Partially Packed</p>
-          </button>
-          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-            <p className="text-sm text-muted-foreground">Finished / awaiting next step</p><p className="mt-1 text-2xl font-bold">{finishedCount}</p>
-          </div>
+      <div className="warehouse-packing-page space-y-5 bg-slate-50/50">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><PackageCheck className="h-6 w-6"/></div>
+          <div><h1 className="text-2xl font-bold tracking-tight text-slate-900">Order Packing</h1><p className="text-sm text-muted-foreground">Check each order, finish physical packing, then continue in Outgoing / Dispatch.</p></div>
         </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" variant="outline" onClick={() => { window.location.assign("/outgoing"); }}><PackageCheck className="mr-2 h-4 w-4"/>Outgoing / Dispatch</Button>
+          <Button type="button" variant="outline" onClick={() => { void Promise.all([refetch(), refetchShortages()]); }}><RefreshCw className="mr-2 h-4 w-4"/>Refresh</Button>
+        </div>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <Card className="border-emerald-200 bg-emerald-50/60"><CardContent className="p-4"><p className="text-xs font-medium text-emerald-800">Packing queue</p><p className="mt-1 text-2xl font-bold text-emerald-950">{filteredTasks.filter((t:any)=>String(t.status||"").toLowerCase()==="ready_for_packing").length}</p><p className="text-xs text-emerald-800">Ready to start</p></CardContent></Card>
+        <Card className="border-amber-200 bg-amber-50/60"><CardContent className="p-4"><p className="text-xs font-medium text-amber-800">In packing</p><p className="mt-1 text-2xl font-bold text-amber-950">{filteredTasks.filter((t:any)=>["assigned","packing","partially_packed"].includes(String(t.status||"").toLowerCase())).length}</p><p className="text-xs text-amber-800">Being processed</p></CardContent></Card>
+        <Card className="border-violet-200 bg-violet-50/60"><CardContent className="p-4"><p className="text-xs font-medium text-violet-800">Packed / not finished</p><p className="mt-1 text-2xl font-bold text-violet-950">{filteredTasks.filter((t:any)=>String(t.status||"").toLowerCase()==="packed").length}</p><p className="text-xs text-violet-800">Awaiting next step</p></CardContent></Card>
+        <Card className="border-red-200 bg-red-50/60"><CardContent className="p-4"><p className="text-xs font-medium text-red-800">Open shortages</p><p className="mt-1 text-2xl font-bold text-red-950">{shortages.filter((s:any)=>!["resolved","cancelled"].includes(String(s.status||"").toLowerCase())).length}</p><p className="text-xs text-red-800">Dispatch blocked until resolved</p></CardContent></Card>
+        <Card className="border-blue-200 bg-blue-50/60"><CardContent className="p-4"><p className="text-xs font-medium text-blue-800">Finished / moved on</p><p className="mt-1 text-2xl font-bold text-blue-950">{finishedCount}</p><p className="text-xs text-blue-800">Continue in Outgoing / Dispatch</p></CardContent></Card>
+      </div>
+      <Card className="border-slate-200 shadow-sm"><CardContent className="space-y-3 p-4">
         <div className="flex flex-col gap-3 lg:flex-row">
-          <div className="relative min-w-0 flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"/><Input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search farm, farmer, order number, product, customer, address, or status…" className="pl-9"/></div>
+          <div className="relative min-w-0 flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"/><Input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search order, customer, farmer, product or delivery address…" className="h-10 pl-9"/></div>
           <div className="flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center gap-1 text-sm text-muted-foreground"><Clock3 className="h-4 w-4"/>Date:</span>
             {([{value:"today",label:"Today"},{value:"yesterday",label:"Yesterday"},{value:"week",label:"This Week"},{value:"all",label:"All Time"}] as const).map((option) => <Button key={option.value} type="button" size="sm" variant={dateFilter === option.value ? "default" : "outline"} onClick={() => setDateFilter(option.value)}>{option.label}</Button>)}
           </div>
         </div>
-        <p className="text-xs text-muted-foreground">Showing {visibleTasks.length} order(s) · {dateFilter === "today" ? "Today" : dateFilter === "yesterday" ? "Yesterday" : dateFilter === "week" ? "This Week (Monday-start)" : "All Time"}{showRemainingOnly ? " · Remaining orders only" : ""}</p>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-xs text-muted-foreground">
+          <span>Showing {visibleTasks.length} remaining packing order(s) · Finished orders automatically leave this queue.</span>
+          <span>{dateFilter === "today" ? "Today" : dateFilter === "yesterday" ? "Yesterday" : dateFilter === "week" ? "This Week (Monday-start)" : "All Time"}</span>
+        </div>
       </CardContent></Card>
       {shortages.filter((x:any) => !["resolved", "cancelled"].includes(String(x.status || "").toLowerCase())).length > 0 && (
         <Card className="border-red-200 bg-red-50/70">
@@ -380,7 +370,7 @@ export default function WarehousePackingPage() {
       )}
       {packingError && <Card className="border-red-200 bg-red-50"><CardContent className="p-4 text-sm text-red-700">Unable to load warehouse packing tasks. Check the backend logs or refresh the page.</CardContent></Card>}
       {isLoading ? <div className="h-32 animate-pulse rounded-lg bg-muted"/> : !packingError && visibleTasks.length === 0 ? (
-        <Card className="p-12 text-center"><PackageCheck className="mx-auto h-12 w-12 text-muted-foreground"/><h3 className="mt-4 font-semibold">{showRemainingOnly ? "No remaining orders in this date range" : searchTerm.trim() ? "No orders match your search" : "No packing tasks in this date range"}</h3><p className="mt-2 text-sm text-muted-foreground">{showRemainingOnly ? "All matching orders have finished packing or are waiting for customer approval/verification." : "Try another date range or search term, or choose All Time to see older orders."}</p></Card>
+        <Card className="p-12 text-center"><PackageCheck className="mx-auto h-12 w-12 text-muted-foreground"/><h3 className="mt-4 font-semibold">{searchTerm.trim() ? "No remaining orders match your search" : "No orders waiting for packing"}</h3><p className="mt-2 text-sm text-muted-foreground">"All eligible orders have finished packing or are waiting in the separate shortage-resolution process. Finished orders continue in Outgoing / Dispatch."</p></Card>
       ) : <div className="space-y-6">{farmGroups.map((farm) => (
         <section key={farm.key} className="space-y-3">
           <Card className="border-emerald-200 bg-emerald-50/40"><CardContent className="flex flex-wrap items-center justify-between gap-4 p-5">
@@ -438,10 +428,10 @@ export default function WarehousePackingPage() {
               <div className="mb-3 rounded-lg border border-slate-200 bg-white p-3"><p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Next action</p><p className="mt-1 text-sm font-semibold text-slate-900">{["ready_for_packing","assigned"].includes(String(t.status||"").toLowerCase()) ? "Check quantities, then finish packing" : ["ready_for_packing","assigned","packing","partially_packed"].includes(String(t.status||"").toLowerCase()) ? "Check quantities, then finish packing" : t.status === "packed" ? "Packing completed — refresh order status" : t.status === "customer_approval_pending" ? "Waiting for customer decision" : t.status === "ready_for_dispatch" ? "Continue to dispatch" : "Review order status"}</p><p className="mt-1 text-xs text-muted-foreground">Process this order independently. Its saved stage is retained when you return to this page.</p></div>
               <div className="space-y-2">
               
-              {["ready_for_packing","assigned","packing","partially_packed"].includes(String(t.status || "").toLowerCase()) && <Button size="sm" onClick={() => finishPackingTask(t)}><PackageCheck className="mr-2 h-4 w-4"/>Finish Order</Button>}
+              {["ready_for_packing","assigned","packing","partially_packed"].includes(String(t.status || "").toLowerCase()) && <Button size="sm" className="w-full bg-emerald-700 hover:bg-emerald-800" onClick={() => finishPackingTask(t)}><PackageCheck className="mr-2 h-4 w-4"/>Packing Finish Order</Button>}
               {t.status === "customer_approval_pending" && <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950"><p className="font-semibold">Waiting for customer decision</p><p className="mt-1">The customer must accept the available quantity or cancel the order. Dispatch remains blocked until the customer responds and the final quantities are checked.</p></div>}
               {t.status === "packed" && <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900"><p className="font-semibold">Packing quantities checked during Finish Order</p><p className="mt-1">No separate verification action is needed. Refresh the page if the order status has not updated.</p></div>}
-              {["packed","ready_for_dispatch"].includes(t.status) && <Button size="sm" variant="outline" className="h-9 px-4 text-sm" onClick={()=>printLabel(t)}><PackageCheck className="mr-2 h-4 w-4"/>Print Label</Button>}
+              {["packed","ready_for_dispatch"].includes(String(t.status || "").toLowerCase()) && <Button size="sm" variant="outline" className="h-9 w-full px-4 text-sm" onClick={()=>printLabel(t)}><PackageCheck className="mr-2 h-4 w-4"/>Reprint Label</Button>}
               {t.status === "ready_for_dispatch" && <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900"><Badge variant="success"><CheckCircle2 className="mr-1 h-4 w-4"/>Packing Checked · Ready for Dispatch</Badge><p className="mt-2">Dispatch records were created automatically. No additional action is required here. Open <Link href="/outgoing" className="font-semibold underline">Outgoing / Dispatch</Link> whenever you are ready to process the shipment.</p></div>}
               </div>
             </div>
