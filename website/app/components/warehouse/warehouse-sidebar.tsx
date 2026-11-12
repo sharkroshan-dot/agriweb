@@ -35,9 +35,15 @@ const navSections = [
     ],
   },
   {
+    title: "Unified Fulfillment Operations",
+    items: [
+      { name: "Fulfillment & Dispatch", href: "/warehouse/fulfillment-dispatch", icon: Truck },
+    ],
+  },
+  {
     title: "Farmer Fulfillment Orders",
     items: [
-      { name: "Farmer Fulfillment Transfers", href: "/warehouse/farmer-fulfillment", icon: Route },
+      { name: "Farmer Fulfillment (Existing)", href: "/warehouse/farmer-fulfillment", icon: Route },
       { name: "Multi-Warehouse Consolidation", href: "/warehouse/consolidation", icon: Boxes },
     ],
   },
@@ -48,7 +54,7 @@ const navSections = [
 
       { name: "Customer Orders", href: "/warehouse/orders", icon: PackageCheck },
       { name: "Order Packing", href: "/packing", icon: PackageCheck },
-      { name: "Outgoing / Dispatch", href: "/outgoing", icon: ArrowUp },
+      { name: "Outgoing / Dispatch (Existing)", href: "/outgoing", icon: ArrowUp },
     ],
   },
   {
