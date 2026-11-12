@@ -321,9 +321,7 @@ export default function WarehousePackingPage() {
       </div>
 
       {packingError && <Card className="border-red-200 bg-red-50"><CardContent className="p-4 text-sm text-red-700">Unable to load warehouse packing tasks. Check the backend logs or refresh the page.</CardContent></Card>}
-      {isLoading ? <div className="h-32 animate-pulse rounded-lg bg-muted"/> : !packingError && visibleTasks.length === 0 ? (
-        <Card className="p-12 text-center"><PackageCheck className="mx-auto h-12 w-12 text-muted-foreground"/><h3 className="mt-4 font-semibold">{searchTerm.trim() ? "No remaining orders match your search" : "No orders waiting for packing"}</h3><p className="mt-2 text-sm text-muted-foreground">"All eligible orders have finished packing or are waiting in the separate shortage-resolution process. Finished orders continue in Outgoing / Dispatch."</p></Card>
-      ) : (
+      {isLoading ? <div className="h-32 animate-pulse rounded-lg bg-muted"/> : (
         <div className="grid items-start gap-4 xl:grid-cols-[minmax(390px,0.92fr)_minmax(0,1.65fr)]">
           <Card className="overflow-hidden border-slate-200 shadow-sm">
             <CardContent className="space-y-3 p-3 sm:p-4">
