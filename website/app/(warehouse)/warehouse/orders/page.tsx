@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AlertTriangle, CalendarClock, CheckCircle2, Clock3, Package, PackageCheck, RefreshCw, Search, Truck, MapPin, UserRound, ArrowUpRight, Phone, Mail, CircleDot } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { AlertTriangle, CalendarClock, CheckCircle2, Clock3, Package, PackageCheck, RefreshCw, Search, Truck, MapPin, User, ArrowUpRight, Phone, Mail, CircleDot } from "lucide-react";
 import { Card, CardContent } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
 import { Badge } from "../../../components/ui/badge";
@@ -115,7 +116,7 @@ export default function WarehouseOrdersPage() {
               <div className="min-w-0 flex-1 space-y-3">
                 <div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold text-slate-900">#{order.orderNumber || order.id || "Order"}</h3><Badge variant="outline" className={meta.tone}>{meta.label}</Badge>{overdue && <Badge variant="destructive"><AlertTriangle className="mr-1 h-3 w-3" />Overdue</Badge>}<Badge variant="outline">{String(order.fulfillmentMethod || order.fulfillmentType || "Warehouse fulfillment").replace(/_/g, " ")}</Badge></div>
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                  <div className="flex items-start gap-2"><UserRound className="mt-0.5 h-4 w-4 text-slate-400" /><div><p className="text-xs text-muted-foreground">Customer</p><p className="text-sm font-medium">{customer.name || "Customer"}</p><p className="text-xs text-muted-foreground">{customer.phone || customer.email || "Contact not provided"}</p></div></div>
+                  <div className="flex items-start gap-2"><User className="mt-0.5 h-4 w-4 text-slate-400" /><div><p className="text-xs text-muted-foreground">Customer</p><p className="text-sm font-medium">{customer.name || "Customer"}</p><p className="text-xs text-muted-foreground">{customer.phone || customer.email || "Contact not provided"}</p></div></div>
                   <div className="flex items-start gap-2"><Package className="mt-0.5 h-4 w-4 text-slate-400" /><div><p className="text-xs text-muted-foreground">Order items</p><p className="text-sm font-medium">{items.length} products · {quantity || "—"} total units</p><p className="line-clamp-1 text-xs text-muted-foreground">{items.slice(0, 2).map((item: any) => item.productName || item.name || "Product").join(", ") || "Items not provided"}{items.length > 2 ? " and more" : ""}</p></div></div>
                   <div className="flex items-start gap-2"><CalendarClock className="mt-0.5 h-4 w-4 text-slate-400" /><div><p className="text-xs text-muted-foreground">Delivery deadline</p><p className={cn("text-sm font-medium", overdue && "text-rose-700")}>{displayDate(deadline)}</p><p className="text-xs text-muted-foreground">Placed {displayDate(order.createdAt || order.orderDate)}</p></div></div>
                   <div className="flex items-start gap-2"><MapPin className="mt-0.5 h-4 w-4 text-slate-400" /><div><p className="text-xs text-muted-foreground">Delivery location</p><p className="text-sm font-medium">{[address.city, address.state].filter(Boolean).join(", ") || "Address not provided"}</p><p className="line-clamp-1 text-xs text-muted-foreground">{address.addressLine1 || address.street || ""}</p></div></div>
