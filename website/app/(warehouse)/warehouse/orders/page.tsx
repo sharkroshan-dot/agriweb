@@ -14,7 +14,7 @@ import { api } from "../../../lib/api/client";
 
 type OrderTab = "all" | "awaiting" | "packing" | "ready" | "transit" | "delivered";
 
-const normalizeStage = (value: any) => String(value || "").trim().toLowerCase().replace(/[\\s-]+/g, "_");
+const normalizeStage = (value: any) => String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
 
 const getStage = (order: any) => {
   const orderStatus = normalizeStage(order?.orderStatus);
@@ -93,7 +93,7 @@ const getJourneyIndex = (order: any, rawStage: string) => {
   // Prefer the explicit operational stage/status values. The latest tracking
   // event is a fallback for workflows that record an event without updating
   // warehouseFulfillmentStage on the parent order.
-  const candidates = [transferStatus, stage, collectionStatus, eventType, eventText].filter(Boolean);
+  const candidates = [stage, transferStatus, collectionStatus, eventType, eventText].filter(Boolean);
 
   const eventRules: Array<[number, string[]]> = [
     [11, ["delivered", "order_status_delivered", "completed_delivery"]],
