@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
+import { PackageCheck, RefreshCw, Users, Play, CheckCircle2, Info, AlertTriangle, Warehouse, Search, Clock3, Box, Truck, MapPin, Phone, Printer, ChevronRight, ClipboardCheck, Save, Filter } from "lucide-react";
 import { PackageCheck, RefreshCw, Users, Play, CheckCircle2, Info, AlertTriangle, Warehouse, Search, Clock3 } from "lucide-react";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
@@ -55,6 +55,8 @@ export default function WarehousePackingPage() {
   const requestedOrderId = searchParams.get("orderId") || "";
   const requestedFarm = searchParams.get("farm") || "";
   const [searchTerm, setSearchTerm] = useState("");
+  const [selectedOrderId, setSelectedOrderId] = useState<string>("");
+  const [queueTab, setQueueTab] = useState<"queue" | "packing" | "shortage" | "completed">("queue");
   const [printLabelData, setPrintLabelData] = useState<any | null>(null);
   const printQrRef = useRef<HTMLDivElement | null>(null);
   const [dateFilter, setDateFilter] = useState<"today" | "yesterday" | "week" | "all">(requestedOrderId || requestedFarm ? "all" : "today");
@@ -123,10 +125,17 @@ export default function WarehousePackingPage() {
     });
   }, [tasks, searchTerm, dateFilter, requestedOrderId, requestedFarm]);
 
-  const visibleTasks = useMemo(
-    () => filteredTasks.filter(isUnfinishedPackingTask),
-    [filteredTasks],
-  );
+  const visibleTasks = useMemo(() => {
+    if (queueTab === "completed") return filteredTasks.filter((task: any) => ["packed", "verified", "ready_for_dispatch", "dispatched"].includes(String(task.status || "").toLowerCase()));
+    if (queueTab === "shortage") return filteredTasks.filter((task: any) => String(task.status || "").toLowerCase() === "customer_approval_pending");
+    if (queueTab === "packing") return filteredTasks.filter((task: any) => ["assigned", "packing", "partially_packed"].includes(String(task.status || "").toLowerCase()));
+    return filteredTasks.filter(isUnfinishedPackingTask);
+  }, [filteredTasks, queueTab]);
+  const selectedTask = visibleTasks.find((task: any) => String(task.id) === selectedOrderId) || visibleTasks[0] || null;
+  const selectedItems = selectedTask?.packingItems?.length ? selectedTask.packingItems : selectedTask?.items || [];
+  const totalRequired = selectedItems.reduce((sum: number, item: any) => sum + Number(item.quantityRequired ?? item.quantity ?? 0), 0);
+  const totalPacked = selectedItems.reduce((sum: number, item: any) => sum + Number(item.packedQuantity ?? item.actualPackedQuantity ?? 0), 0);
+  const totalShortage = selectedItems.reduce((sum: number, item: any) => sum + Math.max(0, Number(item.quantityRequired ?? item.quantity ?? 0) - Number(item.packedQuantity ?? item.actualPackedQuantity ?? 0)), 0);
 
   const farmGroups = useMemo(() => {
     const groups = new Map<string, { key: string; name: string; farmerName: string; address: string; tasks: any[] }>();
@@ -140,6 +149,9 @@ export default function WarehousePackingPage() {
   }, [visibleTasks]);
 
   const unfinishedCount = filteredTasks.filter(isUnfinishedPackingTask).length;
+  const packingCount = filteredTasks.filter((task: any) => ["assigned", "packing", "partially_packed"].includes(String(task.status || "").toLowerCase())).length;
+  const completedCount = filteredTasks.filter((task: any) => ["packed", "verified", "ready_for_dispatch", "dispatched"].includes(String(task.status || "").toLowerCase())).length;
+  const shortageTaskCount = filteredTasks.filter((task: any) => String(task.status || "").toLowerCase() === "customer_approval_pending").length;
   const finishedCount = filteredTasks.filter((task: any) => !isUnfinishedPackingTask(task)).length;
 
   const assignFarmTeam = async (farm: { key: string; name: string; tasks: any[] }) => {
@@ -371,75 +383,143 @@ export default function WarehousePackingPage() {
       {packingError && <Card className="border-red-200 bg-red-50"><CardContent className="p-4 text-sm text-red-700">Unable to load warehouse packing tasks. Check the backend logs or refresh the page.</CardContent></Card>}
       {isLoading ? <div className="h-32 animate-pulse rounded-lg bg-muted"/> : !packingError && visibleTasks.length === 0 ? (
         <Card className="p-12 text-center"><PackageCheck className="mx-auto h-12 w-12 text-muted-foreground"/><h3 className="mt-4 font-semibold">{searchTerm.trim() ? "No remaining orders match your search" : "No orders waiting for packing"}</h3><p className="mt-2 text-sm text-muted-foreground">"All eligible orders have finished packing or are waiting in the separate shortage-resolution process. Finished orders continue in Outgoing / Dispatch."</p></Card>
-      ) : <div className="space-y-6">{farmGroups.map((farm) => (
-        <section key={farm.key} className="space-y-3">
-          <Card className="border-emerald-200 bg-emerald-50/40"><CardContent className="flex flex-wrap items-center justify-between gap-4 p-5">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2"><Warehouse className="h-5 w-5 text-emerald-700"/><h2 className="text-lg font-semibold">{farm.name}</h2><Badge variant="outline">{farm.tasks.length} order{farm.tasks.length === 1 ? "" : "s"}</Badge></div>
-              {farm.farmerName && farm.farmerName !== farm.name && <p className="mt-1 text-sm text-muted-foreground">Farmer: {farm.farmerName}</p>}
-              {farm.address && <p className="mt-1 text-sm text-muted-foreground">{farm.address}</p>}
-              <p className="mt-1 text-xs text-muted-foreground">Assign one packing team to all eligible orders from this farm. Packing and verification remain order-by-order.</p>
-            </div>
-            {!farmStartedLocally[farm.key] && !farmAssignedLocally[farm.key] && !farm.tasks.some((task: any) => ["assigned","packing","partially_packed","packed","customer_approval_pending","verified","ready_for_dispatch","dispatched"].includes(String(task.status || "").toLowerCase())) && farm.tasks.some((task: any) => String(task.status || "").toLowerCase() === "ready_for_packing") && <div className="flex flex-wrap items-center gap-2"><Users className="h-4 w-4"/><Input className="w-40" placeholder="Packing Team ID" value={farmTeam[farm.key] || ""} onChange={e=>{setFarmTeam({...farmTeam,[farm.key]:e.target.value});setFarmAssignmentMessages((current)=>{const next={...current};delete next[farm.key];return next;});}}/><Button type="button" disabled={assigningFarm === farm.key} onClick={() => assignFarmTeam(farm)}>{assigningFarm === farm.key ? "Assigning…" : "Assign Team to Farm"}</Button></div>}
-
-            {farm.tasks.some((task: any) => ["packing","partially_packed"].includes(String(task.status || "").toLowerCase())) && <Badge variant="outline">Packing in progress — progress is saved per order; continue below</Badge>}
-            {farmAssignmentMessages[farm.key] && <div role="status" aria-live="polite" className={"mt-3 rounded-md border px-3 py-2 text-sm " + (farmAssignmentMessages[farm.key].kind === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-900" : farmAssignmentMessages[farm.key].kind === "error" ? "border-red-200 bg-red-50 text-red-900" : "border-blue-200 bg-blue-50 text-blue-900")}>{farmAssignmentMessages[farm.key].text}</div>}
-          </CardContent></Card>
-          <div className="space-y-3">{farm.tasks.map((t:any) => (
-        <Card key={t.id} className="overflow-hidden border-slate-200 bg-white shadow-sm transition-shadow hover:shadow-md"><CardContent className="p-0">
-          <div className="flex flex-col lg:flex-row">
-            <div className="min-w-0 flex-1 p-4 sm:p-5">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <div className="flex flex-wrap items-center gap-2"><h3 className="text-sm font-semibold text-slate-900">Order #{t.orderNumber || t.orderId?.slice(-8)}</h3><Badge variant="outline" className={"rounded-full px-2.5 py-0.5 text-xs " + (["packed","ready_for_dispatch","dispatched"].includes(String(t.status||"").toLowerCase()) ? "border-emerald-200 bg-emerald-50 text-emerald-700" : t.status === "customer_approval_pending" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-blue-200 bg-blue-50 text-blue-700")}>{String(t.status || "ready_for_packing").replace(/_/g, " ")}</Badge></div>
-                  <p className="mt-1 text-sm text-muted-foreground">{t.createdAt ? new Date(t.createdAt).toLocaleString() : "Packing task"}</p>
-                </div>
-                <div className="text-left sm:text-right"><p className="text-lg font-bold tracking-tight text-slate-900">{Number(t.packedQuantity || 0)} / {Number(t.quantityRequired || 0)} packed</p><p className="text-xs text-muted-foreground">Batch: {t.batchId || "—"}</p></div>
+      ) : (
+        <div className="grid items-start gap-4 xl:grid-cols-[minmax(340px,0.88fr)_minmax(620px,1.55fr)]">
+          <Card className="overflow-hidden border-slate-200 shadow-sm">
+            <CardContent className="space-y-3 p-3 sm:p-4">
+              <div className="grid grid-cols-4 gap-1 rounded-xl bg-slate-100 p-1">
+                {([
+                  { id: "queue", label: "Packing Queue", count: unfinishedCount },
+                  { id: "packing", label: "In Packing", count: packingCount },
+                  { id: "shortage", label: "Shortage", count: shortageTaskCount },
+                  { id: "completed", label: "Completed", count: completedCount },
+                ] as const).map((tab) => (
+                  <button key={tab.id} type="button" onClick={() => { setQueueTab(tab.id); setSelectedOrderId(""); }} className={`min-w-0 rounded-lg px-2 py-2 text-center transition-colors ${queueTab === tab.id ? "bg-emerald-700 text-white shadow-sm" : "text-slate-600 hover:bg-white"}`}>
+                    <span className="block truncate text-[11px] font-semibold sm:text-xs">{tab.label}</span>
+                    <span className="mt-0.5 block text-sm font-bold">{tab.count}</span>
+                  </button>
+                ))}
               </div>
-              <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                <div className="rounded-lg bg-slate-50 p-3"><p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Customer</p><p className="mt-1 truncate text-sm font-medium text-slate-900">{t.customer?.name || "Customer details unavailable"}</p></div>
-                <div className="rounded-lg bg-slate-50 p-3"><p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Items</p><p className="mt-1 text-sm font-medium text-slate-900">{(t.packingItems || t.items || []).length} item{(t.packingItems || t.items || []).length === 1 ? "" : "s"}</p></div>
-                <div className="rounded-lg bg-slate-50 p-3"><p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Delivery</p><p className="mt-1 truncate text-sm font-medium text-slate-900">{t.deliveryAddress ? [t.deliveryAddress.addressLine1, t.deliveryAddress.city, t.deliveryAddress.state, t.deliveryAddress.zipCode].filter(Boolean).join(", ") : "Address not available"}</p></div>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"/>
+                <Input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search order, customer, farmer, product…" className="h-10 pl-9"/>
               </div>
-              <div className="mt-4 flex flex-wrap gap-2">
-                {(t.packingItems || t.items || []).slice(0,2).map((item:any,idx:number)=><span key={item.itemKey || item.id || idx} className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700">{item.productName || item.name || "Product"} · {item.quantityRequired ?? item.quantity ?? 0} {item.unit || ""}</span>)}
-                {(t.packingItems || t.items || []).length > 2 && <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">+{(t.packingItems || t.items || []).length - 2} more</span>}
+              <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                <span>{visibleTasks.length} order(s) in this view</span>
+                <span>{dateFilter === "today" ? "Today" : dateFilter === "yesterday" ? "Yesterday" : dateFilter === "week" ? "This Week" : "All Time"}</span>
               </div>
-              <div className="mt-3 flex flex-wrap gap-2"><Badge variant="outline" className="rounded-full border-blue-200 bg-blue-50 text-blue-700"><Warehouse className="mr-1 h-3 w-3"/>Warehouse Fulfillment</Badge><Badge variant="outline" className="rounded-full border-slate-200 bg-white text-slate-600">Packing task</Badge></div>
-              {(t.packingItems || []).length > 0 && (
-                <div className="mt-3 rounded-md border bg-slate-50 p-3 text-xs">
-                  <div className="font-semibold text-slate-800">Order-line allocation</div>
-                  <div className="mt-2 space-y-1">
-                    {(t.packingItems || []).map((i:any) => (
-                      <div key={i.itemKey} className="flex flex-wrap justify-between gap-2">
-                        <span>{i.productName}</span>
-                        <span>
-                          {Number(i.packedQuantity || 0)} / {Number(i.quantityRequired || 0)} {i.unit || "kg"}
-                          {Boolean(t.packingAttemptComplete) && Number(i.quantityShort || 0) > 0 && <span className="ml-2 font-semibold text-red-700">short {Number(i.quantityShort).toFixed(2)} {i.unit || "kg"}</span>}
-                        </span>
+              <div className="max-h-[780px] space-y-2 overflow-y-auto pr-1">
+                {visibleTasks.map((task: any) => {
+                  const taskFarm = getFarmDetails(task);
+                  const taskStatus = String(task.status || "ready_for_packing").toLowerCase();
+                  const active = String(selectedTask?.id) === String(task.id);
+                  const taskItems = task.packingItems?.length ? task.packingItems : task.items || [];
+                  const quantity = taskItems.reduce((sum: number, item: any) => sum + Number(item.quantityRequired ?? item.quantity ?? 0), 0);
+                  return (
+                    <button key={task.id} type="button" onClick={() => setSelectedOrderId(String(task.id))} className={`w-full rounded-xl border p-3 text-left transition-all ${active ? "border-emerald-500 bg-emerald-50/80 shadow-sm ring-1 ring-emerald-100" : "border-slate-200 bg-white hover:border-emerald-300 hover:bg-slate-50"}`}>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-bold text-slate-900">#{task.orderNumber || task.orderId?.slice(-8) || task.id}</p>
+                          <p className="mt-1 flex items-center gap-1 truncate text-xs text-slate-600"><Users className="h-3 w-3 shrink-0"/>{task.customer?.name || "Customer details unavailable"}</p>
+                          <p className="mt-1 flex items-center gap-1 truncate text-xs text-slate-500"><MapPin className="h-3 w-3 shrink-0"/>{[task.deliveryAddress?.city, task.deliveryAddress?.district, task.deliveryAddress?.state].filter(Boolean).join(", ") || taskFarm.name}</p>
+                          <p className="mt-1 flex items-center gap-1 text-xs text-slate-500"><Box className="h-3 w-3"/>{taskItems.length} product(s) · {quantity} {taskItems[0]?.unit || "kg"}</p>
+                        </div>
+                        <div className="flex shrink-0 flex-col items-end gap-2">
+                          <Badge variant="outline" className={taskStatus === "customer_approval_pending" ? "border-amber-200 bg-amber-50 text-amber-800" : ["packed","verified","ready_for_dispatch","dispatched"].includes(taskStatus) ? "border-blue-200 bg-blue-50 text-blue-700" : taskStatus === "ready_for_packing" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-800"}>{taskStatus.replace(/_/g, " ")}</Badge>
+                          <ChevronRight className={`h-4 w-4 ${active ? "text-emerald-700" : "text-slate-400"}`}/>
+                        </div>
                       </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              <p className="mt-3 text-xs text-muted-foreground">Delivery: {t.deliveryAddress ? [t.deliveryAddress.addressLine1, t.deliveryAddress.city, t.deliveryAddress.state, t.deliveryAddress.zipCode].filter(Boolean).join(", ") : "Address not available"}</p>
-            </div>
-            <div className="border-t bg-slate-50/70 p-4 sm:p-5 lg:w-[320px] lg:border-l lg:border-t-0">
-              <div className="mb-3 rounded-lg border border-slate-200 bg-white p-3"><p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Next action</p><p className="mt-1 text-sm font-semibold text-slate-900">{["ready_for_packing","assigned"].includes(String(t.status||"").toLowerCase()) ? "Check quantities, then finish packing" : ["ready_for_packing","assigned","packing","partially_packed"].includes(String(t.status||"").toLowerCase()) ? "Check quantities, then finish packing" : t.status === "packed" ? "Packing completed — refresh order status" : t.status === "customer_approval_pending" ? "Waiting for customer decision" : t.status === "ready_for_dispatch" ? "Continue to dispatch" : "Review order status"}</p><p className="mt-1 text-xs text-muted-foreground">Process this order independently. Its saved stage is retained when you return to this page.</p></div>
-              <div className="space-y-2">
-              
-              {["ready_for_packing","assigned","packing","partially_packed"].includes(String(t.status || "").toLowerCase()) && <Button size="sm" className="w-full bg-emerald-700 hover:bg-emerald-800" onClick={() => finishPackingTask(t)}><PackageCheck className="mr-2 h-4 w-4"/>Packing Finish Order</Button>}
-              {t.status === "customer_approval_pending" && <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950"><p className="font-semibold">Waiting for customer decision</p><p className="mt-1">The customer must accept the available quantity or cancel the order. Dispatch remains blocked until the customer responds and the final quantities are checked.</p></div>}
-              {t.status === "packed" && <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900"><p className="font-semibold">Packing quantities checked during Finish Order</p><p className="mt-1">No separate verification action is needed. Refresh the page if the order status has not updated.</p></div>}
-              {["packed","ready_for_dispatch"].includes(String(t.status || "").toLowerCase()) && <Button size="sm" variant="outline" className="h-9 w-full px-4 text-sm" onClick={()=>printLabel(t)}><PackageCheck className="mr-2 h-4 w-4"/>Reprint Label</Button>}
-              {t.status === "ready_for_dispatch" && <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900"><Badge variant="success"><CheckCircle2 className="mr-1 h-4 w-4"/>Packing Checked · Ready for Dispatch</Badge><p className="mt-2">Dispatch records were created automatically. No additional action is required here. Open <Link href="/outgoing" className="font-semibold underline">Outgoing / Dispatch</Link> whenever you are ready to process the shipment.</p></div>}
+                    </button>
+                  );
+                })}
+                {visibleTasks.length === 0 && <div className="rounded-xl border border-dashed p-8 text-center"><PackageCheck className="mx-auto h-8 w-8 text-slate-300"/><p className="mt-2 text-sm font-semibold text-slate-700">No orders in this section</p><p className="mt-1 text-xs text-slate-500">Choose another tab or date range.</p></div>}
               </div>
-            </div>
-          </div>
-        </CardContent></Card>
-          ))}</div>
-        </section>
-      ))}</div>}
+            </CardContent>
+          </Card>
+
+          {selectedTask ? (
+            <Card className="overflow-hidden border-slate-200 shadow-sm">
+              <CardContent className="space-y-4 p-4 sm:p-5">
+                <div className="flex flex-wrap items-start justify-between gap-3 border-b pb-4">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><PackageCheck className="h-5 w-5"/></div>
+                      <h2 className="text-xl font-bold text-slate-900">#{selectedTask.orderNumber || selectedTask.orderId?.slice(-8) || selectedTask.id}</h2>
+                      <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-800">{String(selectedTask.status || "ready_for_packing").replace(/_/g, " ")}</Badge>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
+                      <span className="inline-flex items-center gap-1"><Users className="h-3.5 w-3.5"/>{selectedTask.customer?.name || "Customer unavailable"}</span>
+                      {selectedTask.customer?.phone && <span className="inline-flex items-center gap-1"><Phone className="h-3.5 w-3.5"/>{selectedTask.customer.phone}</span>}
+                      <span className="inline-flex items-center gap-1"><MapPin className="h-3.5 w-3.5"/>{[selectedTask.deliveryAddress?.city, selectedTask.deliveryAddress?.district, selectedTask.deliveryAddress?.state].filter(Boolean).join(", ") || "Delivery location unavailable"}</span>
+                    </div>
+                  </div>
+                  <div className="rounded-xl bg-emerald-50 px-4 py-3"><p className="text-[11px] font-medium text-emerald-800">Order value</p><p className="text-xl font-bold text-emerald-950">₹{Number(selectedTask.totalAmount || selectedTask.orderTotal || selectedTask.order?.totalAmount || 0).toLocaleString("en-IN")}</p></div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  {[
+                    { label: "Order confirmed", done: true },
+                    { label: "Preparing", done: ["packing","partially_packed","packed","verified","ready_for_dispatch"].includes(String(selectedTask.status || "").toLowerCase()) },
+                    { label: "Packing", done: ["packing","partially_packed","packed","verified","ready_for_dispatch"].includes(String(selectedTask.status || "").toLowerCase()), current: ["ready_for_packing","assigned","packing","partially_packed"].includes(String(selectedTask.status || "").toLowerCase()) },
+                  ].map((step) => <div key={step.label} className="rounded-lg bg-slate-50 p-2"><div className={`mx-auto flex h-7 w-7 items-center justify-center rounded-full ${step.current ? "bg-emerald-700 text-white" : step.done ? "bg-emerald-600 text-white" : "bg-slate-200 text-slate-500"}`}>{step.done ? <CheckCircle2 className="h-4 w-4"/> : <Box className="h-4 w-4"/>}</div><p className="mt-1 text-[11px] font-semibold text-slate-700">{step.label}{step.current ? " (Current)" : ""}</p></div>)}
+                </div>
+
+                <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_230px]">
+                  <div className="min-w-0">
+                    <div className="mb-2 flex items-center justify-between gap-2"><h3 className="font-bold text-slate-900">Pack Products ({selectedItems.length})</h3><Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">Total Order Weight: {totalRequired} {selectedItems[0]?.unit || "kg"}</Badge></div>
+                    <div className="overflow-x-auto rounded-xl border">
+                      <table className="w-full min-w-[520px] text-sm">
+                        <thead className="bg-slate-50 text-xs text-slate-600"><tr><th className="px-3 py-3 text-left">Product</th><th className="px-3 py-3 text-right">Ordered Qty</th><th className="px-3 py-3 text-right">Packed Qty</th><th className="px-3 py-3 text-left">Unit</th><th className="px-3 py-3 text-left">Status</th></tr></thead>
+                        <tbody className="divide-y">
+                          {selectedItems.map((item: any, index: number) => {
+                            const required = Number(item.quantityRequired ?? item.quantity ?? 0);
+                            const packed = Number(item.packedQuantity ?? item.actualPackedQuantity ?? 0);
+                            const short = Math.max(0, required - packed);
+                            return <tr key={item.itemKey || item.id || index}>
+                              <td className="px-3 py-3 font-semibold text-slate-800">{item.productName || item.name || "Product"}</td>
+                              <td className="px-3 py-3 text-right tabular-nums">{required}</td>
+                              <td className="px-3 py-3 text-right font-semibold tabular-nums">{packed}</td>
+                              <td className="px-3 py-3 text-slate-600">{item.unit || "kg"}</td>
+                              <td className="px-3 py-3">{short > 0 ? <Badge variant="outline" className="border-red-200 bg-red-50 text-red-700">Short {short}</Badge> : <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700"><CheckCircle2 className="mr-1 h-3 w-3"/>Packed</Badge>}</td>
+                            </tr>;
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                  <aside className="space-y-3">
+                    <div className="rounded-xl border p-3">
+                      <h3 className="mb-2 text-sm font-bold text-slate-900">Packing Label</h3>
+                      <div className="rounded-lg bg-slate-50 p-3 text-center"><Printer className="mx-auto h-7 w-7 text-slate-500"/><p className="mt-1 truncate text-xs font-semibold">{selectedTask.orderNumber || selectedTask.orderId || selectedTask.id}</p><p className="text-[11px] text-slate-500">{selectedItems.length} product(s) · {totalRequired} {selectedItems[0]?.unit || "kg"}</p></div>
+                      <Button type="button" variant="outline" className="mt-2 w-full" onClick={() => printLabel(selectedTask)}><Printer className="mr-2 h-4 w-4"/>Print / Reprint Label</Button>
+                    </div>
+                    <div className="rounded-xl border p-3">
+                      <h3 className="text-sm font-bold text-slate-900">Packing Team</h3>
+                      <p className="mt-1 text-xs text-slate-500">{selectedTask.packingTeam?.name || selectedTask.packingTeamName || selectedTask.packingTeamId || "Team not assigned"}</p>
+                      {String(selectedTask.status || "").toLowerCase() === "ready_for_packing" && <p className="mt-2 text-xs text-slate-500">Assign a team from the farm section below the order queue if required.</p>}
+                    </div>
+                  </aside>
+                </div>
+
+                <div className="grid gap-2 border-t pt-4 sm:grid-cols-3">
+                  <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Total ordered</p><p className="text-lg font-bold">{totalRequired} {selectedItems[0]?.unit || "kg"}</p></div>
+                  <div className="rounded-lg bg-emerald-50 p-3"><p className="text-xs text-emerald-700">Total packed</p><p className="text-lg font-bold text-emerald-800">{totalPacked} {selectedItems[0]?.unit || "kg"}</p></div>
+                  <div className={`rounded-lg p-3 ${totalShortage > 0 ? "bg-red-50" : "bg-slate-50"}`}><p className={`text-xs ${totalShortage > 0 ? "text-red-700" : "text-slate-500"}`}>Shortage</p><p className={`text-lg font-bold ${totalShortage > 0 ? "text-red-800" : "text-slate-800"}`}>{totalShortage} {selectedItems[0]?.unit || "kg"}</p></div>
+                </div>
+
+                <div className="flex flex-wrap justify-end gap-2 border-t pt-4">
+                  {["ready_for_packing","assigned","packing","partially_packed"].includes(String(selectedTask.status || "").toLowerCase()) && <Button type="button" className="bg-emerald-700 hover:bg-emerald-800" onClick={() => finishPackingTask(selectedTask)}><CheckCircle2 className="mr-2 h-4 w-4"/>Packing Finish Order</Button>}
+                  {["packed","ready_for_dispatch"].includes(String(selectedTask.status || "").toLowerCase()) && <Button type="button" variant="outline" onClick={() => printLabel(selectedTask)}><Printer className="mr-2 h-4 w-4"/>Reprint Label</Button>}
+                  {selectedTask.status === "customer_approval_pending" && <div className="w-full rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Waiting for customer decision. Dispatch remains blocked until the customer responds.</div>}
+                  {["packed","ready_for_dispatch"].includes(String(selectedTask.status || "").toLowerCase()) && <Button type="button" variant="outline" onClick={() => window.location.assign("/outgoing")}><Truck className="mr-2 h-4 w-4"/>Open Outgoing / Dispatch</Button>}
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card className="flex min-h-[420px] items-center justify-center border-dashed"><CardContent className="text-center"><ClipboardCheck className="mx-auto h-12 w-12 text-slate-300"/><h3 className="mt-3 font-semibold text-slate-800">Select an order to pack</h3><p className="mt-1 text-sm text-slate-500">Choose an order from the queue to review its products and packing label.</p></CardContent></Card>
+          )}
+        </div>
+      )}
     </div>
     </>
   );
