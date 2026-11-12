@@ -988,7 +988,7 @@ export default function WarehouseIncomingPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={showReceiptDialog} onOpenChange={setShowReceiptDialog}>
+      <Dialog open={showReceiptDialog} onOpenChange={setShowReceiptDialog} contentClassName="!w-[min(96vw,980px)] !max-w-[980px] !max-h-[calc(100dvh-2rem)] !overflow-hidden !p-0 sm:!p-0">
         <DialogContent
           className="!w-[92vw] !max-w-[980px] sm:!max-w-[980px] overflow-hidden rounded-2xl border-slate-200 p-0 shadow-2xl"
           style={{ width: "min(96vw, 980px)", minWidth: "min(96vw, 980px)", maxWidth: "980px", height: "auto", maxHeight: "calc(100dvh - 32px)" }}
