@@ -455,28 +455,28 @@ export default function WarehousePackingPage() {
                   <section className="space-y-3">
                     <h3 className="font-semibold text-slate-900">Shortage resolution actions</h3>
                                   <div className="flex flex-wrap gap-2">
-                                    <Button type="button" size="sm" variant="outline" disabled={["replenishment_requested"].includes(String(x.status || "").toLowerCase())} onClick={async () => {
-                                      try { const r = await api.put("/warehouse/me/shortages/" + selectedShortage.id || selectedShortage._id + "/resolution", { resolutionType: "farmer_replenishment", notes: "Warehouse requested replenishment for the physically confirmed shortage." }); toast.success(r?.data?.message || "Replenishment request recorded."); await Promise.all([refetch(), refetchShortages()]); }
+                                    <Button type="button" size="sm" variant="outline" disabled={["replenishment_requested"].includes(String(selectedShortage.status || "").toLowerCase())} onClick={async () => {
+                                      try { const r = await api.put("/warehouse/me/shortages/" + (selectedShortage.id || selectedShortage._id) + "/resolution", { resolutionType: "farmer_replenishment", notes: "Warehouse requested replenishment for the physically confirmed shortage." }); toast.success(r?.data?.message || "Replenishment request recorded."); await Promise.all([refetch(), refetchShortages()]); }
                                       catch (e:any) { toast.error(e?.response?.data?.detail || e?.message || "Could not request replenishment."); }
                                     }}>Request Replenishment</Button>
-                                    <Button type="button" size="sm" variant="outline" disabled={["customer_approval_pending"].includes(String(x.status || "").toLowerCase())} onClick={async () => {
-                                      try { const r = await api.put("/warehouse/me/shortages/" + selectedShortage.id || selectedShortage._id + "/resolution", { resolutionType: "customer_approval_pending", approvedQuantity: Number(x.availableQuantity || 0), notes: "Customer must approve reduced quantity or choose cancellation before dispatch." }); toast.success(r?.data?.message || "Customer approval requested."); await Promise.all([refetch(), refetchShortages()]); }
+                                    <Button type="button" size="sm" variant="outline" disabled={["customer_approval_pending"].includes(String(selectedShortage.status || "").toLowerCase())} onClick={async () => {
+                                      try { const r = await api.put("/warehouse/me/shortages/" + (selectedShortage.id || selectedShortage._id) + "/resolution", { resolutionType: "customer_approval_pending", approvedQuantity: Number(selectedShortage.availableQuantity || 0), notes: "Customer must approve reduced quantity or choose cancellation before dispatch." }); toast.success(r?.data?.message || "Customer approval requested."); await Promise.all([refetch(), refetchShortages()]); }
                                       catch (e:any) { toast.error(e?.response?.data?.detail || e?.message || "Could not request customer approval."); }
                                     }}>Request Customer Decision</Button>
                                     <Button type="button" size="sm" variant="outline" onClick={async () => {
                                       const productId = window.prompt("Enter the substitute product ID. The customer must approve this substitution before it can be packed.");
                                       if (!productId) return;
-                                      try { const r = await api.put("/warehouse/me/shortages/" + selectedShortage.id || selectedShortage._id + "/resolution", { resolutionType: "substitution_pending", substituteProductId: productId.trim(), notes: "Substitute proposed; customer approval required before packing." }); toast.success(r?.data?.message || "Substitution proposal recorded."); await Promise.all([refetch(), refetchShortages()]); }
+                                      try { const r = await api.put("/warehouse/me/shortages/" + (selectedShortage.id || selectedShortage._id) + "/resolution", { resolutionType: "substitution_pending", substituteProductId: productId.trim(), notes: "Substitute proposed; customer approval required before packing." }); toast.success(r?.data?.message || "Substitution proposal recorded."); await Promise.all([refetch(), refetchShortages()]); }
                                       catch (e:any) { toast.error(e?.response?.data?.detail || e?.message || "Could not propose substitution."); }
                                     }}>Propose Substitute</Button>
                                     <Button type="button" size="sm" variant="destructive" onClick={async () => {
-                                      const shortQty = Math.max(0, Number(x.requiredQuantity || 0) - Number(x.availableQuantity || 0));
+                                      const shortQty = Math.max(0, Number(selectedShortage.requiredQuantity || 0) - Number(selectedShortage.availableQuantity || 0));
                                       const raw = window.prompt("Enter the unavailable quantity approved by the customer for cancellation/refund (maximum " + shortQty + "). Do not proceed without customer approval.", String(shortQty));
                                       if (raw === null) return;
                                       const qty = Number(raw);
                                       if (!Number.isFinite(qty) || qty <= 0 || qty > shortQty) { toast.error("Enter a quantity greater than 0 and no more than " + shortQty + "."); return; }
                                       if (!window.confirm("Confirm the customer has approved cancellation/refund of " + qty + " units? This updates the order quantity and payable/refund record.")) return;
-                                      try { const r = await api.put("/warehouse/me/shortages/" + selectedShortage.id || selectedShortage._id + "/resolution", { resolutionType: "refund_cancellation", resolvedQuantity: qty, notes: "Customer-approved cancellation/refund of unavailable quantity." }); toast.success(r?.data?.message || "Cancellation/refund quantity recorded."); await Promise.all([refetch(), refetchShortages()]); }
+                                      try { const r = await api.put("/warehouse/me/shortages/" + (selectedShortage.id || selectedShortage._id) + "/resolution", { resolutionType: "refund_cancellation", resolvedQuantity: qty, notes: "Customer-approved cancellation/refund of unavailable quantity." }); toast.success(r?.data?.message || "Cancellation/refund quantity recorded."); await Promise.all([refetch(), refetchShortages()]); }
                                       catch (e:any) { toast.error(e?.response?.data?.detail || e?.message || "Could not record cancellation/refund."); }
                                     }}>Record Approved Cancel / Refund</Button>
                                   </div>
