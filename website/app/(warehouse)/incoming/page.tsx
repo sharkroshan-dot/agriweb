@@ -44,6 +44,30 @@ const getIncomingDisplayStatus = (item: any) => {
   return "received";
 };
 
+const getHumanReceiptNumber = (item: any) => {
+  const receipt = item?.receipt || {};
+  const existing = String(receipt.receiptNumber || item?.receiptNumber || "").trim();
+  if (/^RCP-\\d{8}-[A-Z0-9]{4,10}$/i.test(existing)) return existing.toUpperCase();
+  const orderReference = String(
+    receipt.orderNumber || item?.orderNumber || item?.displayOrderNumber ||
+    item?.order?.orderNumber || item?.orderId || item?.id || item?._id || "ORDER"
+  ).replace(/[^a-z0-9]/gi, "").toUpperCase();
+  const rawDate = receipt.receivedAt || item?.receivedAt || item?.receivedDate || item?.createdAt;
+  const parsedDate = rawDate ? new Date(rawDate) : null;
+  const datePart = parsedDate && !Number.isNaN(parsedDate.getTime())
+    ? parsedDate.toISOString().slice(0, 10).replace(/-/g, "")
+    : "00000000";
+  const referencePart = (orderReference.slice(-6) || "ORDER1").padStart(6, "0");
+  return `RCP-${datePart}-${referencePart}`;
+};
+
+const getReceiptQuality = (item: any) => {
+  const raw = String(item?.receipt?.qualityResult || item?.qualityCheck || item?.quality_check || "").toLowerCase();
+  if (raw === "passed" || ["quality_passed", "stored"].includes(String(item?.status || "").toLowerCase())) return "passed";
+  if (raw === "failed" || String(item?.status || "").toLowerCase() === "rejected") return "failed";
+  return "pending";
+};
+
 const statusLabels: Record<string, string> = {
   scheduled: "Scheduled",
   in_transit: "In Transit",
@@ -440,7 +464,7 @@ export default function WarehouseIncomingPage() {
     const addressText = addressParts.join(", ");
     const customerName = item?.customerName || item?.customer?.name || order?.customerName || order?.customer?.name || [order?.customer?.firstName, order?.customer?.lastName].filter(Boolean).join(" ") || "Customer details unavailable";
     const customerPhone = item?.customerPhone || item?.customer?.phone || order?.customerPhone || order?.customer?.phone || order?.phone || "Phone not available";
-    const receiptNumber = item?.receiptNumber || item?.receipt?.receiptNumber || item?.id || "Receipt number unavailable";
+    const receiptNumber = getHumanReceiptNumber(item);
     const orderNumber = item?.orderNumber || item?.receipt?.orderNumber || order?.orderNumber || (item?.orderId ? String(item.orderId) : "Order number unavailable");
     const receiptDateTime = item?.receivedAt || item?.receivedDate || item?.receipt?.receivedAt;
     const warehouseName = item?.warehouseName || item?.receipt?.warehouseName || item?.warehouse?.name || "Warehouse details unavailable";
@@ -582,7 +606,8 @@ export default function WarehouseIncomingPage() {
         usableQuantity: Number(selectedIncoming.quantityReceived || selectedIncoming.quantity || 0),
         notes: qualityNotes.trim() || undefined,
       });
-      toast.success(qualityCheck === "passed" ? "Quality approved. Continue to the correct fulfillment workflow." : "Quality rejected. Shipment is on hold.");
+      setSelectedIncoming((current: any) => current ? { ...current, qualityCheck, quality_check: qualityCheck, receipt: { ...(current.receipt || {}), qualityResult: qualityCheck, qualityNotes: qualityNotes.trim() || current.receipt?.qualityNotes } } : current);
+      toast.success(qualityCheck === "passed" ? "Quality approved. Receipt is now available to reprint." : "Quality rejected. Shipment is on hold.");
       setShowQualityDialog(false); setQualityNotes(""); await refetch();
     } catch (error: any) { toast.error(error?.message || "Failed to update quality result"); }
     finally { setIsSaving(false); }
@@ -887,7 +912,8 @@ export default function WarehouseIncomingPage() {
               </div></div>
               <div className="space-y-2 border-t border-slate-100 pt-3">
                 {arrived && !received && isPacked && <Button className="w-full" onClick={()=>openReceiveDialog(item)}><CheckCircle className="mr-2 h-4 w-4"/>Receive Collection</Button>}
-                {received && <Button variant="outline" className="w-full" onClick={()=>{setSelectedIncoming(item);setShowReceiptDialog(true);}}>View Receipt</Button>}
+                {received && <Button variant="outline" className="w-full" onClick={()=>{setSelectedIncoming(item);setShowReceiptDialog(true);}}>View Receipt Details</Button>}
+                {received && getReceiptQuality(item) !== "pending" && <Button className="w-full" onClick={()=>printIncomingPackingReceipt(item, Number(item.receipt?.receivedQuantity ?? item.quantityReceived ?? item.quantity ?? 0), Number(item.receipt?.usableQuantity ?? item.usableQuantity ?? item.quantityReceived ?? item.quantity ?? 0))}><Package className="mr-2 h-4 w-4"/>Reprint Receipt</Button>}
                 <Button variant="outline" className="w-full" onClick={()=>{setSelectedIncoming(item);setShowTrackDialog(true);}}>View Shipment Details</Button>
               </div>
             </div>;
@@ -962,37 +988,68 @@ export default function WarehouseIncomingPage() {
       </Dialog>
 
       <Dialog open={showReceiptDialog} onOpenChange={setShowReceiptDialog}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Warehouse Receipt History</DialogTitle>
-            <DialogDescription>Review the saved receipt for this shipment and reprint it without receiving the stock again.</DialogDescription>
-          </DialogHeader>
+        <DialogContent className="max-w-3xl max-h-[88vh] overflow-y-auto rounded-2xl border-slate-200 p-0">
           {selectedIncoming && (() => {
             const receipt = selectedIncoming.receipt || {};
             const order = selectedIncoming.order || {};
-            const receiptNumber = receipt.receiptNumber || selectedIncoming.receiptNumber || selectedIncoming.id;
+            const receiptNumber = getHumanReceiptNumber(selectedIncoming);
             const receivedAt = receipt.receivedAt || selectedIncoming.receivedAt || selectedIncoming.receivedDate;
-            return <div className="space-y-4">
-              <div className="rounded-lg border p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-sm text-muted-foreground">Receipt number</p><p className="text-lg font-semibold">{receiptNumber || "Receipt number unavailable"}</p></div><Badge variant="outline">{String(receipt.qualityResult || selectedIncoming.qualityCheck || selectedIncoming.quality_check || "pending").toUpperCase()}</Badge></div>
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <div><p className="text-xs text-muted-foreground">Receipt date / time</p><p className="font-medium">{receivedAt ? new Date(receivedAt).toLocaleString() : "Not recorded"}</p></div>
-                  <div><p className="text-xs text-muted-foreground">Order ID / number</p><p className="font-medium break-all">{receipt.orderNumber || selectedIncoming.orderNumber || order.orderNumber || selectedIncoming.orderId || selectedIncoming.id}</p><p className="text-xs text-muted-foreground break-all">{receipt.orderId || selectedIncoming.orderId || "Order ID unavailable"}</p></div>
-                  <div><p className="text-xs text-muted-foreground">Farm</p><p className="font-medium">{receipt.farmName || getFarmDisplayName(selectedIncoming)}</p></div>
-                  <div><p className="text-xs text-muted-foreground">Warehouse</p><p className="font-medium">{receipt.warehouseName || "Warehouse details unavailable"}</p></div>
-                  <div><p className="text-xs text-muted-foreground">Customer</p><p className="font-medium">{receipt.customerName || selectedIncoming.customerName || "Customer details unavailable"}</p><p className="text-sm">{receipt.customerPhone || selectedIncoming.customerPhone || "Phone not available"}</p></div>
-                  <div><p className="text-xs text-muted-foreground">Delivery address</p><p className="font-medium">{typeof (receipt.deliveryAddress || selectedIncoming.deliveryAddress) === "string" ? (receipt.deliveryAddress || selectedIncoming.deliveryAddress) : [((receipt.deliveryAddress || selectedIncoming.deliveryAddress) || {}).addressLine1, ((receipt.deliveryAddress || selectedIncoming.deliveryAddress) || {}).addressLine2, ((receipt.deliveryAddress || selectedIncoming.deliveryAddress) || {}).city, ((receipt.deliveryAddress || selectedIncoming.deliveryAddress) || {}).district, ((receipt.deliveryAddress || selectedIncoming.deliveryAddress) || {}).state, ((receipt.deliveryAddress || selectedIncoming.deliveryAddress) || {}).postalCode].filter(Boolean).join(", ") || "Address not available"}</p></div>
+            const quality = getReceiptQuality(selectedIncoming);
+            const qualityLabel = quality === "passed" ? "Quality passed" : quality === "failed" ? "Quality failed" : "Quality inspection pending";
+            const quantityUnit = receipt.unit || selectedIncoming.unit || "kg";
+            const deliveryAddress = receipt.deliveryAddress || selectedIncoming.deliveryAddress || order.deliveryAddress || order.shippingAddress;
+            const addressText = typeof deliveryAddress === "string" ? deliveryAddress : [
+              deliveryAddress?.addressLine1, deliveryAddress?.addressLine2, deliveryAddress?.area,
+              deliveryAddress?.city, deliveryAddress?.district, deliveryAddress?.state,
+              deliveryAddress?.postalCode || deliveryAddress?.pincode,
+            ].filter(Boolean).join(", ");
+            const orderReference = receipt.orderNumber || selectedIncoming.orderNumber || order.orderNumber || selectedIncoming.displayOrderNumber || selectedIncoming.orderId || "Order reference unavailable";
+            const customerName = receipt.customerName || selectedIncoming.customerName || order.customerName || order.customer?.name || "Customer details unavailable";
+            const customerPhone = receipt.customerPhone || selectedIncoming.customerPhone || order.customerPhone || order.customer?.phone;
+            const warehouseName = receipt.warehouseName || selectedIncoming.warehouseName || selectedIncoming.warehouse?.name || "Warehouse details unavailable";
+            const farmName = receipt.farmName || getFarmDisplayName(selectedIncoming);
+            const declared = receipt.declaredQuantity ?? selectedIncoming.quantity ?? "—";
+            const receivedQuantity = Number(receipt.receivedQuantity ?? selectedIncoming.quantityReceived ?? selectedIncoming.quantity ?? 0);
+            const usable = Number(receipt.usableQuantity ?? selectedIncoming.usableQuantity ?? selectedIncoming.quantityReceived ?? selectedIncoming.quantity ?? 0);
+            const rejected = receipt.rejectedQuantity ?? selectedIncoming.quantityRejected ?? Math.max(0, receivedQuantity - usable);
+            return <div className="space-y-0">
+              <div className="flex items-start justify-between gap-4 border-b border-slate-200 bg-slate-50/80 px-6 py-5">
+                <div className="min-w-0">
+                  <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-emerald-700"><Package className="h-4 w-4"/>AgriConnect · Warehouse</div>
+                  <DialogHeader className="space-y-1 text-left">
+                    <DialogTitle className="text-xl font-bold tracking-tight text-slate-900">Warehouse receipt</DialogTitle>
+                    <DialogDescription className="text-sm text-slate-500">Receipt record and quality inspection summary</DialogDescription>
+                  </DialogHeader>
+                </div>
+                <Badge variant="outline" className={cn("mt-1 shrink-0 px-3 py-1 text-xs font-semibold", quality === "passed" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : quality === "failed" ? "border-red-200 bg-red-50 text-red-700" : "border-amber-200 bg-amber-50 text-amber-800")}>{qualityLabel}</Badge>
+              </div>
+              <div className="space-y-5 px-6 py-5">
+                <div className="flex flex-col gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div><p className="text-xs font-medium uppercase tracking-wide text-emerald-800">Human-readable receipt number</p><p className="mt-1 font-mono text-xl font-bold tracking-wide text-slate-900">{receiptNumber}</p><p className="mt-1 text-xs text-slate-600">Use this reference when discussing this receipt with warehouse staff.</p></div>
+                  <div className="text-left sm:text-right"><p className="text-xs text-slate-500">Receipt date & time</p><p className="mt-1 text-sm font-semibold text-slate-800">{receivedAt ? new Date(receivedAt).toLocaleString() : "Not recorded"}</p></div>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-xl border border-slate-200 p-4"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Order reference</p><p className="mt-1 break-all text-sm font-semibold text-slate-900">{orderReference}</p><p className="mt-1 text-xs text-slate-500">Product: {selectedIncoming.displayProductName || selectedIncoming.productName || selectedIncoming.product?.name || "Product details unavailable"}</p></div>
+                  <div className="rounded-xl border border-slate-200 p-4"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Warehouse</p><p className="mt-1 text-sm font-semibold text-slate-900">{warehouseName}</p><p className="mt-1 text-xs text-slate-500">Source farm: {farmName}</p></div>
+                  <div className="rounded-xl border border-slate-200 p-4"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Customer</p><p className="mt-1 text-sm font-semibold text-slate-900">{customerName}</p><p className="mt-1 text-xs text-slate-500">{customerPhone || "Phone not available"}</p></div>
+                  <div className="rounded-xl border border-slate-200 p-4"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Delivery address</p><p className="mt-1 text-sm leading-relaxed text-slate-800">{addressText || "Address not available"}</p></div>
+                </div>
+                <div>
+                  <div className="mb-2 flex items-center justify-between"><h3 className="text-sm font-semibold text-slate-900">Quantity summary</h3><span className="text-xs text-slate-500">Unit: {quantityUnit}</span></div>
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    {[{label:"Declared",value:declared},{label:"Received",value:receivedQuantity},{label:"Usable",value:usable},{label:"Rejected",value:rejected}].map((metric)=> <div key={metric.label} className="rounded-xl bg-slate-50 p-3"><p className="text-xs font-medium text-slate-500">{metric.label}</p><p className="mt-1 text-lg font-bold tabular-nums text-slate-900">{metric.value} <span className="text-xs font-medium text-slate-500">{quantityUnit}</span></p></div>)}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-slate-200 p-4">
+                  <div className="flex items-center justify-between gap-3"><h3 className="text-sm font-semibold text-slate-900">Quality inspection</h3><Badge variant="outline" className={cn(quality === "passed" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : quality === "failed" ? "border-red-200 bg-red-50 text-red-700" : "border-amber-200 bg-amber-50 text-amber-800")}>{qualityLabel}</Badge></div>
+                  <p className="mt-2 text-sm leading-relaxed text-slate-600">{receipt.qualityNotes || selectedIncoming.qualityNotes || selectedIncoming.notes || (quality === "pending" ? "Quality inspection has not been completed yet." : "No inspection notes recorded.")}</p>
+                </div>
+                {!selectedIncoming.receipt && <p className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs leading-relaxed text-blue-900">This is an older receipt record. Details shown above are reconstructed from the shipment information currently available.</p>}
+                <div className="flex flex-col-reverse gap-2 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                  <Button type="button" variant="outline" onClick={() => setShowReceiptDialog(false)}>Close</Button>
+                  {quality !== "pending" ? <Button type="button" onClick={() => printIncomingPackingReceipt(selectedIncoming, receivedQuantity, usable)}><Package className="mr-2 h-4 w-4"/>Reprint Receipt</Button> : <p className="text-xs text-amber-700">Reprint becomes available after quality inspection is completed.</p>}
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <div className="rounded-md bg-muted p-3"><p className="text-xs text-muted-foreground">Declared</p><p className="text-lg font-semibold">{receipt.declaredQuantity ?? selectedIncoming.quantity ?? "—"} {receipt.unit || selectedIncoming.unit || "kg"}</p></div>
-                <div className="rounded-md bg-muted p-3"><p className="text-xs text-muted-foreground">Received</p><p className="text-lg font-semibold">{receipt.receivedQuantity ?? selectedIncoming.quantityReceived ?? selectedIncoming.quantity ?? "—"} {receipt.unit || selectedIncoming.unit || "kg"}</p></div>
-                <div className="rounded-md bg-muted p-3"><p className="text-xs text-muted-foreground">Usable</p><p className="text-lg font-semibold">{receipt.usableQuantity ?? selectedIncoming.usableQuantity ?? "—"} {receipt.unit || selectedIncoming.unit || "kg"}</p></div>
-                <div className="rounded-md bg-muted p-3"><p className="text-xs text-muted-foreground">Rejected</p><p className="text-lg font-semibold">{receipt.rejectedQuantity ?? selectedIncoming.quantityRejected ?? "—"} {receipt.unit || selectedIncoming.unit || "kg"}</p></div>
-              </div>
-              {receipt.qualityNotes || selectedIncoming.qualityNotes || selectedIncoming.notes ? <p className="text-sm text-muted-foreground">Notes: {receipt.qualityNotes || selectedIncoming.qualityNotes || selectedIncoming.notes}</p> : null}
-              {!selectedIncoming.receipt && <p className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">This is a legacy shipment without a saved receipt snapshot. The receipt preview uses the shipment's current stored fields; new receipts are saved permanently.</p>}
-              <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setShowReceiptDialog(false)}>Close</Button><Button type="button" onClick={() => printIncomingPackingReceipt(selectedIncoming, Number(receipt.receivedQuantity ?? selectedIncoming.quantityReceived ?? selectedIncoming.quantity ?? 0), Number(receipt.usableQuantity ?? selectedIncoming.usableQuantity ?? selectedIncoming.quantityReceived ?? selectedIncoming.quantity ?? 0))}><Package className="mr-2 h-4 w-4" />Reprint Receipt</Button></div>
             </div>;
           })()}
         </DialogContent>
