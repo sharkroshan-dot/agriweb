@@ -7152,18 +7152,20 @@ async def get_warehouse_customer_orders(
     if not warehouse:
         raise HTTPException(status_code=404, detail="Warehouse not found")
 
+    # Customer enquiries may concern active, delivered, cancelled or refunded
+    # orders. Keep the lookup scoped to this warehouse, but do not hide closed
+    # orders: staff often need to answer questions about previous deliveries.
     query: Dict[str, Any] = {
         "warehouseId": ObjectId(str(warehouse["_id"])),
         "fulfillmentMethod": "warehouse",
         "deletedAt": None,
-        "orderStatus": {"$nin": ["delivered", "completed", "cancelled", "refunded"]},
     }
     if stage:
         query["warehouseFulfillmentStage"] = stage
 
     orders = await order_repository.find_many(
-        query, skip=0, limit=200,
-        sort=[("orderDate", -1), ("createdAt", -1), ("updatedAt", -1), ("_id", -1)],
+        query, skip=0, limit=500,
+        sort=[("updatedAt", -1), ("orderDate", -1), ("createdAt", -1), ("_id", -1)],
     )
     result = []
     for order in orders:
@@ -7176,22 +7178,30 @@ async def get_warehouse_customer_orders(
         result.append({
             "id": str(order["_id"]),
             "orderNumber": order.get("orderNumber") or str(order["_id"])[-8:],
-            "orderStatus": order.get("orderStatus"),
-            "warehouseFulfillmentStage": order.get("warehouseFulfillmentStage") or "awaiting_farmer_confirmation",
+            "orderStatus": order.get("orderStatus") or order.get("status"),
+            "warehouseFulfillmentStage": order.get("warehouseFulfillmentStage"),
             "fulfillmentMethod": order.get("fulfillmentMethod"),
             "totalAmount": order.get("totalAmount", 0),
             "paymentStatus": order.get("paymentStatus"),
             "shortageResolutionRequired": bool(order.get("shortageResolutionRequired")),
             "packingComplete": bool(order.get("packingComplete")),
             "packingVerified": bool(order.get("packingVerified")),
-            "deliveryPartnerRoute": order.get("deliveryPartnerRoute"),
-            "deliveryAddress": order.get("deliveryAddress") or {},
+            "deliveryPartnerRoute": _make_json_safe(order.get("deliveryPartnerRoute")),
+            "deliveryStatus": order.get("deliveryStatus") or order.get("delivery_status"),
+            "trackingNumber": order.get("trackingNumber") or order.get("trackingId") or order.get("tracking_id"),
+            "estimatedDelivery": order.get("estimatedDelivery") or order.get("expectedDeliveryDate") or order.get("deliveryDate"),
+            "dispatchedAt": order.get("dispatchedAt") or order.get("shippedAt"),
+            "deliveredAt": order.get("deliveredAt"),
+            "statusHistory": _make_json_safe(order.get("statusHistory") or order.get("status_history") or []),
+            "deliveryPartner": _make_json_safe(order.get("deliveryPartner") or order.get("assignedDeliveryPartner")),
+            "deliveryAddress": _make_json_safe(order.get("deliveryAddress") or {}),
             "customer": {
                 "name": (
                     f"{customer.get('firstName', '')} {customer.get('lastName', '')}".strip()
                     if customer else "Customer"
                 ),
                 "phone": customer.get("phone") if customer else None,
+                "email": customer.get("email") if customer else None,
             },
             "items": [
                 {
@@ -7206,6 +7216,7 @@ async def get_warehouse_customer_orders(
             ],
             "createdAt": order.get("createdAt"),
             "updatedAt": order.get("updatedAt"),
+            "orderDate": order.get("orderDate"),
         })
     return {"success": True, "data": {"orders": result}}
 
