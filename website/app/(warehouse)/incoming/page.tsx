@@ -23,22 +23,23 @@ const statusColors: Record<string, string> = {
   received: "bg-green-500/10 text-green-600 border-green-500/20",
   quality_passed: "bg-emerald-500/10 text-emerald-700 border-emerald-500/20",
   quality_check: "bg-yellow-500/10 text-yellow-600 border-yellow-500/20",
-  stored: "bg-green-500/10 text-green-600 border-green-500/20",
+  ready_to_store: "bg-emerald-500/10 text-emerald-700 border-emerald-500/20",
   rejected: "bg-red-500/10 text-red-600 border-red-500/20",
 };
 
 const hasWarehouseReceipt = (item: any) =>
-  ["received", "quality_check", "stored", "rejected"].includes(String(item?.status || "").toLowerCase()) ||
+  ["received", "quality_check", "quality_passed", "ready_to_store", "stored", "rejected"].includes(String(item?.status || "").toLowerCase()) ||
   Boolean(item?.receivedAt || item?.receivedDate || item?.warehouseReceivedAt || item?.bulkShipmentReceivedAt);
 
 const getIncomingDisplayStatus = (item: any) => {
   const rawStatus = String(item?.status || "").toLowerCase();
-  if (!hasWarehouseReceipt(item)) return rawStatus || "scheduled";
-  if (rawStatus === "stored" || item?.storedAt) return "stored";
+  if (!hasWarehouseReceipt(item)) return rawStatus === "ready_to_store" ? "quality_passed" : rawStatus || "scheduled";
   if (rawStatus === "rejected") return "rejected";
   const quality = String(item?.qualityCheck || item?.quality_check || "").toLowerCase();
   if (quality === "failed") return "rejected";
-  if (quality === "passed") return "quality_passed";
+  // Legacy "stored" records were quality-approved before the Store step was removed.
+  // Keep their historical backend value, but show the current workflow stage.
+  if (quality === "passed" || rawStatus === "stored" || item?.storedAt || rawStatus === "quality_passed" || rawStatus === "ready_to_store") return "quality_passed";
   if (quality === "pending" || rawStatus === "quality_check") return "quality_check";
   return "received";
 };
@@ -47,9 +48,9 @@ const statusLabels: Record<string, string> = {
   scheduled: "Scheduled",
   in_transit: "In Transit",
   received: "Received",
-  quality_passed: "Quality Passed · Ready to Store",
-  quality_check: "Quality Check",
-  stored: "Stored",
+  quality_passed: "Quality Passed",
+  ready_to_store: "Quality Passed",
+  quality_check: "Quality Checking",
   rejected: "Rejected",
 };
 
@@ -294,7 +295,7 @@ export default function WarehouseIncomingPage() {
       if (["scheduled", "in_transit", "ready_for_pickup"].includes(String(item.status))) return 0;
       if (item.status === "received") return 1;
       if (item.status === "quality_check") return 2;
-      if (item.status === "stored") return 3;
+      if (["stored", "quality_passed", "ready_to_store"].includes(String(item.status || "").toLowerCase()) || getIncomingDisplayStatus(item) === "quality_passed") return 3;
       if (item.status === "rejected") return 4;
       return 5;
     };
@@ -714,7 +715,7 @@ export default function WarehouseIncomingPage() {
                   <td className="px-3 py-3"><Badge variant="outline" className={packed?"border-emerald-200 bg-emerald-50 text-emerald-700":"border-violet-200 bg-violet-50 text-violet-700"}>{packed?"Farmer":"Warehouse"}</Badge></td>
                   <td className="px-3 py-3"><p className="font-medium text-slate-800">{item.displayFarmName}</p><p className="text-xs text-slate-500">{item.displayProductName}</p><p className="text-xs text-slate-500">{getPickupArea(item)}</p></td>
                   <td className="whitespace-nowrap px-3 py-3 font-semibold">{item.quantity ?? "—"} {item.unit || "kg"}</td>
-                  <td className="px-3 py-3"><Badge variant="outline" className={cn("whitespace-nowrap",statusColors[String(item.status || "")] || "border-slate-200 bg-slate-50 text-slate-700")}>{statusLabels[getIncomingDisplayStatus(item)] || getIncomingDisplayStatus(item).replace(/_/g," ")}</Badge></td>
+                  <td className="px-3 py-3"><Badge variant="outline" className={cn("whitespace-nowrap",statusColors[getIncomingDisplayStatus(item)] || "border-slate-200 bg-slate-50 text-slate-700")}>{statusLabels[getIncomingDisplayStatus(item)] || getIncomingDisplayStatus(item).replace(/_/g," ")}</Badge></td>
                   <td className="whitespace-nowrap px-3 py-3 text-slate-600">{formatDate(item.expectedDate)}</td>
                   <td className="px-3 py-3 text-right" onClick={(event)=>event.stopPropagation()}>{arrived && !received && packed ? <Button size="sm" onClick={()=>openReceiveDialog(item)}>Receive</Button> : received ? <Button size="sm" variant="outline" onClick={()=>{setSelectedIncoming(item);setShowReceiptDialog(true);}}>View</Button> : <Button size="sm" variant="outline" onClick={()=>{setSelectedIncoming(item);setSelectedDetailId(String(item.id || item._id));setShowTrackDialog(true);}}>Details</Button>}</td>
                 </tr>;
@@ -857,7 +858,8 @@ export default function WarehouseIncomingPage() {
             const item = incomingList.find((row: any) => String(row.id || row._id || "") === selectedDetailId) || incomingList[0];
             const arrived = Boolean(item.arrivedWarehouseAt || item.warehouseArrivalConfirmed || String(item.collectionStatus || "").toLowerCase() === "arrived_warehouse");
             const received = ["received","quality_check","stored","rejected"].includes(String(item.status || "").toLowerCase()) || Boolean(item.receivedAt || item.receivedDate || item.warehouseReceivedAt);
-            const quality = received ? String(item.qualityCheck || item.quality_check || "pending").toLowerCase() : "not_started";
+            const rawQuality = String(item.qualityCheck || item.quality_check || "").toLowerCase();
+            const quality = received ? (rawQuality || (getIncomingDisplayStatus(item) === "quality_passed" ? "passed" : "pending")) : "not_started";
             const displayStatus = getIncomingDisplayStatus(item);
             const isPacked = isFarmerPackedIncoming(item);
             return <div className="space-y-4">
@@ -880,7 +882,7 @@ export default function WarehouseIncomingPage() {
                 {[
                   {label:"Farm collection / arrival",done:arrived},
                   {label:"Receive collection",done:received},
-                  {label:isPacked?"Farmer fulfillment transfer":"Quality check / next step",done:isPacked?received:quality==="passed" || String(item.status)==="stored"},
+                  {label:isPacked?"Farmer fulfillment transfer":"Quality check passed",done:isPacked?received:quality==="passed"},
                 ].map((step,index)=><div key={step.label} className="flex items-center gap-2.5"><span className={cn("flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold",step.done?"bg-emerald-100 text-emerald-800":"bg-slate-100 text-slate-500")}>{step.done?<CheckCircle className="h-3.5 w-3.5"/>:index+1}</span><span className={cn("text-xs",step.done?"font-medium text-slate-800":"text-slate-500")}>{step.label}</span></div>)}
               </div></div>
               <div className="space-y-2 border-t border-slate-100 pt-3">
@@ -911,7 +913,7 @@ export default function WarehouseIncomingPage() {
             <div className="rounded-lg border p-4">
               <p className="text-lg font-semibold">{selectedIncoming?.productName || selectedIncoming?.productId || "Incoming shipment"}</p>
               <p className="mt-1 text-muted-foreground">Shipment reference: {selectedIncoming?.orderNumber || selectedIncoming?.batchNumber || "Available in shipment record"}</p>
-              <p className="mt-1">Status: <span className="font-semibold">{statusLabels[selectedIncoming?.status] || selectedIncoming?.status || "Unknown"}</span></p>
+              <p className="mt-1">Status: <span className="font-semibold">{statusLabels[getIncomingDisplayStatus(selectedIncoming)] || getIncomingDisplayStatus(selectedIncoming) || "Unknown"}</span></p>
               <p className="mt-1">Expected quantity: {selectedIncoming?.quantity ?? "—"}</p>
               <p className="mt-1">Received quantity: {selectedIncoming?.quantityReceived ?? "Not received yet"}</p>
               <p className="mt-1">Farm: {selectedIncoming?.displayFarmName || getFarmDisplayName(selectedIncoming || {})}</p>
