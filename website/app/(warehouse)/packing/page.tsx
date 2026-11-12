@@ -351,39 +351,26 @@ export default function WarehousePackingPage() {
               <div className="max-h-[min(72vh,820px)] space-y-2 overflow-y-auto pr-1">
                 {queueTab === "shortage" ? (
                   unresolvedShortages.length > 0 ? (
-                    <details open className="group overflow-hidden rounded-xl border border-red-200 bg-white shadow-sm">
-                      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 bg-red-50/70 px-4 py-3 marker:hidden">
-                        <span className="flex min-w-0 items-center gap-2"><AlertTriangle className="h-5 w-5 shrink-0 text-red-600"/><span><span className="block text-sm font-semibold text-red-900">Shortage resolution required</span><span className="block text-xs text-red-700">{unresolvedShortages.length} unresolved case(s) · Dispatch remains blocked until resolved</span></span></span>
-                        <span className="shrink-0 text-xs font-semibold text-red-700 group-open:hidden">View cases</span><span className="hidden shrink-0 text-xs font-semibold text-red-700 group-open:inline">Hide cases</span>
-                      </summary>
-                      <div className="border-t border-red-100 p-4">
-                        <div className="flex items-start gap-3">
-                          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-600"/>
-                          <div className="flex-1">
-                            <p className="font-semibold text-red-900">Shortage Resolution — dispatch blocked</p>
-                            <p className="mt-1 text-sm text-red-800">Shortages are confirmed from physical packed quantities. Resolve each case and then verify the final packing quantities before dispatch.</p>
-                            <div className="mt-4 space-y-3">
-                              {unresolvedShortages.map((x:any) => (
-                                <button key={x.id || x._id} type="button" onClick={() => setSelectedOrderId(String(x.id || x._id))} className={`w-full rounded-xl border p-3 text-left transition-all ${String(selectedShortage?.id || selectedShortage?._id) === String(x.id || x._id) ? "border-red-400 bg-red-50/70 shadow-sm ring-1 ring-red-100" : "border-slate-200 bg-white hover:border-red-300 hover:bg-red-50/30"}`}>
-                                  <div className="flex items-start justify-between gap-2">
-                                    <div className="min-w-0">
-                                      <p className="truncate text-sm font-bold text-slate-900">#{x.orderNumber || x.orderId?.slice(-8) || "Shortage order"}</p>
-                                      <p className="mt-1 truncate text-sm text-slate-600">{x.productName || "Product"} · Required {Number(x.requiredQuantity || 0)} {x.unit || "kg"}</p>
-                                      <p className="mt-1 text-xs text-slate-500">Available {Number(x.availableQuantity || 0)} {x.unit || "kg"}</p>
-                                    </div>
-                                    <div className="flex shrink-0 flex-col items-end gap-2">
-                                      <Badge variant="outline" className="border-red-200 bg-red-50 text-red-700">{String(x.status || "open").replace(/_/g, " ")}</Badge>
-                                      <span className="text-xs font-semibold text-red-700">Short {Number(x.shortageQuantity ?? Math.max(0, Number(x.requiredQuantity || 0) - Number(x.availableQuantity || 0)))} {x.unit || "kg"}</span>
-                                      <ChevronRight className="h-4 w-4 text-slate-400"/>
-                                    </div>
-                                  </div>
-                                </button>
-                              ))}
+                    unresolvedShortages.map((item: any) => {
+                      const active = String(selectedShortage?.id || selectedShortage?._id) === String(item.id || item._id);
+                      const shortQty = Number(item.shortageQuantity ?? Math.max(0, Number(item.requiredQuantity || 0) - Number(item.availableQuantity || 0)));
+                      return (
+                        <button key={item.id || item._id} type="button" onClick={() => setSelectedOrderId(String(item.id || item._id))} className={`w-full rounded-xl border p-3 text-left transition-all ${active ? "border-red-400 bg-red-50/70 shadow-sm ring-1 ring-red-100" : "border-slate-200 bg-white hover:border-red-300 hover:bg-red-50/30"}`}>
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-bold text-slate-900">#{item.orderNumber || item.orderId?.slice(-8) || "Shortage order"}</p>
+                              <p className="mt-1 truncate text-sm text-slate-600">{item.customerName || "Customer details unavailable"}</p>
+                              <p className="mt-1 truncate text-xs text-slate-500">{item.productName || "Product"} · Required {Number(item.requiredQuantity || 0)} {item.unit || "kg"}</p>
+                            </div>
+                            <div className="flex shrink-0 flex-col items-end gap-2">
+                              <Badge variant="outline" className="border-red-200 bg-red-50 text-red-700">{String(item.status || "open").replace(/_/g, " ")}</Badge>
+                              <span className="text-xs font-semibold text-red-700">Short {shortQty} {item.unit || "kg"}</span>
+                              <ChevronRight className={`h-4 w-4 ${active ? "text-red-700" : "text-slate-400"}`}/>
                             </div>
                           </div>
-                        </div>
-                      </div>
-                    </details>
+                        </button>
+                      );
+                    })
                   ) : (
                     <div className="rounded-xl border border-dashed p-8 text-center"><CheckCircle2 className="mx-auto h-8 w-8 text-emerald-500"/><p className="mt-2 text-sm font-semibold text-slate-700">No open shortage cases</p><p className="mt-1 text-xs text-slate-500">Orders with shortages will appear here until resolved.</p></div>
                   )
