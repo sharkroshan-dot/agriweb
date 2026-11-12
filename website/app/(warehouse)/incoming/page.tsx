@@ -990,8 +990,8 @@ export default function WarehouseIncomingPage() {
 
       <Dialog open={showReceiptDialog} onOpenChange={setShowReceiptDialog}>
         <DialogContent
-          className="!w-[min(96vw,980px)] !max-w-none overflow-hidden rounded-2xl border-slate-200 p-0 shadow-2xl"
-          style={{ width: "min(96vw, 980px)", minWidth: "min(96vw, 980px)", maxWidth: "980px", height: "auto", maxHeight: "calc(100dvh - 40px)" }}
+          className="!w-[92vw] !max-w-[980px] sm:!max-w-[980px] overflow-hidden rounded-2xl border-slate-200 p-0 shadow-2xl"
+          style={{ width: "92vw", minWidth: "min(92vw, 980px)", maxWidth: "980px", height: "auto", maxHeight: "calc(100dvh - 40px)" }}
         >
           {selectedIncoming && (() => {
             const receipt = selectedIncoming.receipt || {};
@@ -1030,7 +1030,7 @@ export default function WarehouseIncomingPage() {
                 <Badge variant="outline" className={cn("shrink-0 px-3 py-1 text-xs font-semibold", quality === "passed" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : quality === "failed" ? "border-red-200 bg-red-50 text-red-700" : "border-amber-200 bg-amber-50 text-amber-800")}>{qualityLabel}</Badge>
               </div>
 
-              <div className="grid min-h-0 grid-cols-1 gap-3 overflow-hidden p-4 sm:grid-cols-[1.15fr_0.85fr] sm:gap-4 sm:p-5">
+              <div className="grid min-h-0 min-w-0 grid-cols-1 gap-3 overflow-hidden p-4 sm:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] sm:gap-4 sm:p-5">
                 <div className="flex min-w-0 flex-col gap-3">
                   <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50/70 px-4 py-3">
                     <div className="min-w-0">
@@ -1047,7 +1047,7 @@ export default function WarehouseIncomingPage() {
                   <div className="grid min-w-0 grid-cols-2 gap-2">
                     <div className={compactCard}>
                       <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Order & product</p>
-                      <p className="mt-1 break-words text-sm font-semibold text-slate-900">{orderReference}</p>
+                      <p className="mt-1 min-w-0 break-all text-sm font-semibold text-slate-900">{orderReference}</p>
                       <p className="mt-1 text-xs text-slate-600">{productName}</p>
                     </div>
                     <div className={compactCard}>
@@ -1062,7 +1062,7 @@ export default function WarehouseIncomingPage() {
                     </div>
                     <div className={compactCard}>
                       <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Delivery address</p>
-                      <p className="mt-1 break-words text-xs leading-relaxed text-slate-700">{addressText || "Address not available"}</p>
+                      <p className="mt-1 min-w-0 break-all text-xs leading-relaxed text-slate-700">{addressText || "Address not available"}</p>
                     </div>
                   </div>
                 </div>
