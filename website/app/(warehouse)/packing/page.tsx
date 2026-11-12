@@ -82,8 +82,19 @@ export default function WarehousePackingPage() {
     queryKey: ["warehouseShortages"],
     queryFn: () => api.get("/warehouse/me/shortages", { params: { status: "all" } }),
   });
-  const shortageRoot = shortageData?.data ?? shortageData;
-  const shortages = shortageRoot?.data?.shortages ?? shortageRoot?.shortages ?? [];
+  const unwrapShortageResponse = (value: any): any => {
+    let current = value;
+    for (let i = 0; i < 4 && current?.data; i += 1) current = current.data;
+    return current;
+  };
+  const shortageRoot = unwrapShortageResponse(shortageData);
+  const shortages = Array.isArray(shortageRoot?.shortages)
+    ? shortageRoot.shortages
+    : Array.isArray(shortageRoot?.data?.shortages)
+      ? shortageRoot.data.shortages
+      : Array.isArray(shortageData?.data?.data?.shortages)
+        ? shortageData.data.data.shortages
+        : [];
 
   const getFarmDetails = (task: any) => {
     const item = (task.items || [])[0] || (task.packingItems || [])[0] || {};
@@ -125,7 +136,7 @@ export default function WarehousePackingPage() {
     });
   }, [tasks, searchTerm, dateFilter, requestedOrderId, requestedFarm]);
 
-  const unresolvedShortages = shortages.filter((item: any) => !["resolved", "cancelled"].includes(String(item.status || "").toLowerCase()));
+  const unresolvedShortages = shortages.filter((item: any) => !["resolved", "cancelled", "closed"].includes(String(item.status || "").toLowerCase()));
   const shortageOrderIds = new Set(unresolvedShortages.flatMap((item: any) => [item.orderId, item.orderNumber, item.order?._id, item.order?.id].filter(Boolean).map(String)));
   const taskHasOpenShortage = (task: any) => [task.orderId, task.orderNumber, task.order?.id, task.order?._id, task.id].filter(Boolean).some((id: any) => shortageOrderIds.has(String(id)));
   const visibleTasks = useMemo(() => {
@@ -154,7 +165,7 @@ export default function WarehousePackingPage() {
   const unfinishedCount = filteredTasks.filter((task: any) => String(task.status || "").toLowerCase() === "ready_for_packing" && !taskHasOpenShortage(task)).length;
   const packingCount = filteredTasks.filter((task: any) => ["assigned", "packing", "partially_packed"].includes(String(task.status || "").toLowerCase()) && !taskHasOpenShortage(task)).length;
   const completedCount = filteredTasks.filter((task: any) => ["packed", "verified", "ready_for_dispatch", "dispatched"].includes(String(task.status || "").toLowerCase()) && !taskHasOpenShortage(task)).length;
-  const shortageTaskCount = filteredTasks.filter((task: any) => taskHasOpenShortage(task) || String(task.status || "").toLowerCase() === "customer_approval_pending").length;
+  const shortageTaskCount = unresolvedShortages.length;
   const finishedCount = filteredTasks.filter((task: any) => !isUnfinishedPackingTask(task)).length;
 
   const assignFarmTeam = async (farm: { key: string; name: string; tasks: any[] }) => {
