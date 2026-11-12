@@ -44,21 +44,21 @@ const stageMeta = (rawStage: string) => {
 };
 
 const STANDARD_JOURNEY = [
-  { id: "confirmed", label: "Order confirmed", aliases: ["confirmed", "accepted", "processing", "pending"] },
-  { id: "preparing", label: "Preparing", aliases: ["preparing", "ready_for_packing", "packing_team_assigned", "packing"] },
-  { id: "quality_check", label: "Quality inspection", aliases: ["quality_check", "quality_checked", "quality_passed", "quality_approved"] },
-  { id: "packed", label: "Packed", aliases: ["packed", "packing_complete", "ready_for_dispatch", "delivery_decision"] },
+  { id: "confirmed", label: "Order confirmed", aliases: ["pending", "confirmed", "accepted", "processing"] },
+  { id: "preparing", label: "Preparing", aliases: ["preparing", "incoming", "ready_for_packing", "packing_team_assigned", "packing", "partially_packed"] },
+  { id: "quality_check", label: "Quality inspection", aliases: ["quality_check", "quality_checked", "quality_passed", "quality_approved", "received"] },
+  { id: "packed", label: "Packed / ready", aliases: ["packed", "packing_complete", "verified", "ready_for_dispatch", "delivery_decision", "ready_for_delivery"] },
   { id: "dispatched", label: "Dispatched", aliases: ["dispatched", "shipped", "picked_up", "in_transit", "out_for_delivery", "delivery_assigned"] },
   { id: "delivered", label: "Delivered", aliases: ["delivered", "completed"] },
 ];
 
 const TRANSFER_JOURNEY = [
-  { id: "confirmed", label: "Order confirmed", aliases: ["confirmed", "accepted", "processing", "pending"] },
-  { id: "preparing", label: "Farm preparation", aliases: ["preparing", "ready_for_packing", "packing_team_assigned", "packing", "quality_check", "quality_checked", "quality_passed", "quality_approved", "packed", "packing_complete"] },
+  { id: "confirmed", label: "Order confirmed", aliases: ["pending", "confirmed", "accepted", "processing"] },
+  { id: "preparing", label: "Farm preparation", aliases: ["preparing", "ready_for_packing", "packing", "packed", "packing_complete"] },
   { id: "farm_pickup", label: "Farm pickup", aliases: ["ready_for_pickup", "pickup_assigned", "pickup_started", "collected", "collected_from_farm", "picked_up_from_farm"] },
-  { id: "source_received", label: "Source warehouse received", aliases: ["received_transfer", "warehouse_received", "arrived_warehouse", "source_warehouse_received"] },
+  { id: "source_received", label: "Source warehouse received", aliases: ["received_transfer", "warehouse_received", "arrived_warehouse", "source_warehouse_received", "stored_transfer", "warehouse_received_stored"] },
   { id: "source_quality", label: "Quality inspection", aliases: ["warehouse_quality_check", "quality_inspection", "quality_passed_at_warehouse"] },
-  { id: "transfer_ready", label: "Transfer prepared", aliases: ["transfer_pending", "transfer_ready", "ready_for_transfer", "pending"] },
+  { id: "transfer_ready", label: "Transfer prepared", aliases: ["transfer_pending", "transfer_ready", "ready_for_transfer"] },
   { id: "transfer_dispatched", label: "Transfer dispatched", aliases: ["transfer_dispatched", "dispatched_to_destination"] },
   { id: "transfer_transit", label: "Transfer in transit", aliases: ["in_transit", "transfer_in_transit"] },
   { id: "destination_received", label: "Destination warehouse received", aliases: ["received", "completed", "received_at_destination", "destination_warehouse_received", "received_at_consolidation"] },
@@ -69,37 +69,44 @@ const TRANSFER_JOURNEY = [
 
 const hasWarehouseTransfer = (order: any) => {
   const mode = normalizeStage(order?.logisticsMode || order?.warehouseTransfer?.mode || order?.transfer?.mode);
-  return Boolean(order?.transferStatus || order?.warehouseTransferId || order?.warehouseTransfer || order?.transferLegs?.length ||
-    ["warehouse_to_warehouse", "inter_warehouse", "warehouse_transfer", "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner"].includes(mode));
+  const legs = Array.isArray(order?.transferLegs) ? order.transferLegs : [];
+  return legs.length > 0 || Boolean(order?.warehouseTransferId || order?.warehouseTransfer?.id) ||
+    ["warehouse_to_warehouse", "inter_warehouse", "warehouse_transfer", "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner"].includes(mode);
 };
 
 const getJourneySteps = (order: any) => hasWarehouseTransfer(order) ? TRANSFER_JOURNEY : STANDARD_JOURNEY;
 
-const getJourneyIndex = (order: any, stage: string) => {
-  const normalized = normalizeStage(stage);
-  if (["cancelled", "canceled", "refunded"].includes(normalized)) return -1;
+const getJourneyIndex = (order: any, rawStage: string) => {
+  const stage = normalizeStage(rawStage);
+  if (["cancelled", "canceled", "refunded"].includes(stage)) return -1;
   const steps = getJourneySteps(order);
   const transferStatus = normalizeStage(order?.transferStatus || order?.warehouseTransfer?.status || order?.transfer?.status);
-  const transferLegs = Array.isArray(order?.transferLegs) ? order.transferLegs : [];
-  const latestLeg = transferLegs[transferLegs.length - 1] || {};
-  const legStatus = normalizeStage(latestLeg.status);
-  const effective = legStatus || transferStatus || normalized;
+  const deliveryStatus = normalizeStage(order?.deliveryStatus);
+  if (deliveryStatus === "delivered" || ["delivered", "completed"].includes(normalizeStage(order?.orderStatus))) return steps.length - 1;
 
   if (steps === TRANSFER_JOURNEY) {
-    if (["delivered", "completed"].includes(normalized) || ["delivered", "completed"].includes(normalizeStage(order?.deliveryStatus))) return steps.length - 1;
-    if (["received", "completed", "received_at_destination", "destination_warehouse_received", "received_at_consolidation"].includes(effective)) return 8;
-    if (["in_transit", "transfer_in_transit"].includes(effective)) return 7;
-    if (["dispatched", "transfer_dispatched", "dispatched_to_destination"].includes(effective)) return 6;
-    if (["pending", "transfer_pending", "transfer_ready", "ready_for_transfer"].includes(effective)) return 5;
+    if (["received", "completed", "received_at_destination", "destination_warehouse_received", "received_at_consolidation"].includes(transferStatus)) return 8;
+    if (["in_transit", "transfer_in_transit"].includes(transferStatus)) return 7;
+    if (["dispatched", "transfer_dispatched", "dispatched_to_destination"].includes(transferStatus)) return 6;
+    if (["pending", "transfer_pending", "transfer_ready", "ready_for_transfer"].includes(transferStatus)) return 5;
   }
 
-  const found = steps.findIndex((step) => step.aliases.includes(normalized));
+  const found = steps.findIndex((step) => step.aliases.includes(stage));
   if (found >= 0) return found;
-  if (steps === TRANSFER_JOURNEY) {
-    if (["received_transfer", "stored_transfer"].includes(normalized)) return 3;
-    if (["ready_for_pickup", "pickup_assigned", "collected_from_farm"].includes(normalized)) return 2;
+
+  // The warehouse fulfillment stage is authoritative for the standard route.
+  if (steps === STANDARD_JOURNEY) {
+    if (["ready_for_dispatch", "delivery_decision", "verified"].includes(stage)) return 3;
+    if (["dispatched", "in_transit", "out_for_delivery", "delivery_assigned"].includes(stage)) return 4;
+    if (["delivered", "completed"].includes(stage)) return 5;
   }
   return 0;
+};
+
+const getStepCompletion = (order: any, index: number, currentIndex: number) => {
+  if (index < currentIndex) return "complete";
+  if (index === currentIndex) return "current";
+  return "pending";
 };
 
 const displayDate = (value: any) => {
@@ -193,7 +200,7 @@ export default function WarehouseOrdersPage() {
             <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
               <div className="min-w-0 flex-1 space-y-3">
                 <div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold text-slate-900">#{order.orderNumber || order.id || "Order"}</h3><Badge variant="outline" className={meta.tone}>{meta.label}</Badge>{overdue && <Badge variant="destructive"><AlertTriangle className="mr-1 h-3 w-3" />Overdue</Badge>}<Badge variant="outline">{String(order.fulfillmentMethod || order.fulfillmentType || "Warehouse fulfillment").replace(/_/g, " ")}</Badge></div>
-                {!["cancelled", "canceled", "refunded"].includes(stage) && <div className="max-w-full overflow-x-auto pb-1"><div className="flex min-w-[760px] items-center justify-between gap-1">{getJourneySteps(order).map((step, index, journeySteps) => { const currentIndex = getJourneyIndex(order, stage); const reached = index <= currentIndex; const current = index === currentIndex; return <div key={step.id} className="flex min-w-0 flex-1 items-center"><div className="flex min-w-0 flex-col items-center text-center"><span className={cn("flex h-6 w-6 items-center justify-center rounded-full border text-[11px] font-semibold", reached ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-300 bg-white text-slate-400", current && "ring-2 ring-emerald-100")}>{reached ? <CheckCircle2 className="h-3.5 w-3.5" /> : index + 1}</span><span className={cn("mt-1 max-w-[76px] truncate text-[10px] leading-tight", current ? "font-semibold text-emerald-700" : reached ? "text-slate-600" : "text-slate-400")}>{step.label}</span></div>{index < journeySteps.length - 1 && <span className={cn("mx-1 mb-4 h-0.5 min-w-2 flex-1", index < currentIndex ? "bg-emerald-500" : "bg-slate-200")} />}</div>; })}</div></div>}<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                {!["cancelled", "canceled", "refunded"].includes(stage) && <div className="max-w-full overflow-x-auto pb-1"><div className="flex min-w-[760px] items-center justify-between gap-1">{getJourneySteps(order).map((step, index, journeySteps) => { const currentIndex = getJourneyIndex(order, stage); const stepState = getStepCompletion(order, index, currentIndex); const reached = stepState === "complete" || stepState === "current"; const current = stepState === "current"; return <div key={step.id} className="flex min-w-0 flex-1 items-center"><div className="flex min-w-0 flex-col items-center text-center"><span className={cn("flex h-6 w-6 items-center justify-center rounded-full border text-[11px] font-semibold", reached ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-300 bg-white text-slate-400", current && "ring-2 ring-emerald-100")}>{reached ? <CheckCircle2 className="h-3.5 w-3.5" /> : index + 1}</span><span className={cn("mt-1 max-w-[76px] truncate text-[10px] leading-tight", current ? "font-semibold text-emerald-700" : reached ? "text-slate-600" : "text-slate-400")}>{step.label}</span></div>{index < journeySteps.length - 1 && <span className={cn("mx-1 mb-4 h-0.5 min-w-2 flex-1", index < currentIndex ? "bg-emerald-500" : "bg-slate-200")} />}</div>; })}</div></div>}<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                   <div className="flex items-start gap-2"><User className="mt-0.5 h-4 w-4 text-slate-400" /><div><p className="text-xs text-muted-foreground">Customer</p><p className="text-sm font-medium">{customer.name || "Customer"}</p><p className="text-xs text-muted-foreground">{customer.phone || customer.email || "Contact not provided"}</p></div></div>
                   <div className="flex items-start gap-2"><Package className="mt-0.5 h-4 w-4 text-slate-400" /><div><p className="text-xs text-muted-foreground">Order items</p><p className="text-sm font-medium">{items.length} products · {quantity || "—"} total units</p><p className="line-clamp-1 text-xs text-muted-foreground">{items.slice(0, 2).map((item: any) => item.productName || item.name || "Product").join(", ") || "Items not provided"}{items.length > 2 ? " and more" : ""}</p></div></div>
                   <div className="flex items-start gap-2"><CalendarClock className="mt-0.5 h-4 w-4 text-slate-400" /><div><p className="text-xs text-muted-foreground">Delivery deadline</p><p className={cn("text-sm font-medium", overdue && "text-rose-700")}>{displayDate(deadline)}</p><p className="text-xs text-muted-foreground">Placed {displayDate(order.createdAt || order.orderDate)}</p></div></div>
