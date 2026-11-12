@@ -913,6 +913,7 @@ export default function WarehouseIncomingPage() {
               <div className="space-y-2 border-t border-slate-100 pt-3">
                 {arrived && !received && isPacked && <Button className="w-full" onClick={()=>openReceiveDialog(item)}><CheckCircle className="mr-2 h-4 w-4"/>Receive Collection</Button>}
                 {received && <Button variant="outline" className="w-full" onClick={()=>{setSelectedIncoming(item);setShowReceiptDialog(true);}}>View Receipt Details</Button>}
+                {received && getReceiptQuality(item) === "pending" && !isPacked && <Button className="w-full" onClick={()=>openQualityDialog(item)}><ShieldCheck className="mr-2 h-4 w-4"/>Complete Quality Check</Button>}
                 {received && getReceiptQuality(item) !== "pending" && <Button className="w-full" onClick={()=>printIncomingPackingReceipt(item, Number(item.receipt?.receivedQuantity ?? item.quantityReceived ?? item.quantity ?? 0), Number(item.receipt?.usableQuantity ?? item.usableQuantity ?? item.quantityReceived ?? item.quantity ?? 0))}><Package className="mr-2 h-4 w-4"/>Reprint Receipt</Button>}
                 <Button variant="outline" className="w-full" onClick={()=>{setSelectedIncoming(item);setShowTrackDialog(true);}}>View Shipment Details</Button>
               </div>
@@ -988,7 +989,7 @@ export default function WarehouseIncomingPage() {
       </Dialog>
 
       <Dialog open={showReceiptDialog} onOpenChange={setShowReceiptDialog}>
-        <DialogContent className="max-w-3xl max-h-[88vh] overflow-y-auto rounded-2xl border-slate-200 p-0">
+        <DialogContent className="!w-[min(94vw,900px)] !max-w-[900px] max-h-[90vh] overflow-y-auto rounded-2xl border-slate-200 p-0">
           {selectedIncoming && (() => {
             const receipt = selectedIncoming.receipt || {};
             const order = selectedIncoming.order || {};
@@ -1043,11 +1044,18 @@ export default function WarehouseIncomingPage() {
                 <div className="rounded-xl border border-slate-200 p-4">
                   <div className="flex items-center justify-between gap-3"><h3 className="text-sm font-semibold text-slate-900">Quality inspection</h3><Badge variant="outline" className={cn(quality === "passed" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : quality === "failed" ? "border-red-200 bg-red-50 text-red-700" : "border-amber-200 bg-amber-50 text-amber-800")}>{qualityLabel}</Badge></div>
                   <p className="mt-2 text-sm leading-relaxed text-slate-600">{receipt.qualityNotes || selectedIncoming.qualityNotes || selectedIncoming.notes || (quality === "pending" ? "Quality inspection has not been completed yet." : "No inspection notes recorded.")}</p>
+                  {quality === "pending" && !isPackedFarmerTransfer(selectedIncoming) && <div className="mt-4 space-y-3 border-t border-slate-100 pt-4">
+                    <div><label className="mb-1.5 block text-xs font-semibold text-slate-700">Inspection notes (optional)</label><Input value={qualityNotes} onChange={(event) => setQualityNotes(event.target.value)} placeholder="Describe freshness, damage, weight or other observations" /></div>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <Button type="button" variant="destructive" className="flex-1" disabled={isSaving} onClick={() => handleQuality("failed")}><ShieldAlert className="mr-2 h-4 w-4"/>{isSaving ? "Saving..." : "Mark Quality Failed"}</Button>
+                      <Button type="button" className="flex-1" disabled={isSaving} onClick={() => handleQuality("passed")}><CheckCircle className="mr-2 h-4 w-4"/>{isSaving ? "Saving..." : "Approve Quality"}</Button>
+                    </div>
+                  </div>}
                 </div>
                 {!selectedIncoming.receipt && <p className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs leading-relaxed text-blue-900">This is an older receipt record. Details shown above are reconstructed from the shipment information currently available.</p>}
                 <div className="flex flex-col-reverse gap-2 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
                   <Button type="button" variant="outline" onClick={() => setShowReceiptDialog(false)}>Close</Button>
-                  {quality !== "pending" ? <Button type="button" onClick={() => printIncomingPackingReceipt(selectedIncoming, receivedQuantity, usable)}><Package className="mr-2 h-4 w-4"/>Reprint Receipt</Button> : <p className="text-xs text-amber-700">Reprint becomes available after quality inspection is completed.</p>}
+                  {quality !== "pending" ? <Button type="button" onClick={() => printIncomingPackingReceipt(selectedIncoming, receivedQuantity, usable)}><Package className="mr-2 h-4 w-4"/>Reprint Receipt</Button> : <p className="text-xs text-amber-700">Complete the quality check above to enable receipt reprinting.</p>}
                 </div>
               </div>
             </div>;
