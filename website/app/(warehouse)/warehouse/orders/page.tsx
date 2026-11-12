@@ -44,7 +44,7 @@ const stageMeta = (rawStage: string) => {
 };
 
 const ORDER_JOURNEY = [
-  { id: "confirmed", label: "Order confirmed", aliases: ["confirmed", "accepted", "processing"] },
+  { id: "confirmed", label: "Order confirmed", aliases: ["confirmed", "accepted", "processing", "pending"] },
   { id: "preparing", label: "Preparing", aliases: ["preparing", "ready_for_packing", "packing_team_assigned", "packing"] },
   { id: "quality_check", label: "Quality check", aliases: ["quality_check", "quality_checked", "quality_passed", "quality_approved"] },
   { id: "packed", label: "Packed", aliases: ["packed", "packing_complete", "ready_for_dispatch", "delivery_decision"] },
@@ -52,12 +52,36 @@ const ORDER_JOURNEY = [
   { id: "delivered", label: "Delivered", aliases: ["delivered", "completed"] },
 ];
 
-const getJourneyIndex = (stage: string) => {
+const hasWarehouseTransfer = (order: any) => {
+  const transfer = order?.warehouseTransfer || order?.transfer || {};
+  const mode = normalizeStage(order?.logisticsMode || transfer?.mode || transfer?.logisticsMode);
+  return Boolean(order?.transferStatus || transfer?.status || order?.warehouseTransferId || transfer?.id ||
+    ["warehouse_to_warehouse", "inter_warehouse", "warehouse_transfer"].includes(mode));
+};
+
+const getTransferStatus = (order: any) => normalizeStage(order?.transferStatus || order?.warehouseTransfer?.status || order?.transfer?.status);
+
+const getJourneySteps = (order: any) => {
+  const steps = [...ORDER_JOURNEY];
+  if (hasWarehouseTransfer(order)) {
+    steps.splice(4, 0, { id: "warehouse_transfer", label: "Warehouse transfer", aliases: [] });
+  }
+  return steps;
+};
+
+const getJourneyIndex = (order: any, stage: string) => {
   const normalized = normalizeStage(stage);
   if (["cancelled", "canceled", "refunded"].includes(normalized)) return -1;
-  return ORDER_JOURNEY.findIndex((step) => step.aliases.includes(normalized)) >= 0
-    ? ORDER_JOURNEY.findIndex((step) => step.aliases.includes(normalized))
-    : 0;
+  const transferStatus = getTransferStatus(order);
+  if (hasWarehouseTransfer(order) && ["pending", "assigned", "ready_for_dispatch", "dispatched", "in_transit"].includes(transferStatus)) {
+    return getJourneySteps(order).findIndex((step) => step.id === "warehouse_transfer");
+  }
+  if (hasWarehouseTransfer(order) && ["received", "completed", "delivered"].includes(transferStatus)) {
+    return getJourneySteps(order).findIndex((step) => step.id === "warehouse_transfer") + 1;
+  }
+  const steps = getJourneySteps(order);
+  const found = steps.findIndex((step) => step.aliases.includes(normalized));
+  return found >= 0 ? found : 0;
 };
 
 const displayDate = (value: any) => {
@@ -151,7 +175,7 @@ export default function WarehouseOrdersPage() {
             <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
               <div className="min-w-0 flex-1 space-y-3">
                 <div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold text-slate-900">#{order.orderNumber || order.id || "Order"}</h3><Badge variant="outline" className={meta.tone}>{meta.label}</Badge>{overdue && <Badge variant="destructive"><AlertTriangle className="mr-1 h-3 w-3" />Overdue</Badge>}<Badge variant="outline">{String(order.fulfillmentMethod || order.fulfillmentType || "Warehouse fulfillment").replace(/_/g, " ")}</Badge></div>
-                {!["cancelled", "canceled", "refunded"].includes(stage) && <div className="max-w-3xl"><div className="flex items-center justify-between gap-1 overflow-hidden">{ORDER_JOURNEY.map((step, index) => { const currentIndex = getJourneyIndex(stage); const reached = index <= currentIndex; const current = index === currentIndex; return <div key={step.id} className="flex min-w-0 flex-1 items-center"><div className="flex min-w-0 flex-col items-center text-center"><span className={cn("flex h-6 w-6 items-center justify-center rounded-full border text-[11px] font-semibold", reached ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-300 bg-white text-slate-400", current && "ring-2 ring-emerald-100")}>{reached ? <CheckCircle2 className="h-3.5 w-3.5" /> : index + 1}</span><span className={cn("mt-1 max-w-[76px] truncate text-[10px] leading-tight", current ? "font-semibold text-emerald-700" : reached ? "text-slate-600" : "text-slate-400")}>{step.label}</span></div>{index < ORDER_JOURNEY.length - 1 && <span className={cn("mx-1 mb-4 h-0.5 min-w-2 flex-1", index < currentIndex ? "bg-emerald-500" : "bg-slate-200")} />}</div>; })}</div></div>}<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                {!["cancelled", "canceled", "refunded"].includes(stage) && <div className="max-w-3xl"><div className="flex items-center justify-between gap-1 overflow-hidden">{getJourneySteps(order).map((step, index, journeySteps) => { const currentIndex = getJourneyIndex(order, stage); const reached = index <= currentIndex; const current = index === currentIndex; return <div key={step.id} className="flex min-w-0 flex-1 items-center"><div className="flex min-w-0 flex-col items-center text-center"><span className={cn("flex h-6 w-6 items-center justify-center rounded-full border text-[11px] font-semibold", reached ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-300 bg-white text-slate-400", current && "ring-2 ring-emerald-100")}>{reached ? <CheckCircle2 className="h-3.5 w-3.5" /> : index + 1}</span><span className={cn("mt-1 max-w-[76px] truncate text-[10px] leading-tight", current ? "font-semibold text-emerald-700" : reached ? "text-slate-600" : "text-slate-400")}>{step.label}</span></div>{index < journeySteps.length - 1 && <span className={cn("mx-1 mb-4 h-0.5 min-w-2 flex-1", index < currentIndex ? "bg-emerald-500" : "bg-slate-200")} />}</div>; })}</div></div>}<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                   <div className="flex items-start gap-2"><User className="mt-0.5 h-4 w-4 text-slate-400" /><div><p className="text-xs text-muted-foreground">Customer</p><p className="text-sm font-medium">{customer.name || "Customer"}</p><p className="text-xs text-muted-foreground">{customer.phone || customer.email || "Contact not provided"}</p></div></div>
                   <div className="flex items-start gap-2"><Package className="mt-0.5 h-4 w-4 text-slate-400" /><div><p className="text-xs text-muted-foreground">Order items</p><p className="text-sm font-medium">{items.length} products · {quantity || "—"} total units</p><p className="line-clamp-1 text-xs text-muted-foreground">{items.slice(0, 2).map((item: any) => item.productName || item.name || "Product").join(", ") || "Items not provided"}{items.length > 2 ? " and more" : ""}</p></div></div>
                   <div className="flex items-start gap-2"><CalendarClock className="mt-0.5 h-4 w-4 text-slate-400" /><div><p className="text-xs text-muted-foreground">Delivery deadline</p><p className={cn("text-sm font-medium", overdue && "text-rose-700")}>{displayDate(deadline)}</p><p className="text-xs text-muted-foreground">Placed {displayDate(order.createdAt || order.orderDate)}</p></div></div>
