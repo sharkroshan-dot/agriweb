@@ -21,7 +21,7 @@ const ROUTES: {key:RouteKey;label:string;description:string}[] = [
   {key:"route_review",label:"Route Review Required",description:"Route configuration or operational prerequisites need review."},
   {key:"needs_location",label:"Needs Location Data",description:"Customer or warehouse location details are incomplete."},
 ];
-const norm=(v:any)=>String(v??"").trim().toLowerCase().replace(/[\\s-]+/g,"_");
+const norm=(v:any)=>String(v??"").trim().toLowerCase().replace(/[\s-]+/g,"_");
 const normDistrict=(v:any)=>String(v??"").trim().toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
 function classify(row:any,source:Source):RouteKey {
   const raw=norm(row.routeCategory||row.farmerFulfillmentRouteType||row.warehouseRouteCategory);
@@ -81,8 +81,10 @@ export default function FulfillmentDispatchPage() {
   const outgoingQuery=useQuery({queryKey:["unifiedWarehouseOutgoing"],queryFn:()=>api.get("/warehouse/me/outgoing",{params:{limit:100}}),refetchInterval:20000});
   const teamsQuery=useQuery({queryKey:["unifiedFulfillmentPickupTeams"],queryFn:()=>api.get("/warehouse/me/pickup-team/members"),refetchInterval:30000});
   const hubsQuery=useQuery({queryKey:["unifiedFulfillmentLocalHubs"],queryFn:()=>api.get("/warehouse/me/local-hubs"),refetchInterval:30000});
+  const consolidationQuery=useQuery({queryKey:["unifiedFarmerConsolidations"],queryFn:()=>api.get("/warehouse/me/farmer-fulfillment-consolidations"),refetchInterval:20000});
   const teams=(teamsQuery.data?.data?.members||[]).map((m:any)=>({id:String(m.deliveryPartnerId||m.id||m._id),name:m.name||m.partnerName||m.firstName||"Delivery partner",vehicle:m.vehicleType||m.vehicle||"Vehicle",capacity:Number(m.capacity||m.vehicleCapacity||0)}));
   const hubs=hubsQuery.data?.data?.hubs||hubsQuery.data?.hubs||[];
+  const consolidationRows=consolidationQuery.data?.data?.consolidations||consolidationQuery.data?.consolidations||[];
   const farmerRows=farmerQuery.data?.data?.transfers||farmerQuery.data?.transfers||[];
   const outgoingRows=outgoingQuery.data?.data?.outgoing||outgoingQuery.data?.outgoing||[];
   const orders=useMemo(()=>[...farmerRows.map(normalizeFarmer),...outgoingRows.map(normalizeWarehouse)], [farmerRows,outgoingRows]);
@@ -95,7 +97,7 @@ export default function FulfillmentDispatchPage() {
   const stageNames=["To Receive","To Route","In Transfer","To Dispatch","Delivered"];
   const stageCounts=Object.fromEntries(stageNames.map(s=>[s,orders.filter((o:any)=>o.stage===s).length])) as Record<string,number>;
   const groups=useMemo(()=>{const m=new Map<string,any[]>();filtered.forEach((o:any)=>m.set(o.destinationGroup,[...(m.get(o.destinationGroup)||[]),o]));return [...m.entries()].sort((a,b)=>a[0].localeCompare(b[0]));},[filtered]);
-  const refresh=()=>Promise.all([farmerQuery.refetch(),outgoingQuery.refetch(),teamsQuery.refetch(),hubsQuery.refetch()]);
+  const refresh=()=>Promise.all([farmerQuery.refetch(),outgoingQuery.refetch(),teamsQuery.refetch(),hubsQuery.refetch(),consolidationQuery.refetch()]);
   const toggleGroup=(name:string)=>setExpanded(v=>v.includes(name)?v.filter(x=>x!==name):[...v,name]);
   const setWorking=(key:string)=>setBusy(key);
   const act=async(order:any,action:string)=>{
@@ -107,7 +109,12 @@ export default function FulfillmentDispatchPage() {
         else if(action==="nearby") {
           const partner=partnerByOrder[id]; if(!partner) throw new Error("Select an approved delivery partner first");
           await api.put("/warehouse/me/farmer-fulfillment/"+id+"/assign-nearby-delivery-partner",undefined,{params:{deliveryPartnerId:partner}});
-        } else if(action==="same") await api.post("/warehouse/me/farmer-fulfillment/"+id+"/dispatch-to-local-hub");
+        } else if(action==="same") {
+          await api.post("/warehouse/me/farmer-fulfillment/"+id+"/dispatch-to-local-hub");
+        } else if(action==="assign-hub-team") {
+          const partner=partnerByOrder[id];if(!partner)throw new Error("Select an approved local-hub pickup team first");
+          await api.put("/warehouse/me/farmer-fulfillment/"+id+"/assign-local-hub-pickup-team",undefined,{params:{deliveryPartnerId:partner}});
+        }
         else if(action==="destination") {
           let result:any;
           if(!order.destinationWarehouseId) result=await api.post("/warehouse/me/farmer-fulfillment/"+id+"/assign-destination-warehouse");
@@ -119,7 +126,12 @@ export default function FulfillmentDispatchPage() {
         } else if(action==="destination-receive") await api.post("/warehouse/me/farmer-fulfillment/"+id+"/receive-at-destination");
         else if(action==="hub-handoff") await api.post("/warehouse/me/farmer-fulfillment/"+id+"/handoff-local-hub");
         else if(action==="hub-receive") await api.post("/warehouse/me/farmer-fulfillment/"+id+"/receive-local-hub");
-        else if(action==="consolidation-receive") await api.post("/warehouse/me/farmer-fulfillment/"+id+"/receive-at-consolidation");
+        else if(action==="consolidation-dispatch") await api.post("/warehouse/me/farmer-fulfillment/"+id+"/dispatch-to-consolidation");
+        else if(action==="consolidation-receive") {
+          const legs=(order.consolidationLegs||[]).filter((leg:any)=>leg.status==="in_transit").map((leg:any)=>leg.id).filter(Boolean);
+          if(!legs.length)throw new Error("There are no in-transit consolidation portions to receive");
+          await api.post("/warehouse/me/farmer-fulfillment/"+id+"/receive-at-consolidation",undefined,{params:{legIds:legs}});
+        }
         else if(action==="consolidation-complete") await api.post("/warehouse/me/farmer-fulfillment/"+id+"/complete-consolidation");
         else if(action==="consolidation-handoff") await api.post("/warehouse/me/farmer-fulfillment/"+id+"/handoff-local-hub");
       } else {
@@ -130,6 +142,7 @@ export default function FulfillmentDispatchPage() {
         if(action==="nearby") {
           await api.post("/warehouse/me/outgoing/"+id+"/delivery-route",{route:"nearby",radius:order.nearbyThresholdKm??15});
           await api.put("/warehouse/me/outgoing/"+id+"/status",undefined,{params:{status:"dispatched"}});
+          await api.post("/warehouse/me/outgoing/"+id+"/delivery-route",{route:"nearby",radius:order.nearbyThresholdKm??15});
         } else if(action==="same") {
           const hub=hubs.find((h:any)=>h.id);
           if(!hub) throw new Error("No local hub is available. Verify the destination local hub first.");
@@ -156,7 +169,7 @@ export default function FulfillmentDispatchPage() {
     setWorking("");await refresh();
   };
 
-  const loading=farmerQuery.isLoading||outgoingQuery.isLoading;
+  const loading=farmerQuery.isLoading||outgoingQuery.isLoading||consolidationQuery.isLoading;
   return <div className="mx-auto w-full max-w-[1700px] space-y-4 pb-8">
     <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3"><div className="rounded-xl bg-emerald-50 p-3 text-emerald-700"><Truck className="h-6 w-6"/></div><div><h1 className="text-2xl font-bold">Fulfillment &amp; Dispatch</h1><p className="text-sm text-muted-foreground">Unified operational workspace for Farmer and Warehouse orders.</p><p className="text-xs text-muted-foreground">Receive → Quality Check → Route Classification → Transfer (if required) → Dispatch → Delivery</p></div></div><div className="flex gap-2"><Button variant="outline" onClick={()=>refresh()} disabled={farmerQuery.isFetching||outgoingQuery.isFetching}><RefreshCw className="mr-2 h-4 w-4"/>Refresh</Button><Button asChild><Link href="/warehouse/consolidation">Consolidation workspace <ArrowRight className="ml-2 h-4 w-4"/></Link></Button></div></div>
 
@@ -189,18 +202,22 @@ export default function FulfillmentDispatchPage() {
         {!selected.physicalReceiptConfirmed&&<p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">This farmer-packed order must be physically received and pass the required quality checks before route planning.</p>}
         {selected.isUnassigned&&selected.physicalReceiptConfirmed&&<Button size="sm" disabled={!!busy} onClick={()=>act(selected,"recover")}>Link received shipment to this warehouse</Button>}
         {selected.physicalReceiptConfirmed&&selected.route==="nearby"&&!selected.deliveryPartnerId&&<div className="flex flex-wrap gap-2"><select className="h-9 rounded-md border bg-background px-2 text-sm" value={partnerByOrder[selected.id]||""} onChange={e=>setPartnerByOrder(v=>({...v,[selected.id]:e.target.value}))}><option value="">Select approved delivery partner</option>{teams.map((t:any)=><option key={t.id} value={t.id}>{t.name} · {t.vehicle} · {t.capacity} kg</option>)}</select><Button size="sm" disabled={!!busy||!partnerByOrder[selected.id]} onClick={()=>act(selected,"nearby")}>Assign delivery partner</Button></div>}
-        {selected.physicalReceiptConfirmed&&selected.route==="same_district"&&<Button size="sm" disabled={!!busy} onClick={()=>act(selected,"same")}>Create local-hub transfer</Button>}
+        {selected.physicalReceiptConfirmed&&selected.route==="same_district"&&!selected.transferStatus?.includes("hub")&&<Button size="sm" disabled={!!busy} onClick={()=>act(selected,"same")}>Create local-hub transfer</Button>}
+        {selected.transferStatus==="hub_handoff_pending"&&<div className="flex flex-wrap gap-2"><select className="h-9 rounded-md border bg-background px-2 text-sm" value={partnerByOrder[selected.id]||""} onChange={e=>setPartnerByOrder(v=>({...v,[selected.id]:e.target.value}))}><option value="">Select local-hub pickup team</option>{teams.map((t:any)=><option key={t.id} value={t.id}>{t.name} · {t.vehicle} · {t.capacity} kg</option>)}</select><Button size="sm" disabled={!!busy||!partnerByOrder[selected.id]} onClick={()=>act(selected,"assign-hub-team")}>Assign local-hub pickup team</Button></div>}
         {selected.physicalReceiptConfirmed&&selected.route==="inter_district"&&<div className="flex flex-wrap gap-2"><Button size="sm" disabled={!!busy} onClick={()=>act(selected,"destination")}>Assign destination &amp; create transfer</Button>{selected.transferStatus==="destination_warehouse_transfer_pending"&&<><select className="h-9 rounded-md border bg-background px-2 text-sm" value={partnerByOrder[selected.id]||""} onChange={e=>setPartnerByOrder(v=>({...v,[selected.id]:e.target.value}))}><option value="">Select transfer team</option>{teams.map((t:any)=><option key={t.id} value={t.id}>{t.name} · {t.capacity} kg</option>)}</select><Button size="sm" disabled={!!busy||!partnerByOrder[selected.id]} onClick={()=>act(selected,"assign-transfer")}>Assign transfer team</Button></>}</div>}
         {selected.currentWarehouseRole==="destination"&&selected.transferStatus==="destination_warehouse_arrived_pending_receipt"&&<Button size="sm" disabled={!!busy} onClick={()=>act(selected,"destination-receive")}>Confirm destination receipt</Button>}
         {selected.transferStatus==="destination_warehouse_received"&&<Button size="sm" disabled={!!busy} onClick={()=>act(selected,"hub-handoff")}>Send to local hub</Button>}
         {selected.transferStatus==="hub_arrived_pending_receipt"&&<Button size="sm" disabled={!!busy} onClick={()=>act(selected,"hub-receive")}>Confirm local hub receipt</Button>}
-        {selected.consolidation?.canReceive&&<Button size="sm" disabled={!!busy} onClick={()=>act(selected,"consolidation-receive")}>Receive consolidation portions</Button>}
+        {selected.canDispatchToConsolidation&&selected.physicalReceiptConfirmed&&<Button size="sm" disabled={!!busy} onClick={()=>act(selected,"consolidation-dispatch")}>Dispatch portion to consolidation</Button>}
+        {selected.consolidationLegs?.some((leg:any)=>leg.status==="in_transit")&&selected.isConsolidationWarehouse&&<Button size="sm" disabled={!!busy} onClick={()=>act(selected,"consolidation-receive")}>Receive in-transit consolidation portions</Button>}
+        {selected.allConsolidationLegsReceived&&selected.isConsolidationWarehouse&&<Button size="sm" disabled={!!busy} onClick={()=>act(selected,"consolidation-complete")}>Complete consolidation</Button>}
+        {selected.consolidationStatus==="hub_handoff_pending"&&selected.isConsolidationWarehouse&&<Button size="sm" disabled={!!busy} onClick={()=>act(selected,"consolidation-handoff")}>Hand off consolidated order to local hub</Button>}
         {selected.consolidation?.canComplete&&<Button size="sm" disabled={!!busy} onClick={()=>act(selected,"consolidation-complete")}>Complete consolidation</Button>}
         {selected.consolidation?.canHandoffLocalHub&&<Button size="sm" disabled={!!busy} onClick={()=>act(selected,"consolidation-handoff")}>Send consolidated order to local hub</Button>}
       </div>:<div className="space-y-3"><p className="rounded-lg bg-blue-50 p-3 text-sm text-blue-900">Warehouse orders become eligible here only after Order Packing confirms the packed quantities. The dispatch action checks the backend fulfillment audit before proceeding.</p><div className="flex flex-wrap gap-2"><Button asChild size="sm" variant="outline"><Link href={"/packing?search="+encodeURIComponent(selected.orderNumber)}>Open Order Packing</Link></Button>{selected.route==="nearby"&&<Button size="sm" disabled={!!busy} onClick={()=>act(selected,"nearby")}>Verify packing &amp; dispatch to delivery</Button>}{selected.route==="same_district"&&<Button size="sm" disabled={!!busy} onClick={()=>act(selected,"same")}>Assign local hub &amp; dispatch</Button>}{selected.route==="inter_district"&&<Button size="sm" disabled={!!busy} onClick={()=>act(selected,"destination")}>Create destination warehouse transfer</Button>}{selected.route==="multi_warehouse"&&<Button asChild size="sm"><Link href="/warehouse/consolidation">Open consolidation</Link></Button>}</div></div>}
       {(selected.route==="route_review"||selected.route==="needs_location")&&<div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><AlertTriangle className="mr-2 inline h-4 w-4"/>{selected.route==="needs_location"?"Complete source and customer district/location data before routing.":"Review route configuration and direct-delivery eligibility before processing."} Dispatch is blocked until the route is valid.</div>}
       <div className="flex flex-wrap gap-2 border-t pt-3"><Button asChild size="sm" variant="outline"><Link href={selected.source==="farmer"?"/warehouse/farmer-fulfillment":"/outgoing"}>Open original workflow</Link></Button><Button asChild size="sm" variant="outline"><Link href="/warehouse/consolidation">Multi-warehouse consolidation</Link></Button></div>
     </CardContent></Card>}
-    <p className="text-xs text-muted-foreground">The original Farmer Fulfillment and Outgoing / Dispatch pages remain available. This unified page uses their existing backend operations and validations; it does not change pickup, receipt, quality inspection, packing or delivery rules.</p>
+    <p className="text-xs text-muted-foreground">The original Farmer Fulfillment and Outgoing / Dispatch pages remain available as fallback. This workspace exposes the same order-specific transfer, local-hub and consolidation operations while retaining backend authorization and validation.</p>
   </div>;
 }
