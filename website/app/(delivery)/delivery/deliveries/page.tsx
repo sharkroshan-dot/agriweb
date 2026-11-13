@@ -87,7 +87,7 @@ const isAcceptedDelivery = (delivery: any) => ACCEPTED_STATUSES.includes(getDeli
 const isReadyDelivery = (delivery: any) => READY_STATUSES.includes(getDeliveryStatus(delivery));
 const isDeliveredDelivery = (delivery: any) => DELIVERED_STATUSES.includes(getDeliveryStatus(delivery));
 
-export function DeliveryDeliveriesPage() {
+export default function DeliveryDeliveriesPage() {
   const router = useRouter();
   const { data: session } = useSession();
   const accessToken = (session as any)?.accessToken;
