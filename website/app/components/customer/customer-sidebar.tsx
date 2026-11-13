@@ -42,7 +42,6 @@ const navGroups = [
     label: "Overview",
     items: [
       { name: "Dashboard", href: "/customer/dashboard", icon: LayoutDashboard },
-      { name: "My Workflow", href: "/workflow", icon: Sparkles },
     ],
   },
   {
