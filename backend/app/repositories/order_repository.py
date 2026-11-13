@@ -170,6 +170,40 @@ class OrderRepository(BaseRepository):
             sort=[("orderDate", 1)]
         )
     
+    async def claim_for_delivery_partner(self, order_id: str, partner_id: str) -> bool:
+        """Atomically claim an unassigned ready order for exactly one delivery partner."""
+        try:
+            result = await self.collection.update_one(
+                {
+                    "_id": ObjectId(order_id),
+                    "orderStatus": OrderStatus.READY_FOR_DELIVERY,
+                    "deletedAt": None,
+                    "$or": [{"deliveryPartnerId": None}, {"deliveryPartnerId": {"$exists": False}}],
+                },
+                {"$set": {
+                    "deliveryPartnerId": ObjectId(partner_id),
+                    "orderStatus": "accepted",
+                    "assignedAt": datetime.utcnow(),
+                    "acceptedAt": datetime.utcnow(),
+                    "updatedAt": datetime.utcnow(),
+                }},
+            )
+            return result.modified_count == 1
+        except Exception as e:
+            logger.error("Error claiming delivery order %s: %s", order_id, e)
+            return False
+
+    async def release_delivery_partner_claim(self, order_id: str, partner_id: str) -> bool:
+        """Release a claim only if it is still owned by the partner that claimed it."""
+        try:
+            result = await self.collection.update_one(
+                {"_id": ObjectId(order_id), "deliveryPartnerId": ObjectId(partner_id), "orderStatus": "accepted", "deletedAt": None},
+                {"$set": {"deliveryPartnerId": None, "orderStatus": OrderStatus.READY_FOR_DELIVERY, "updatedAt": datetime.utcnow()}, "$unset": {"assignedAt": "", "acceptedAt": ""}},
+            )
+            return result.modified_count == 1
+        except Exception as e:
+            logger.error("Error releasing delivery order claim %s: %s", order_id, e)
+            return False
     async def get_ready_for_delivery(
         self,
         limit: int = 100
