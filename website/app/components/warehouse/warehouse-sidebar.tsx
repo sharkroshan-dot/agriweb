@@ -6,7 +6,7 @@ import { useSession } from "next-auth/react";
 import { PrefetchLink as Link } from "../shared/prefetch-link";
 import {
   LayoutDashboard, Package, PackageCheck, ArrowDown, ArrowUp, Truck, Warehouse,
-  Snowflake, ArrowLeftRight, BarChart, CreditCard, Settings, AlertTriangle,
+  Snowflake, ArrowLeftRight, BarChart, CreditCard, Settings, AlertTriangle, Gauge,
   ClipboardCheck, MessageSquare, Boxes, Route, Users, ChevronDown, ChevronRight,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
@@ -103,11 +103,21 @@ export function WarehouseSidebar() {
   const stockSummary = dashboard.stockSummary || {};
   const warehouseName = warehouse.name || "Warehouse";
   const capacityNumber = Number(dashboard.capacityUtilization);
+  const totalCapacityNumber = Number(warehouse.totalCapacity ?? dashboard.totalCapacity);
+  const usedCapacityNumber = Number(warehouse.usedCapacity ?? dashboard.usedCapacity);
   const totalItemsNumber = Number(stockSummary.totalItems);
-  const lowStockNumber = Number(stockSummary.lowStock);
-  const capacity = Number.isFinite(capacityNumber) ? Math.max(0, Math.round(capacityNumber)) : null;
+  const hasCapacityUnits = Number.isFinite(totalCapacityNumber) && totalCapacityNumber > 0 &&
+    Number.isFinite(usedCapacityNumber) && usedCapacityNumber >= 0;
+  const rawCapacityUsed = hasCapacityUnits
+    ? (usedCapacityNumber / totalCapacityNumber) * 100
+    : capacityNumber;
+  const capacity = Number.isFinite(rawCapacityUsed) ? Math.max(0, Math.min(100, rawCapacityUsed)) : null;
+  const capacityLeft = capacity === null ? null : Math.max(0, 100 - capacity);
+  const totalCapacity = hasCapacityUnits ? totalCapacityNumber : null;
+  const usedCapacity = hasCapacityUnits ? usedCapacityNumber : null;
+  const availableCapacity = hasCapacityUnits ? Math.max(0, totalCapacityNumber - usedCapacityNumber) : null;
   const totalItems = Number.isFinite(totalItemsNumber) ? totalItemsNumber : null;
-  const lowStock = Number.isFinite(lowStockNumber) ? lowStockNumber : null;
+  const capacityTone = capacity === null ? "neutral" : capacity >= 90 ? "critical" : capacity >= 80 ? "warning" : "healthy";
 
   return (
     <aside className="role-sidebar warehouse-sidebar hidden w-[276px] shrink-0 border-r border-slate-200/80 bg-white md:block">
@@ -123,8 +133,8 @@ export function WarehouseSidebar() {
             </div>
           </div>
           <div className="mt-3 grid grid-cols-2 gap-2 border-t border-emerald-100 pt-3">
-            <div><p className="text-[11px] text-slate-500">Total Items</p><p className="font-bold">{totalItems === null ? "—" : totalItems.toLocaleString()}</p></div>
-            <div><p className="text-[11px] text-slate-500">Low Stock</p><p className={cn("font-bold", lowStock && lowStock > 0 ? "text-amber-600" : "text-slate-900")}>{lowStock === null ? "—" : lowStock}</p></div>
+            <div><p className="text-[11px] text-slate-500">Total Items</p><p className="font-bold tabular-nums">{totalItems === null ? "—" : totalItems.toLocaleString()}</p></div>
+            <div><p className="text-[11px] text-slate-500">Capacity left</p><p className={cn("font-bold tabular-nums", capacityTone === "critical" ? "text-rose-600" : capacityTone === "warning" ? "text-amber-600" : "text-emerald-700")}>{capacityLeft === null ? "—" : `${Math.round(capacityLeft)}%`}</p></div>
           </div>
         </div>
 
@@ -175,14 +185,78 @@ export function WarehouseSidebar() {
           })}
         </nav>
 
-        {lowStock !== null && lowStock > 0 && (
-          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3">
-            <div className="flex items-start gap-2">
-              <AlertTriangle className="mt-0.5 h-4 w-4 text-amber-600" />
-              <div><p className="text-sm font-medium text-amber-800">Low Stock Alert</p><p className="text-xs text-amber-700">{lowStock} item{lowStock === 1 ? "" : "s"} need restocking.</p></div>
+        <div className={cn(
+          "mt-4 overflow-hidden rounded-xl border p-3 shadow-sm",
+          capacityTone === "critical" ? "border-rose-200 bg-rose-50" :
+            capacityTone === "warning" ? "border-amber-200 bg-amber-50" :
+              capacityTone === "healthy" ? "border-emerald-200 bg-emerald-50/80" :
+                "border-slate-200 bg-slate-50"
+        )}>
+          <div className="flex items-start gap-2.5">
+            <div className={cn(
+              "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
+              capacityTone === "critical" ? "bg-rose-100 text-rose-700" :
+                capacityTone === "warning" ? "bg-amber-100 text-amber-700" :
+                  capacityTone === "healthy" ? "bg-emerald-100 text-emerald-700" :
+                    "bg-slate-200 text-slate-600"
+            )}>
+              {capacityTone === "healthy" || capacityTone === "neutral"
+                ? <Gauge className="h-4 w-4" />
+                : <AlertTriangle className="h-4 w-4" />}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between gap-2">
+                <p className={cn(
+                  "text-xs font-semibold",
+                  capacityTone === "critical" ? "text-rose-800" :
+                    capacityTone === "warning" ? "text-amber-800" :
+                      capacityTone === "healthy" ? "text-emerald-800" : "text-slate-700"
+                )}>Capacity status</p>
+                {capacity !== null && (
+                  <span className={cn(
+                    "rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                    capacityTone === "critical" ? "bg-rose-100 text-rose-700" :
+                      capacityTone === "warning" ? "bg-amber-100 text-amber-700" :
+                        "bg-emerald-100 text-emerald-700"
+                  )}>{Math.round(capacity)}% used</span>
+                )}
+              </div>
+              <p className={cn(
+                "mt-1 text-[11px] leading-4",
+                capacityTone === "critical" ? "text-rose-700" :
+                  capacityTone === "warning" ? "text-amber-700" :
+                    capacityTone === "healthy" ? "text-emerald-700" : "text-slate-600"
+              )}>
+                {capacityTone === "critical" ? "Critical: warehouse capacity is almost full. Review incoming stock and transfers." :
+                  capacityTone === "warning" ? "High utilization. Check available space before accepting more incoming stock." :
+                    capacityTone === "healthy" ? "Capacity is within a healthy range. Space is available for incoming stock." :
+                      "Capacity data is unavailable. Check the warehouse capacity configuration."}
+              </p>
+              {capacity !== null && (
+                <div className={cn(
+                  "mt-2 h-1.5 overflow-hidden rounded-full",
+                  capacityTone === "critical" ? "bg-rose-200" :
+                    capacityTone === "warning" ? "bg-amber-200" : "bg-emerald-200"
+                )}>
+                  <div
+                    className={cn(
+                      "h-full rounded-full transition-[width] duration-300",
+                      capacityTone === "critical" ? "bg-rose-600" :
+                        capacityTone === "warning" ? "bg-amber-500" : "bg-emerald-600"
+                    )}
+                    style={{ width: `${capacity}%` }}
+                  />
+                </div>
+              )}
+              {hasCapacityUnits && (
+                <p className="mt-1.5 text-[10px] text-slate-600">
+                  {usedCapacity?.toLocaleString()} used · {availableCapacity?.toLocaleString()} available of {totalCapacity?.toLocaleString()}
+                </p>
+              )}
+              <p className="mt-2 text-[10px] font-medium text-slate-600">Warning at 80% · Critical at 90%</p>
             </div>
           </div>
-        )}
+        </div>
       </div>
     </aside>
   );
