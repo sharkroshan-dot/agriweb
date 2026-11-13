@@ -5,7 +5,6 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
   ArrowDownLeft,
-  ArrowUpRight,
   Banknote,
   CheckCircle2,
   Clock3,
