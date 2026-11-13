@@ -134,6 +134,9 @@ export default function PaymentDashboard({ role }: { role: PaymentRole }) {
   const pendingAmount = rows.filter(row => ["pending", "processing"].includes(row.status)).reduce((sum, row) => sum + row.amount, 0);
   const paidAmount = rows.filter(row => ["paid", "success", "completed"].includes(row.status)).reduce((sum, row) => sum + row.amount, 0);
   const refundedAmount = rows.reduce((sum, row) => sum + row.refundAmount, 0);
+  const failedRows = rows.filter(row => row.status === "failed");
+  const pendingRows = rows.filter(row => ["pending", "processing"].includes(row.status));
+  const paidRows = rows.filter(row => ["paid", "success", "completed"].includes(row.status));
   const visibleRows = rows.filter(row => {
     const query = `${row.description} ${row.reference} ${row.orderNumber || ""} ${row.paymentMethod}`.toLowerCase();
     const matchesSearch = query.includes(search.trim().toLowerCase());
@@ -142,6 +145,37 @@ export default function PaymentDashboard({ role }: { role: PaymentRole }) {
       || row.status === filter;
     return matchesSearch && matchesFilter;
   });
+
+  const exportVisibleTransactions = () => {
+    const columns = ["Transaction", "Order number", "Reference", "Date", "Payment method", "Direction", "Amount", "Status"];
+    const safeCell = (value: unknown) => {
+      const text = String(value ?? "");
+      const protectedText = /^[=+@\\-\\t\\r]/.test(text) ? "'" + text : text;
+      return '"' + protectedText.replace(/"/g, '""') + '"';
+    };
+    const lines = [
+      columns.map(safeCell).join(","),
+      ...visibleRows.map(row => [
+        row.description,
+        row.orderNumber || "",
+        row.reference,
+        row.date || "",
+        row.paymentMethod,
+        row.direction,
+        row.amount,
+        row.status,
+      ].map(safeCell).join(",")),
+    ];
+    const blob = new Blob(["\\uFEFF" + lines.join("\\r\\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "warehouse-transactions.csv";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  };
 
   const title = role === "customer" ? "Payments & Wallet"
     : role === "farmer" ? "Payments & Settlements"
@@ -192,10 +226,10 @@ export default function PaymentDashboard({ role }: { role: PaymentRole }) {
         )}
 
         <section aria-label="Payment summary" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <Metric label={isWarehouse ? "Successful payments" : "Total paid"} value={formatPrice(paidAmount)} note="Successfully completed transactions" icon={Banknote} tone="green" />
-          <Metric label="Pending" value={formatPrice(pendingAmount)} note="Awaiting payment confirmation" icon={Clock3} tone="amber" />
+          <Metric label={isWarehouse ? "Successful payments" : "Total paid"} value={formatPrice(paidAmount)} note={isWarehouse ? `${paidRows.length} completed transactions` : "Successfully completed transactions"} icon={Banknote} tone="green" />
+          <Metric label="Pending" value={formatPrice(pendingAmount)} note={isWarehouse ? `${pendingRows.length} awaiting confirmation` : "Awaiting payment confirmation"} icon={Clock3} tone="amber" />
           <Metric label="Refunded" value={formatPrice(refundedAmount)} note="Refund amounts recorded in ledger" icon={ArrowDownLeft} tone="violet" />
-          <Metric label="Transactions" value={String(rows.length)} note="Records returned by payment history" icon={Activity} tone="blue" />
+          <Metric label={isWarehouse ? "Failed payments" : "Transactions"} value={isWarehouse ? formatPrice(failedRows.reduce((sum, row) => sum + row.amount, 0)) : String(rows.length)} note={isWarehouse ? `${failedRows.length} failed transactions` : "Records returned by payment history"} icon={isWarehouse ? XCircle : Activity} tone={isWarehouse ? "amber" : "blue"} />
         </section>
 
         <section className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
@@ -203,10 +237,10 @@ export default function PaymentDashboard({ role }: { role: PaymentRole }) {
             <div className="border-b border-slate-200 bg-white p-4 sm:p-5">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div>
-                  <h2 className="text-base font-semibold text-slate-900">Transaction history</h2>
-                  <p className="mt-1 text-sm text-slate-500">Search and review payment records and their current status.</p>
+                  <h2 className="text-base font-semibold text-slate-900">{isWarehouse ? "Warehouse transaction ledger" : "Transaction history"}</h2>
+                  <p className="mt-1 text-sm text-slate-500">{isWarehouse ? "Review successful, pending, failed and refunded transactions recorded for this warehouse." : "Search and review payment records and their current status."}</p>
                 </div>
-                <Badge variant="outline">{visibleRows.length} of {rows.length} records</Badge>
+                <div className="flex flex-wrap items-center gap-2"><Badge variant="outline">{visibleRows.length} of {rows.length} records</Badge>{isWarehouse && <Button type="button" size="sm" variant="outline" onClick={exportVisibleTransactions} disabled={visibleRows.length === 0}><Download className="mr-2 h-4 w-4" />Export CSV</Button>}</div>
               </div>
               <div className="mt-4 flex flex-col gap-3">
                 <div className="flex flex-wrap gap-2">
@@ -321,15 +355,30 @@ export default function PaymentDashboard({ role }: { role: PaymentRole }) {
 
             <Card className="border-slate-200 shadow-sm">
               <CardContent className="p-5">
-                <div className="flex items-center gap-2"><Activity className="h-5 w-5 text-emerald-700" /><h2 className="font-semibold text-slate-900">Payment lifecycle</h2></div>
-                <p className="mt-1 text-sm text-slate-500">How a transaction is processed</p>
-                <ol className="mt-4 space-y-3">
-                  {["Payment created", "Gateway verification", "Ledger entry", "Settlement / refund"].map((step, index) => (
-                    <li key={step} className="flex items-center gap-3 text-sm text-slate-700">
-                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-xs font-semibold text-emerald-700">{index + 1}</span>{step}
-                    </li>
-                  ))}
-                </ol>
+                {isWarehouse ? (
+                  <>
+                    <div className="flex items-center gap-2"><Activity className="h-5 w-5 text-emerald-700" /><h2 className="font-semibold text-slate-900">Payment status guide</h2></div>
+                    <p className="mt-1 text-sm text-slate-500">Use the status to decide what needs follow-up.</p>
+                    <div className="mt-4 space-y-3">
+                      <div className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-600" /><div><p className="text-sm font-medium text-slate-800">Paid / completed</p><p className="text-xs leading-5 text-slate-500">Payment confirmation is recorded in the ledger.</p></div></div>
+                      <div className="flex items-start gap-2"><Clock3 className="mt-0.5 h-4 w-4 text-amber-600" /><div><p className="text-sm font-medium text-slate-800">Pending / processing</p><p className="text-xs leading-5 text-slate-500">Wait for gateway confirmation before treating it as paid.</p></div></div>
+                      <div className="flex items-start gap-2"><XCircle className="mt-0.5 h-4 w-4 text-rose-600" /><div><p className="text-sm font-medium text-slate-800">Failed</p><p className="text-xs leading-5 text-slate-500">Review the transaction reference before taking further action.</p></div></div>
+                      <div className="flex items-start gap-2"><ArrowDownLeft className="mt-0.5 h-4 w-4 text-violet-600" /><div><p className="text-sm font-medium text-slate-800">Refunded</p><p className="text-xs leading-5 text-slate-500">Refund activity is shown when recorded in the ledger.</p></div></div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-2"><Activity className="h-5 w-5 text-emerald-700" /><h2 className="font-semibold text-slate-900">Payment lifecycle</h2></div>
+                    <p className="mt-1 text-sm text-slate-500">How a transaction is processed</p>
+                    <ol className="mt-4 space-y-3">
+                      {["Payment created", "Gateway verification", "Ledger entry", "Settlement / refund"].map((step, index) => (
+                        <li key={step} className="flex items-center gap-3 text-sm text-slate-700">
+                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-xs font-semibold text-emerald-700">{index + 1}</span>{step}
+                        </li>
+                      ))}
+                    </ol>
+                  </>
+                )}
               </CardContent>
             </Card>
 
@@ -337,7 +386,7 @@ export default function PaymentDashboard({ role }: { role: PaymentRole }) {
               <Card className="border-emerald-100 bg-emerald-50/50 shadow-sm">
                 <CardContent className="p-5">
                   <div className="flex items-center gap-2 text-emerald-800"><ShieldCheck className="h-5 w-5" /><h2 className="font-semibold">Finance records</h2></div>
-                  <p className="mt-2 text-sm leading-6 text-emerald-900/75">This page is a read-only view of payment ledger and payout records. Transaction totals reflect the records returned by the finance APIs.</p>
+                  <p className="mt-2 text-sm leading-6 text-emerald-900/75">This page is a read-only finance workspace. Use the search, status filters and CSV export to review the loaded ledger records. Totals reflect only the records returned by the finance APIs.</p>
                 </CardContent>
               </Card>
             )}
