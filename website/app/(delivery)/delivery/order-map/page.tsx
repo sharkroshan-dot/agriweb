@@ -7,6 +7,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CheckCircle,
   Crosshair,
+  PackageCheck,
+  QrCode,
   Loader2,
   MapPin,
   Navigation,
@@ -142,6 +144,7 @@ export default function DeliveryOrderMapPage({ compact = false }: { compact?: bo
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [acceptingOrderId, setAcceptingOrderId] = useState<string | null>(null);
   const [acceptingRoute, setAcceptingRoute] = useState(false);
+  const [processingOrder, setProcessingOrder] = useState(false);
   const lastLocationSyncAt = useRef(0);
 
   const todayQuery = useQuery({
@@ -344,6 +347,48 @@ export default function DeliveryOrderMapPage({ compact = false }: { compact?: bo
     }
   };
 
+  const refreshDeliveryData = async () => {
+    await Promise.all([
+      todayQuery.refetch(),
+      dashboardQuery.refetch(),
+      assignmentsQuery.refetch(),
+      nearbyQuery.refetch(),
+      queryClient.invalidateQueries({ queryKey: ["deliveryDashboardFallback"] }),
+    ]);
+  };
+
+  const handleSelectedWorkflowAction = async (action: "pickup" | "dispatch" | "deliver") => {
+    if (!selectedOrder) return;
+    const assignmentId = getAssignmentId(selectedOrder);
+    if (!assignmentId) {
+      toast.error("A delivery assignment is required for this action.");
+      return;
+    }
+    let otp = "";
+    if (action === "deliver") {
+      const entered = window.prompt("Enter the customer's 6-digit delivery OTP. If QR was already verified, leave blank.");
+      if (entered === null) return;
+      otp = entered.trim();
+      if (otp && !/^\\d{6}$/.test(otp)) {
+        toast.error("Enter a valid 6-digit delivery OTP.");
+        return;
+      }
+    }
+    setProcessingOrder(true);
+    try {
+      const response = action === "pickup"
+        ? await api.put(`/delivery/assignments/${assignmentId}/pickup`)
+        : await api.put(`/delivery/assignments/${assignmentId}/deliver`, action === "deliver" ? { otp } : undefined);
+      if (response?.success === false) throw new Error(response?.detail || "Could not update delivery");
+      toast.success(action === "pickup" ? "Pickup confirmed" : action === "dispatch" ? "Order dispatched and now in transit" : "Delivery completed");
+      await refreshDeliveryData();
+    } catch (error: any) {
+      toast.error(error?.message || "Could not update delivery");
+    } finally {
+      setProcessingOrder(false);
+    }
+  };
+
   const isLoading = todayQuery.isLoading || assignmentsQuery.isLoading;
   const routeOrderIds = acceptReadyOrders.map(getOrderId).filter(Boolean);
   const routeHref = `/delivery/route?orderIds=${encodeURIComponent(routeOrderIds.join(","))}${radiusKm === "all" ? "" : `&radius=${radiusKm}`}`;
@@ -499,25 +544,38 @@ export default function DeliveryOrderMapPage({ compact = false }: { compact?: bo
                       <p className="mt-1 text-sm text-muted-foreground">Order value: Rs {selectedOrder.totalAmount}</p>
                     )}
                   </div>
-                  <div className="flex flex-col gap-2 sm:flex-row">
+                  <div className="space-y-2">
                     {canAcceptOrder(selectedOrder) && (
-                      <Button
-                        className="flex-1"
-                        onClick={() => handleAccept(selectedOrder)}
-                        disabled={acceptingOrderId === getOrderId(selectedOrder) || acceptingRoute}
-                      >
-                        {acceptingOrderId === getOrderId(selectedOrder) ? (
-                          <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                        ) : (
-                          <CheckCircle className="mr-1.5 h-4 w-4" />
-                        )}
-                        Accept
+                      <Button className="w-full" onClick={() => handleAccept(selectedOrder)} disabled={acceptingOrderId === getOrderId(selectedOrder) || acceptingRoute}>
+                        {acceptingOrderId === getOrderId(selectedOrder) ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-1.5 h-4 w-4" />}
+                        Accept Delivery
                       </Button>
                     )}
-                    <Button variant="outline" onClick={() => contactCustomer(selectedOrder.customerPhone || selectedOrder.customer?.phone)}>
-                      <Phone className="mr-1.5 h-4 w-4" />
-                      Call
-                    </Button>
+                    {getStatus(selectedOrder) === "accepted" && (
+                      <Button className="w-full" onClick={() => handleSelectedWorkflowAction("pickup")} disabled={processingOrder}>
+                        <PackageCheck className="mr-1.5 h-4 w-4" />Confirm Pickup
+                      </Button>
+                    )}
+                    {getStatus(selectedOrder) === "picked_up" && (
+                      <Button className="w-full" onClick={() => handleSelectedWorkflowAction("dispatch")} disabled={processingOrder}>
+                        <Navigation className="mr-1.5 h-4 w-4" />Dispatch & Start Transit
+                      </Button>
+                    )}
+                    {getStatus(selectedOrder) === "in_transit" && (
+                      <Button className="w-full" onClick={() => handleSelectedWorkflowAction("deliver")} disabled={processingOrder}>
+                        <CheckCircle className="mr-1.5 h-4 w-4" />Confirm Delivery (OTP)
+                      </Button>
+                    )}
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant="outline" onClick={() => contactCustomer(selectedOrder.customerPhone || selectedOrder.customer?.phone)}>
+                        <Phone className="mr-1.5 h-4 w-4" />Call Customer
+                      </Button>
+                      <Button asChild variant="outline">
+                        <Link href={`/delivery/route?orderId=${encodeURIComponent(getOrderId(selectedOrder))}`}>
+                          <Navigation className="mr-1.5 h-4 w-4" />Navigate
+                        </Link>
+                      </Button>
+                    </div>
                   </div>
                 </div>
               )}
