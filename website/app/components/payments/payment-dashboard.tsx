@@ -150,7 +150,7 @@ export default function PaymentDashboard({ role }: { role: PaymentRole }) {
     const columns = ["Transaction", "Order number", "Reference", "Date", "Payment method", "Direction", "Amount", "Status"];
     const safeCell = (value: unknown) => {
       const text = String(value ?? "");
-      const protectedText = /^[=+@\\-\\t\\r]/.test(text) ? "'" + text : text;
+      const protectedText = /^[=+@\- \t\r]/.test(text) ? "'" + text : text;
       return '"' + protectedText.replace(/"/g, '""') + '"';
     };
     const lines = [
@@ -166,7 +166,7 @@ export default function PaymentDashboard({ role }: { role: PaymentRole }) {
         row.status,
       ].map(safeCell).join(",")),
     ];
-    const blob = new Blob(["\\uFEFF" + lines.join("\\r\\n")], { type: "text/csv;charset=utf-8;" });
+    const blob = new Blob(["\uFEFF" + lines.join("\r\n")], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
