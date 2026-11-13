@@ -122,15 +122,19 @@ export default function PickupTeamApplicationPage() {
 
   return (
     <div className="min-w-0 space-y-6 pb-8">
-      <header className="relative overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-r from-emerald-50 via-white to-sky-50 px-6 py-7 shadow-sm sm:px-8">
-        <div className="pointer-events-none absolute -right-8 -top-12 h-52 w-52 rounded-full border-[24px] border-emerald-100/70" />
-        <div className="relative flex flex-wrap items-center justify-between gap-4">
-          <div className="max-w-2xl">
-            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-emerald-800"><Warehouse className="h-4 w-4" /> Warehouse Pickup Workspace</div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">Pickup Assignments</h1>
-            <p className="mt-2 text-base leading-7 text-slate-600">Manage your warehouse partnerships and review farm pickup work assigned to you.</p>
+      <header className="rounded-xl border border-slate-200 bg-white px-5 py-5 shadow-sm sm:px-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-start gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-100">
+              <Warehouse className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <p className="mb-1 text-xs font-semibold uppercase tracking-[0.12em] text-emerald-700">Warehouse Pickup</p>
+              <h1 className="text-2xl font-bold leading-tight tracking-tight text-slate-900 sm:text-[28px]">Pickup Assignments</h1>
+              <p className="mt-1.5 max-w-2xl text-sm leading-6 text-slate-600">Manage warehouse partnerships and review farm pickup assignments received from warehouses.</p>
+            </div>
           </div>
-          <Button onClick={() => setShowApplicationForm((value) => !value)} className="bg-emerald-700 text-white hover:bg-emerald-800">
+          <Button onClick={() => setShowApplicationForm((value) => !value)} className="h-10 shrink-0 rounded-lg bg-emerald-700 px-4 font-semibold text-white shadow-sm hover:bg-emerald-800">
             <PlusCircle className="mr-2 h-4 w-4" /> Apply for Partnership
           </Button>
         </div>
