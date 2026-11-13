@@ -130,7 +130,7 @@ const contactCustomer = (phone?: string) => {
   window.location.href = `tel:${phone.replace(/[^\d+]/g, "")}`;
 };
 
-export default function DeliveryOrderMapPage() {
+export default function DeliveryOrderMapPage({ compact = false }: { compact?: boolean }) {
   const queryClient = useQueryClient();
   const { data: session } = useSession();
   const accessToken = (session as any)?.accessToken;
@@ -352,7 +352,7 @@ export default function DeliveryOrderMapPage() {
 
   return (
     <div className="space-y-6">
-      <div className="delivery-page-header flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      {!compact && <div className="delivery-page-header flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="text-sm font-medium text-primary">Delivery workbench</p>
           <h1 className="delivery-page-title text-3xl font-semibold tracking-tight">Order Map</h1>
@@ -385,9 +385,9 @@ export default function DeliveryOrderMapPage() {
             Refresh
           </Button>
         </div>
-      </div>
+      </div>}
 
-      <div className="grid gap-4 md:grid-cols-3">
+      {!compact && <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardContent className="flex items-center justify-between p-4">
             <div>
@@ -416,9 +416,9 @@ export default function DeliveryOrderMapPage() {
             <Crosshair className="h-5 w-5 text-muted-foreground" />
           </CardContent>
         </Card>
-      </div>
+      </div>}
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.8fr)]">
+      <div className={compact ? "grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]" : "grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.8fr)]"}>
         <Card>
           <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -436,9 +436,9 @@ export default function DeliveryOrderMapPage() {
           </CardHeader>
           <CardContent className="p-0">
             {isLoading ? (
-              <div className="h-[560px] animate-pulse rounded-b-lg bg-muted" />
+              <div className={compact ? "h-[520px] animate-pulse rounded-b-lg bg-muted" : "h-[560px] animate-pulse rounded-b-lg bg-muted"} />
             ) : visibleOrders.length === 0 ? (
-              <div className="flex h-[420px] flex-col items-center justify-center gap-3 rounded-b-lg border-t bg-muted/20 p-6 text-center">
+              <div className={`flex ${compact ? "h-[520px]" : "h-[420px]"} flex-col items-center justify-center gap-3 rounded-b-lg border-t bg-muted/20 p-6 text-center`}>
                 <MapPin className="h-10 w-10 text-muted-foreground" />
                 <div>
                   <p className="font-medium">No available orders on the map</p>
@@ -454,14 +454,14 @@ export default function DeliveryOrderMapPage() {
                 markers={mapMarkers}
                 trackUserLocation
                 userLocation={liveLocation}
-                height="560px"
+                height={compact ? "520px" : "560px"}
                 onMarkerClick={(marker) => setSelectedOrderId(String(marker.id))}
               />
             )}
           </CardContent>
         </Card>
 
-        <div className="space-y-4">
+        <div className={compact ? "grid gap-4 xl:grid-cols-2 xl:items-start" : "space-y-4"}>
           <Card>
             <CardHeader>
               <CardTitle>Selected Order</CardTitle>
