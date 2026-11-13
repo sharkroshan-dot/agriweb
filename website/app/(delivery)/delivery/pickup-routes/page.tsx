@@ -342,6 +342,16 @@ export default function DeliveryPickupRoutesPage() {
   const summaryTransfers = uniqueById([...warehouseTransfers, ...hubTransfers]);
   const transferPendingCount = summaryTransfers.filter((item: any) => !isTransferCompleted(item)).length;
   const transferCompletedCount = summaryTransfers.filter(isTransferCompleted).length;
+  // B2B deliveries have their own lifecycle and are counted separately from
+  // farm pickups and warehouse transfers.
+  const b2bCompletedCount = b2bDeliveries.filter((order: any) =>
+    ["delivered", "completed", "delivered_to_business"].includes(String(order.status || "").toLowerCase())
+  ).length;
+  const b2bInProgressCount = b2bDeliveries.filter((order: any) =>
+    ["in_transit", "out_for_delivery", "delivery_started"].includes(String(order.status || "").toLowerCase()) ||
+    Boolean(order.finalDeliveryStartedAt)
+  ).length;
+  const b2bPendingCount = Math.max(0, b2bDeliveries.length - b2bCompletedCount - b2bInProgressCount);
   const overduePickupCount = datePeriod === "today"
     ? allRoutes.filter((item: any) => isCarryoverRoute(item) && !isPickupCompleted(item) && !isInDatePeriod(item, "today")).length
     : 0;
@@ -467,7 +477,7 @@ export default function DeliveryPickupRoutesPage() {
           </div>
         </div>
 
-        <div className="grid gap-4 p-4 sm:p-5 lg:grid-cols-2">
+        <div className="grid gap-4 p-4 sm:p-5 lg:grid-cols-3">
           <article className="overflow-hidden rounded-xl border border-emerald-200 bg-white">
             <div className="flex items-center justify-between gap-3 bg-emerald-50/80 px-4 py-3">
               <div className="flex items-center gap-2.5">
@@ -512,7 +522,31 @@ export default function DeliveryPickupRoutesPage() {
               </div>
             </div>
           </article>
-        </div>
+
+          <article className="overflow-hidden rounded-xl border border-violet-200 bg-white">
+            <div className="flex items-center justify-between gap-3 bg-violet-50/80 px-4 py-3">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-violet-700 shadow-sm"><Briefcase className="h-5 w-5" /></div>
+                <div><h3 className="text-sm font-bold text-violet-950">B2B Business Deliveries</h3><p className="text-xs text-violet-800">Warehouse to business buyer</p></div>
+              </div>
+              <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-violet-800 ring-1 ring-violet-200">B2B</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2 p-4">
+              <div className="rounded-xl border border-amber-100 bg-amber-50/70 p-3">
+                <div className="flex items-center gap-1.5 text-amber-700"><Clock className="h-4 w-4"/><span className="text-[11px] font-semibold uppercase tracking-wide">Pending</span></div>
+                <p className="mt-2 text-2xl font-extrabold tabular-nums text-slate-950">{b2bPendingCount}</p>
+              </div>
+              <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-3">
+                <div className="flex items-center gap-1.5 text-blue-700"><Truck className="h-4 w-4"/><span className="text-[11px] font-semibold uppercase tracking-wide">In progress</span></div>
+                <p className="mt-2 text-2xl font-extrabold tabular-nums text-slate-950">{b2bInProgressCount}</p>
+              </div>
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-3">
+                <div className="flex items-center gap-1.5 text-emerald-700"><CheckCircle2 className="h-4 w-4"/><span className="text-[11px] font-semibold uppercase tracking-wide">Completed</span></div>
+                <p className="mt-2 text-2xl font-extrabold tabular-nums text-slate-950">{b2bCompletedCount}</p>
+              </div>
+            </div>
+          </article>
+        </div>div>
       </section>
 
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-3">
