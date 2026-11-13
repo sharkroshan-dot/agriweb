@@ -5,9 +5,9 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import {
-  ArrowRight, Banknote, CalendarDays, CheckCircle2, Clock3, Headphones,
-  MapPin, MapPinned, PackageCheck, QrCode, RefreshCw, Route, Truck,
-  Wallet, Warehouse, AlertCircle, CircleDot,
+  ArrowRight, CheckCircle2, Clock3, Headphones,
+  MapPin, MapPinned, PackageCheck, RefreshCw, Route, Truck,
+  Wallet, Warehouse, AlertCircle,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
@@ -74,7 +74,8 @@ export default function DeliveryDashboardPage() {
 
   useEffect(() => {
     if (stats.isAvailable !== undefined) setIsAvailable(Boolean(stats.isAvailable));
-  }, [stats.isAvailable]);
+    else if (statsQuery.isSuccess || statsQuery.isError) setIsAvailable(true);
+  }, [stats.isAvailable, statsQuery.isSuccess, statsQuery.isError]);
 
   const customerCompleted = customerDeliveries.filter((item: any) => item.status === "delivered").length;
   const customerActive = customerDeliveries.filter((item: any) =>
