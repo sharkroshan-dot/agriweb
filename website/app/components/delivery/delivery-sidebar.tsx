@@ -63,16 +63,36 @@ export function DeliverySidebar() {
     {
       label: "Overview",
       items: [
+        { name: "Dashboard", href: "/delivery/dashboard", icon: LayoutDashboard },
         { name: "My Workflow", href: "/workflow", icon: RefreshCcw },
-    { name: "Dashboard", href: "/delivery/dashboard", icon: LayoutDashboard },
+      ],
+    },
+    {
+      label: "Delivery Operations",
+      items: [
         { name: "My Deliveries", href: "/delivery/deliveries", icon: Truck, badge: todayCount > 0 ? todayCount : undefined },
-        { name: "Messages", href: "/delivery/messages", icon: MessageSquare },
         { name: "Order Map", href: "/delivery/order-map", icon: Map },
         { name: "Live Route", href: "/delivery/route", icon: MapPin },
+        { name: "Auto-Reassignment", href: "/delivery/reassignments", icon: RefreshCcw },
+      ],
+    },
+    {
+      label: "Pickup Operations",
+      items: [
         { name: "Warehouse Pickup", href: "/delivery/pickup-team", icon: Warehouse },
         { name: "Pickup Routes", href: "/delivery/pickup-routes", icon: Route },
-        { name: "Auto-Reassignment", href: "/delivery/reassignments", icon: RefreshCcw },
-        { name: "History", href: "/delivery/history", icon: History },
+      ],
+    },
+    {
+      label: "Communication",
+      items: [
+        { name: "Messages", href: "/delivery/messages", icon: MessageSquare },
+      ],
+    },
+    {
+      label: "Performance",
+      items: [
+        { name: "Delivery History", href: "/delivery/history", icon: History },
         { name: "My Ratings", href: "/delivery/ratings", icon: Star },
       ],
     },
@@ -84,7 +104,7 @@ export function DeliverySidebar() {
       ],
     },
     {
-      label: "Support",
+      label: "Account & Support",
       items: [
         { name: "Support", href: "/delivery/support", icon: LifeBuoy },
         { name: "Settings", href: "/delivery/settings", icon: Settings },
