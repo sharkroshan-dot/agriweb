@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import {
-  ArrowRight, Building2, CalendarDays, CheckCircle2, ClipboardList, Clock3,
+  ArrowRight, Building2, CheckCircle2, ClipboardList, Clock3,
   HelpCircle, Info, MapPin, Package, PlusCircle, RefreshCw, Route,
   ShieldCheck, Truck, Warehouse, Weight, Headphones, ListChecks,
 } from "lucide-react";
@@ -115,8 +115,6 @@ export default function PickupTeamApplicationPage() {
   const quantity = (item: any) => firstValue(item.expectedQuantity, item.totalQuantity, item.quantity, item.totalWeight, null);
   const schedule = (item: any) => firstValue(item.scheduledAt, item.pickupDate, item.routeDate, item.scheduledDate, item.createdAt);
   const assignmentId = (item: any, index: number) => firstValue(item.assignmentNumber, item.routeNumber, item.jobNumber, item.orderNumber, item.id, item._id, "Pickup " + (index + 1));
-  const approvedMemberships = memberships.filter((item: any) => ["approved", "active"].includes(String(item.status || "approved").toLowerCase()));
-
   return (
     <div className="min-w-0 space-y-5 pb-8">
       <header className="relative isolate min-h-[148px] overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-r from-white via-emerald-50 to-sky-100 shadow-sm">
