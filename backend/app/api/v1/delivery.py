@@ -739,74 +739,137 @@ async def get_my_today_deliveries(current_user: dict = Depends(get_current_user)
 async def get_my_delivery_history(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    status_filter: str = Query("all", alias="status"),
     current_user: dict = Depends(get_current_user)
 ):
+    """Return terminal customer-delivery records for the authenticated partner."""
     if current_user.get("role") != "delivery":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only delivery partners can access this endpoint"
         )
 
+    allowed_filters = {"all", "delivered", "failed", "returned", "cancelled"}
+    requested_status = (status_filter or "all").lower()
+    if requested_status not in allowed_filters:
+        raise HTTPException(status_code=400, detail="Invalid delivery history status")
+
     profile = await _get_or_create_partner(str(current_user["_id"]))
     partner_id = str(profile["_id"])
     user_id = str(current_user["_id"])
 
-    skip = (page - 1) * limit
-
     async def _fetch_history(key: str) -> list:
+        # Read a broad window first, then filter terminal states before paging.
+        # This prevents active assignments at the top of the collection from
+        # hiding older completed/failed records.
+        assignments = await DeliveryService.get_partner_deliveries(key, skip=0, limit=1000)
+        orders = await order_repository.get_by_delivery_partner(key, skip=0, limit=1000)
+
+        order_by_id = {str(o.get("_id")): o for o in orders if o.get("_id")}
         seen = set()
         result = []
 
-        assignments = await DeliveryService.get_partner_deliveries(key, status=DeliveryStatus.DELIVERED, skip=skip, limit=limit)
-        for a in assignments:
-            a["id"] = str(a["_id"])
-            oid = str(a["orderId"])
-            seen.add(oid)
-            order = await order_repository.get_by_id(oid)
-            if order:
-                a["orderNumber"] = order.get("orderNumber")
-                a["totalAmount"] = order.get("totalAmount")
-                a["deliveryAddress"] = order.get("deliveryAddress")
-                a["items"] = order.get("items", [])
-                customer = await UserService.get_user_by_id(str(order["customerId"]))
-                if customer:
-                    a["customerName"] = f"{customer.get('firstName', '')} {customer.get('lastName', '')}".strip()
-                    a["customerPhone"] = customer.get("phone")
-            result.append(a)
-
-        orders = await order_repository.get_by_delivery_partner(key, status="delivered")
-        for o in orders:
-            oid = str(o["_id"])
-            if oid in seen:
+        for assignment in assignments:
+            oid = str(assignment.get("orderId") or "")
+            if not oid or oid in seen:
                 continue
             seen.add(oid)
-            o["id"] = oid
-            o["orderId"] = oid
-            o["orderNumber"] = o.get("orderNumber")
-            o["totalAmount"] = o.get("totalAmount")
-            o["deliveryAddress"] = o.get("deliveryAddress")
-            o["items"] = o.get("items", [])
-            customer = await UserService.get_user_by_id(str(o["customerId"]))
-            if customer:
-                o["customerName"] = f"{customer.get('firstName', '')} {customer.get('lastName', '')}".strip()
-                o["customerPhone"] = customer.get("phone")
-            result.append(o)
+            order = order_by_id.get(oid) or await order_repository.get_by_id(oid)
+            assignment_status = str(assignment.get("status") or "").lower()
+            order_status = str((order or {}).get("orderStatus") or "").lower()
+            record_status = (
+                "returned" if "return" in assignment_status or "return" in order_status
+                else "failed" if assignment_status == "failed" or order_status == "failed"
+                else "cancelled" if assignment_status == "cancelled" or order_status == "cancelled"
+                else "delivered" if assignment_status == "delivered" or order_status == "delivered"
+                else None
+            )
+            if not record_status:
+                continue
+
+            item = dict(assignment)
+            item["id"] = str(assignment.get("_id") or oid)
+            item["orderId"] = oid
+            item["historyStatus"] = record_status
+            if order:
+                item["orderNumber"] = order.get("orderNumber")
+                item["totalAmount"] = order.get("totalAmount")
+                item["deliveryAddress"] = order.get("deliveryAddress")
+                item["items"] = order.get("items", [])
+                item["paymentMethod"] = order.get("paymentMethod")
+                item["deliveredAt"] = order.get("deliveredAt") or assignment.get("completedAt")
+                customer_id = order.get("customerId")
+                if customer_id:
+                    customer = await UserService.get_user_by_id(str(customer_id))
+                    if customer:
+                        item["customerName"] = f"{customer.get('firstName', '')} {customer.get('lastName', '')}".strip()
+                        item["customerPhone"] = customer.get("phone")
+            result.append(item)
+
+        # Include terminal orders which may predate/omit a delivery-assignment row.
+        for order in orders:
+            oid = str(order.get("_id") or "")
+            if not oid or oid in seen:
+                continue
+            order_status = str(order.get("orderStatus") or "").lower()
+            record_status = (
+                "returned" if "return" in order_status
+                else "failed" if order_status == "failed"
+                else "cancelled" if order_status == "cancelled"
+                else "delivered" if order_status == "delivered"
+                else None
+            )
+            if not record_status:
+                continue
+            item = dict(order)
+            item["id"] = oid
+            item["orderId"] = oid
+            item["historyStatus"] = record_status
+            item["orderNumber"] = order.get("orderNumber")
+            item["totalAmount"] = order.get("totalAmount")
+            item["deliveryAddress"] = order.get("deliveryAddress")
+            item["items"] = order.get("items", [])
+            customer_id = order.get("customerId")
+            if customer_id:
+                customer = await UserService.get_user_by_id(str(customer_id))
+                if customer:
+                    item["customerName"] = f"{customer.get('firstName', '')} {customer.get('lastName', '')}".strip()
+                    item["customerPhone"] = customer.get("phone")
+            result.append(item)
 
         return result
 
-    enriched = await _fetch_history(partner_id)
-    if not enriched:
-        enriched = await _fetch_history(user_id)
+    records = await _fetch_history(partner_id)
+    if not records:
+        records = await _fetch_history(user_id)
 
-    return {
+    counts = {
+        "all": len(records),
+        "delivered": sum(1 for item in records if item.get("historyStatus") == "delivered"),
+        "failed": sum(1 for item in records if item.get("historyStatus") == "failed"),
+        "returned": sum(1 for item in records if item.get("historyStatus") == "returned"),
+        "cancelled": sum(1 for item in records if item.get("historyStatus") == "cancelled"),
+    }
+    filtered = records if requested_status == "all" else [
+        item for item in records if item.get("historyStatus") == requested_status
+    ]
+    filtered.sort(
+        key=lambda item: item.get("deliveredAt") or item.get("completedAt") or item.get("updatedAt") or item.get("createdAt") or datetime.min,
+        reverse=True
+    )
+    skip = (page - 1) * limit
+    paged = filtered[skip:skip + limit]
+
+    return _serialize_delivery_data({
         "success": True,
         "data": {
-            "deliveries": enriched,
-            "count": len(enriched),
+            "deliveries": paged,
+            "count": len(filtered),
+            "counts": counts,
             "page": page,
             "limit": limit
         }
-    }
+    })
 
 @router.get("/me/profile")
 async def get_my_profile(current_user: dict = Depends(get_current_user)):
