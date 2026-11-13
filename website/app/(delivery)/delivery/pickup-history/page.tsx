@@ -88,7 +88,7 @@ const buildFarmRecords = (routes: any[]): HistoryRecord[] => {
           area: stop.area || stop.village || stop.pickupAddress || "Area unavailable",
           products: productNames || "Product details unavailable", quantity: qty ? qty.toLocaleString("en-IN") + " kg" : "—",
           warehouse: route.warehouseName || route.destinationWarehouseName || "Assigned warehouse",
-          status: historyStatusLabel(route?.status || route?.orderStatus || route?.collectionStatus), detail: { route, stop, products },
+          status: "Pickup Completed", detail: { route, stop, products },
         });
       }
     }
@@ -115,7 +115,7 @@ const buildTransferRecords = (warehouseTransfers: any[], hubTransfers: any[]): H
       products: item.productName || item.products?.map?.((p: any) => p.productName || p.name).filter(Boolean).join(", ") || "Transfer goods",
       quantity: qty ? qty.toLocaleString("en-IN") + " kg" : "—",
       warehouse: item.destinationWarehouseName || item.localHubName || "Destination not recorded",
-      status: historyStatusLabel(item.status), detail: item,
+      status: "Transfer Completed", detail: item,
     });
   }
   return rows.sort((a, b) => (asDate(b.date)?.getTime() || 0) - (asDate(a.date)?.getTime() || 0));
@@ -132,7 +132,7 @@ const buildB2BRecords = (orders: any[]): HistoryRecord[] => orders
     products: item.productName || item.name || "Business order",
     quantity: Number(item.quantityKg || 0) ? Number(item.quantityKg).toLocaleString("en-IN") + " kg" : "—",
     warehouse: item.sourceWarehouseName || item.warehouseName || "Dispatch warehouse",
-    status: historyStatusLabel(item.status || "delivered"), detail: item,
+    status: "Delivered", detail: item,
   }))
   .sort((a, b) => (asDate(b.date)?.getTime() || 0) - (asDate(a.date)?.getTime() || 0));
 
@@ -183,7 +183,7 @@ export default function PickupHistoryPage() {
   const isError = tab === "pickup" ? farmQ.isError : tab === "transfer" ? warehouseQ.isError || hubQ.isError : b2bQ.isError;
   const allRows = [...farmRows, ...transferRows, ...b2bRows];
   const warehouses = [...new Set(rows.map(row => row.warehouse).filter(Boolean))].sort();
-  const availableStatuses = [...new Set(rows.map(row => normalize(row.status)).filter(Boolean))].sort();
+  const availableStatuses = tab === "pickup" ? ["pickup_completed"] : tab === "transfer" ? ["transfer_completed"] : ["delivered"];
   const filteredRows = rows.filter(row => {
     const haystack = [row.number, row.person, row.area, row.products, row.warehouse].join(" ").toLowerCase();
     const matchesSearch = !appliedSearch || haystack.includes(appliedSearch.toLowerCase());
@@ -255,7 +255,7 @@ export default function PickupHistoryPage() {
       </section>
 
       <nav className="grid grid-cols-1 gap-2 sm:grid-cols-3" aria-label="History categories">
-        {tabConfig.map(item => { const Icon = item.icon; const active = tab === item.id; return <button key={item.id} type="button" onClick={() => { setTab(item.id); setPage(1); setAppliedSearch(""); setSearchText(""); setWarehouse("all"); }} className={"flex min-h-12 items-center justify-center gap-2 rounded-xl border px-3 py-3 text-sm font-semibold transition-colors " + (active ? "border-emerald-700 bg-emerald-700 text-white shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:border-emerald-300 hover:bg-emerald-50")}><Icon className="h-5 w-5" /><span>{item.label}</span><span className={"rounded-full px-2 py-0.5 text-xs " + (active ? "bg-white/20 text-white" : "bg-slate-100 text-slate-700")}>{item.count}</span></button>; })}
+        {tabConfig.map(item => { const Icon = item.icon; const active = tab === item.id; return <button key={item.id} type="button" onClick={() => { setTab(item.id); setPage(1); setAppliedSearch(""); setSearchText(""); setWarehouse("all"); setStatus("all"); }} className={"flex min-h-12 items-center justify-center gap-2 rounded-xl border px-3 py-3 text-sm font-semibold transition-colors " + (active ? "border-emerald-700 bg-emerald-700 text-white shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:border-emerald-300 hover:bg-emerald-50")}><Icon className="h-5 w-5" /><span>{item.label}</span><span className={"rounded-full px-2 py-0.5 text-xs " + (active ? "bg-white/20 text-white" : "bg-slate-100 text-slate-700")}>{item.count}</span></button>; })}
       </nav>
 
       <section className="rounded-2xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-4 shadow-sm sm:p-5">
@@ -270,7 +270,7 @@ export default function PickupHistoryPage() {
           <label><span className="mb-1 block text-xs font-semibold text-slate-600">From date</span><input type="date" value={startDate} max={endDate || undefined} onChange={event => { setStartDate(event.target.value); setQuickRange(null); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700" /></label>
           <label><span className="mb-1 block text-xs font-semibold text-slate-600">To date</span><input type="date" value={endDate} min={startDate || undefined} onChange={event => { setEndDate(event.target.value); setQuickRange(null); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700" /></label>
           <label><span className="mb-1 block text-xs font-semibold text-slate-600">Warehouse</span><select value={warehouse} onChange={event => { setWarehouse(event.target.value); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"><option value="all">All Warehouses</option>{warehouses.map(item => <option key={item} value={item}>{item}</option>)}</select></label>
-          <label><span className="mb-1 block text-xs font-semibold text-slate-600">Status</span><select value={status} onChange={event => { setStatus(event.target.value); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"><option value="all">All statuses</option>{availableStatuses.map(value => <option key={value} value={value}>{historyStatusLabel(value)}</option>)}</select></label>
+          <label><span className="mb-1 block text-xs font-semibold text-slate-600">Status</span><select value={status} onChange={event => { setStatus(event.target.value); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"><option value="all">All statuses</option>{availableStatuses.map(value => <option key={value} value={value}>{value === "pickup_completed" ? "Pickup Completed" : value === "transfer_completed" ? "Transfer Completed" : "Delivered"}</option>)}</select></label>
           <div className="flex items-end gap-2"><Button type="button" onClick={() => { setAppliedSearch(searchText.trim()); setPage(1); }} className="h-10 bg-emerald-700 text-white hover:bg-emerald-800"><Search className="mr-2 h-4 w-4" />Search</Button><Button type="button" variant="outline" onClick={clearFilters} className="h-10 bg-white"><RotateCcw className="mr-2 h-4 w-4" />Clear</Button></div>
         </div>
       </section>
