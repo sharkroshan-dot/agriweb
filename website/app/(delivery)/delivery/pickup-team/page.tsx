@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Building2, CalendarDays, CheckCircle2, ClipboardList, Clock3, HelpCircle,
   MapPin, Package, PlusCircle, ShieldCheck, Truck, Warehouse, Weight,
-  ArrowRight, Info, Headphones, RefreshCw,
+  ArrowRight, Info, Headphones, RefreshCw, Route,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
