@@ -10,7 +10,6 @@ import { Button } from "../../../components/ui/button";
 import { Badge } from "../../../components/ui/badge";
 import { Map as RouteMap } from "../../../components/shared/map";
 import { LiveChatDialog } from "../../../components/delivery/live-chat-dialog";
-import { PageHeader } from "../../../components/common/page-header";
 import { cn } from "../../../lib/utils";
 import { api } from "../../../lib/api/client";
 import { formatTime } from "../../../lib/utils";
@@ -518,26 +517,44 @@ export default function DeliveryRoutePage() {
 
   return (
     <div className="space-y-5 pb-6">
-      <PageHeader
-        className="warehouse-page-header"
-        eyebrow="Delivery operations"
-        icon={<Truck className="h-3.5 w-3.5" />}
-        title="Delivery Route"
-        description="Manage your selected deliveries, follow the optimized route and complete all stops."
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={isNavigating ? "success" : "secondary"}>{isNavigating ? "In progress" : "Route ready"}</Badge>
-            <Button size="sm" variant="outline" onClick={() => { void refetch(); void queryClient.invalidateQueries({ queryKey: ["deliveryToday"] }); }}>
-              <RefreshCw className="mr-2 h-4 w-4" />Refresh
-            </Button>
-            {routeLength > 0 && (
-              <Button size="sm" onClick={isNavigating ? () => setIsNavigating(false) : handleStartRoute}>
-                {isNavigating ? <><Pause className="mr-2 h-4 w-4" />Stop route</> : <><Navigation className="mr-2 h-4 w-4" />Start route</>}
-              </Button>
-            )}
+      <header className="relative isolate flex min-h-[132px] items-center overflow-hidden rounded-2xl border border-emerald-200/80 bg-gradient-to-r from-[#f2fbe9] via-[#f4fbe9] to-[#dff5c9] px-5 py-5 shadow-sm sm:px-7 lg:min-h-[144px]">
+        <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 w-[48%] overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-r from-[#f2fbe9] via-[#eaf8d8]/70 to-transparent" />
+          <div className="absolute -bottom-16 right-[-3%] h-36 w-[78%] rounded-[50%] bg-gradient-to-b from-[#c9eaa5] to-[#9ed47b] opacity-75" />
+          <div className="absolute -bottom-20 right-[8%] h-32 w-[62%] rotate-[-7deg] rounded-[50%] border-t-[14px] border-white/80 bg-transparent" />
+          <div className="absolute bottom-5 right-[12%] h-2 w-28 rotate-[-7deg] rounded-full bg-white/70" />
+          <div className="absolute bottom-0 right-0 h-20 w-32 rounded-tl-[100%] bg-gradient-to-br from-emerald-300/40 to-green-600/30" />
+          <div className="absolute bottom-3 right-[34%] h-10 w-20 rounded-t-full bg-emerald-500/15 blur-sm" />
+          <div className="absolute bottom-2 right-[5%] rounded-full bg-white/70 p-3 text-emerald-700 shadow-sm">
+            <Truck className="h-12 w-12 sm:h-14 sm:w-14" strokeWidth={1.8} />
           </div>
-        }
-      />
+        </div>
+        <div className="relative z-10 flex min-w-0 items-center gap-4 sm:gap-6">
+          <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-emerald-600 text-white shadow-md sm:h-[76px] sm:w-[76px]">
+            <div className="flex items-center gap-0.5">
+              <MapPin className="h-9 w-9 sm:h-10 sm:w-10" strokeWidth={2.2} />
+              <Truck className="-ml-2 mt-3 h-6 w-6 sm:h-7 sm:w-7" strokeWidth={2.1} />
+            </div>
+          </div>
+          <div className="h-14 w-px shrink-0 bg-emerald-700/60 sm:h-16" />
+          <div className="min-w-0">
+            <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-emerald-800 sm:text-xs">Delivery operations</p>
+            <h1 className="mt-1 text-xl font-bold tracking-tight text-slate-900 sm:text-2xl lg:text-[28px]">Delivery Route</h1>
+            <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-700 sm:text-sm">Manage your selected deliveries, follow the optimized route and complete all stops.</p>
+          </div>
+        </div>
+      </header>
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <Badge variant={isNavigating ? "success" : "secondary"}>{isNavigating ? "In progress" : "Route ready"}</Badge>
+        <Button size="sm" variant="outline" onClick={() => { void refetch(); void queryClient.invalidateQueries({ queryKey: ["deliveryToday"] }); }}>
+          <RefreshCw className="mr-2 h-4 w-4" />Refresh
+        </Button>
+        {routeLength > 0 && (
+          <Button size="sm" onClick={isNavigating ? () => setIsNavigating(false) : handleStartRoute}>
+            {isNavigating ? <><Pause className="mr-2 h-4 w-4" />Stop route</> : <><Navigation className="mr-2 h-4 w-4" />Start route</>}
+          </Button>
+        )}
+      </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
         <Card><CardContent className="flex items-center gap-3 p-4"><div className="rounded-full bg-emerald-100 p-3 text-emerald-700"><Route className="h-5 w-5"/></div><div className="min-w-0"><p className="text-xs text-muted-foreground">Current route</p><p className="truncate font-semibold">{String(metrics.routeNumber || metrics.routeId || "Active route")}</p><p className="text-xs text-emerald-700">{isNavigating ? "In progress" : "Ready"}</p></div></CardContent></Card>
