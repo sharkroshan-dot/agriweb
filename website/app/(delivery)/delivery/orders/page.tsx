@@ -7,7 +7,6 @@ import { CheckCircle2, AlertTriangle, PackageCheck, Truck } from "lucide-react";
 import { Card, CardContent } from "../../../components/ui/card";
 import { api } from "../../../lib/api/client";
 import DeliveryOrderMapPage from "../order-map/page";
-import DeliveryDeliveriesPage from "../deliveries/page";
 
 const asArray = (value: any): any[] => Array.isArray(value) ? value : [];
 
@@ -57,7 +56,7 @@ export default function DeliveryOrdersWorkspacePage() {
       <div className="delivery-page-header flex flex-col gap-2">
         <p className="text-sm font-medium text-emerald-700">Delivery partner workspace</p>
         <h1 className="delivery-page-title text-3xl font-semibold tracking-tight">Order Map &amp; My Deliveries</h1>
-        <p className="text-sm text-muted-foreground">Discover nearby orders, manage assigned deliveries and complete customer handovers in one place.</p>
+        <p className="text-sm text-muted-foreground">Find nearby orders and manage the complete customer delivery lifecycle from the same map, order list and details panel.</p>
       </div>
 
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-5">
@@ -87,16 +86,7 @@ export default function DeliveryOrdersWorkspacePage() {
         <DeliveryOrderMapPage compact />
       </section>
 
-      <section aria-label="Assigned deliveries and delivery operations" className="space-y-3 border-t border-slate-200 pt-5">
-        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h2 className="text-xl font-semibold text-slate-900">My Deliveries</h2>
-            <p className="text-sm text-muted-foreground">Manage accepted orders, pickup, dispatch, delivery verification and proof of delivery.</p>
-          </div>
-          <p className="text-xs text-muted-foreground">Counts refresh from your delivery assignments.</p>
-        </div>
-        <DeliveryDeliveriesPage compact />
-      </section>
+
     </div>
   );
 }
