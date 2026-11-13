@@ -87,7 +87,7 @@ const isAcceptedDelivery = (delivery: any) => ACCEPTED_STATUSES.includes(getDeli
 const isReadyDelivery = (delivery: any) => READY_STATUSES.includes(getDeliveryStatus(delivery));
 const isDeliveredDelivery = (delivery: any) => DELIVERED_STATUSES.includes(getDeliveryStatus(delivery));
 
-export default function DeliveryDeliveriesPage() {
+export default function DeliveryDeliveriesPage({ compact = false }: { compact?: boolean }) {
   const router = useRouter();
   const { data: session } = useSession();
   const accessToken = (session as any)?.accessToken;
@@ -620,8 +620,9 @@ export default function DeliveryDeliveriesPage() {
 
   return (
     <div className="space-y-6">
-      <DeliveryPageHeader title="My delivery queue" description="Assigned jobs stay first. Nearby available orders can be accepted only through the existing permission and distance rules." actionHref="/delivery/route" actionLabel="Open live route" />
+      {!compact && <DeliveryPageHeader title="My delivery queue" description="Assigned jobs stay first. Nearby available orders can be accepted only through the existing permission and distance rules." actionHref="/delivery/route" actionLabel="Open live route" />}
 
+      {!compact && (
       <Card className="border-emerald-200 bg-emerald-50/30">
         <CardHeader>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -703,6 +704,8 @@ export default function DeliveryDeliveriesPage() {
           )}
         </CardContent>
       </Card>
+
+      )}
 
       <Card className="border-blue-200 bg-blue-50/30">
         <CardHeader>
