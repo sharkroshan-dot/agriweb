@@ -606,11 +606,11 @@ export default function DeliveryDashboardPage() {
                 <div className="grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
                   <div>
                     <p className="text-muted-foreground">Start Time</p>
-                    <p className="font-medium">08:30 AM</p>
+                    <p className="font-medium">{routeData?.data?.startTime ? formatTime(routeData.data.startTime) : "Not set"}</p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Est. Finish</p>
-                    <p className="font-medium">03:15 PM</p>
+                    <p className="font-medium">{routeData?.data?.estimatedFinish ? formatTime(routeData.data.estimatedFinish) : "Not available"}</p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Total Distance</p>
@@ -780,8 +780,8 @@ export default function DeliveryDashboardPage() {
               <p className="mt-1 text-lg font-bold">{deliveryList.length}</p>
             </div>
             <div className="rounded-lg border p-3">
-              <p className="text-xs text-muted-foreground">Fuel Cost</p>
-              <p className="mt-1 text-lg font-bold">{fuelCost ? formatPrice(fuelCost) : "—"}</p>
+              <p className="text-xs text-muted-foreground">Pending stops</p>
+              <p className="mt-1 text-lg font-bold">{pendingCount}</p>
             </div>
             <div className="rounded-lg border p-3">
               <p className="text-xs text-muted-foreground">Expected Income</p>
