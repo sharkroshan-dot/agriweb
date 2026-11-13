@@ -206,37 +206,29 @@ export function WarehouseSidebar() {
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center justify-between gap-2">
-                <p className={cn(
-                  "text-xs font-semibold",
-                  capacityTone === "critical" ? "text-rose-800" :
-                    capacityTone === "warning" ? "text-amber-800" :
-                      capacityTone === "healthy" ? "text-emerald-800" : "text-slate-700"
-                )}>Capacity status</p>
-                {capacity !== null && (
-                  <span className={cn(
-                    "rounded-full px-2 py-0.5 text-[10px] font-semibold",
-                    capacityTone === "critical" ? "bg-rose-100 text-rose-700" :
-                      capacityTone === "warning" ? "bg-amber-100 text-amber-700" :
-                        "bg-emerald-100 text-emerald-700"
-                  )}>{Math.round(capacity)}% used</span>
-                )}
+                <p className="text-xs font-semibold text-slate-800">Current status</p>
+                <span className={cn(
+                  "rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                  capacityTone === "critical" ? "bg-rose-100 text-rose-700" :
+                    capacityTone === "warning" ? "bg-amber-100 text-amber-700" :
+                      capacityTone === "healthy" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"
+                )}>
+                  {capacityTone === "critical" ? "Almost full" :
+                    capacityTone === "warning" ? "Filling up" :
+                      capacityTone === "healthy" ? "Healthy" : "Unavailable"}
+                </span>
               </div>
-              <p className={cn(
-                "mt-1 text-[11px] leading-4",
-                capacityTone === "critical" ? "text-rose-700" :
-                  capacityTone === "warning" ? "text-amber-700" :
-                    capacityTone === "healthy" ? "text-emerald-700" : "text-slate-600"
-              )}>
-                {capacityTone === "critical" ? "Critical: warehouse capacity is almost full. Review incoming stock and transfers." :
-                  capacityTone === "warning" ? "High utilization. Check available space before accepting more incoming stock." :
-                    capacityTone === "healthy" ? "Capacity is within a healthy range. Space is available for incoming stock." :
-                      "Capacity data is unavailable. Check the warehouse capacity configuration."}
-              </p>
+              <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-slate-600">
+                <span>{hasCapacityUnits
+                  ? `${usedCapacity?.toLocaleString()} of ${totalCapacity?.toLocaleString()} used`
+                  : "Capacity usage"}</span>
+                <span className="font-semibold tabular-nums text-slate-800">{capacity === null ? "—" : `${Math.round(capacity)}%`}</span>
+              </div>
               {capacity !== null && (
                 <div className={cn(
-                  "mt-2 h-1.5 overflow-hidden rounded-full",
+                  "mt-1.5 h-1.5 overflow-hidden rounded-full",
                   capacityTone === "critical" ? "bg-rose-200" :
-                    capacityTone === "warning" ? "bg-amber-200" : "bg-emerald-200"
+                    capacityTone === "warning" ? "bg-amber-200" : "bg-emerald-100"
                 )}>
                   <div
                     className={cn(
@@ -248,12 +240,6 @@ export function WarehouseSidebar() {
                   />
                 </div>
               )}
-              {hasCapacityUnits && (
-                <p className="mt-1.5 text-[10px] text-slate-600">
-                  {usedCapacity?.toLocaleString()} used · {availableCapacity?.toLocaleString()} available of {totalCapacity?.toLocaleString()}
-                </p>
-              )}
-              <p className="mt-2 text-[10px] font-medium text-slate-600">Warning at 80% · Critical at 90%</p>
             </div>
           </div>
         </div>
