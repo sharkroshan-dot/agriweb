@@ -450,45 +450,70 @@ export default function DeliveryPickupRoutesPage() {
 
 
 
-      <Card className="overflow-hidden rounded-2xl border-slate-200 shadow-sm">
-        <CardContent className="space-y-4 p-5">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <section aria-labelledby="route-activity-heading" className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex flex-col gap-4 border-b border-slate-100 bg-gradient-to-r from-white to-emerald-50/60 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <div className="flex items-start gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
+              <Route className="h-5 w-5" />
+            </div>
             <div>
-              <h2 className="text-lg font-bold text-slate-950">Route Activity</h2>
-              <p className="text-sm text-muted-foreground">Choose a day to check whether pickups and transfers are available, pending, or completed.</p>
-            </div>
-            <div className="flex gap-2">
-              <Button type="button" variant={datePeriod === "today" ? "default" : "outline"} className={datePeriod === "today" ? "bg-emerald-700 hover:bg-emerald-800" : ""} onClick={() => setDatePeriod("today")} aria-pressed={datePeriod === "today"}>Today</Button>
-              <Button type="button" variant={datePeriod === "yesterday" ? "default" : "outline"} className={datePeriod === "yesterday" ? "bg-emerald-700 hover:bg-emerald-800" : ""} onClick={() => setDatePeriod("yesterday")} aria-pressed={datePeriod === "yesterday"}>Yesterday</Button>
+              <h2 id="route-activity-heading" className="text-lg font-bold tracking-tight text-slate-950">Route Activity</h2>
+              <p className="mt-1 text-sm text-slate-600">Track pending and completed work across your pickup and transfer routes.</p>
             </div>
           </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div className="rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-4 shadow-sm">
-              <div className="flex items-center justify-between gap-2">
-                <p className="font-semibold text-emerald-950">Farm Pickup Routes</p>
-                <p className="text-xs text-emerald-800">Completed only after all collected orders are handed over at the source warehouse.</p>
-                <Route className="h-5 w-5 text-emerald-700" />
-              </div>
-              <div className="mt-3 grid grid-cols-2 gap-3">
-                <div className="rounded-lg bg-white p-3"><p className="text-sm text-slate-500">Pending</p><p className="mt-1 text-2xl font-bold text-amber-700">{pickupPendingCount}</p></div>
-                <div className="rounded-lg bg-white p-3"><p className="text-sm text-slate-500">Completed</p><p className="mt-1 text-2xl font-bold text-emerald-700">{pickupCompletedCount}</p></div>
-              </div>
-              {overduePickupCount > 0 && datePeriod === "today" && <p className="mt-3 text-sm font-medium text-amber-800">{overduePickupCount} unfinished route(s) from earlier days remain visible below.</p>}
-            </div>
-            <div className="rounded-2xl border border-blue-200 bg-gradient-to-br from-blue-50 to-white p-4 shadow-sm">
-              <div className="flex items-center justify-between gap-2">
-                <p className="font-semibold text-emerald-950">Warehouse Transfer Routes</p>
-                <p className="text-xs text-emerald-800">Completed after arrival at the destination warehouse or local hub.</p>
-                <Truck className="h-5 w-5 text-emerald-700" />
-              </div>
-              <div className="mt-3 grid grid-cols-2 gap-3">
-                <div className="rounded-lg bg-white p-3"><p className="text-sm text-slate-500">Pending</p><p className="mt-1 text-2xl font-bold text-amber-700">{transferPendingCount}</p></div>
-                <div className="rounded-lg bg-white p-3"><p className="text-sm text-slate-500">Completed</p><p className="mt-1 text-2xl font-bold text-emerald-700">{transferCompletedCount}</p></div>
-              </div>
-            </div>
+          <div className="inline-flex w-fit items-center rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
+            <Button type="button" size="sm" variant={datePeriod === "today" ? "default" : "ghost"} className={datePeriod === "today" ? "rounded-lg bg-emerald-700 px-4 text-white shadow-sm hover:bg-emerald-800" : "rounded-lg px-4 text-slate-600"} onClick={() => setDatePeriod("today")} aria-pressed={datePeriod === "today"}>Today</Button>
+            <Button type="button" size="sm" variant={datePeriod === "yesterday" ? "default" : "ghost"} className={datePeriod === "yesterday" ? "rounded-lg bg-emerald-700 px-4 text-white shadow-sm hover:bg-emerald-800" : "rounded-lg px-4 text-slate-600"} onClick={() => setDatePeriod("yesterday")} aria-pressed={datePeriod === "yesterday"}>Yesterday</Button>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+
+        <div className="grid gap-4 p-4 sm:p-5 lg:grid-cols-2">
+          <article className="overflow-hidden rounded-xl border border-emerald-200 bg-white">
+            <div className="flex items-center justify-between gap-3 bg-emerald-50/80 px-4 py-3">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-emerald-700 shadow-sm"><Route className="h-5 w-5" /></div>
+                <div><h3 className="text-sm font-bold text-emerald-950">Farm Pickup Routes</h3><p className="text-xs text-emerald-800">Farm to assigned warehouse</p></div>
+              </div>
+              <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-200">Pickup</span>
+            </div>
+            <div className="grid grid-cols-2 gap-3 p-4">
+              <div className="rounded-xl border border-amber-100 bg-amber-50/70 p-4">
+                <div className="flex items-center gap-2 text-amber-700"><Clock className="h-4 w-4"/><span className="text-xs font-semibold uppercase tracking-wide">Pending</span></div>
+                <p className="mt-2 text-3xl font-extrabold tabular-nums text-slate-950">{pickupPendingCount}</p>
+                <p className="mt-1 text-xs text-slate-500">Awaiting warehouse handover</p>
+              </div>
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-4">
+                <div className="flex items-center gap-2 text-emerald-700"><CheckCircle2 className="h-4 w-4"/><span className="text-xs font-semibold uppercase tracking-wide">Completed</span></div>
+                <p className="mt-2 text-3xl font-extrabold tabular-nums text-slate-950">{pickupCompletedCount}</p>
+                <p className="mt-1 text-xs text-slate-500">Handed over at source warehouse</p>
+              </div>
+            </div>
+            {overduePickupCount > 0 && datePeriod === "today" && <div className="mx-4 mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800"><Clock className="mt-0.5 h-4 w-4 shrink-0"/><span>{overduePickupCount} unfinished route(s) from earlier days remain visible below.</span></div>}
+          </article>
+
+          <article className="overflow-hidden rounded-xl border border-blue-200 bg-white">
+            <div className="flex items-center justify-between gap-3 bg-blue-50/80 px-4 py-3">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-blue-700 shadow-sm"><Truck className="h-5 w-5" /></div>
+                <div><h3 className="text-sm font-bold text-blue-950">Warehouse Transfer Routes</h3><p className="text-xs text-blue-800">Warehouse to warehouse / local hub</p></div>
+              </div>
+              <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-blue-800 ring-1 ring-blue-200">Transfer</span>
+            </div>
+            <div className="grid grid-cols-2 gap-3 p-4">
+              <div className="rounded-xl border border-amber-100 bg-amber-50/70 p-4">
+                <div className="flex items-center gap-2 text-amber-700"><Clock className="h-4 w-4"/><span className="text-xs font-semibold uppercase tracking-wide">Pending</span></div>
+                <p className="mt-2 text-3xl font-extrabold tabular-nums text-slate-950">{transferPendingCount}</p>
+                <p className="mt-1 text-xs text-slate-500">Awaiting destination arrival</p>
+              </div>
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-4">
+                <div className="flex items-center gap-2 text-emerald-700"><CheckCircle2 className="h-4 w-4"/><span className="text-xs font-semibold uppercase tracking-wide">Completed</span></div>
+                <p className="mt-2 text-3xl font-extrabold tabular-nums text-slate-950">{transferCompletedCount}</p>
+                <p className="mt-1 text-xs text-slate-500">Arrival confirmed at destination</p>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
 
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-3">
         <Button
