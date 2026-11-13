@@ -334,14 +334,20 @@ export default function DeliveryPickupRoutesPage() {
     isInDatePeriod(item, datePeriod, "pickup") ||
     (datePeriod === "today" && isCarryoverRoute(item) && !isPickupCompleted(item))
   );
-  const pickupPendingCount = summaryPickupRoutes.filter((item: any) => !isPickupCompleted(item)).length;
+  const isPickupInProgress = (item: any) =>
+    ["started", "arrived_at_farm", "collected", "departed_farm", "pickup_in_progress"].includes(normalizeRouteKey(item?.status));
+  const pickupInProgressCount = summaryPickupRoutes.filter(isPickupInProgress).length;
   const pickupCompletedCount = summaryPickupRoutes.filter(isPickupCompleted).length;
+  const pickupPendingCount = Math.max(0, summaryPickupRoutes.length - pickupInProgressCount - pickupCompletedCount);
 
   // Count each transfer once across the two route categories and use the
   // driver's arrival state, not a downstream warehouse/hub receipt state.
   const summaryTransfers = uniqueById([...warehouseTransfers, ...hubTransfers]);
-  const transferPendingCount = summaryTransfers.filter((item: any) => !isTransferCompleted(item)).length;
+  const isTransferInProgress = (item: any) =>
+    ["started", "picked_up", "collected", "departed_source", "in_transit", "transfer_in_progress", "out_for_delivery"].includes(normalizeRouteKey(item?.status));
+  const transferInProgressCount = summaryTransfers.filter(isTransferInProgress).length;
   const transferCompletedCount = summaryTransfers.filter(isTransferCompleted).length;
+  const transferPendingCount = Math.max(0, summaryTransfers.length - transferInProgressCount - transferCompletedCount);
   // B2B deliveries have their own lifecycle and are counted separately from
   // farm pickups and warehouse transfers.
   const b2bCompletedCount = b2bDeliveries.filter((order: any) =>
@@ -486,16 +492,18 @@ export default function DeliveryPickupRoutesPage() {
               </div>
               <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-200">Pickup</span>
             </div>
-            <div className="grid grid-cols-2 gap-3 p-4">
-              <div className="rounded-xl border border-amber-100 bg-amber-50/70 p-4">
-                <div className="flex items-center gap-2 text-amber-700"><Clock className="h-4 w-4"/><span className="text-xs font-semibold uppercase tracking-wide">Pending</span></div>
-                <p className="mt-2 text-3xl font-extrabold tabular-nums text-slate-950">{pickupPendingCount}</p>
-                <p className="mt-1 text-xs text-slate-500">Awaiting warehouse handover</p>
+            <div className="grid grid-cols-3 gap-2 p-4">
+              <div className="rounded-xl border border-amber-100 bg-amber-50/70 p-3">
+                <div className="flex items-center gap-1.5 text-amber-700"><Clock className="h-4 w-4"/><span className="text-[11px] font-semibold uppercase tracking-wide">Pending</span></div>
+                <p className="mt-2 text-2xl font-extrabold tabular-nums text-slate-950">{pickupPendingCount}</p>
               </div>
-              <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-4">
-                <div className="flex items-center gap-2 text-emerald-700"><CheckCircle2 className="h-4 w-4"/><span className="text-xs font-semibold uppercase tracking-wide">Completed</span></div>
-                <p className="mt-2 text-3xl font-extrabold tabular-nums text-slate-950">{pickupCompletedCount}</p>
-                <p className="mt-1 text-xs text-slate-500">Handed over at source warehouse</p>
+              <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-3">
+                <div className="flex items-center gap-1.5 text-blue-700"><Truck className="h-4 w-4"/><span className="text-[11px] font-semibold uppercase tracking-wide">In progress</span></div>
+                <p className="mt-2 text-2xl font-extrabold tabular-nums text-slate-950">{pickupInProgressCount}</p>
+              </div>
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-3">
+                <div className="flex items-center gap-1.5 text-emerald-700"><CheckCircle2 className="h-4 w-4"/><span className="text-[11px] font-semibold uppercase tracking-wide">Completed</span></div>
+                <p className="mt-2 text-2xl font-extrabold tabular-nums text-slate-950">{pickupCompletedCount}</p>
               </div>
             </div>
             {overduePickupCount > 0 && datePeriod === "today" && <div className="mx-4 mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800"><Clock className="mt-0.5 h-4 w-4 shrink-0"/><span>{overduePickupCount} unfinished route(s) from earlier days remain visible below.</span></div>}
@@ -509,16 +517,18 @@ export default function DeliveryPickupRoutesPage() {
               </div>
               <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-blue-800 ring-1 ring-blue-200">Transfer</span>
             </div>
-            <div className="grid grid-cols-2 gap-3 p-4">
-              <div className="rounded-xl border border-amber-100 bg-amber-50/70 p-4">
-                <div className="flex items-center gap-2 text-amber-700"><Clock className="h-4 w-4"/><span className="text-xs font-semibold uppercase tracking-wide">Pending</span></div>
-                <p className="mt-2 text-3xl font-extrabold tabular-nums text-slate-950">{transferPendingCount}</p>
-                <p className="mt-1 text-xs text-slate-500">Awaiting destination arrival</p>
+            <div className="grid grid-cols-3 gap-2 p-4">
+              <div className="rounded-xl border border-amber-100 bg-amber-50/70 p-3">
+                <div className="flex items-center gap-1.5 text-amber-700"><Clock className="h-4 w-4"/><span className="text-[11px] font-semibold uppercase tracking-wide">Pending</span></div>
+                <p className="mt-2 text-2xl font-extrabold tabular-nums text-slate-950">{transferPendingCount}</p>
               </div>
-              <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-4">
-                <div className="flex items-center gap-2 text-emerald-700"><CheckCircle2 className="h-4 w-4"/><span className="text-xs font-semibold uppercase tracking-wide">Completed</span></div>
-                <p className="mt-2 text-3xl font-extrabold tabular-nums text-slate-950">{transferCompletedCount}</p>
-                <p className="mt-1 text-xs text-slate-500">Arrival confirmed at destination</p>
+              <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-3">
+                <div className="flex items-center gap-1.5 text-blue-700"><Truck className="h-4 w-4"/><span className="text-[11px] font-semibold uppercase tracking-wide">In progress</span></div>
+                <p className="mt-2 text-2xl font-extrabold tabular-nums text-slate-950">{transferInProgressCount}</p>
+              </div>
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-3">
+                <div className="flex items-center gap-1.5 text-emerald-700"><CheckCircle2 className="h-4 w-4"/><span className="text-[11px] font-semibold uppercase tracking-wide">Completed</span></div>
+                <p className="mt-2 text-2xl font-extrabold tabular-nums text-slate-950">{transferCompletedCount}</p>
               </div>
             </div>
           </article>
