@@ -207,8 +207,8 @@ export default function PaymentDashboard({ role }: { role: PaymentRole }) {
   );
 
   return (
-    <div className="min-h-full bg-slate-50/60 p-4 pb-8 sm:p-6">
-      <div className="mx-auto max-w-7xl space-y-6">
+    <div className={isWarehouse ? "warehouse-finance-page w-full max-w-[1800px] space-y-5 pb-8" : "min-h-full bg-slate-50/60 p-4 pb-8 sm:p-6"}>
+      <div className={isWarehouse ? "w-full space-y-5" : "mx-auto max-w-7xl space-y-6"}>
         {isWarehouse ? (
           <WarehousePageHeader
             eyebrow="Finance & transactions"
