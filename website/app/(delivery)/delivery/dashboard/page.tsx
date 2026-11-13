@@ -150,12 +150,12 @@ export default function DeliveryDashboardPage() {
   const displayName = session?.user?.name?.trim().split(/\s+/)[0] || "there";
 
   return (
-    <div className="w-full space-y-5 pb-8">
+    <div className="w-full space-y-6 pb-10 text-[15px] leading-relaxed">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-sm font-medium text-emerald-700">Delivery Partner Workspace</p>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Dashboard</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Your delivery overview and today's priorities.</p>
+          <p className="text-[15px] font-medium text-emerald-700">Delivery Partner Workspace</p>
+          <h1 className="text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">Dashboard</h1>
+          <p className="mt-2 text-[16px] text-slate-600">Your delivery overview and today's priorities.</p>
         </div>
         <div className="flex items-center gap-2">
           <Badge variant={isAvailable ? "success" : "secondary"} className="px-3 py-1.5">
@@ -171,17 +171,17 @@ export default function DeliveryDashboardPage() {
         </div>
       </div>
 
-      <section className="relative overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-r from-emerald-950 via-emerald-800 to-green-700 px-5 py-7 text-white shadow-sm sm:px-8">
+      <section className="relative overflow-hidden rounded-2xl border border-emerald-900 bg-gradient-to-r from-emerald-950 via-emerald-800 to-green-700 px-6 py-9 text-white shadow-md sm:px-9 sm:py-10">
         <div className="pointer-events-none absolute -right-10 -top-20 h-64 w-64 rounded-full border-[32px] border-white/5" />
         <div className="pointer-events-none absolute bottom-0 right-28 h-40 w-40 rounded-full bg-lime-300/10 blur-2xl" />
         <div className="relative max-w-2xl">
-          <p className="text-sm font-medium text-emerald-100"> {formatDate()}</p>
-          <h2 className="mt-3 text-2xl font-bold sm:text-3xl">Good day, {displayName}!</h2>
-          <p className="mt-2 max-w-xl text-sm leading-6 text-emerald-50/90">
+          <p className="text-[15px] font-medium text-emerald-100"> {formatDate()}</p>
+          <h2 className="mt-3 text-3xl font-bold tracking-tight !text-white sm:text-4xl">Good day, {displayName}!</h2>
+          <p className="mt-3 max-w-2xl text-base leading-7 !text-emerald-50">
             Your work is split into two independent operations. Check your farm pickups and customer deliveries separately, then focus on your next assigned task.
           </p>
           <div className="mt-5 flex flex-wrap gap-2">
-            <Badge className="border border-white/20 bg-white/10 text-white hover:bg-white/10"><Warehouse className="mr-1.5 h-3.5 w-3.5" /> Warehouse pickup</Badge>
+            <Badge className="border border-white/30 bg-white/15 px-3 py-1.5 text-sm font-semibold !text-white hover:bg-white/20"><Warehouse className="mr-1.5 h-3.5 w-3.5" /> Warehouse pickup</Badge>
             <Badge className="border border-white/20 bg-white/10 text-white hover:bg-white/10"><Truck className="mr-1.5 h-3.5 w-3.5" /> Customer delivery</Badge>
           </div>
         </div>
@@ -189,12 +189,12 @@ export default function DeliveryDashboardPage() {
 
       <section aria-label="Workflow overview" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Link href="/delivery/pickup-team" className="group">
-          <Card className="h-full border-emerald-100 transition-shadow hover:shadow-md">
+          <Card className="h-full border-emerald-200 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md">
             <CardContent className="flex items-center justify-between gap-3 p-5">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Pickup assignments</p>
+                <p className="text-[15px] font-medium text-muted-foreground">Pickup assignments</p>
                 <p className="mt-2 text-3xl font-bold text-slate-900">{pickupPending}</p>
-                <p className="mt-1 text-xs text-muted-foreground">Farm collection jobs</p>
+                <p className="mt-1 text-[15px] text-muted-foreground">Farm collection jobs</p>
               </div>
               <div className="rounded-xl bg-emerald-50 p-3 text-emerald-700"><Warehouse className="h-6 w-6" /></div>
             </CardContent>
@@ -204,30 +204,30 @@ export default function DeliveryDashboardPage() {
           <Card className="h-full border-blue-100 transition-shadow hover:shadow-md">
             <CardContent className="flex items-center justify-between gap-3 p-5">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">My deliveries</p>
+                <p className="text-[15px] font-medium text-muted-foreground">My deliveries</p>
                 <p className="mt-2 text-3xl font-bold text-slate-900">{customerPending}</p>
-                <p className="mt-1 text-xs text-muted-foreground">Customer orders awaiting delivery</p>
+                <p className="mt-1 text-[15px] text-muted-foreground">Customer orders awaiting delivery</p>
               </div>
               <div className="rounded-xl bg-blue-50 p-3 text-blue-700"><PackageCheck className="h-6 w-6" /></div>
             </CardContent>
           </Card>
         </Link>
-        <Card className="border-violet-100">
+        <Card className="border-violet-200 shadow-sm">
           <CardContent className="flex items-center justify-between gap-3 p-5">
             <div>
-              <p className="text-sm font-medium text-muted-foreground">In progress</p>
+              <p className="text-[15px] font-medium text-muted-foreground">In progress</p>
               <p className="mt-2 text-3xl font-bold text-slate-900">{pickupActive + customerActive}</p>
-              <p className="mt-1 text-xs text-muted-foreground">Pickup and delivery tasks</p>
+              <p className="mt-1 text-[15px] text-muted-foreground">Pickup and delivery tasks</p>
             </div>
             <div className="rounded-xl bg-violet-50 p-3 text-violet-700"><Truck className="h-6 w-6" /></div>
           </CardContent>
         </Card>
-        <Card className="border-teal-100">
+        <Card className="border-teal-200 shadow-sm">
           <CardContent className="flex items-center justify-between gap-3 p-5">
             <div>
-              <p className="text-sm font-medium text-muted-foreground">Completed today</p>
+              <p className="text-[15px] font-medium text-muted-foreground">Completed today</p>
               <p className="mt-2 text-3xl font-bold text-slate-900">{completedTasks}</p>
-              <p className="mt-1 text-xs text-muted-foreground">Warehouse handovers + deliveries</p>
+              <p className="mt-1 text-[15px] text-muted-foreground">Warehouse handovers + deliveries</p>
             </div>
             <div className="rounded-xl bg-teal-50 p-3 text-teal-700"><CheckCircle2 className="h-6 w-6" /></div>
           </CardContent>
@@ -239,37 +239,37 @@ export default function DeliveryDashboardPage() {
           <CardHeader>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div><CardTitle>Today's progress</CardTitle><CardDescription>Pickup and customer delivery progress are tracked separately.</CardDescription></div>
-              <span className="text-sm font-semibold text-emerald-700">{completedTasks} / {allTasks} completed</span>
+              <span className="text-[15px] font-semibold text-emerald-700">{completedTasks} / {allTasks} completed</span>
             </div>
           </CardHeader>
           <CardContent className="space-y-5">
             <div>
-              <div className="mb-2 flex justify-between text-sm"><span className="font-medium">Overall tasks</span><span className="text-muted-foreground">{progress}%</span></div>
+              <div className="mb-2 flex justify-between text-[15px]"><span className="font-medium">Overall tasks</span><span className="text-muted-foreground">{progress}%</span></div>
               <Progress value={progress} className="h-3" />
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-4">
-                <div className="flex items-center justify-between gap-2"><span className="flex items-center gap-2 text-sm font-semibold"><Warehouse className="h-4 w-4 text-emerald-700" /> Warehouse pickup</span><span className="text-sm font-bold">{pickupCompleted}/{pickupRoutes.length}</span></div>
+                <div className="flex items-center justify-between gap-2"><span className="flex items-center gap-2 text-[15px] font-semibold"><Warehouse className="h-4 w-4 text-emerald-700" /> Warehouse pickup</span><span className="text-[15px] font-bold">{pickupCompleted}/{pickupRoutes.length}</span></div>
                 <Progress value={pickupRoutes.length ? pickupCompleted / pickupRoutes.length * 100 : 0} className="mt-3 h-2" />
-                <p className="mt-2 text-xs text-muted-foreground">{pickupPending} remaining · {pickupActive} active</p>
+                <p className="mt-2 text-[15px] text-muted-foreground">{pickupPending} remaining · {pickupActive} active</p>
               </div>
               <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-4">
-                <div className="flex items-center justify-between gap-2"><span className="flex items-center gap-2 text-sm font-semibold"><Truck className="h-4 w-4 text-blue-700" /> Customer delivery</span><span className="text-sm font-bold">{customerCompleted}/{customerDeliveries.length}</span></div>
+                <div className="flex items-center justify-between gap-2"><span className="flex items-center gap-2 text-[15px] font-semibold"><Truck className="h-4 w-4 text-blue-700" /> Customer delivery</span><span className="text-[15px] font-bold">{customerCompleted}/{customerDeliveries.length}</span></div>
                 <Progress value={customerDeliveries.length ? customerCompleted / customerDeliveries.length * 100 : 0} className="mt-3 h-2" />
-                <p className="mt-2 text-xs text-muted-foreground">{customerPending} remaining · {customerActive} active</p>
+                <p className="mt-2 text-[15px] text-muted-foreground">{customerPending} remaining · {customerActive} active</p>
               </div>
             </div>
-            {!allTasks && <p className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">No pickup or customer delivery tasks are currently available. Stay online for new assignments.</p>}
+            {!allTasks && <p className="rounded-lg bg-muted/50 p-3 text-[15px] text-muted-foreground">No pickup or customer delivery tasks are currently available. Stay online for new assignments.</p>}
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader><CardTitle className="flex items-center gap-2"><Wallet className="h-5 w-5 text-emerald-700" /> Earnings overview</CardTitle><CardDescription>Based on your recorded earnings data.</CardDescription></CardHeader>
           <CardContent className="space-y-4">
-            <div><p className="text-sm text-muted-foreground">Total earnings</p><p className="mt-1 text-3xl font-bold">{formatPrice(totalEarnings)}</p></div>
-            {weeklyEarnings !== undefined && <div className="rounded-xl bg-emerald-50 p-3"><p className="text-xs text-emerald-800">This week</p><p className="mt-1 text-xl font-semibold text-emerald-900">{formatPrice(weeklyEarnings)}</p></div>}
-            {availableBalance !== undefined && <div className="flex items-center justify-between border-t pt-3"><span className="text-sm text-muted-foreground">Available balance</span><span className="font-semibold">{formatPrice(availableBalance)}</span></div>}
-            <Link href="/delivery/earnings" className="inline-flex items-center text-sm font-semibold text-emerald-700 hover:text-emerald-800">View earnings <ArrowRight className="ml-1 h-4 w-4" /></Link>
+            <div><p className="text-[15px] text-muted-foreground">Total earnings</p><p className="mt-1 text-3xl font-bold">{formatPrice(totalEarnings)}</p></div>
+            {weeklyEarnings !== undefined && <div className="rounded-xl bg-emerald-50 p-3"><p className="text-[15px] text-emerald-800">This week</p><p className="mt-1 text-xl font-semibold text-emerald-900">{formatPrice(weeklyEarnings)}</p></div>}
+            {availableBalance !== undefined && <div className="flex items-center justify-between border-t pt-3"><span className="text-[15px] text-muted-foreground">Available balance</span><span className="font-semibold">{formatPrice(availableBalance)}</span></div>}
+            <Link href="/delivery/earnings" className="inline-flex items-center text-[15px] font-semibold text-emerald-700 hover:text-emerald-800">View earnings <ArrowRight className="ml-1 h-4 w-4" /></Link>
           </CardContent>
         </Card>
       </section>
@@ -287,12 +287,12 @@ export default function DeliveryDashboardPage() {
               <div className="rounded-xl border border-dashed p-7 text-center">
                 <CheckCircle2 className="mx-auto h-9 w-9 text-emerald-600" />
                 <p className="mt-2 font-semibold">You're all caught up</p>
-                <p className="mt-1 text-sm text-muted-foreground">There are no pending pickup or customer delivery tasks right now.</p>
+                <p className="mt-1 text-[15px] text-muted-foreground">There are no pending pickup or customer delivery tasks right now.</p>
               </div>
             ) : (
               <div className="rounded-xl border bg-slate-50/70 p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div><p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">{nextTaskType}</p><p className="mt-1 text-lg font-semibold">{nextTaskTitle}</p><p className="mt-1 text-sm text-muted-foreground">{nextTaskAddress || "Location details are not available yet."}</p></div>
+                  <div><p className="text-[15px] font-semibold uppercase tracking-wide text-emerald-700">{nextTaskType}</p><p className="mt-1 text-lg font-semibold">{nextTaskTitle}</p><p className="mt-1 text-[15px] text-muted-foreground">{nextTaskAddress || "Location details are not available yet."}</p></div>
                   <Badge variant="warning">{getStatus(nextTask).replace(/_/g, " ") || "Assigned"}</Badge>
                 </div>
                 <div className="mt-4 flex flex-wrap gap-2">
@@ -307,16 +307,16 @@ export default function DeliveryDashboardPage() {
         <Card>
           <CardHeader><CardTitle>Quick actions</CardTitle><CardDescription>Shortcuts to your daily tools.</CardDescription></CardHeader>
           <CardContent className="grid grid-cols-2 gap-3">
-            <Link href="/delivery/pickup-routes" className="rounded-xl border p-4 text-center transition-colors hover:border-emerald-300 hover:bg-emerald-50/50"><Route className="mx-auto h-6 w-6 text-emerald-700" /><span className="mt-2 block text-sm font-medium">Pickup routes</span></Link>
-            <Link href="/delivery/order-map" className="rounded-xl border p-4 text-center transition-colors hover:border-emerald-300 hover:bg-emerald-50/50"><MapPinned className="mx-auto h-6 w-6 text-emerald-700" /><span className="mt-2 block text-sm font-medium">Open order map</span></Link>
-            <Link href="/delivery/messages" className="rounded-xl border p-4 text-center transition-colors hover:border-emerald-300 hover:bg-emerald-50/50"><Headphones className="mx-auto h-6 w-6 text-emerald-700" /><span className="mt-2 block text-sm font-medium">Contact support</span></Link>
-            <Link href="/delivery/support" className="rounded-xl border p-4 text-center transition-colors hover:border-emerald-300 hover:bg-emerald-50/50"><AlertCircle className="mx-auto h-6 w-6 text-emerald-700" /><span className="mt-2 block text-sm font-medium">Report an issue</span></Link>
+            <Link href="/delivery/pickup-routes" className="rounded-xl border p-4 text-center transition-colors hover:border-emerald-300 hover:bg-emerald-50/50"><Route className="mx-auto h-6 w-6 text-emerald-700" /><span className="mt-2 block text-[15px] font-medium">Pickup routes</span></Link>
+            <Link href="/delivery/order-map" className="rounded-xl border p-4 text-center transition-colors hover:border-emerald-300 hover:bg-emerald-50/50"><MapPinned className="mx-auto h-6 w-6 text-emerald-700" /><span className="mt-2 block text-[15px] font-medium">Open order map</span></Link>
+            <Link href="/delivery/messages" className="rounded-xl border p-4 text-center transition-colors hover:border-emerald-300 hover:bg-emerald-50/50"><Headphones className="mx-auto h-6 w-6 text-emerald-700" /><span className="mt-2 block text-[15px] font-medium">Contact support</span></Link>
+            <Link href="/delivery/support" className="rounded-xl border p-4 text-center transition-colors hover:border-emerald-300 hover:bg-emerald-50/50"><AlertCircle className="mx-auto h-6 w-6 text-emerald-700" /><span className="mt-2 block text-[15px] font-medium">Report an issue</span></Link>
           </CardContent>
         </Card>
       </section>
 
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-white p-4">
-        <div className="flex items-center gap-3"><div className="rounded-lg bg-slate-100 p-2"><Clock3 className="h-5 w-5 text-slate-600" /></div><div><p className="text-sm font-semibold">Need the full assignment list?</p><p className="text-xs text-muted-foreground">Open the dedicated page to manage, accept and update individual jobs.</p></div></div>
+        <div className="flex items-center gap-3"><div className="rounded-lg bg-slate-100 p-2"><Clock3 className="h-5 w-5 text-slate-600" /></div><div><p className="text-[15px] font-semibold">Need the full assignment list?</p><p className="text-[15px] text-muted-foreground">Open the dedicated page to manage, accept and update individual jobs.</p></div></div>
         <div className="flex flex-wrap gap-2"><Button asChild variant="outline" size="sm"><Link href="/delivery/pickup-team">Pickup assignments</Link></Button><Button asChild size="sm"><Link href="/delivery/deliveries">My deliveries</Link></Button></div>
       </div>
     </div>
