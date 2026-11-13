@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import {
@@ -15,8 +16,9 @@ import { Button } from "../../../components/ui/button";
 import { Badge } from "../../../components/ui/badge";
 import { formatPrice } from "../../../lib/utils";
 import { api } from "../../../lib/api/client";
-import { LiveChatDialog } from "../../../components/delivery/live-chat-dialog";
 import { useWishlist } from "../../../lib/hooks/use-wishlist";
+import { useCartStore } from "../../../lib/store/cart-store";
+import toast from "react-hot-toast";
 
 const statusColors: Record<string, string> = {
   pending: "bg-amber-50 text-amber-700 border-amber-200",
@@ -40,12 +42,13 @@ const pickArray = (value: any, ...paths: string[]) => {
 };
 
 export default function CustomerDashboardPage() {
-  const [chatOrderId, setChatOrderId] = useState<string | null>(null);
-  const [chatUnread, setChatUnread] = useState<Record<string, number>>({});
+  const router = useRouter();
+  const addItem = useCartStore((s: any) => s.addItem);
   const { data: session } = useSession();
   const customerId = String((session?.user as any)?.id || "");
   const userName = String((session?.user as any)?.name || "there").split(" ")[0];
   const { items: wishlistItems } = useWishlist();
+  const wishlistCount = wishlistItems.length;
 
   const { data: ordersData, isLoading: ordersLoading } = useQuery({
     queryKey: ["customerOrders", "dashboard"],
@@ -62,6 +65,10 @@ export default function CustomerDashboardPage() {
   const { data: walletData } = useQuery({
     queryKey: ["customerWalletDashboard"],
     queryFn: () => api.get("/payments/wallet/info"),
+  });
+  const { data: loyaltyData } = useQuery({
+    queryKey: ["customerLoyaltyDashboard"],
+    queryFn: () => api.get("/loyalty/me"),
   });
 
   const orders = useMemo(() => pickArray(ordersData, "data.orders", "orders").map((o: any) => ({
@@ -86,41 +93,21 @@ export default function CustomerDashboardPage() {
   const returnedOrders = orders.filter((o: any) => ["returned", "refunded"].includes(o.status));
   const activeReservation = reservations.find((r: any) => ["active", "confirmed", "reserved"].includes(r.status));
   const walletBalance = Number(walletData?.data?.balance ?? walletData?.balance ?? 0);
+  const loyaltyBalance = Number(loyaltyData?.data?.balance ?? loyaltyData?.balance ?? 0);
+  const loyaltyValue = Number(loyaltyData?.data?.rewardValueRs ?? loyaltyData?.rewardValueRs ?? 0);
   const currentOrder = activeOrders.find((o: any) => ["in_transit", "out_for_delivery", "shipped", "dispatched", "preparing", "confirmed"].includes(o.status)) || activeOrders[0];
   const recentOrders = [...orders].sort((a: any, b: any) => new Date(b.created || 0).getTime() - new Date(a.created || 0).getTime()).slice(0, 3);
-
-  useEffect(() => {
-    if (!customerId || orders.length === 0) return;
-    let cancelled = false;
-    const refreshUnread = async () => {
-      const entries = await Promise.all(orders.slice(0, 20).map(async (order: any) => {
-        if (!order.id) return null;
-        try {
-          const response: any = await api.get(`/chat/conversations/delivery-chat-${order.id}/messages`);
-          const incoming = (response?.data || []).filter((message: any) => message.sender_id !== customerId).length;
-          const read = Number(window.localStorage.getItem(`agri-chat-read-delivery-chat-${order.id}`) || 0);
-          const liveUnread = Number(window.localStorage.getItem(`agri-chat-unread-${order.id}`) || 0);
-          return [order.id, Math.max(0, incoming - read, liveUnread)] as const;
-        } catch { return [order.id, 0] as const; }
-      }));
-      if (!cancelled) setChatUnread(Object.fromEntries(entries.filter(Boolean) as Array<readonly [string, number]>));
-    };
-    void refreshUnread();
-    const onRead = () => void refreshUnread();
-    const onUnread = () => void refreshUnread();
-    window.addEventListener("agri-chat-read", onRead);
-    window.addEventListener("agri-chat-unread", onUnread);
-    return () => {
-      cancelled = true;
-      window.removeEventListener("agri-chat-read", onRead);
-      window.removeEventListener("agri-chat-unread", onUnread);
-    };
-  }, [orders, customerId]);
 
   const steps = ["confirmed", "preparing", "dispatched", "in_transit", "delivered"];
   const stepLabels = ["Confirmed", "Preparing", "Dispatched", "In Transit", "Delivered"];
   const stepIndex = currentOrder ? Math.max(0, steps.indexOf(currentOrder.status === "shipped" ? "in_transit" : currentOrder.status)) : -1;
   const dateLabel = new Intl.DateTimeFormat("en-IN", { weekday: "long", day: "numeric", month: "short", year: "numeric" }).format(new Date());
+  const handleAddToCart = (product: any) => {
+    const id = product?._id || product?.id;
+    if (!id) { toast.error("This product is not available to add right now"); return; }
+    addItem({ id, name: product.name || product.productName || "Fresh Produce", price: Number(product.price || 0), quantity: 1, image: product.images?.[0] || product.image || "/images/placeholder-product.jpg", originalPrice: Number(product.price || 0) });
+    toast.success("Added to your cart");
+  };
   const locationLabel = String((session?.user as any)?.city || (session?.user as any)?.location || "Set delivery location");
 
   if (ordersLoading) return <div className="flex min-h-[50vh] items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-emerald-600" /></div>;
@@ -136,9 +123,9 @@ export default function CustomerDashboardPage() {
         <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-sm"><CalendarDays className="h-4 w-4 text-emerald-700" />{dateLabel}</div>
       </div>
 
-      <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="grid gap-3 2xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="min-w-0 space-y-4">
-          <section className="relative min-h-[178px] overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-r from-lime-50 via-emerald-50 to-green-100 p-6 sm:p-8">
+          <section className="relative min-h-[190px] overflow-hidden rounded-2xl border border-emerald-100 bg-[linear-gradient(105deg,#f3fce5_0%,#e7f8d9_48%,#c8edb5_100%)] p-6 shadow-sm sm:p-8">
             <div className="relative z-10 max-w-xl">
               <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-emerald-700">Fresh daily · Farm to home</p>
               <h2 className="max-w-lg text-2xl font-extrabold leading-tight text-slate-900 sm:text-3xl">Fresh from local farmers to your home</h2>
@@ -146,7 +133,7 @@ export default function CustomerDashboardPage() {
               <Button asChild className="mt-4 rounded-full bg-emerald-700 px-6 hover:bg-emerald-800"><Link href="/nearby">Shop Now <ArrowRight className="ml-2 h-4 w-4" /></Link></Button>
             </div>
             <div className="pointer-events-none absolute -right-8 -bottom-16 h-64 w-[48%] rounded-tl-[100%] bg-gradient-to-tl from-emerald-300/60 via-lime-200/60 to-transparent" />
-            <div className="pointer-events-none absolute right-8 top-5 hidden text-8xl drop-shadow-sm sm:block">🥬🥕🍅</div>
+            <div className="pointer-events-none absolute right-5 top-1 hidden h-[190px] w-[42%] items-center justify-center sm:flex"><div className="absolute inset-x-0 bottom-0 h-16 rounded-t-[100%] bg-gradient-to-t from-lime-300/70 to-transparent" /><div className="relative rounded-[45%] bg-white/35 px-8 py-5 text-7xl drop-shadow-sm">🥬🥦🥕🍅🫑</div></div>
             <div className="pointer-events-none absolute bottom-0 right-0 h-10 w-full bg-gradient-to-t from-lime-200/50 to-transparent" />
           </section>
 
@@ -208,7 +195,7 @@ export default function CustomerDashboardPage() {
                 const id = product._id || product.id;
                 const name = product.name || product.productName || "Fresh Produce";
                 const image = product.images?.[0] || product.image || "/images/placeholder-product.jpg";
-                return <Link key={id} href={`/product/${id}`} className="group overflow-hidden rounded-xl border border-slate-200 bg-white transition hover:-translate-y-0.5 hover:shadow-md"><div className="aspect-square overflow-hidden bg-emerald-50"><img src={image} alt={name} className="h-full w-full object-cover transition group-hover:scale-105" onError={(e) => { (e.target as HTMLImageElement).src = "/images/placeholder-product.jpg"; }} /></div><div className="p-2.5"><p className="line-clamp-1 text-sm font-semibold text-slate-900">{name}</p><p className="mt-1 text-xs text-slate-500">{product.farmerName || product.farmer?.name || "Local Farmer"}</p><p className="mt-1 font-bold text-emerald-700">{money(product.price)}<span className="font-normal text-slate-500">/{product.unit || "kg"}</span></p><span className="mt-2 inline-flex items-center gap-1 rounded-full bg-emerald-700 px-3 py-1 text-xs font-semibold text-white"><Plus className="h-3 w-3" /> View Product</span></div></Link>;
+                return <div key={id} className="group overflow-hidden rounded-xl border border-slate-200 bg-white transition hover:-translate-y-0.5 hover:shadow-md"><Link href={`/product/${id}`}><div className="aspect-square overflow-hidden bg-emerald-50"><img src={image} alt={name} className="h-full w-full object-cover transition group-hover:scale-105" onError={(e) => { (e.target as HTMLImageElement).src = "/images/placeholder-product.jpg"; }} /></div><div className="p-2.5"><p className="line-clamp-1 text-sm font-semibold text-slate-900">{name}</p><p className="mt-1 text-xs text-slate-500">{product.farmerName || product.farmer?.name || "Local Farmer"}</p><p className="mt-1 font-bold text-emerald-700">{money(product.price)}<span className="font-normal text-slate-500">/{product.unit || "kg"}</span></p></div></Link><div className="px-2.5 pb-2.5"><Button size="sm" className="w-full rounded-full bg-emerald-700 hover:bg-emerald-800" onClick={() => handleAddToCart(product)}><Plus className="mr-1 h-3.5 w-3.5" /> Add</Button></div></div>;
               })}</div> : <div className="rounded-xl bg-slate-50 p-6 text-center text-sm text-slate-500">Fresh products will appear here when available.</div>}
             </CardContent>
           </Card>
@@ -217,7 +204,7 @@ export default function CustomerDashboardPage() {
         <aside className="space-y-3">
           <Card className="border-slate-200 bg-gradient-to-br from-emerald-50 to-white shadow-sm"><CardContent className="flex items-center gap-3 p-4"><span className="rounded-xl bg-white p-3 text-emerald-700 shadow-sm"><WalletCards className="h-6 w-6" /></span><div className="min-w-0 flex-1"><p className="text-sm font-semibold text-slate-700">My Wallet</p><p className="text-2xl font-extrabold text-slate-900">{money(walletBalance)}</p></div><Button asChild size="sm" variant="outline" className="rounded-full"><Link href="/wallet">Top Up</Link></Button></CardContent></Card>
 
-          <Card className="border-slate-200 bg-gradient-to-br from-lime-50 to-white shadow-sm"><CardContent className="flex items-center gap-3 p-4"><span className="rounded-xl bg-white p-3 text-emerald-700 shadow-sm"><Leaf className="h-6 w-6" /></span><div className="min-w-0 flex-1"><p className="text-sm font-semibold text-slate-700">AgriPoints</p><p className="text-lg font-bold text-slate-900">Earn rewards on purchases</p><p className="text-xs text-slate-500">Explore your customer benefits</p></div><Button asChild size="sm" variant="outline" className="rounded-full"><Link href="/agripoints">Explore</Link></Button></CardContent></Card>
+          <Card className="border-emerald-100 bg-gradient-to-br from-lime-50 to-white shadow-sm"><CardContent className="flex items-center gap-3 p-4"><span className="rounded-xl bg-white p-3 text-emerald-700 shadow-sm"><Leaf className="h-6 w-6" /></span><div className="min-w-0 flex-1"><p className="text-sm font-semibold text-slate-700">AgriPoints</p><p className="text-2xl font-extrabold text-slate-900">{loyaltyBalance.toLocaleString("en-IN")} <span className="text-sm font-semibold">Points</span></p><p className="text-xs text-emerald-700">≈ {money(loyaltyValue)} reward value</p></div><Button asChild size="sm" variant="outline" className="rounded-full"><Link href="/agripoints">Redeem Now <ArrowRight className="ml-1 h-3.5 w-3.5" /></Link></Button></CardContent></Card>
 
           <Card className="overflow-hidden border-emerald-100 bg-gradient-to-r from-lime-100 via-emerald-50 to-green-100 shadow-sm"><CardContent className="p-4"><div className="flex items-center justify-between"><div><p className="text-xs font-bold uppercase tracking-wider text-emerald-700">Seasonal offers</p><h2 className="mt-1 text-lg font-extrabold text-emerald-950">Fresh deals from local farms</h2><p className="mt-1 text-xs text-emerald-800">Browse current coupons and savings.</p></div><Tag className="h-10 w-10 text-emerald-700" /></div><Button asChild size="sm" className="mt-3 rounded-full bg-emerald-700 hover:bg-emerald-800"><Link href="/coupons">View Offers <ArrowRight className="ml-1 h-4 w-4" /></Link></Button></CardContent></Card>
 
@@ -226,7 +213,6 @@ export default function CustomerDashboardPage() {
           <Card className="border-slate-200 shadow-sm"><CardContent className="p-4"><div className="mb-3 flex items-center justify-between"><h2 className="flex items-center gap-2 font-bold text-slate-900"><Clock3 className="h-5 w-5 text-emerald-700" />Recent Activity</h2><Button asChild size="sm" variant="ghost" className="text-emerald-700"><Link href="/orders">View All</Link></Button></div>{recentOrders.length ? <div className="space-y-3">{recentOrders.map((order: any) => <div key={order.id} className="flex items-start gap-2 border-b border-slate-100 pb-3 last:border-0 last:pb-0"><span className="rounded-lg bg-emerald-50 p-2 text-emerald-700"><Package className="h-4 w-4" /></span><div className="min-w-0 flex-1"><p className="text-sm font-semibold text-slate-800">{order.status.replace(/_/g, " ").replace(/^./, (c: string) => c.toUpperCase())}</p><p className="truncate text-xs text-slate-500">{order.orderNumber || order.id}</p><p className="text-[11px] text-slate-400">{order.created ? new Date(order.created).toLocaleString() : "Date not available"}</p></div><Badge className={statusColors[order.status] || statusColors.pending}>{order.status.replace(/_/g, " ")}</Badge></div>)}</div> : <p className="py-4 text-center text-sm text-slate-500">Your recent orders and updates will appear here.</p>}</CardContent></Card>
         </aside>
       </div>
-      {chatOrderId && <LiveChatDialog orderId={chatOrderId} customerName="Delivery partner" onClose={() => setChatOrderId(null)} />}
     </div>
   );
 }
