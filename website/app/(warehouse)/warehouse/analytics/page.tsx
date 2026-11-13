@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  Activity,
   ArrowDownToLine,
   ArrowUpFromLine,
   CheckCircle2,
@@ -28,6 +27,7 @@ import { Button } from "../../../components/ui/button";
 import { Badge } from "../../../components/ui/badge";
 import { cn } from "../../../lib/utils";
 import { api } from "../../../lib/api/client";
+import { WarehousePageHeader } from "../../../components/warehouse/warehouse-page-header";
 
 type Period = "week" | "month" | "year";
 type AnyRow = Record<string, any>;
@@ -205,24 +205,42 @@ export default function WarehouseAnalyticsPage() {
 
   return (
     <div className="min-h-full space-y-6 bg-slate-50/50 pb-8">
-      <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-6">
-        <div className="flex items-start gap-3">
-          <div className="rounded-xl bg-emerald-50 p-3 text-emerald-700"><Activity className="h-6 w-6" /></div>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">Operations overview</p>
-            <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">Warehouse Analytics</h1>
-            <p className="mt-1 text-sm text-slate-500">A clear view of receipts, quality checks and dispatch activity.</p>
+      <WarehousePageHeader
+        eyebrow="Operations overview"
+        title="Warehouse Analytics"
+        description="Monitor incoming receipts, quality outcomes and dispatch performance."
+        meta={<span>{dashboard?.warehouse?.name || "Warehouse"} · Operational activity summary</span>}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="selection-control flex rounded-lg border">
+              {(["week", "month", "year"] as const).map(item => (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => setPeriod(item)}
+                  aria-pressed={period === item}
+                  className={cn(
+                    "selection-item rounded-md px-3 py-1.5 text-sm font-medium capitalize",
+                    period === item ? "selection-item-active" : "selection-item-inactive"
+                  )}
+                >
+                  {item}
+                </button>
+              ))}
+            </div>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={refreshAll}
+              disabled={dashboardQuery.isFetching || incomingQuery.isFetching || outgoingQuery.isFetching}
+              aria-label="Refresh analytics"
+              title="Refresh analytics"
+            >
+              <RefreshCw className={cn("h-4 w-4", (dashboardQuery.isFetching || incomingQuery.isFetching || outgoingQuery.isFetching) && "animate-spin")} />
+            </Button>
           </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1">
-            {(["week", "month", "year"] as const).map(item => (
-              <button key={item} type="button" onClick={() => setPeriod(item)} className={cn("rounded-md px-3 py-2 text-sm font-medium capitalize transition-colors", period === item ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-900")}>{item}</button>
-            ))}
-          </div>
-          <Button variant="outline" size="icon" onClick={refreshAll} aria-label="Refresh analytics" title="Refresh analytics"><RefreshCw className="h-4 w-4" /></Button>
-        </div>
-      </div>
+        }
+      />
 
       {hasError && (
         <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
