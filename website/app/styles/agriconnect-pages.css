@@ -1184,3 +1184,71 @@
     transition: none;
   }
 }
+
+
+/* Customer header refinements: spacious marketplace navigation and location shortcut. */
+.agri-site-header[data-role="customer"] {
+  height: 68px;
+  background: rgba(255,255,255,.97);
+}
+.agri-site-header[data-role="customer"] .agri-site-header-inner {
+  height: 68px;
+  max-width: 1720px;
+  grid-template-columns: minmax(205px,auto) auto minmax(300px,1fr) auto;
+  gap: clamp(.55rem,1.25vw,1.25rem);
+  padding-inline: clamp(14px,1.8vw,30px);
+}
+.agri-site-header[data-role="customer"] .agri-header-brand-mark {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+}
+.agri-site-header[data-role="customer"] .agri-header-brand-name { font-size: 1.08rem; }
+.agri-site-header[data-role="customer"] .agri-header-navigation {
+  border: 0;
+  background: transparent;
+  gap: clamp(.45rem,1.2vw,1.25rem);
+  padding: 0;
+}
+.agri-site-header[data-role="customer"] .agri-header-nav-link {
+  min-height: 40px;
+  padding-inline: .75rem;
+  color: #111827;
+  font-size: .88rem;
+  font-weight: 750;
+}
+.agri-site-header[data-role="customer"] .agri-header-nav-link.is-active {
+  background: #effaf3;
+  color: #087f5b;
+  box-shadow: none;
+}
+.agri-header-location {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: .4rem;
+  padding-inline: .45rem;
+  color: #17231e;
+  font-size: .82rem;
+  font-weight: 750;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.agri-header-location:hover { color: #087f5b; }
+@media (max-width: 1180px) {
+  .agri-site-header[data-role="customer"] .agri-site-header-inner {
+    grid-template-columns: auto auto minmax(180px,1fr) auto;
+    gap: .5rem;
+    padding-inline: 12px;
+  }
+  .agri-site-header[data-role="customer"] .agri-header-nav-link { padding-inline: .45rem; }
+  .agri-site-header[data-role="customer"] .agri-header-brand-tagline { display: none; }
+}
+@media (max-width: 900px) {
+  .agri-site-header[data-role="customer"] .agri-site-header-inner {
+    grid-template-columns: auto 1fr auto;
+  }
+  .agri-site-header[data-role="customer"] .agri-header-navigation { display: none; }
+  .agri-site-header[data-role="customer"] .agri-header-search-form { display: none; }
+}
