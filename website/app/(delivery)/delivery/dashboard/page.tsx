@@ -192,7 +192,7 @@ export default function DeliveryDashboardPage() {
             <p className="text-center text-xs text-emerald-100">Status controls whether you can receive new assignments.</p>
           </div>
         </div>
-      </section>>
+      </section>
 
       <section aria-label="Workflow overview" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Link href="/delivery/pickup-team" className="group">
