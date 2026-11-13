@@ -182,7 +182,8 @@ export default function PickupHistoryPage() {
   const isLoading = tab === "pickup" ? farmQ.isLoading : tab === "transfer" ? warehouseQ.isLoading || hubQ.isLoading : b2bQ.isLoading;
   const isError = tab === "pickup" ? farmQ.isError : tab === "transfer" ? warehouseQ.isError || hubQ.isError : b2bQ.isError;
   const allRows = [...farmRows, ...transferRows, ...b2bRows];
-  const warehouses = [...new Set(rows.map(row => row.warehouse).filter(Boolean))].sort();\n  const availableStatuses = [...new Set(rows.map(row => normalize(row.status)).filter(Boolean))].sort();
+  const warehouses = [...new Set(rows.map(row => row.warehouse).filter(Boolean))].sort();
+  const availableStatuses = [...new Set(rows.map(row => normalize(row.status)).filter(Boolean))].sort();
   const filteredRows = rows.filter(row => {
     const haystack = [row.number, row.person, row.area, row.products, row.warehouse].join(" ").toLowerCase();
     const matchesSearch = !appliedSearch || haystack.includes(appliedSearch.toLowerCase());
