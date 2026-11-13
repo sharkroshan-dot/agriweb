@@ -9,6 +9,9 @@ import { useSession } from "next-auth/react";
 import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard,
+  Search,
+  Bell,
+  Star,
   MapPin,
   Landmark,
   Globe,
@@ -36,41 +39,62 @@ import { api } from "../../lib/api/client";
 
 const navGroups = [
   {
-    label: "Home",
-    items: [{ name: "My Workflow", href: "/workflow", icon: Sparkles }, { name: "Home", href: "/customer/dashboard", icon: LayoutDashboard }],
+    label: "Overview",
+    items: [
+      { name: "Dashboard", href: "/customer/dashboard", icon: LayoutDashboard },
+      { name: "My Workflow", href: "/workflow", icon: Sparkles },
+    ],
   },
   {
-    label: "Marketplace",
+    label: "Discover & Shop",
     items: [
       { name: "Nearby Marketplace", href: "/nearby", icon: MapPin },
       { name: "State Marketplace", href: "/marketplace/state", icon: Landmark },
       { name: "National Marketplace", href: "/marketplace/national", icon: Globe },
+      { name: "Search Products", href: "/search", icon: Search },
       { name: "Trace a Lot", href: "/trace", icon: ShieldCheck },
     ],
   },
   {
-    label: "Shopping",
+    label: "Orders & Delivery",
+    items: [
+      { name: "My Orders", href: "/orders", icon: Package },
+      { name: "Delivery Slots", href: "/delivery-slots", icon: Truck },
+      { name: "Bulk & Event Orders", href: "/bulk-orders", icon: Sparkles },
+    ],
+  },
+  {
+    label: "Shopping & Benefits",
     items: [
       { name: "Cart", href: "/cart", icon: ShoppingCart },
-      { name: "Orders", href: "/orders", icon: Package },
-      { name: "Delivery Slots", href: "/delivery-slots", icon: Truck },
       { name: "Wishlist", href: "/wishlist", icon: Heart },
-      { name: "Bulk & Event Orders", href: "/bulk-orders", icon: Sparkles },
-      { name: "Farm Baskets", href: "/subscriptions", icon: CalendarClock },
+      { name: "Farm Basket Subscriptions", href: "/subscriptions", icon: CalendarClock },
       { name: "AgriPoints", href: "/agripoints", icon: Leaf },
+      { name: "Coupons", href: "/coupons", icon: Ticket },
+    ],
+  },
+  {
+    label: "Payments & Refunds",
+    items: [
+      { name: "Wallet", href: "/wallet", icon: Wallet },
+      { name: "Payments", href: "/payments", icon: CreditCard },
+      { name: "Refunds & Returns", href: "/refunds", icon: ArrowUpLeft },
+    ],
+  },
+  {
+    label: "Community & Support",
+    items: [
+      { name: "Messages", href: "/customer/messages", icon: MessageSquare },
+      { name: "Reviews", href: "/reviews", icon: Star },
+      { name: "Notifications", href: "/notifications", icon: Bell },
+      { name: "My Impact", href: "/impact", icon: Leaf },
     ],
   },
   {
     label: "Account",
     items: [
-      { name: "Wallet", href: "/wallet", icon: Wallet },
-      { name: "Payments", href: "/payments", icon: CreditCard },
-      { name: "Refunds & Returns", href: "/refunds", icon: ArrowUpLeft },
-      { name: "Coupons", href: "/coupons", icon: Ticket },
-      { name: "Reviews", href: "/reviews", icon: MessageSquare },
-      { name: "Messages", href: "/customer/messages", icon: MessageSquare },
-      { name: "My Impact", href: "/impact", icon: Leaf },
       { name: "Profile", href: "/profile", icon: User },
+      { name: "Saved Addresses", href: "/profile/addresses", icon: MapPin },
     ],
   },
 ];
