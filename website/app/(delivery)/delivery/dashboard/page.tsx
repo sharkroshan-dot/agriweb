@@ -126,7 +126,6 @@ export default function DeliveryDashboardPage() {
 
   const deliveryList = useMemo(() => sortByDeliveryPriority(deliveries?.data?.deliveries || []), [deliveries?.data?.deliveries]);
   const completedCount = deliveryList.filter((d: any) => d.status === "delivered").length;
-  const cancelledCount = deliveryList.filter((d: any) => d.status === "cancelled").length;
   const activeCount = deliveryList.filter((d: any) => ["in_transit", "dispatched", "processing"].includes(d.status)).length;
   const readyCount = deliveryList.filter((d: any) => d.status === "ready_for_delivery").length;
   const pendingCount = deliveryList.filter((d: any) => !["delivered", "cancelled"].includes(d.status)).length;
