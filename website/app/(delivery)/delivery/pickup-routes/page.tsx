@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { MapPin, Route, CheckCircle2, Navigation, Hand, Warehouse, UserCheck, Lock, Truck, Briefcase, ChevronDown } from "lucide-react";
+import { MapPin, Route, CheckCircle2, Navigation, Hand, Warehouse, UserCheck, Lock, Truck, Briefcase, ChevronDown, Clock } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
 import { Badge } from "../../../components/ui/badge";
@@ -408,21 +408,43 @@ export default function DeliveryPickupRoutesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="delivery-page-header rounded-2xl bg-gradient-to-r from-emerald-700 to-teal-600 p-6 text-white">
-        <p className="text-sm text-emerald-100">Delivery partner route operations</p>
-        <h1 className="mt-1 text-3xl font-bold">{routeView === "pickup" ? "Farm Pickup Routes" : "Warehouse Transfer Routes"}</h1>
-        <p className="mt-2 text-sm text-emerald-50">
-          {routeView === "pickup"
-            ? "Collect packed orders from farms and deliver sealed shipments to the assigned warehouse."
-            : "Move sealed shipments between warehouses or from a warehouse to the assigned local hub."}
-        </p>
-      </div>
+      <header className="relative isolate min-h-[150px] overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-r from-white via-sky-50 to-emerald-50 shadow-sm sm:min-h-[172px]">
+        <div aria-hidden="true" className="absolute inset-y-0 right-0 -z-10 w-full bg-cover bg-center opacity-95 sm:w-[72%]" style={{ backgroundImage: "url('/images/farm-pickup-routes-banner.svg')" }} />
+        <div className="absolute inset-0 -z-0 bg-gradient-to-r from-white via-white/90 to-white/10" />
+        <div className="relative z-10 flex min-h-[150px] flex-col justify-center gap-4 px-5 py-5 sm:min-h-[172px] sm:flex-row sm:items-center sm:justify-between sm:px-7">
+          <div className="flex min-w-0 items-center gap-4">
+            <div className="hidden h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-emerald-700 text-white shadow-md sm:flex"><Route className="h-9 w-9" /></div>
+            <div className="max-w-2xl min-w-0">
+              <p className="mb-1 text-xs font-bold uppercase tracking-[0.13em] text-emerald-800 sm:text-sm">Delivery Partner Operations</p>
+              <h1 className="text-2xl font-extrabold leading-tight tracking-tight text-slate-950 sm:text-4xl">{routeView === "pickup" ? "Farm Pickup Routes" : routeView === "transfers" ? "Warehouse Transfer Routes" : "B2B Business Deliveries"}</h1>
+              <p className="mt-2 max-w-xl text-sm leading-5 text-slate-700 sm:text-base sm:leading-6">
+                {routeView === "pickup" ? "Collect packed orders from farms and deliver sealed shipments to the assigned warehouse." : routeView === "transfers" ? "Move sealed shipments between warehouses or from a warehouse to the assigned local hub." : "Deliver assigned business orders and record the recipient handover."}
+              </p>
+            </div>
+          </div>
+        </div>
+      </header>
 
-      <Card className="shadow-sm">
-        <CardContent className="space-y-4 p-4">
+      <section aria-label="Route overview" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="flex items-center justify-between gap-3 rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+          <div><p className="text-sm font-semibold text-slate-700">Active Routes</p><p className="mt-1 text-3xl font-extrabold tabular-nums text-slate-950">{summaryPickupRoutes.length}</p><p className="text-xs text-slate-500">Farm pickup routes</p></div><div className="rounded-2xl bg-emerald-100 p-3 text-emerald-700"><Truck className="h-7 w-7"/></div>
+        </div>
+        <div className="flex items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+          <div><p className="text-sm font-semibold text-slate-700">Pending Routes</p><p className="mt-1 text-3xl font-extrabold tabular-nums text-slate-950">{pickupPendingCount + transferPendingCount}</p><p className="text-xs text-slate-500">Awaiting completion</p></div><div className="rounded-2xl bg-amber-100 p-3 text-amber-700"><Clock className="h-7 w-7"/></div>
+        </div>
+        <div className="flex items-center justify-between gap-3 rounded-2xl border border-blue-200 bg-gradient-to-br from-blue-50 to-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+          <div><p className="text-sm font-semibold text-slate-700">Completed Routes</p><p className="mt-1 text-3xl font-extrabold tabular-nums text-slate-950">{pickupCompletedCount + transferCompletedCount}</p><p className="text-xs text-slate-500">Confirmed arrivals / handovers</p></div><div className="rounded-2xl bg-blue-100 p-3 text-blue-700"><CheckCircle2 className="h-7 w-7"/></div>
+        </div>
+        <div className="flex items-center justify-between gap-3 rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 to-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+          <div><p className="text-sm font-semibold text-slate-700">B2B Business Deliveries</p><p className="mt-1 text-3xl font-extrabold tabular-nums text-slate-950">{b2bDeliveries.length}</p><p className="text-xs text-slate-500">Assigned business orders</p></div><div className="rounded-2xl bg-violet-100 p-3 text-violet-700"><Briefcase className="h-7 w-7"/></div>
+        </div>
+      </section>
+
+      <Card className="overflow-hidden rounded-2xl border-slate-200 shadow-sm">
+        <CardContent className="space-y-4 p-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 className="font-semibold text-slate-900">Route activity</h2>
+              <h2 className="text-lg font-bold text-slate-950">Route Activity</h2>
               <p className="text-sm text-muted-foreground">Choose a day to check whether pickups and transfers are available, pending, or completed.</p>
             </div>
             <div className="flex gap-2">
@@ -431,7 +453,7 @@ export default function DeliveryPickupRoutesPage() {
             </div>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4">
+            <div className="rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-4 shadow-sm">
               <div className="flex items-center justify-between gap-2">
                 <p className="font-semibold text-emerald-950">Farm Pickup Routes</p>
                 <p className="text-xs text-emerald-800">Completed only after all collected orders are handed over at the source warehouse.</p>
@@ -443,7 +465,7 @@ export default function DeliveryPickupRoutesPage() {
               </div>
               {overduePickupCount > 0 && datePeriod === "today" && <p className="mt-3 text-sm font-medium text-amber-800">{overduePickupCount} unfinished route(s) from earlier days remain visible below.</p>}
             </div>
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4">
+            <div className="rounded-2xl border border-blue-200 bg-gradient-to-br from-blue-50 to-white p-4 shadow-sm">
               <div className="flex items-center justify-between gap-2">
                 <p className="font-semibold text-emerald-950">Warehouse Transfer Routes</p>
                 <p className="text-xs text-emerald-800">Completed after arrival at the destination warehouse or local hub.</p>
@@ -458,11 +480,11 @@ export default function DeliveryPickupRoutesPage() {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-3 gap-2 sm:gap-3">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-3">
         <Button
           type="button"
           variant={routeView === "pickup" ? "default" : "outline"}
-          className={routeView === "pickup" ? "h-12 bg-emerald-700 text-base hover:bg-emerald-800" : "h-12 text-base"}
+          className={routeView === "pickup" ? "h-12 rounded-xl bg-emerald-700 text-sm font-semibold shadow-sm hover:bg-emerald-800 sm:text-base" : "h-12 rounded-xl border-slate-200 bg-white text-sm font-semibold text-slate-700 shadow-sm hover:bg-emerald-50 sm:text-base"}
           onClick={() => setRouteView("pickup")}
           aria-pressed={routeView === "pickup"}
         >
@@ -472,7 +494,7 @@ export default function DeliveryPickupRoutesPage() {
         <Button
           type="button"
           variant={routeView === "transfers" ? "default" : "outline"}
-          className={routeView === "transfers" ? "h-12 bg-emerald-700 text-base hover:bg-emerald-800" : "h-12 text-base"}
+          className={routeView === "transfers" ? "h-12 rounded-xl bg-emerald-700 text-sm font-semibold shadow-sm hover:bg-emerald-800 sm:text-base" : "h-12 rounded-xl border-slate-200 bg-white text-sm font-semibold text-slate-700 shadow-sm hover:bg-emerald-50 sm:text-base"}
           onClick={() => setRouteView("transfers")}
           aria-pressed={routeView === "transfers"}
         >
@@ -482,7 +504,7 @@ export default function DeliveryPickupRoutesPage() {
         <Button
           type="button"
           variant={routeView === "b2b" ? "default" : "outline"}
-          className={routeView === "b2b" ? "h-12 bg-emerald-700 text-base hover:bg-emerald-800" : "h-12 text-base"}
+          className={routeView === "b2b" ? "h-12 rounded-xl bg-emerald-700 text-sm font-semibold shadow-sm hover:bg-emerald-800 sm:text-base" : "h-12 rounded-xl border-slate-200 bg-white text-sm font-semibold text-slate-700 shadow-sm hover:bg-emerald-50 sm:text-base"}
           onClick={() => setRouteView("b2b")}
           aria-pressed={routeView === "b2b"}
         >
