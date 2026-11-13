@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
-import { ArrowRight, CheckCircle, Clock, MapPin, MessageSquare, Navigation, Pause, Phone, RefreshCw, Route, Truck } from "lucide-react";
+import { ArrowRight, CheckCircle, Clock, MapPin, MessageSquare, Navigation, Pause, Phone, RefreshCw, Route, Truck, X } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
 import { Badge } from "../../../components/ui/badge";
@@ -125,6 +125,7 @@ export default function DeliveryRoutePage() {
   const [locationAccuracy, setLocationAccuracy] = useState<number | null>(null);
   const lastLocationSyncAt = useRef(0);
   const [chatStop, setChatStop] = useState<any | null>(null);
+  const [removingOrderId, setRemovingOrderId] = useState<string | null>(null);
   const { data: session } = useSession();
   const accessToken = (session as any)?.accessToken as string | undefined;
 
@@ -247,6 +248,7 @@ export default function DeliveryRoutePage() {
           index,
           orderId: getDeliveryId({ ...stop, order }),
           assignmentId: getDeliveryAssignmentId({ ...stop, order }),
+          status: String(stop.status || stop.orderStatus || order?.status || order?.orderStatus || "").toLowerCase(),
           customerName: order?.customerName || stop.customerName || `Stop ${index + 1}`,
           priority: order?.priority ?? stop.priority,
           priorityLabel: order?.priorityLabel ?? stop.priorityLabel,
@@ -388,6 +390,39 @@ export default function DeliveryRoutePage() {
     setIsNavigating(true);
     toast.success("Route navigation started");
     void openFullRouteNavigation();
+  };
+
+  const handleRemoveStop = async (stop: any) => {
+    if (!stop.assignmentId || !stop.orderId) {
+      toast.error("This order has no active delivery assignment to remove.");
+      return;
+    }
+    if (!["assigned", "accepted"].includes(String(stop.status || "").toLowerCase())) {
+      toast.error("A delivery can only be removed before pickup has started.");
+      return;
+    }
+    const confirmed = window.confirm(
+      "Remove " + stop.customerName + " from this route? This cancels your assignment and makes the order available to another delivery partner."
+    );
+    if (!confirmed) return;
+    setRemovingOrderId(stop.orderId);
+    try {
+      await api.put("/delivery/assignments/" + stop.assignmentId + "/cancel", { reason: "Removed from delivery route by partner" });
+      toast.success("Order removed from your route and reopened for other delivery partners.");
+      setIsNavigating(false);
+      setCurrentStop(0);
+      await Promise.all([
+        refetch(),
+        queryClient.invalidateQueries({ queryKey: ["deliveryToday"] }),
+        queryClient.invalidateQueries({ queryKey: ["deliveryAssignments"] }),
+        queryClient.invalidateQueries({ queryKey: ["deliveryNearbyOrders"] }),
+        queryClient.invalidateQueries({ queryKey: ["deliveryDashboardFallback"] }),
+      ]);
+    } catch (error: any) {
+      toast.error(error?.message || "Could not remove this order from the route.");
+    } finally {
+      setRemovingOrderId(null);
+    }
   };
 
   const handleNextStop = async () => {
@@ -587,6 +622,11 @@ export default function DeliveryRoutePage() {
                         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => contactCustomer(stop.phone, "call")} aria-label={`Call ${stop.customerName}`}><Phone className="h-4 w-4" /></Button>
                       )}
                       <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setChatStop(stop)} aria-label={`Message ${stop.customerName}`}><MessageSquare className="h-4 w-4" /></Button>
+                      {["assigned", "accepted"].includes(stop.status) && stop.assignmentId && (
+                        <Button variant="ghost" size="sm" className="h-8 text-destructive hover:bg-destructive/10 hover:text-destructive" disabled={removingOrderId === stop.orderId || isNavigating} onClick={() => void handleRemoveStop(stop)}>
+                          <X className="mr-1 h-4 w-4" />{removingOrderId === stop.orderId ? "Removing..." : "Remove"}
+                        </Button>
+                      )}
                       {index === currentStop && isNavigating && (
                         <>
                           <Button size="sm" variant="outline" onClick={() => openTurnByTurnNavigation(stop)}>
