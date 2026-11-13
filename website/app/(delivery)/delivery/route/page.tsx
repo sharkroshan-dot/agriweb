@@ -10,6 +10,7 @@ import { Button } from "../../../components/ui/button";
 import { Badge } from "../../../components/ui/badge";
 import { Map as RouteMap } from "../../../components/shared/map";
 import { LiveChatDialog } from "../../../components/delivery/live-chat-dialog";
+import { PageHeader } from "../../../components/common/page-header";
 import { cn } from "../../../lib/utils";
 import { api } from "../../../lib/api/client";
 import { formatTime } from "../../../lib/utils";
@@ -517,10 +518,26 @@ export default function DeliveryRoutePage() {
 
   return (
     <div className="space-y-5 pb-6">
-      <div className="delivery-page-header flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div><h1 className="delivery-page-title text-2xl font-bold tracking-tight">Delivery Route</h1><p className="text-sm text-muted-foreground">Manage your selected deliveries, follow the optimized route and complete all stops.</p></div>
-        <div className="flex flex-wrap items-center gap-2"><Badge variant={isNavigating ? "success" : "secondary"}>{isNavigating ? "In progress" : "Route ready"}</Badge><Button size="sm" variant="outline" onClick={() => { refetch(); void queryClient.invalidateQueries({queryKey:["deliveryToday"]}); }}><RefreshCw className="mr-2 h-4 w-4"/>Refresh</Button>{routeLength > 0 && <Button size="sm" onClick={isNavigating ? () => setIsNavigating(false) : handleStartRoute}>{isNavigating ? <><Pause className="mr-2 h-4 w-4"/>Stop route</> : <><Navigation className="mr-2 h-4 w-4"/>Start route</>}</Button>}</div>
-      </div>
+      <PageHeader
+        className="warehouse-page-header"
+        eyebrow="Delivery operations"
+        icon={<Truck className="h-3.5 w-3.5" />}
+        title="Delivery Route"
+        description="Manage your selected deliveries, follow the optimized route and complete all stops."
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant={isNavigating ? "success" : "secondary"}>{isNavigating ? "In progress" : "Route ready"}</Badge>
+            <Button size="sm" variant="outline" onClick={() => { void refetch(); void queryClient.invalidateQueries({ queryKey: ["deliveryToday"] }); }}>
+              <RefreshCw className="mr-2 h-4 w-4" />Refresh
+            </Button>
+            {routeLength > 0 && (
+              <Button size="sm" onClick={isNavigating ? () => setIsNavigating(false) : handleStartRoute}>
+                {isNavigating ? <><Pause className="mr-2 h-4 w-4" />Stop route</> : <><Navigation className="mr-2 h-4 w-4" />Start route</>}
+              </Button>
+            )}
+          </div>
+        }
+      />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
         <Card><CardContent className="flex items-center gap-3 p-4"><div className="rounded-full bg-emerald-100 p-3 text-emerald-700"><Route className="h-5 w-5"/></div><div className="min-w-0"><p className="text-xs text-muted-foreground">Current route</p><p className="truncate font-semibold">{String(metrics.routeNumber || metrics.routeId || "Active route")}</p><p className="text-xs text-emerald-700">{isNavigating ? "In progress" : "Ready"}</p></div></CardContent></Card>
