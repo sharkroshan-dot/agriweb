@@ -40,13 +40,14 @@ export default function DeliveryHistoryPage() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [page, setPage] = useState(1);
+  const [selectedStatus, setSelectedStatus] = useState("all");
   const pageSize = 20;
   const { data: session } = useSession();
   const accessToken = (session as any)?.accessToken as string | undefined;
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ["deliveryHistory", page],
-    queryFn: () => api.get("/delivery/me/history", { params: { page, limit: pageSize } }),
+    queryKey: ["deliveryHistory", page, selectedStatus],
+    queryFn: () => api.get("/delivery/me/history", { params: { page, limit: pageSize, status: selectedStatus } }),
     enabled: Boolean(accessToken),
   });
   const { data: dashboardData } = useQuery({
@@ -58,6 +59,7 @@ export default function DeliveryHistoryPage() {
 
   const history = data?.data?.deliveries || [];
   const dashboard = dashboardData?.data || {};
+  const counts = data?.data?.counts || { all: data?.data?.count || history.length, delivered: history.filter((item:any)=>item.historyStatus === "delivered").length, failed: 0, returned: 0, cancelled: 0 };
   const filteredHistory = useMemo(() => history.filter((item: any) => {
     const q = search.trim().toLowerCase();
     const searchable = [orderRef(item), item.customerName, formatAddress(item.deliveryAddress)].join(" ").toLowerCase();
@@ -87,7 +89,7 @@ export default function DeliveryHistoryPage() {
     const rows = filteredHistory.map((item: any) => [
       orderRef(item), item.customerName || "", formatDate(deliveryDate(item)),
       formatAddress(item.deliveryAddress), item.totalAmount ?? "",
-      item.deliveryFee ?? item.partnerEarnings ?? item.earnings ?? "", "Delivered",
+      item.deliveryFee ?? item.partnerEarnings ?? item.earnings ?? "", item.historyStatus || selectedStatus,
     ]);
     const csv = [columns, ...rows].map((row) => row.map((value) => '"' + String(value ?? "").replace(/"/g, '""') + '"').join(",")).join("\\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
@@ -130,9 +132,17 @@ export default function DeliveryHistoryPage() {
       <Card className="overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-slate-50/70 px-4 py-3">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge className="bg-emerald-700 text-white hover:bg-emerald-700">All Deliveries</Badge>
-            <Badge variant="outline" className="gap-1"><CheckCircle2 className="h-3 w-3 text-emerald-600"/>Delivered</Badge>
-            <span className="text-xs text-muted-foreground">This history endpoint currently returns completed deliveries.</span>
+            {[
+              { id: "all", label: "All Deliveries", count: counts.all },
+              { id: "delivered", label: "Delivered", count: counts.delivered },
+              { id: "failed", label: "Failed", count: counts.failed },
+              { id: "returned", label: "Returned", count: counts.returned },
+              { id: "cancelled", label: "Cancelled", count: counts.cancelled },
+            ].map((tab) => (
+              <Button key={tab.id} size="sm" variant={selectedStatus === tab.id ? "default" : "outline"} className={selectedStatus === tab.id ? "bg-emerald-700 hover:bg-emerald-800" : "bg-white"} onClick={() => { setSelectedStatus(tab.id); setPage(1); setSelectedTrip(null); }}>
+                {tab.label} <span className="ml-1 rounded-full bg-black/10 px-1.5 py-0.5 text-[10px]">{tab.count}</span>
+              </Button>
+            ))}
           </div>
           <Button variant="outline" size="sm" onClick={exportCsv} disabled={!filteredHistory.length}><Download className="mr-2 h-4 w-4"/>Export CSV</Button>
         </div>
@@ -157,7 +167,7 @@ export default function DeliveryHistoryPage() {
                     <td className="whitespace-nowrap px-4 py-3 text-slate-600">{formatDate(deliveryDate(item))}</td>
                     <td className="max-w-[210px] px-4 py-3"><span className="flex items-start gap-1.5"><MapPin className="mt-0.5 h-4 w-4 shrink-0 text-slate-500"/><span className="line-clamp-2">{formatAddress(item.deliveryAddress)}</span></span></td>
                     <td className="whitespace-nowrap px-4 py-3 font-medium">{money(item.totalAmount)}</td>
-                    <td className="px-4 py-3"><Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100"><CheckCircle2 className="mr-1 h-3 w-3"/>Delivered</Badge></td>
+                    <td className="px-4 py-3"><Badge className={item.historyStatus === "failed" ? "bg-red-100 text-red-800 hover:bg-red-100" : item.historyStatus === "returned" ? "bg-amber-100 text-amber-800 hover:bg-amber-100" : item.historyStatus === "cancelled" ? "bg-slate-100 text-slate-700 hover:bg-slate-100" : "bg-emerald-100 text-emerald-800 hover:bg-emerald-100"}>{(item.historyStatus || "delivered").charAt(0).toUpperCase() + (item.historyStatus || "delivered").slice(1)}</Badge></td>
                     <td className="px-4 py-3"><Button size="sm" variant="outline" onClick={()=>setSelectedTrip(item)}><Eye className="mr-1 h-4 w-4"/>View</Button></td>
                   </tr>)}
                 </tbody>
@@ -171,7 +181,7 @@ export default function DeliveryHistoryPage() {
       </Card>
 
       {selectedTrip && <Card className="overflow-hidden border-emerald-200 shadow-sm">
-        <div className="flex items-center justify-between border-b bg-emerald-50/60 px-5 py-4"><div><p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">Delivery details</p><h2 className="mt-1 text-lg font-bold">{orderRef(selectedTrip)}</h2></div><div className="flex items-center gap-2"><Badge className="bg-emerald-100 text-emerald-800">Delivered</Badge><Button size="icon" variant="ghost" onClick={()=>setSelectedTrip(null)} aria-label="Close details"><X className="h-4 w-4"/></Button></div></div>
+        <div className="flex items-center justify-between border-b bg-emerald-50/60 px-5 py-4"><div><p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">Delivery details</p><h2 className="mt-1 text-lg font-bold">{orderRef(selectedTrip)}</h2></div><div className="flex items-center gap-2"><Badge className="bg-emerald-100 text-emerald-800">{(selectedTrip.historyStatus || "delivered").charAt(0).toUpperCase() + (selectedTrip.historyStatus || "delivered").slice(1)}</Badge><Button size="icon" variant="ghost" onClick={()=>setSelectedTrip(null)} aria-label="Close details"><X className="h-4 w-4"/></Button></div></div>
         <CardContent className="grid gap-5 p-5 lg:grid-cols-2">
           <div className="space-y-3"><h3 className="font-semibold">Customer information</h3><div className="rounded-xl border p-4 text-sm"><p className="font-medium">{selectedTrip.customerName || "Customer name unavailable"}</p><p className="mt-2 text-muted-foreground">{selectedTrip.customerPhone || "Phone number not available"}</p><p className="mt-2 flex gap-2 text-muted-foreground"><MapPin className="h-4 w-4 shrink-0"/>{formatAddress(selectedTrip.deliveryAddress)}</p></div><h3 className="font-semibold">Order information</h3><div className="rounded-xl border p-4 text-sm"><div className="flex justify-between gap-3"><span className="text-muted-foreground">Order value</span><strong>{money(selectedTrip.totalAmount)}</strong></div><div className="mt-2 flex justify-between gap-3"><span className="text-muted-foreground">Payment method</span><strong>{selectedTrip.paymentMethod || selectedTrip.paymentStatus || "Not recorded"}</strong></div><div className="mt-2 flex justify-between gap-3"><span className="text-muted-foreground">Delivery earnings</span><strong className="text-emerald-700">{money(selectedTrip.deliveryFee ?? selectedTrip.partnerEarnings ?? selectedTrip.earnings)}</strong></div><div className="mt-2 flex justify-between gap-3"><span className="text-muted-foreground">Completed at</span><strong className="text-right">{formatDate(deliveryDate(selectedTrip))}</strong></div></div></div>
           <div className="space-y-3"><h3 className="font-semibold">Delivered items ({selectedTrip.items?.length || 0})</h3><div className="rounded-xl border p-4">{selectedTrip.items?.length ? selectedTrip.items.map((item:any,index:number)=><div key={item.id || item.productId || index} className="flex justify-between gap-3 border-b py-2 last:border-0"><span>{item.productName || item.name || "Product"}</span><span className="font-medium">{item.quantity ?? "—"} {item.unit || ""}</span></div>) : <p className="text-sm text-muted-foreground">Item details are not available for this record.</p>}</div><h3 className="font-semibold">Delivery verification</h3><div className="rounded-xl border p-4 text-sm"><div className="flex items-center gap-2 text-emerald-700"><CheckCircle2 className="h-4 w-4"/>Delivery marked completed</div><p className="mt-2 text-muted-foreground">OTP, QR, signature, GPS and proof-of-delivery details will appear here when they are included in the history record.</p></div></div>
