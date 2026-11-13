@@ -10,7 +10,6 @@ import {
   LayoutDashboard,
   Truck,
   Map,
-  MapPin,
   Settings,
   History,
   CheckCircle,
@@ -18,7 +17,6 @@ import {
   Banknote,
   LifeBuoy,
   Star,
-  RefreshCcw,
   MessageSquare,
   Route,
   Warehouse,
@@ -67,19 +65,20 @@ export function DeliverySidebar() {
       ],
     },
     {
-      label: "Delivery Operations",
+      label: "Warehouse Pickup",
       items: [
-        { name: "My Deliveries", href: "/delivery/deliveries", icon: Truck, badge: todayCount > 0 ? todayCount : undefined },
-        { name: "Order Map", href: "/delivery/order-map", icon: Map },
-        { name: "Live Route", href: "/delivery/route", icon: MapPin },
-        { name: "Auto-Reassignment", href: "/delivery/reassignments", icon: RefreshCcw },
+        { name: "Pickup Assignments", href: "/delivery/pickup-team", icon: Warehouse },
+        { name: "Pickup Routes", href: "/delivery/pickup-routes", icon: Route },
+        { name: "Pickup History", href: "/delivery/pickup-history", icon: History },
       ],
     },
     {
-      label: "Pickup Operations",
+      label: "Customer Delivery",
       items: [
-        { name: "Warehouse Pickup", href: "/delivery/pickup-team", icon: Warehouse },
-        { name: "Pickup Routes", href: "/delivery/pickup-routes", icon: Route },
+        { name: "My Deliveries", href: "/delivery/deliveries", icon: Truck, badge: todayCount > 0 ? todayCount : undefined },
+        { name: "Order Map", href: "/delivery/order-map", icon: Map },
+        { name: "Delivery Routes", href: "/delivery/route", icon: Route },
+        { name: "Delivery History", href: "/delivery/history", icon: History },
       ],
     },
     {
@@ -89,15 +88,9 @@ export function DeliverySidebar() {
       ],
     },
     {
-      label: "Performance",
+      label: "Performance & Finance",
       items: [
-        { name: "Delivery History", href: "/delivery/history", icon: History },
         { name: "My Ratings", href: "/delivery/ratings", icon: Star },
-      ],
-    },
-    {
-      label: "Finance",
-      items: [
         { name: "Earnings", href: "/delivery/earnings", icon: Wallet },
         { name: "COD Collection", href: "/delivery/settlements", icon: Banknote },
       ],
