@@ -20,7 +20,7 @@ import { Card, CardContent } from "../ui/card";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { Input } from "../ui/input";
-import { formatPrice, formatDate } from "../../lib/utils";
+import { cn, formatPrice, formatDate } from "../../lib/utils";
 import { api } from "../../lib/api/client";
 import { WarehousePageHeader } from "../warehouse/warehouse-page-header";
 
