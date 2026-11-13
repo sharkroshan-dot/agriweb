@@ -466,7 +466,7 @@ export default function DeliveryOrderMapPage({ compact = false }: { compact?: bo
       {compact && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-100 bg-white p-3 shadow-sm">
         <div>
           <p className="text-sm font-semibold text-slate-900">Live Order Map</p>
-          <p className="text-xs text-muted-foreground">{visibleOrders.length} visible orders · {liveLocation ? "GPS active" : "Waiting for location"}</p>
+          <p className="text-xs text-muted-foreground">{visibleOrders.length} orders within {radiusKm === "all" ? "all areas" : `${radiusKm} km`} · {liveLocation ? "GPS active" : "Waiting for location"}</p>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           {RADIUS_OPTIONS.map((distance) => <Button key={distance} size="sm" variant={radiusKm === distance ? "default" : "outline"} onClick={() => setRadiusKm(distance)}>{distance} km</Button>)}
@@ -492,29 +492,39 @@ export default function DeliveryOrderMapPage({ compact = false }: { compact?: bo
               </Button>
             )}
           </CardHeader>
-          <CardContent className="p-0">
+          <CardContent className="relative p-0">
             {isLoading ? (
               <div className={compact ? "h-[520px] animate-pulse rounded-b-lg bg-muted" : "h-[560px] animate-pulse rounded-b-lg bg-muted"} />
-            ) : visibleOrders.length === 0 ? (
-              <div className={`flex ${compact ? "h-[520px]" : "h-[420px]"} flex-col items-center justify-center gap-3 rounded-b-lg border-t bg-muted/20 p-6 text-center`}>
-                <MapPin className="h-10 w-10 text-muted-foreground" />
-                <div>
-                  <p className="font-medium">No available orders on the map</p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {liveLocation && radiusKm !== "all" ? `Try increasing the ${radiusKm} km radius, choose All, or refresh orders.` : "Allow location access to find nearby orders."}
-                  </p>
-                </div>
-              </div>
             ) : (
-              <Map
-                center={mapCenter}
-                zoom={12}
-                markers={mapMarkers}
-                trackUserLocation
-                userLocation={liveLocation}
-                height={compact ? "520px" : "560px"}
-                onMarkerClick={(marker) => setSelectedOrderId(String(marker.id))}
-              />
+              <>
+                <Map
+                  center={mapCenter}
+                  zoom={radiusKm === "all" ? 11 : Math.max(9, 14 - Math.round(Math.log2(Number(radiusKm) || 10) / 2))}
+                  markers={mapMarkers}
+                  trackUserLocation
+                  userLocation={liveLocation}
+                  circle={radiusKm === "all" ? undefined : { center: liveLocation || FALLBACK_CENTER, radiusKm }}
+                  height={compact ? "520px" : "560px"}
+                  onMarkerClick={(marker) => setSelectedOrderId(String(marker.id))}
+                />
+                {visibleOrders.length === 0 && (
+                  <div className="pointer-events-none absolute inset-x-3 bottom-3 z-10 flex justify-center">
+                    <div className="max-w-lg rounded-xl border border-amber-200 bg-white/95 px-4 py-3 text-center shadow-lg backdrop-blur">
+                      <p className="text-sm font-semibold text-slate-900">
+                        {liveLocation
+                          ? radiusKm === "all" ? "No available delivery orders right now" : `No available orders within ${radiusKm} km`
+                          : "Waiting for your current location"}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-600">
+                        {liveLocation
+                          ? "The map and radius are still visible. Try a larger radius or refresh to check again."
+                          : "Enable location access to draw the radius around you and find nearby orders."}
+                      </p>
+                      {locationError && <p className="mt-1 text-xs font-medium text-rose-600">Location permission is unavailable. Use Locate to try again.</p>}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </CardContent>
         </Card>
