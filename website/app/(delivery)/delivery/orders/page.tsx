@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
-import { CheckCircle2, CircleAlert, PackageCheck, Truck } from "lucide-react";
+import { CheckCircle2, AlertTriangle, PackageCheck, Truck } from "lucide-react";
 import { Card, CardContent } from "../../../components/ui/card";
 import { api } from "../../../lib/api/client";
 import DeliveryOrderMapPage from "../order-map/page";
@@ -49,7 +49,7 @@ export default function DeliveryOrdersWorkspacePage() {
     { label: "Pickup / Dispatch", value: counts.pickup, hint: "Collected from pickup point", icon: Truck, tone: "blue" },
     { label: "In Transit", value: counts.transit, hint: "On the way to customers", icon: Truck, tone: "violet" },
     { label: "Delivered", value: counts.delivered, hint: "Completed deliveries", icon: CheckCircle2, tone: "green" },
-    { label: "Failed / Return", value: counts.failed, hint: "Needs attention", icon: CircleAlert, tone: "rose" },
+    { label: "Failed / Return", value: counts.failed, hint: "Needs attention", icon: AlertTriangle, tone: "rose" },
   ];
 
   return (
