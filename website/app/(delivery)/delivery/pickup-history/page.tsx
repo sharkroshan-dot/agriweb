@@ -29,6 +29,22 @@ type HistoryRecord = {
 
 const receivedStatuses = new Set(["received", "warehouse_received", "received_at_warehouse", "arrived_warehouse", "returned_to_warehouse", "stored"]);
 const normalize = (value: any) => String(value ?? "").trim().toLowerCase().replace(/[ -]+/g, "_");
+const historyStatusLabel = (value: any) => {
+  const status = normalize(value);
+  const labels: Record<string, string> = {
+    completed: "Completed",
+    returned_to_warehouse: "Returned to Warehouse",
+    warehouse_received: "Warehouse Received",
+    received: "Warehouse Received",
+    received_at_warehouse: "Warehouse Received",
+    arrived_warehouse: "Warehouse Received",
+    stored: "Stored",
+    arrived_at_destination: "Arrived at Destination",
+    arrived_at_hub: "Arrived at Local Hub",
+    delivered: "Delivered",
+  };
+  return labels[status] || String(value || "Completed").replace(/_/g, " ").replace(/\\b\\w/g, (letter: string) => letter.toUpperCase());
+};
 const asDate = (value: any) => {
   if (!value) return null;
   const parsed = new Date(value);
@@ -72,7 +88,7 @@ const buildFarmRecords = (routes: any[]): HistoryRecord[] => {
           area: stop.area || stop.village || stop.pickupAddress || "Area unavailable",
           products: productNames || "Product details unavailable", quantity: qty ? qty.toLocaleString("en-IN") + " kg" : "—",
           warehouse: route.warehouseName || route.destinationWarehouseName || "Assigned warehouse",
-          status: "Completed", detail: { route, stop, products },
+          status: historyStatusLabel(route?.status || route?.orderStatus || route?.collectionStatus), detail: { route, stop, products },
         });
       }
     }
@@ -99,7 +115,7 @@ const buildTransferRecords = (warehouseTransfers: any[], hubTransfers: any[]): H
       products: item.productName || item.products?.map?.((p: any) => p.productName || p.name).filter(Boolean).join(", ") || "Transfer goods",
       quantity: qty ? qty.toLocaleString("en-IN") + " kg" : "—",
       warehouse: item.destinationWarehouseName || item.localHubName || "Destination not recorded",
-      status: "Completed", detail: item,
+      status: historyStatusLabel(item.status), detail: item,
     });
   }
   return rows.sort((a, b) => (asDate(b.date)?.getTime() || 0) - (asDate(a.date)?.getTime() || 0));
@@ -116,7 +132,7 @@ const buildB2BRecords = (orders: any[]): HistoryRecord[] => orders
     products: item.productName || item.name || "Business order",
     quantity: Number(item.quantityKg || 0) ? Number(item.quantityKg).toLocaleString("en-IN") + " kg" : "—",
     warehouse: item.sourceWarehouseName || item.warehouseName || "Dispatch warehouse",
-    status: "Completed", detail: item,
+    status: historyStatusLabel(item.status || "delivered"), detail: item,
   }))
   .sort((a, b) => (asDate(b.date)?.getTime() || 0) - (asDate(a.date)?.getTime() || 0));
 
@@ -149,7 +165,7 @@ export default function PickupHistoryPage() {
   const [endDate, setEndDate] = useState(dateOffset(0));
   const [quickRange, setQuickRange] = useState<"today" | "yesterday" | "7days" | "30days" | "month" | null>("7days");
   const [warehouse, setWarehouse] = useState("all");
-  const [status, setStatus] = useState("completed");
+  const [status, setStatus] = useState("all");
   const [page, setPage] = useState(1);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
@@ -166,7 +182,7 @@ export default function PickupHistoryPage() {
   const isLoading = tab === "pickup" ? farmQ.isLoading : tab === "transfer" ? warehouseQ.isLoading || hubQ.isLoading : b2bQ.isLoading;
   const isError = tab === "pickup" ? farmQ.isError : tab === "transfer" ? warehouseQ.isError || hubQ.isError : b2bQ.isError;
   const allRows = [...farmRows, ...transferRows, ...b2bRows];
-  const warehouses = [...new Set(rows.map(row => row.warehouse).filter(Boolean))].sort();
+  const warehouses = [...new Set(rows.map(row => row.warehouse).filter(Boolean))].sort();\n  const availableStatuses = [...new Set(rows.map(row => normalize(row.status)).filter(Boolean))].sort();
   const filteredRows = rows.filter(row => {
     const haystack = [row.number, row.person, row.area, row.products, row.warehouse].join(" ").toLowerCase();
     const matchesSearch = !appliedSearch || haystack.includes(appliedSearch.toLowerCase());
@@ -186,7 +202,7 @@ export default function PickupHistoryPage() {
   const completedCounts = { pickup: farmRows.length, transfer: transferRows.length, b2b: b2bRows.length };
   const loadingAll = farmQ.isLoading || warehouseQ.isLoading || hubQ.isLoading || b2bQ.isLoading;
   const refresh = () => { void farmQ.refetch(); void warehouseQ.refetch(); void hubQ.refetch(); void b2bQ.refetch(); };
-  const clearFilters = () => { setSearchText(""); setAppliedSearch(""); setStartDate(""); setEndDate(""); setWarehouse("all"); setStatus("completed"); setQuickRange(null); setPage(1); };
+  const clearFilters = () => { setSearchText(""); setAppliedSearch(""); setStartDate(""); setEndDate(""); setWarehouse("all"); setStatus("all"); setQuickRange(null); setPage(1); };
   const applyQuickDate = (range: "today" | "yesterday" | "7days" | "30days" | "month") => {
     const today = dateOffset(0);
     const yesterday = dateOffset(1);
@@ -253,7 +269,7 @@ export default function PickupHistoryPage() {
           <label><span className="mb-1 block text-xs font-semibold text-slate-600">From date</span><input type="date" value={startDate} max={endDate || undefined} onChange={event => { setStartDate(event.target.value); setQuickRange(null); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700" /></label>
           <label><span className="mb-1 block text-xs font-semibold text-slate-600">To date</span><input type="date" value={endDate} min={startDate || undefined} onChange={event => { setEndDate(event.target.value); setQuickRange(null); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700" /></label>
           <label><span className="mb-1 block text-xs font-semibold text-slate-600">Warehouse</span><select value={warehouse} onChange={event => { setWarehouse(event.target.value); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"><option value="all">All Warehouses</option>{warehouses.map(item => <option key={item} value={item}>{item}</option>)}</select></label>
-          <label><span className="mb-1 block text-xs font-semibold text-slate-600">Status</span><select value={status} onChange={event => { setStatus(event.target.value); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"><option value="completed">Completed</option><option value="all">All statuses</option></select></label>
+          <label><span className="mb-1 block text-xs font-semibold text-slate-600">Status</span><select value={status} onChange={event => { setStatus(event.target.value); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"><option value="all">All statuses</option>{availableStatuses.map(value => <option key={value} value={value}>{historyStatusLabel(value)}</option>)}</select></label>
           <div className="flex items-end gap-2"><Button type="button" onClick={() => { setAppliedSearch(searchText.trim()); setPage(1); }} className="h-10 bg-emerald-700 text-white hover:bg-emerald-800"><Search className="mr-2 h-4 w-4" />Search</Button><Button type="button" variant="outline" onClick={clearFilters} className="h-10 bg-white"><RotateCcw className="mr-2 h-4 w-4" />Clear</Button></div>
         </div>
       </section>
@@ -266,7 +282,7 @@ export default function PickupHistoryPage() {
         {isLoading ? <div className="space-y-3 p-5">{[1, 2, 3].map(item => <div key={item} className="h-14 animate-pulse rounded-lg bg-slate-100" />)}</div>
           : isError ? <div className="px-5 py-14 text-center text-sm text-slate-600">History could not be loaded. Refresh the page and try again.</div>
           : filteredRows.length === 0 ? <div className="px-5 py-14 text-center"><PackageCheck className="mx-auto h-10 w-10 text-slate-300" /><p className="mt-3 font-semibold text-slate-900">No completed records found</p><p className="mt-1 text-sm text-slate-500">Try changing the date range or clearing your search.</p></div>
-          : <div className="overflow-x-auto"><table className="w-full min-w-[1050px] text-left text-sm"><thead className="bg-emerald-50 text-xs font-semibold uppercase tracking-wide text-emerald-950"><tr><th className="px-4 py-3"># / Route</th><th className="px-4 py-3">Date &amp; Time</th><th className="px-4 py-3">{tab === "pickup" ? "Farmer / Farm" : tab === "transfer" ? "Source" : "Business Buyer"}</th><th className="px-4 py-3">{tab === "pickup" ? "Area / Locality" : "Destination"}</th><th className="px-4 py-3">Products &amp; Quantity</th><th className="px-4 py-3">Warehouse</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{visibleRows.map((row, index) => { const open = Boolean(expanded[row.key]); return <tr key={row.key} className="align-top hover:bg-slate-50/70"><td className="px-4 py-3"><span className="font-semibold text-slate-900">{(page - 1) * pageSize + index + 1}. {row.number}</span></td><td className="whitespace-nowrap px-4 py-3 text-slate-600"><span className="inline-flex items-center gap-1.5"><CalendarDays className="h-4 w-4 text-slate-400" />{formatDate(row.date)}</span></td><td className="px-4 py-3"><span className="font-semibold text-slate-900">{row.person}</span></td><td className="px-4 py-3"><span className="inline-flex items-start gap-1.5 text-slate-700"><MapPin className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />{row.area}</span></td><td className="px-4 py-3"><p className="font-medium text-slate-800">{row.products}</p><p className="mt-1 text-xs text-slate-500">{row.quantity}</p></td><td className="px-4 py-3"><span className="inline-flex items-center gap-1.5 text-slate-700"><Warehouse className="h-4 w-4 text-slate-400" />{row.warehouse}</span></td><td className="px-4 py-3"><Badge variant="success"><CheckCircle2 className="mr-1 h-3.5 w-3.5" />Completed</Badge></td><td className="px-4 py-3"><Button type="button" size="sm" variant="outline" onClick={() => setExpanded(previous => ({ ...previous, [row.key]: !previous[row.key] }))} className="bg-white"><Eye className="mr-1.5 h-4 w-4" />{open ? "Hide" : "View Details"}</Button>{open && <div className="mt-2 min-w-64 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600"><p className="font-semibold text-slate-900">Record details</p><pre className="mt-2 whitespace-pre-wrap break-words font-sans">{tab === "pickup" ? (row.detail.products || []).map((item: any) => (item.productName || "Product") + ": " + (item.actualQuantity ?? item.quantity ?? "—") + " kg").join("\n") : JSON.stringify(row.detail, (key, value) => key.startsWith("_") ? undefined : value, 2)}</pre></div>}</td></tr>; })}</tbody></table></div>}
+          : <div className="overflow-x-auto"><table className="w-full min-w-[1050px] text-left text-sm"><thead className="bg-emerald-50 text-xs font-semibold uppercase tracking-wide text-emerald-950"><tr><th className="px-4 py-3"># / Route</th><th className="px-4 py-3">Date &amp; Time</th><th className="px-4 py-3">{tab === "pickup" ? "Farmer / Farm" : tab === "transfer" ? "Source" : "Business Buyer"}</th><th className="px-4 py-3">{tab === "pickup" ? "Area / Locality" : "Destination"}</th><th className="px-4 py-3">Products &amp; Quantity</th><th className="px-4 py-3">Warehouse</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{visibleRows.map((row, index) => { const open = Boolean(expanded[row.key]); return <tr key={row.key} className="align-top hover:bg-slate-50/70"><td className="px-4 py-3"><span className="font-semibold text-slate-900">{(page - 1) * pageSize + index + 1}. {row.number}</span></td><td className="whitespace-nowrap px-4 py-3 text-slate-600"><span className="inline-flex items-center gap-1.5"><CalendarDays className="h-4 w-4 text-slate-400" />{formatDate(row.date)}</span></td><td className="px-4 py-3"><span className="font-semibold text-slate-900">{row.person}</span></td><td className="px-4 py-3"><span className="inline-flex items-start gap-1.5 text-slate-700"><MapPin className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />{row.area}</span></td><td className="px-4 py-3"><p className="font-medium text-slate-800">{row.products}</p><p className="mt-1 text-xs text-slate-500">{row.quantity}</p></td><td className="px-4 py-3"><span className="inline-flex items-center gap-1.5 text-slate-700"><Warehouse className="h-4 w-4 text-slate-400" />{row.warehouse}</span></td><td className="px-4 py-3"><Badge variant="success"><CheckCircle2 className="mr-1 h-3.5 w-3.5" />{row.status}</Badge></td><td className="px-4 py-3"><Button type="button" size="sm" variant="outline" onClick={() => setExpanded(previous => ({ ...previous, [row.key]: !previous[row.key] }))} className="bg-white"><Eye className="mr-1.5 h-4 w-4" />{open ? "Hide" : "View Details"}</Button>{open && <div className="mt-2 min-w-64 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600"><p className="font-semibold text-slate-900">Record details</p><pre className="mt-2 whitespace-pre-wrap break-words font-sans">{tab === "pickup" ? (row.detail.products || []).map((item: any) => (item.productName || "Product") + ": " + (item.actualQuantity ?? item.quantity ?? "—") + " kg").join("\n") : JSON.stringify(row.detail, (key, value) => key.startsWith("_") ? undefined : value, 2)}</pre></div>}</td></tr>; })}</tbody></table></div>}
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-4 py-3 text-sm text-slate-600"><span>Showing {filteredRows.length ? (page - 1) * pageSize + 1 : 0}–{Math.min(page * pageSize, filteredRows.length)} of {filteredRows.length} records</span><div className="flex items-center gap-1"><Button type="button" size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(value => Math.max(1, value - 1))}><ChevronLeft className="h-4 w-4" /></Button><span className="px-2 font-semibold text-slate-800">{page} / {pageCount}</span><Button type="button" size="sm" variant="outline" disabled={page >= pageCount} onClick={() => setPage(value => Math.min(pageCount, value + 1))}><ChevronRight className="h-4 w-4" /></Button></div></div>
       </section>
     </div>
