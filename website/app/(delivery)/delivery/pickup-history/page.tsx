@@ -41,10 +41,10 @@ const farmRouteStatus = (value: any) => {
     collected: "Pickup in Progress",
     departed_farm: "Departed Farm",
     completed: "Pickup Completed",
-    returned_to_warehouse: "Arrived at Warehouse",
-    arrived_warehouse: "Arrived at Warehouse",
-    warehouse_received: "Arrived at Warehouse",
-    received: "Arrived at Warehouse",
+    returned_to_warehouse: "Pickup Completed",
+    arrived_warehouse: "Pickup Completed",
+    warehouse_received: "Pickup Completed",
+    received: "Pickup Completed",
   };
   return map[status] || "Assigned";
 };
@@ -224,7 +224,11 @@ export default function PickupHistoryPage() {
   const isError = tab === "pickup" ? farmQ.isError : tab === "transfer" ? warehouseQ.isError || hubQ.isError : b2bQ.isError;
   const allRows = [...farmRows, ...transferRows, ...b2bRows];
   const warehouses = [...new Set(rows.map(row => row.warehouse).filter(Boolean))].sort();
-  const availableStatuses = [...new Set(rows.map(row => row.statusKey).filter(Boolean))].sort();
+  const availableStatuses = tab === "pickup"
+    ? ["assigned", "pickup_in_progress", "departed_farm", "pickup_completed"]
+    : tab === "transfer"
+      ? ["assigned", "in_transit", "arrived_at_destination", "arrived_at_local_hub", "completed"]
+      : ["assigned", "in_transit", "delivered"];
   const filteredRows = rows.filter(row => {
     const haystack = [row.number, row.person, row.area, row.products, row.warehouse].join(" ").toLowerCase();
     const matchesSearch = !appliedSearch || haystack.includes(appliedSearch.toLowerCase());
@@ -311,7 +315,7 @@ export default function PickupHistoryPage() {
           <label><span className="mb-1 block text-xs font-semibold text-slate-600">From date</span><input type="date" value={startDate} max={endDate || undefined} onChange={event => { setStartDate(event.target.value); setQuickRange(null); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700" /></label>
           <label><span className="mb-1 block text-xs font-semibold text-slate-600">To date</span><input type="date" value={endDate} min={startDate || undefined} onChange={event => { setEndDate(event.target.value); setQuickRange(null); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700" /></label>
           <label><span className="mb-1 block text-xs font-semibold text-slate-600">Warehouse</span><select value={warehouse} onChange={event => { setWarehouse(event.target.value); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"><option value="all">All Warehouses</option>{warehouses.map(item => <option key={item} value={item}>{item}</option>)}</select></label>
-          <label><span className="mb-1 block text-xs font-semibold text-slate-600">Status</span><select value={status} onChange={event => { setStatus(event.target.value); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"><option value="all">All statuses</option>{availableStatuses.map(value => <option key={value} value={value}>{value.replace(/_/g, " ").replace(/\b\w/g, letter => letter.toUpperCase())}</option>)}</select></label>
+          <label><span className="mb-1 block text-xs font-semibold text-slate-600">Status</span><select value={status} onChange={event => { setStatus(event.target.value); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"><option value="all">All statuses</option>{availableStatuses.map(value => <option key={value} value={value}>{({ assigned: "Assigned", pickup_in_progress: "Pickup in Progress", departed_farm: "Departed Farm", pickup_completed: "Pickup Completed", in_transit: "In Transit", arrived_at_destination: "Arrived at Destination", arrived_at_local_hub: "Arrived at Local Hub", completed: "Completed", delivered: "Delivered" } as Record<string, string>)[value] || value}</option>)}</select></label>
           <div className="flex items-end gap-2"><Button type="button" onClick={() => { setAppliedSearch(searchText.trim()); setPage(1); }} className="h-10 bg-emerald-700 text-white hover:bg-emerald-800"><Search className="mr-2 h-4 w-4" />Search</Button><Button type="button" variant="outline" onClick={clearFilters} className="h-10 bg-white"><RotateCcw className="mr-2 h-4 w-4" />Clear</Button></div>
         </div>
       </section>
