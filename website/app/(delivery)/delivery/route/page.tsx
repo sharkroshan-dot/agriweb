@@ -406,17 +406,27 @@ export default function DeliveryRoutePage() {
     }
 
     try {
-      if (!assignmentId) {
-        throw new Error("Delivery assignment is unavailable. Refresh the route before completing this stop.");
-      }
-      const res = await api.put(`/delivery/assignments/${assignmentId}/deliver`);
+      const res = await api.put(`/orders/${orderId}/status`, { status: "delivered" });
       if (res?.success === false) {
-        throw new Error(res?.detail || "Failed to complete delivery");
+        if (!assignmentId) {
+          throw new Error(res?.detail || "Failed to complete delivery");
+        }
+        await api.put(`/delivery/assignments/${assignmentId}/complete`);
       }
       toast.success("Delivery completed");
     } catch (err: any) {
-      toast.error(err?.message || "Failed to complete delivery");
-      return;
+      if (assignmentId) {
+        try {
+          await api.put(`/delivery/assignments/${assignmentId}/complete`);
+          toast.success("Delivery completed");
+        } catch {
+          toast.error(err?.message || "Failed to complete delivery");
+          return;
+        }
+      } else {
+        toast.error(err?.message || "Failed to complete delivery");
+        return;
+      }
     }
 
     await Promise.all([
