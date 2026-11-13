@@ -250,29 +250,37 @@ export default function DeliveryOrderMapPage({ compact = false }: { compact?: bo
 
   const allOrders = useMemo(() => {
     const todayOrders = asArray(todayQuery.data?.data?.deliveries || todayQuery.data?.deliveries || todayQuery.data?.data);
-    const dashboardOrders = asArray(dashboardQuery.data?.data?.todayDeliveries || dashboardQuery.data?.todayDeliveries);
     const assignmentOrders = asArray(
       assignmentsQuery.data?.data?.assignments
       || assignmentsQuery.data?.data?.deliveries
+      || assignmentsQuery.data?.data?.data
       || assignmentsQuery.data?.assignments
       || assignmentsQuery.data?.data
     );
     const nearbyOrders = asArray(nearbyQuery.data?.data?.orders || nearbyQuery.data?.orders || nearbyQuery.data?.data);
     const merged = new globalThis.Map<string, any>();
 
-    [...nearbyOrders, ...assignmentOrders, ...todayOrders, ...dashboardOrders].forEach((order) => {
+    // Nearby endpoint returns only unassigned ready orders; today/assignments
+    // endpoints return only this authenticated partner's own jobs.
+    [...nearbyOrders, ...assignmentOrders, ...todayOrders].forEach((order) => {
       const id = getOrderId(order);
       if (!id || merged.has(id)) return;
       merged.set(id, order);
     });
 
     return [...merged.values()];
-  }, [assignmentsQuery.data, dashboardQuery.data, nearbyQuery.data, todayQuery.data]);
+  }, [assignmentsQuery.data, nearbyQuery.data, todayQuery.data]);
 
   const visibleOrders = useMemo(() => (
     allOrders
       .filter((order) => !HIDDEN_STATUSES.includes(getStatus(order)))
-      .filter((order) => radiusKm === "all" || canAcceptOrder(order))
+      // Radius limits only the unassigned marketplace. Existing jobs owned by
+      // this partner remain visible even when outside the discovery radius.
+      .filter((order) => !canAcceptOrder(order) || radiusKm === "all" || (() => {
+        const coords = getCoordinates(order);
+        if (!liveLocation || !coords) return true;
+        return distanceBetweenKm(liveLocation, coords) <= radiusKm;
+      })())
       .map((order) => {
         const coordinates = getCoordinates(order);
         const distanceFromPartnerKm = liveLocation && coordinates
@@ -284,7 +292,7 @@ export default function DeliveryOrderMapPage({ compact = false }: { compact?: bo
           distanceFromPartnerKm: Number.isFinite(distanceFromPartnerKm) ? distanceFromPartnerKm : null,
         };
       })
-      .filter((order) => radiusKm === "all" || !liveLocation || order.distanceFromPartnerKm == null || order.distanceFromPartnerKm <= radiusKm)
+      .filter((order) => !canAcceptOrder(order) || radiusKm === "all" || !liveLocation || order.distanceFromPartnerKm == null || order.distanceFromPartnerKm <= radiusKm)
       .sort((a, b) => Number(a.distanceFromPartnerKm ?? 9999) - Number(b.distanceFromPartnerKm ?? 9999))
   ), [allOrders, liveLocation, radiusKm]);
 
