@@ -158,15 +158,15 @@ export default function DeliveryDashboardPage() {
           <p className="mt-2 text-[16px] text-slate-600">Your delivery overview and today's priorities.</p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <Badge variant={isAvailable ? "success" : "secondary"} className="px-3 py-2 text-sm">
-            <span className={`mr-2 inline-block h-2.5 w-2.5 rounded-full ${isAvailable ? "bg-emerald-500" : "bg-slate-400"}`} />
+          <Badge variant={isAvailable ? "success" : "secondary"} className="min-h-12 rounded-xl px-5 py-3 text-base font-bold shadow-sm">
+            <span className={`mr-2 inline-block h-3 w-3 rounded-full ${isAvailable ? "bg-emerald-500" : "bg-slate-400"}`} />
             {isAvailable ? "Online" : "Offline"}
           </Badge>
-          <Button variant="outline" size="default" className="h-10 px-4" onClick={refreshAll} disabled={statsQuery.isFetching || customerQuery.isFetching || pickupQuery.isFetching}>
-            <RefreshCw className={`mr-2 h-4 w-4 ${statsQuery.isFetching || customerQuery.isFetching || pickupQuery.isFetching ? "animate-spin" : ""}`} />
+          <Button variant="outline" size="lg" className="h-12 min-w-[132px] rounded-xl px-6 text-base font-semibold shadow-sm" onClick={refreshAll} disabled={statsQuery.isFetching || customerQuery.isFetching || pickupQuery.isFetching}>
+            <RefreshCw className={`mr-2 h-5 w-5 ${statsQuery.isFetching || customerQuery.isFetching || pickupQuery.isFetching ? "animate-spin" : ""}`} />
             {statsQuery.isFetching || customerQuery.isFetching || pickupQuery.isFetching ? "Refreshing..." : "Refresh"}
           </Button>
-          <Button size="default" className="h-10 px-4" variant={isAvailable ? "outline" : "default"} onClick={toggleAvailability} disabled={isToggling}>
+          <Button size="lg" className="h-12 min-w-[142px] rounded-xl px-6 text-base font-semibold shadow-sm" variant={isAvailable ? "outline" : "default"} onClick={toggleAvailability} disabled={isToggling}>
             {isToggling ? "Updating..." : isAvailable ? "Go offline" : "Go online"}
           </Button>
         </div>
