@@ -7,7 +7,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../..
 import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
 import { Select, SelectContent, SelectItem } from "../../../components/ui/select";
-import { Switch } from "../../../components/ui/switch";
 import { Badge } from "../../../components/ui/badge";
 import { Bike, Camera, CheckCircle2, Clock, FileText, Loader2, Save, UploadCloud, Wallet, XCircle } from "lucide-react";
 import { api } from "../../../lib/api/client";
@@ -17,6 +16,43 @@ import { VerificationStatusCard } from "../../../components/security/verificatio
 
 const WEEK_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const inr = (v: number) => `Rs ${Number(v || 0).toLocaleString("en-IN")}`;
+
+function SettingsToggle({ checked, onChange, label, disabled = false }: { checked: boolean; onChange: (value: boolean) => void; label: string; disabled?: boolean }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      aria-disabled={disabled}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className="settings-modern-switch focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: checked ? "flex-end" : "flex-start",
+        width: 44,
+        minWidth: 44,
+        maxWidth: 44,
+        height: 24,
+        minHeight: 24,
+        maxHeight: 24,
+        flexShrink: 0,
+        padding: 2,
+        boxSizing: "border-box",
+        border: 0,
+        borderRadius: 9999,
+        backgroundColor: checked ? "#059669" : "#cbd5e1",
+        cursor: disabled ? "not-allowed" : "pointer",
+        transition: "background-color 180ms ease",
+        verticalAlign: "middle",
+      }}
+    >
+      <span aria-hidden="true" style={{ display: "block", width: 20, minWidth: 20, height: 20, borderRadius: "50%", backgroundColor: "#fff", boxShadow: "0 1px 3px rgba(15,23,42,0.25)", transition: "transform 180ms ease" }} />
+    </button>
+  );
+}
 
 export default function DeliverySettingsPage() {
   const { data: session } = useSession();
@@ -291,13 +327,13 @@ export default function DeliverySettingsPage() {
               {(["bank_transfer","upi"] as const).map(method=><button key={method} type="button" onClick={()=>setPayout(s=>({...s,paymentMethod:method}))} className={`flex items-center gap-3 rounded-xl border p-3 text-left transition ${payout.paymentMethod===method?"border-emerald-500 bg-emerald-50 ring-1 ring-emerald-500":"border-slate-200 hover:border-emerald-300"}`}><span className="rounded-lg bg-emerald-100 p-2 text-emerald-700"><Wallet className="h-5 w-5"/></span><span className="min-w-0 flex-1"><span className="block text-sm font-semibold">{method==="bank_transfer"?"Bank Transfer":"UPI"}</span><span className="block text-xs text-muted-foreground">{method==="bank_transfer"?"Use your registered bank account":"Receive payouts using your UPI ID"}</span></span>{payout.paymentMethod===method&&<CheckCircle2 className="h-5 w-5 text-emerald-600"/>}</button>)}
             </div></div>
             {payout.paymentMethod==="upi"?<div><label className="text-sm font-medium">UPI ID</label><Input className="mt-1" value={payout.upiId} onChange={e=>setPayout(s=>({...s,upiId:e.target.value}))} placeholder="name@bank"/></div>:<div className="flex items-center gap-3 rounded-xl bg-emerald-50 p-3 text-sm"><Wallet className="h-5 w-5 text-emerald-700"/><div><p className="font-semibold">Registered bank account</p><p className="text-xs text-muted-foreground">Payouts use the bank account registered in your AgriConnect profile. Bank details and verification are managed through your account records.</p></div></div>}
-            <div className="grid gap-4 sm:grid-cols-2"><div><label className="text-sm font-medium">Minimum withdrawal (₹)</label><Input type="number" min="1" className="mt-1" value={payout.minWithdrawal} onChange={e=>setPayout(s=>({...s,minWithdrawal:Math.max(0,Number(e.target.value))}))}/><p className="mt-1 text-xs text-muted-foreground">Minimum eligible balance required to request a payout.</p></div><div className="flex items-center justify-between gap-3 rounded-xl border p-3"><div><p className="text-sm font-semibold">Auto-withdraw</p><p className="text-xs text-muted-foreground">Request payout when your eligible balance reaches the configured minimum.</p></div><button type="button" role="switch" aria-checked={payout.autoWithdraw} aria-label="Toggle auto-withdraw" onClick={()=>setPayout(s=>({...s,autoWithdraw:!s.autoWithdraw}))} className="relative h-6 w-11 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2" style={{backgroundColor:payout.autoWithdraw?"#059669":"#cbd5e1"}}><span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${payout.autoWithdraw?"left-[22px]":"left-0.5"}`}/></button></div></div>
+            <div className="grid gap-4 sm:grid-cols-2"><div><label className="text-sm font-medium">Minimum withdrawal (₹)</label><Input type="number" min="1" className="mt-1" value={payout.minWithdrawal} onChange={e=>setPayout(s=>({...s,minWithdrawal:Math.max(0,Number(e.target.value))}))}/><p className="mt-1 text-xs text-muted-foreground">Minimum eligible balance required to request a payout.</p></div><div className="flex items-center justify-between gap-3 rounded-xl border p-3"><div><p className="text-sm font-semibold">Auto-withdraw</p><p className="text-xs text-muted-foreground">Request payout when your eligible balance reaches the configured minimum.</p></div><SettingsToggle checked={payout.autoWithdraw} onChange={on=>setPayout(s=>({...s,autoWithdraw:on}))} label="Auto-withdraw"/></div></div>
             <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4"><p className="text-xs text-muted-foreground">Changes apply after they are successfully saved.</p><div className="flex gap-2"><Button type="button" variant="outline" onClick={()=>setPayout({paymentMethod:settingsData?.data?.payout?.paymentMethod||"bank_transfer",upiId:settingsData?.data?.payout?.upiId||"",minWithdrawal:Number(settingsData?.data?.payout?.minWithdrawal??200),autoWithdraw:Boolean(settingsData?.data?.payout?.autoWithdraw)})} disabled={savingPrefs}>Cancel changes</Button><Button className="bg-emerald-700 hover:bg-emerald-800" onClick={handleSavePrefs} disabled={savingPrefs||payout.minWithdrawal<1||(payout.paymentMethod==="upi"&&!payout.upiId.trim())}>{savingPrefs?<Loader2 className="mr-2 h-4 w-4 animate-spin"/>:<Save className="mr-2 h-4 w-4"/>}Save changes</Button></div></div>
           </CardContent></Card>
 
           <Card className="overflow-hidden"><CardHeader className="border-b bg-gradient-to-r from-emerald-50/70 to-white pb-4"><CardTitle className="flex items-center gap-2"><Clock className="h-5 w-5 text-emerald-700"/>Availability &amp; Working Hours</CardTitle><CardDescription>Control when you can receive new delivery assignments.</CardDescription></CardHeader><CardContent className="space-y-4 pt-4">
-            <div className="flex items-center justify-between rounded-xl border p-3"><div><p className="font-semibold">Online mode</p><p className="text-xs text-muted-foreground">Accept new delivery assignments when enabled.</p></div><div className="flex items-center gap-2"><Badge variant={isAvailable?"success":"secondary"}>{isAvailable===null?"Loading":isAvailable?"Online":"Offline"}</Badge><Button size="sm" variant="outline" onClick={handleToggleAvailability} disabled={isAvailable===null||isSavingAvailability}>{isAvailable?"Go Offline":"Go Online"}</Button></div></div>
-            <div className="space-y-2"><p className="text-sm font-semibold">Weekly working hours</p>{WEEK_DAYS.map(day=>{const hours=workingHours[day]||{start:"09:00",end:"18:00",off:false};return <div key={day} className="flex flex-wrap items-center gap-2 rounded-lg border p-2 text-sm"><span className="w-24 shrink-0 font-medium">{day}</span><Switch checked={!hours.off} onCheckedChange={on=>setWorkingHours(current=>({...current,[day]:{...hours,off:!on}}))} aria-label={`${day} available`}/>{hours.off?<span className="text-xs text-muted-foreground">Day off</span>:<div className="ml-auto flex items-center gap-2"><input type="time" value={hours.start} onChange={e=>setWorkingHours(current=>({...current,[day]:{...hours,start:e.target.value}}))} className="h-8 rounded-md border px-2 text-xs"/><span className="text-muted-foreground">to</span><input type="time" value={hours.end} onChange={e=>setWorkingHours(current=>({...current,[day]:{...hours,end:e.target.value}}))} className="h-8 rounded-md border px-2 text-xs"/></div>}</div>})}</div>
+            <div className="flex items-center justify-between rounded-xl border p-3"><div><p className="font-semibold">Online mode</p><p className="text-xs text-muted-foreground">Accept new delivery assignments when enabled.</p></div><div className="flex items-center gap-3"><Badge variant={isAvailable?"success":"secondary"}>{isAvailable===null?"Loading":isAvailable?"Online":"Offline"}</Badge><SettingsToggle checked={Boolean(isAvailable)} onChange={()=>handleToggleAvailability()} label="Toggle online availability" disabled={isAvailable===null||isSavingAvailability}/></div></div>
+            <div className="space-y-2"><p className="text-sm font-semibold">Weekly working hours</p>{WEEK_DAYS.map(day=>{const hours=workingHours[day]||{start:"09:00",end:"18:00",off:false};return <div key={day} className="flex flex-wrap items-center gap-2 rounded-lg border p-2 text-sm"><span className="w-24 shrink-0 font-medium">{day}</span><SettingsToggle checked={!hours.off} onChange={on=>setWorkingHours(current=>({...current,[day]:{...hours,off:!on}}))} label={`${day} available`}/>{hours.off?<span className="text-xs text-muted-foreground">Day off</span>:<div className="ml-auto flex items-center gap-2"><input type="time" value={hours.start} onChange={e=>setWorkingHours(current=>({...current,[day]:{...hours,start:e.target.value}}))} className="h-8 rounded-md border px-2 text-xs"/><span className="text-muted-foreground">to</span><input type="time" value={hours.end} onChange={e=>setWorkingHours(current=>({...current,[day]:{...hours,end:e.target.value}}))} className="h-8 rounded-md border px-2 text-xs"/></div>}</div>})}</div>
             <div className="flex justify-end"><Button onClick={handleSavePrefs} disabled={savingPrefs}>{savingPrefs?<Loader2 className="mr-2 h-4 w-4 animate-spin"/>:<Save className="mr-2 h-4 w-4"/>}Save availability preferences</Button></div>
           </CardContent></Card>
         </div>
