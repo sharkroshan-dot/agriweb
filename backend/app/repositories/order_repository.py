@@ -212,7 +212,10 @@ class OrderRepository(BaseRepository):
         return await self.find_many(
             {
                 "orderStatus": OrderStatus.READY_FOR_DELIVERY,
-                "deliveryPartnerId": None,
+                "$or": [
+                    {"deliveryPartnerId": None},
+                    {"deliveryPartnerId": {"$exists": False}},
+                ],
                 "deletedAt": None
             },
             limit=limit,
