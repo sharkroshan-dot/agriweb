@@ -119,16 +119,15 @@ export default function CustomerDashboardPage() {
 
       <div className="grid gap-3 2xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="min-w-0 space-y-4">
-          <section className="relative min-h-[190px] overflow-hidden rounded-2xl border border-emerald-100 bg-[linear-gradient(105deg,#f3fce5_0%,#e7f8d9_48%,#c8edb5_100%)] p-6 shadow-sm sm:p-8">
-            <div className="relative z-10 max-w-xl">
-              <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-emerald-700">Fresh daily · Farm to home</p>
-              <h2 className="max-w-lg text-2xl font-extrabold leading-tight text-slate-900 sm:text-3xl">Fresh from local farmers to your home</h2>
-              <p className="mt-2 text-sm font-medium text-slate-600">Fresh Produce <span className="mx-2 text-emerald-500">|</span> Verified Farmers <span className="mx-2 text-emerald-500">|</span> Safe & Traceable</p>
-              <Button asChild className="mt-4 rounded-full bg-emerald-700 px-6 hover:bg-emerald-800"><Link href="/nearby">Shop Now <ArrowRight className="ml-2 h-4 w-4" /></Link></Button>
+          <section className="relative min-h-[150px] overflow-hidden rounded-2xl border border-emerald-100 bg-[linear-gradient(105deg,#f3fce5_0%,#e7f8d9_58%,#d5f1c5_100%)] p-5 shadow-sm sm:min-h-[156px] sm:p-6">
+            <div className="relative z-10 max-w-[68%]">
+              <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">Fresh daily · Farm to home</p>
+              <h2 className="max-w-md text-xl font-extrabold leading-tight text-slate-900 sm:text-2xl">Fresh from local farmers to your home</h2>
+              <p className="mt-2 text-xs font-medium text-slate-600 sm:text-sm">Fresh Produce <span className="mx-1.5 text-emerald-500">|</span> Verified Farmers <span className="mx-1.5 text-emerald-500">|</span> Safe & Traceable</p>
+              <Button asChild size="sm" className="mt-3 rounded-full bg-emerald-700 px-5 hover:bg-emerald-800"><Link href="/nearby">Shop Now <ArrowRight className="ml-1.5 h-3.5 w-3.5" /></Link></Button>
             </div>
-            <div className="pointer-events-none absolute -right-8 -bottom-16 h-64 w-[48%] rounded-tl-[100%] bg-gradient-to-tl from-emerald-300/60 via-lime-200/60 to-transparent" />
-            <div className="pointer-events-none absolute right-5 top-1 hidden h-[190px] w-[42%] items-center justify-center sm:flex"><div className="absolute inset-x-0 bottom-0 h-16 rounded-t-[100%] bg-gradient-to-t from-lime-300/70 to-transparent" /><div className="relative rounded-[45%] bg-white/35 px-8 py-5 text-7xl drop-shadow-sm">🥬🥦🥕🍅🫑</div></div>
-            <div className="pointer-events-none absolute bottom-0 right-0 h-10 w-full bg-gradient-to-t from-lime-200/50 to-transparent" />
+            <div className="pointer-events-none absolute -right-5 -bottom-10 h-36 w-[34%] rounded-tl-[100%] bg-gradient-to-tl from-emerald-300/35 via-lime-200/35 to-transparent" />
+            <div className="pointer-events-none absolute right-5 top-2 hidden h-32 w-[28%] items-center justify-center sm:flex"><div className="relative flex h-20 w-32 items-center justify-center rounded-full border border-white/70 bg-white/45 text-4xl shadow-sm">🥬🥕🍅</div></div>
           </section>
 
           <section className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
