@@ -137,13 +137,24 @@ export default function PaymentDashboard({ role }: { role: PaymentRole }) {
   const failedRows = rows.filter(row => row.status === "failed");
   const pendingRows = rows.filter(row => ["pending", "processing"].includes(row.status));
   const paidRows = rows.filter(row => ["paid", "success", "completed"].includes(row.status));
+  const matchesStatusFilter = (row: PaymentRow, value: string) => {
+    if (value === "all") return true;
+    if (value === "paid") return ["paid", "success", "completed"].includes(row.status);
+    if (value === "pending") return ["pending", "processing"].includes(row.status);
+    if (value === "refunded") return ["refunded", "partially_refunded"].includes(row.status) || row.refundAmount > 0;
+    return row.status === value;
+  };
+  const filterCounts = {
+    all: rows.length,
+    paid: paidRows.length,
+    pending: pendingRows.length,
+    refunded: rows.filter(row => ["refunded", "partially_refunded"].includes(row.status) || row.refundAmount > 0).length,
+    failed: failedRows.length,
+  };
   const visibleRows = rows.filter(row => {
     const query = `${row.description} ${row.reference} ${row.orderNumber || ""} ${row.paymentMethod}`.toLowerCase();
     const matchesSearch = query.includes(search.trim().toLowerCase());
-    const matchesFilter = filter === "all"
-      || (filter === "paid" && ["paid", "success", "completed"].includes(row.status))
-      || row.status === filter;
-    return matchesSearch && matchesFilter;
+    return matchesSearch && matchesStatusFilter(row, filter);
   });
 
   const exportVisibleTransactions = () => {
@@ -244,9 +255,10 @@ export default function PaymentDashboard({ role }: { role: PaymentRole }) {
               </div>
               <div className="mt-4 flex flex-col gap-3">
                 <div className="flex flex-wrap gap-2">
-                  {["all", "paid", "pending", "refunded", "failed"].map(value => (
+                  {(["all", "paid", "pending", "refunded", "failed"] as const).map(value => (
                     <Button key={value} type="button" size="sm" variant={filter === value ? "default" : "outline"} className="capitalize" onClick={() => setFilter(value)}>
-                      {value === "all" ? "All transactions" : value.replace("_", " ")}
+                      <span>{value === "all" ? "All transactions" : value.replace("_", " ")}</span>
+                      <span className={cn("ml-2 rounded-full px-1.5 py-0.5 text-[10px] tabular-nums", filter === value ? "bg-white/20 text-current" : "bg-slate-100 text-slate-600")}>{filterCounts[value]}</span>
                     </Button>
                   ))}
                 </div>
@@ -318,7 +330,7 @@ export default function PaymentDashboard({ role }: { role: PaymentRole }) {
               <Card className="border-slate-200 shadow-sm">
                 <CardContent className="p-5">
                   <div className="flex items-start justify-between gap-3">
-                    <div><h2 className="font-semibold text-slate-900">Recent payouts</h2><p className="mt-1 text-sm text-slate-500">Withdrawal and settlement requests</p></div>
+                    <div><h2 className="font-semibold text-slate-900">{isWarehouse ? "Recent settlements" : "Recent payouts"}</h2><p className="mt-1 text-sm text-slate-500">{isWarehouse ? "Latest withdrawal and settlement requests" : "Withdrawal and settlement requests"}</p></div>
                     <span className="rounded-lg bg-emerald-50 p-2 text-emerald-700"><Wallet className="h-5 w-5" /></span>
                   </div>
                   {payoutQuery.isError ? (
