@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -134,6 +135,7 @@ const contactCustomer = (phone?: string) => {
 
 export default function DeliveryOrderMapPage({ compact = false }: { compact?: boolean }) {
   const queryClient = useQueryClient();
+  const router = useRouter();
   const { data: session } = useSession();
   const accessToken = (session as any)?.accessToken;
   const [radiusKm, setRadiusKm] = useState<RadiusFilter>(10);
@@ -145,6 +147,7 @@ export default function DeliveryOrderMapPage({ compact = false }: { compact?: bo
   const [acceptingOrderId, setAcceptingOrderId] = useState<string | null>(null);
   const [acceptingRoute, setAcceptingRoute] = useState(false);
   const [processingOrder, setProcessingOrder] = useState(false);
+  const [selectedRouteOrderIds, setSelectedRouteOrderIds] = useState<string[]>([]);
   const lastLocationSyncAt = useRef(0);
 
   const todayQuery = useQuery({
@@ -286,6 +289,24 @@ export default function DeliveryOrderMapPage({ compact = false }: { compact?: bo
   ), [allOrders, liveLocation, radiusKm]);
 
   const acceptReadyOrders = useMemo(() => visibleOrders.filter(canAcceptOrder), [visibleOrders]);
+  const selectedRouteOrders = useMemo(() => visibleOrders.filter((order) => selectedRouteOrderIds.includes(getOrderId(order))), [visibleOrders, selectedRouteOrderIds]);
+  const selectableRouteOrders = useMemo(() => visibleOrders.filter(canAcceptOrder), [visibleOrders]);
+  const toggleRouteOrder = (orderId: string) => setSelectedRouteOrderIds((current) => current.includes(orderId) ? current.filter((id) => id !== orderId) : [...current, orderId]);
+  const handleProceedToRoute = async () => {
+    if (!selectedRouteOrderIds.length) { toast.error("Select at least one order to build your route"); return; }
+    setAcceptingRoute(true);
+    try {
+      for (const order of selectedRouteOrders) {
+        if (!canAcceptOrder(order)) continue;
+        const orderId = getOrderId(order); const assignmentId = getAssignmentId(order);
+        const response = assignmentId ? await api.put("/delivery/assignments/" + assignmentId + "/accept") : await api.put("/delivery/orders/" + orderId + "/accept");
+        if (response?.success === false) throw new Error(response?.detail || "Could not accept " + orderId);
+      }
+      await refetchOrders();
+      router.push("/delivery/route?orderIds=" + encodeURIComponent(selectedRouteOrderIds.join(",")));
+    } catch (error: any) { toast.error(error?.message || "Could not prepare the selected route"); }
+    finally { setAcceptingRoute(false); }
+  };
 
   const selectedOrder = visibleOrders.find((order) => getOrderId(order) === selectedOrderId) || visibleOrders[0] || null;
 
@@ -612,12 +633,9 @@ export default function DeliveryOrderMapPage({ compact = false }: { compact?: bo
                   const orderId = getOrderId(order);
                   const selected = orderId === selectedOrderId || (!selectedOrderId && index === 0);
                   return (
-                    <button
-                      key={orderId}
-                      type="button"
-                      onClick={() => setSelectedOrderId(orderId)}
-                      className={`w-full rounded-lg border p-3 text-left transition ${selected ? "border-emerald-500 bg-emerald-50" : "bg-white hover:bg-slate-50"}`}
-                    >
+                    <div key={orderId} className="flex w-full items-start gap-3 rounded-lg border bg-white p-3">
+                      <input type="checkbox" aria-label="Add order to route" checked={selectedRouteOrderIds.includes(orderId)} disabled={!canAcceptOrder(order)} onChange={() => toggleRouteOrder(orderId)} className="mt-1 h-4 w-4 shrink-0 accent-emerald-600" />
+                      <button type="button" onClick={() => setSelectedOrderId(orderId)} className="min-w-0 flex-1 text-left">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <p className="truncate text-sm font-semibold">{index + 1}. {order.customerName || order.orderNumber || "Delivery order"}</p>
@@ -629,7 +647,8 @@ export default function DeliveryOrderMapPage({ compact = false }: { compact?: bo
                         )}
                         <Badge variant={canAcceptOrder(order) ? "success" : "outline"}>{getStatus(order).replace(/_/g, " ") || "unknown"}</Badge>
                       </div>
-                    </button>
+                      </button>
+                    </div>
                   );
                 })
               )}
@@ -637,6 +656,21 @@ export default function DeliveryOrderMapPage({ compact = false }: { compact?: bo
           </Card>
         </div>
       </div>
+      <Card className="border-emerald-200 bg-emerald-50/40">
+        <CardHeader className="pb-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div><CardTitle>Selected Orders for Route</CardTitle><CardDescription>{selectedRouteOrderIds.length} selected · Choose nearby orders above, then continue to route planning.</CardDescription></div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" onClick={() => setSelectedRouteOrderIds(selectableRouteOrders.map(getOrderId))} disabled={!selectableRouteOrders.length}>Select All Available</Button>
+              <Button variant="ghost" size="sm" onClick={() => setSelectedRouteOrderIds([])} disabled={!selectedRouteOrderIds.length}>Clear Selection</Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {selectedRouteOrders.length ? <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">{selectedRouteOrders.map((order, index) => <div key={getOrderId(order)} className="flex items-center justify-between gap-2 rounded-lg border bg-white p-3"><div className="min-w-0"><p className="text-sm font-semibold">{index + 1}. {order.customerName || order.orderNumber || "Delivery order"}</p><p className="truncate text-xs text-muted-foreground">{formatAddress(getDeliveryAddress(order))}</p></div><Button size="sm" variant="ghost" onClick={() => toggleRouteOrder(getOrderId(order))}>Remove</Button></div>)}</div> : <p className="rounded-lg border border-dashed bg-white px-4 py-6 text-center text-sm text-muted-foreground">No orders selected. Select one or more available orders from the list to create a delivery route.</p>}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3"><p className="text-xs text-muted-foreground">Selected ready orders will be accepted before opening the route. Existing accepted orders keep their current status.</p><Button onClick={handleProceedToRoute} disabled={!selectedRouteOrderIds.length || acceptingRoute}>{acceptingRoute ? "Preparing Route..." : "Proceed to Delivery Route (" + selectedRouteOrderIds.length + ")"}</Button></div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
