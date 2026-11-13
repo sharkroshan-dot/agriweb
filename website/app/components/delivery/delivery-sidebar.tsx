@@ -64,7 +64,6 @@ export function DeliverySidebar() {
       label: "Overview",
       items: [
         { name: "Dashboard", href: "/delivery/dashboard", icon: LayoutDashboard },
-        { name: "My Workflow", href: "/workflow", icon: RefreshCcw },
       ],
     },
     {
