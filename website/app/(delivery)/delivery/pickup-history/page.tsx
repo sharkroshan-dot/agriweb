@@ -121,7 +121,23 @@ const buildB2BRecords = (orders: any[]): HistoryRecord[] => orders
   .sort((a, b) => (asDate(b.date)?.getTime() || 0) - (asDate(a.date)?.getTime() || 0));
 
 const startOfDay = (date: Date) => { const d = new Date(date); d.setHours(0, 0, 0, 0); return d; };
-const dateOffset = (days: number) => { const d = startOfDay(new Date()); d.setDate(d.getDate() - days); return d.toISOString().slice(0, 10); };
+const toLocalDateInput = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+const parseDateInput = (value: string) => {
+  if (!value) return null;
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return null;
+  return new Date(year, month - 1, day);
+};
+const dateOffset = (days: number) => {
+  const date = startOfDay(new Date());
+  date.setDate(date.getDate() - days);
+  return toLocalDateInput(date);
+};
 
 export default function PickupHistoryPage() {
   const { data: session } = useSession();
@@ -155,10 +171,10 @@ export default function PickupHistoryPage() {
     const haystack = [row.number, row.person, row.area, row.products, row.warehouse].join(" ").toLowerCase();
     const matchesSearch = !appliedSearch || haystack.includes(appliedSearch.toLowerCase());
     const rowDate = asDate(row.date);
-    const from = asDate(startDate);
-    const to = asDate(endDate);
+    const from = parseDateInput(startDate);
+    const to = parseDateInput(endDate);
     if (to) to.setHours(23, 59, 59, 999);
-    const matchesDate = (!from || (rowDate && rowDate >= startOfDay(from))) && (!to || (rowDate && rowDate <= to));
+    const matchesDate = (!from || Boolean(rowDate && rowDate >= startOfDay(from))) && (!to || Boolean(rowDate && rowDate <= to));
     const matchesWarehouse = warehouse === "all" || row.warehouse === warehouse;
     const matchesStatus = status === "all" || normalize(row.status) === status;
     return matchesSearch && matchesDate && matchesWarehouse && matchesStatus;
@@ -171,10 +187,20 @@ export default function PickupHistoryPage() {
   const loadingAll = farmQ.isLoading || warehouseQ.isLoading || hubQ.isLoading || b2bQ.isLoading;
   const refresh = () => { void farmQ.refetch(); void warehouseQ.refetch(); void hubQ.refetch(); void b2bQ.refetch(); };
   const clearFilters = () => { setSearchText(""); setAppliedSearch(""); setStartDate(""); setEndDate(""); setWarehouse("all"); setStatus("completed"); setQuickRange(null); setPage(1); };
-  const applyQuickDate = (days: number | "today" | "month") => {
+  const applyQuickDate = (range: "today" | "yesterday" | "7days" | "30days" | "month") => {
     const today = dateOffset(0);
-    setStartDate(days === "today" ? today : days === "month" ? new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10) : dateOffset(days));
-    setEndDate(today); setPage(1);
+    const yesterday = dateOffset(1);
+    const start = range === "today"
+      ? today
+      : range === "yesterday"
+        ? yesterday
+        : range === "month"
+          ? toLocalDateInput(new Date(new Date().getFullYear(), new Date().getMonth(), 1))
+          : dateOffset(range === "7days" ? 6 : 29);
+    setStartDate(start);
+    setEndDate(range === "yesterday" ? yesterday : today);
+    setQuickRange(range);
+    setPage(1);
   };
   const exportRows = () => {
     const headers = ["Order / Route", "Date", "Farmer / Business / Source", "Area / Destination", "Products", "Quantity", "Warehouse", "Status"];
@@ -219,7 +245,7 @@ export default function PickupHistoryPage() {
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2"><div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700"><Filter className="h-5 w-5" /></div><h2 className="text-base font-bold text-slate-950">Search &amp; Filter</h2></div>
           <div className="flex flex-wrap gap-2">
-            {[{ label: "Today", value: "today" as const }, { label: "Yesterday", value: "yesterday" as const }, { label: "Last 7 Days", value: "7days" as const }, { label: "Last 30 Days", value: "30days" as const }, { label: "This Month", value: "month" as const }].map(item => { const active = quickRange === item.value; return <Button key={item.value} type="button" size="sm" variant={active ? "default" : "outline"} aria-pressed={active} onClick={() => applyQuickDate(item.value)} className={active ? "border-emerald-700 bg-emerald-700 font-semibold text-white shadow-sm hover:border-emerald-800 hover:bg-emerald-800" : "border-slate-200 bg-white font-medium text-slate-700 hover:border-emerald-300 hover:bg-emerald-50"}>{item.label}</Button>; })}
+            {[{ label: "Today", value: "today" as const }, { label: "Yesterday", value: "yesterday" as const }, { label: "Last 7 Days", value: "7days" as const }, { label: "Last 30 Days", value: "30days" as const }, { label: "This Month", value: "month" as const }].map(item => { const active = quickRange === item.value; return <Button key={item.value} type="button" size="sm" variant={active ? "default" : "outline"} aria-pressed={active} onClick={() => applyQuickDate(item.value)} className={active ? "border-emerald-700 bg-emerald-700 font-semibold text-white shadow-sm hover:border-emerald-800 hover:bg-emerald-800 focus:ring-0 focus-visible:ring-2 focus-visible:ring-emerald-500" : "border-slate-200 bg-white font-medium text-slate-700 hover:border-emerald-300 hover:bg-emerald-50 focus:ring-0 focus-visible:ring-2 focus-visible:ring-emerald-500"}>{item.label}</Button>; })}
           </div>
         </div>
         <div className="grid gap-3 xl:grid-cols-[minmax(220px,1.5fr)_minmax(180px,1fr)_minmax(170px,1fr)_minmax(150px,.8fr)_auto_auto]">
