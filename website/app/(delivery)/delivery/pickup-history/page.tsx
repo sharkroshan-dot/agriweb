@@ -11,6 +11,7 @@ import {
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
 import { api } from "../../../lib/api/client";
+import { DeliveryPageHeader } from "../../../components/delivery/delivery-page-header";
 
 type HistoryTab = "pickup" | "transfer" | "b2b";
 type HistoryRecord = {
@@ -130,6 +131,7 @@ export default function PickupHistoryPage() {
   const [appliedSearch, setAppliedSearch] = useState("");
   const [startDate, setStartDate] = useState(dateOffset(6));
   const [endDate, setEndDate] = useState(dateOffset(0));
+  const [quickRange, setQuickRange] = useState<"today" | "yesterday" | "7days" | "30days" | "month" | null>("7days");
   const [warehouse, setWarehouse] = useState("all");
   const [status, setStatus] = useState("completed");
   const [page, setPage] = useState(1);
@@ -168,7 +170,7 @@ export default function PickupHistoryPage() {
   const completedCounts = { pickup: farmRows.length, transfer: transferRows.length, b2b: b2bRows.length };
   const loadingAll = farmQ.isLoading || warehouseQ.isLoading || hubQ.isLoading || b2bQ.isLoading;
   const refresh = () => { void farmQ.refetch(); void warehouseQ.refetch(); void hubQ.refetch(); void b2bQ.refetch(); };
-  const clearFilters = () => { setSearchText(""); setAppliedSearch(""); setStartDate(""); setEndDate(""); setWarehouse("all"); setStatus("completed"); setPage(1); };
+  const clearFilters = () => { setSearchText(""); setAppliedSearch(""); setStartDate(""); setEndDate(""); setWarehouse("all"); setStatus("completed"); setQuickRange(null); setPage(1); };
   const applyQuickDate = (days: number | "today" | "month") => {
     const today = dateOffset(0);
     setStartDate(days === "today" ? today : days === "month" ? new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10) : dateOffset(days));
@@ -192,16 +194,16 @@ export default function PickupHistoryPage() {
 
   return (
     <div className="space-y-5 pb-8">
-      <header className="relative overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-r from-white via-emerald-50/70 to-sky-50 px-5 py-6 shadow-sm sm:px-7">
-        <div className="relative z-10 flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-emerald-700 text-white shadow-sm"><History className="h-7 w-7" /></div>
-            <div><p className="text-xs font-bold uppercase tracking-[0.16em] text-emerald-700">Delivery Partner · History</p><h1 className="mt-1 text-2xl font-extrabold tracking-tight text-slate-950 sm:text-3xl">Completed Pickup Records</h1><p className="mt-1 text-sm text-slate-600">Search completed farm pickups, warehouse transfers and B2B deliveries in one place.</p></div>
-          </div>
-          <Button type="button" variant="outline" onClick={refresh} disabled={loadingAll} className="bg-white"><RefreshCw className={"mr-2 h-4 w-4 " + (loadingAll ? "animate-spin" : "")} />Refresh</Button>
-        </div>
-        <div className="pointer-events-none absolute -right-8 -top-14 h-48 w-48 rounded-full border-[22px] border-emerald-100/60" />
-      </header>
+      <DeliveryPageHeader
+        title="Pickup History"
+        description="Review completed farm pickups, warehouse transfers and B2B business deliveries."
+        actionLabel="Refresh"
+        actionHref={undefined}
+      >
+        <Button type="button" variant="outline" onClick={refresh} disabled={loadingAll} className="min-h-10 bg-white">
+          <RefreshCw className={"mr-2 h-4 w-4 " + (loadingAll ? "animate-spin" : "")} />Refresh
+        </Button>
+      </DeliveryPageHeader>
 
       <section className="grid gap-3 md:grid-cols-3" aria-label="Completed history totals">
         <div className="flex items-center gap-4 rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-4 shadow-sm"><div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700"><Truck className="h-6 w-6" /></div><div><p className="text-sm font-semibold text-slate-700">Farm Pickup <span className="font-normal text-slate-500">(Completed)</span></p><p className="text-3xl font-extrabold text-slate-950">{farmQ.isLoading ? "—" : farmRows.length}</p><p className="text-xs text-slate-500">Farm → Warehouse</p></div></div>
@@ -217,13 +219,13 @@ export default function PickupHistoryPage() {
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2"><div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700"><Filter className="h-5 w-5" /></div><h2 className="text-base font-bold text-slate-950">Search &amp; Filter</h2></div>
           <div className="flex flex-wrap gap-2">
-            {[{ label: "Today", value: "today" as const }, { label: "Yesterday", value: 1 }, { label: "Last 7 Days", value: 6 }, { label: "Last 30 Days", value: 29 }, { label: "This Month", value: "month" as const }].map(item => <Button key={item.label} type="button" size="sm" variant="outline" onClick={() => applyQuickDate(item.value)} className="bg-white">{item.label}</Button>)}
+            {[{ label: "Today", value: "today" as const }, { label: "Yesterday", value: "yesterday" as const }, { label: "Last 7 Days", value: "7days" as const }, { label: "Last 30 Days", value: "30days" as const }, { label: "This Month", value: "month" as const }].map(item => { const active = quickRange === item.value; return <Button key={item.value} type="button" size="sm" variant={active ? "default" : "outline"} aria-pressed={active} onClick={() => applyQuickDate(item.value)} className={active ? "border-emerald-700 bg-emerald-700 font-semibold text-white shadow-sm hover:border-emerald-800 hover:bg-emerald-800" : "border-slate-200 bg-white font-medium text-slate-700 hover:border-emerald-300 hover:bg-emerald-50"}>{item.label}</Button>; })}
           </div>
         </div>
         <div className="grid gap-3 xl:grid-cols-[minmax(220px,1.5fr)_minmax(180px,1fr)_minmax(170px,1fr)_minmax(150px,.8fr)_auto_auto]">
           <label className="min-w-0"><span className="mb-1 block text-xs font-semibold text-slate-600">Search</span><div className="flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3"><Search className="h-4 w-4 shrink-0 text-slate-400" /><input value={searchText} onChange={event => setSearchText(event.target.value)} onKeyDown={event => { if (event.key === "Enter") { setAppliedSearch(searchText.trim()); setPage(1); } }} placeholder="Route, order, farmer or product..." className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400" /></div></label>
-          <label><span className="mb-1 block text-xs font-semibold text-slate-600">From date</span><input type="date" value={startDate} max={endDate || undefined} onChange={event => { setStartDate(event.target.value); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700" /></label>
-          <label><span className="mb-1 block text-xs font-semibold text-slate-600">To date</span><input type="date" value={endDate} min={startDate || undefined} onChange={event => { setEndDate(event.target.value); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700" /></label>
+          <label><span className="mb-1 block text-xs font-semibold text-slate-600">From date</span><input type="date" value={startDate} max={endDate || undefined} onChange={event => { setStartDate(event.target.value); setQuickRange(null); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700" /></label>
+          <label><span className="mb-1 block text-xs font-semibold text-slate-600">To date</span><input type="date" value={endDate} min={startDate || undefined} onChange={event => { setEndDate(event.target.value); setQuickRange(null); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700" /></label>
           <label><span className="mb-1 block text-xs font-semibold text-slate-600">Warehouse</span><select value={warehouse} onChange={event => { setWarehouse(event.target.value); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"><option value="all">All Warehouses</option>{warehouses.map(item => <option key={item} value={item}>{item}</option>)}</select></label>
           <label><span className="mb-1 block text-xs font-semibold text-slate-600">Status</span><select value={status} onChange={event => { setStatus(event.target.value); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"><option value="completed">Completed</option><option value="all">All statuses</option></select></label>
           <div className="flex items-end gap-2"><Button type="button" onClick={() => { setAppliedSearch(searchText.trim()); setPage(1); }} className="h-10 bg-emerald-700 text-white hover:bg-emerald-800"><Search className="mr-2 h-4 w-4" />Search</Button><Button type="button" variant="outline" onClick={clearFilters} className="h-10 bg-white"><RotateCcw className="mr-2 h-4 w-4" />Clear</Button></div>
