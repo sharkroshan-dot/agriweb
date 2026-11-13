@@ -130,7 +130,7 @@ const contactCustomer = (phone?: string) => {
   window.location.href = `tel:${phone.replace(/[^\d+]/g, "")}`;
 };
 
-export default function DeliveryOrderMapPage() {
+export function DeliveryOrderMapPage() {
   const queryClient = useQueryClient();
   const { data: session } = useSession();
   const accessToken = (session as any)?.accessToken;
