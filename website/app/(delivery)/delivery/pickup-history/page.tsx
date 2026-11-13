@@ -24,11 +24,53 @@ type HistoryRecord = {
   quantity: string;
   warehouse: string;
   status: string;
+  statusKey: string;
   detail: any;
 };
 
 const receivedStatuses = new Set(["received", "warehouse_received", "received_at_warehouse", "arrived_warehouse", "returned_to_warehouse", "stored"]);
 const normalize = (value: any) => String(value ?? "").trim().toLowerCase().replace(/[ -]+/g, "_");
+const farmRouteStatus = (value: any) => {
+  const status = normalize(value);
+  const map: Record<string, string> = {
+    offered: "Assigned",
+    assigned: "Assigned",
+    started: "Pickup in Progress",
+    pickup_in_progress: "Pickup in Progress",
+    arrived_at_farm: "Pickup in Progress",
+    collected: "Pickup in Progress",
+    departed_farm: "Departed Farm",
+    completed: "Pickup Completed",
+    returned_to_warehouse: "Arrived at Warehouse",
+    arrived_warehouse: "Arrived at Warehouse",
+    warehouse_received: "Arrived at Warehouse",
+    received: "Arrived at Warehouse",
+  };
+  return map[status] || "Assigned";
+};
+const transferStatus = (value: any) => {
+  const status = normalize(value);
+  const map: Record<string, string> = {
+    assigned: "Assigned",
+    started: "In Transit",
+    picked_up: "In Transit",
+    collected: "In Transit",
+    departed_source: "In Transit",
+    in_transit: "In Transit",
+    transfer_in_progress: "In Transit",
+    out_for_delivery: "In Transit",
+    arrived_at_destination: "Arrived at Destination",
+    arrived_at_hub: "Arrived at Local Hub",
+    completed: "Completed",
+  };
+  return map[status] || "Assigned";
+};
+const b2bStatus = (item: any) => {
+  const status = normalize(item.status);
+  if (["delivered", "completed", "delivered_to_business"].includes(status) || item.deliveredAt) return "Delivered";
+  if (["in_transit", "out_for_delivery", "delivery_started"].includes(status) || item.finalDeliveryStartedAt) return "In Transit";
+  return "Assigned";
+};
 const historyStatusLabel = (value: any) => {
   const status = normalize(value);
   const labels: Record<string, string> = {
@@ -64,7 +106,7 @@ const buildFarmRecords = (routes: any[]): HistoryRecord[] => {
   const rows: HistoryRecord[] = [];
   const seen = new Set<string>();
   for (const route of routes) {
-    if (!receivedStatuses.has(normalize(route?.status || route?.orderStatus || route?.collectionStatus))) continue;
+    const routeStatus = farmRouteStatus(route?.status || route?.orderStatus || route?.collectionStatus);
     const stops = Array.isArray(route.stops) ? route.stops : [];
     for (const [stopIndex, stop] of stops.entries()) {
       const orders = Array.isArray(stop.orders) && stop.orders.length ? stop.orders : [stop];
@@ -88,7 +130,7 @@ const buildFarmRecords = (routes: any[]): HistoryRecord[] => {
           area: stop.area || stop.village || stop.pickupAddress || "Area unavailable",
           products: productNames || "Product details unavailable", quantity: qty ? qty.toLocaleString("en-IN") + " kg" : "—",
           warehouse: route.warehouseName || route.destinationWarehouseName || "Assigned warehouse",
-          status: "Pickup Completed", detail: { route, stop, products },
+          status: routeStatus, statusKey: normalize(routeStatus), detail: { route, stop, products },
         });
       }
     }
@@ -100,12 +142,12 @@ const buildTransferRecords = (warehouseTransfers: any[], hubTransfers: any[]): H
   const rows: HistoryRecord[] = [];
   const seen = new Set<string>();
   for (const item of [...warehouseTransfers, ...hubTransfers]) {
-    const status = normalize(item.status);
-    if (!["arrived_at_destination", "arrived_at_hub"].includes(status)) continue;
+    const rawStatus = normalize(item.status);
+    const label = transferStatus(rawStatus);
     const key = String(item.id || item._id || item.orderId || item.orderNumber || "");
     if (!key || seen.has(key)) continue;
     seen.add(key);
-    const isHub = status === "arrived_at_hub";
+    const isHub = rawStatus === "arrived_at_hub";
     const qty = Number(item.quantityKg ?? item.quantity ?? 0);
     rows.push({
       key, number: String(item.orderNumber || item.requestNumber || item.id || "Transfer order"),
@@ -115,14 +157,13 @@ const buildTransferRecords = (warehouseTransfers: any[], hubTransfers: any[]): H
       products: item.productName || item.products?.map?.((p: any) => p.productName || p.name).filter(Boolean).join(", ") || "Transfer goods",
       quantity: qty ? qty.toLocaleString("en-IN") + " kg" : "—",
       warehouse: item.destinationWarehouseName || item.localHubName || "Destination not recorded",
-      status: "Transfer Completed", detail: item,
+      status: label, statusKey: normalize(label), detail: item,
     });
   }
   return rows.sort((a, b) => (asDate(b.date)?.getTime() || 0) - (asDate(a.date)?.getTime() || 0));
 };
 
 const buildB2BRecords = (orders: any[]): HistoryRecord[] => orders
-  .filter(item => normalize(item.status) === "delivered" || Boolean(item.deliveredAt))
   .map((item, index) => ({
     key: String(item.id || item.orderId || item.orderNumber || index),
     number: String(item.orderNumber || item.id || "B2B order"),
@@ -132,7 +173,7 @@ const buildB2BRecords = (orders: any[]): HistoryRecord[] => orders
     products: item.productName || item.name || "Business order",
     quantity: Number(item.quantityKg || 0) ? Number(item.quantityKg).toLocaleString("en-IN") + " kg" : "—",
     warehouse: item.sourceWarehouseName || item.warehouseName || "Dispatch warehouse",
-    status: "Delivered", detail: item,
+    status: b2bStatus(item), statusKey: normalize(b2bStatus(item)), detail: item,
   }))
   .sort((a, b) => (asDate(b.date)?.getTime() || 0) - (asDate(a.date)?.getTime() || 0));
 
@@ -183,7 +224,7 @@ export default function PickupHistoryPage() {
   const isError = tab === "pickup" ? farmQ.isError : tab === "transfer" ? warehouseQ.isError || hubQ.isError : b2bQ.isError;
   const allRows = [...farmRows, ...transferRows, ...b2bRows];
   const warehouses = [...new Set(rows.map(row => row.warehouse).filter(Boolean))].sort();
-  const availableStatuses = tab === "pickup" ? ["pickup_completed"] : tab === "transfer" ? ["transfer_completed"] : ["delivered"];
+  const availableStatuses = [...new Set(rows.map(row => row.statusKey).filter(Boolean))].sort();
   const filteredRows = rows.filter(row => {
     const haystack = [row.number, row.person, row.area, row.products, row.warehouse].join(" ").toLowerCase();
     const matchesSearch = !appliedSearch || haystack.includes(appliedSearch.toLowerCase());
@@ -193,7 +234,7 @@ export default function PickupHistoryPage() {
     if (to) to.setHours(23, 59, 59, 999);
     const matchesDate = (!from || Boolean(rowDate && rowDate >= startOfDay(from))) && (!to || Boolean(rowDate && rowDate <= to));
     const matchesWarehouse = warehouse === "all" || row.warehouse === warehouse;
-    const matchesStatus = status === "all" || normalize(row.status) === status;
+    const matchesStatus = status === "all" || row.statusKey === status;
     return matchesSearch && matchesDate && matchesWarehouse && matchesStatus;
   });
   const pageSize = 10;
@@ -233,13 +274,13 @@ export default function PickupHistoryPage() {
     { id: "b2b" as const, label: "B2B Delivery History", icon: Building2, count: completedCounts.b2b },
   ];
   const pageTitle = tab === "pickup" ? "Farm Pickup History" : tab === "transfer" ? "Warehouse Transfer History" : "B2B Delivery History";
-  const description = tab === "pickup" ? "Completed farm collections handed over to the assigned warehouse." : tab === "transfer" ? "Transfers with arrival confirmed at the destination warehouse or local hub." : "Business orders successfully delivered and handed over to the buyer.";
+  const description = tab === "pickup" ? "Farm collection routes from assignment through warehouse handover." : tab === "transfer" ? "Warehouse and local hub transfers from assignment through arrival." : "Business deliveries from assignment through final handover.";
 
   return (
     <div className="space-y-5 pb-8">
       <DeliveryPageHeader
-        title="Pickup History"
-        description="Review completed farm pickups, warehouse transfers and B2B business deliveries."
+        title="Pickup & Delivery Records"
+        description="Track assigned, in-progress and completed farm pickups, warehouse transfers and B2B deliveries."
         actionLabel="Refresh"
         actionHref={undefined}
       >
@@ -248,10 +289,10 @@ export default function PickupHistoryPage() {
         </Button>
       </DeliveryPageHeader>
 
-      <section className="grid gap-3 md:grid-cols-3" aria-label="Completed history totals">
-        <div className="flex items-center gap-4 rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-4 shadow-sm"><div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700"><Truck className="h-6 w-6" /></div><div><p className="text-sm font-semibold text-slate-700">Farm Pickup <span className="font-normal text-slate-500">(Completed)</span></p><p className="text-3xl font-extrabold text-slate-950">{farmQ.isLoading ? "—" : farmRows.length}</p><p className="text-xs text-slate-500">Farm → Warehouse</p></div></div>
-        <div className="flex items-center gap-4 rounded-2xl border border-blue-200 bg-gradient-to-br from-blue-50 to-white p-4 shadow-sm"><div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-100 text-blue-700"><ArrowLeftRight className="h-6 w-6" /></div><div><p className="text-sm font-semibold text-slate-700">Warehouse Transfer <span className="font-normal text-slate-500">(Completed)</span></p><p className="text-3xl font-extrabold text-slate-950">{warehouseQ.isLoading || hubQ.isLoading ? "—" : transferRows.length}</p><p className="text-xs text-slate-500">Warehouse → Warehouse / Hub</p></div></div>
-        <div className="flex items-center gap-4 rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 to-white p-4 shadow-sm"><div className="flex h-12 w-12 items-center justify-center rounded-xl bg-violet-100 text-violet-700"><Building2 className="h-6 w-6" /></div><div><p className="text-sm font-semibold text-slate-700">B2B Business Delivery <span className="font-normal text-slate-500">(Completed)</span></p><p className="text-3xl font-extrabold text-slate-950">{b2bQ.isLoading ? "—" : b2bRows.length}</p><p className="text-xs text-slate-500">Warehouse → Business buyer</p></div></div>
+      <section className="grid gap-3 md:grid-cols-3" aria-label="Pickup and delivery record totals">
+        <div className="flex items-center gap-4 rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-4 shadow-sm"><div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700"><Truck className="h-6 w-6" /></div><div><p className="text-sm font-semibold text-slate-700">Farm Pickup <span className="font-normal text-slate-500">(All stages)</span></p><p className="text-3xl font-extrabold text-slate-950">{farmQ.isLoading ? "—" : farmRows.length}</p><p className="text-xs text-slate-500">Farm → Warehouse</p></div></div>
+        <div className="flex items-center gap-4 rounded-2xl border border-blue-200 bg-gradient-to-br from-blue-50 to-white p-4 shadow-sm"><div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-100 text-blue-700"><ArrowLeftRight className="h-6 w-6" /></div><div><p className="text-sm font-semibold text-slate-700">Warehouse Transfer <span className="font-normal text-slate-500">(All stages)</span></p><p className="text-3xl font-extrabold text-slate-950">{warehouseQ.isLoading || hubQ.isLoading ? "—" : transferRows.length}</p><p className="text-xs text-slate-500">Warehouse → Warehouse / Hub</p></div></div>
+        <div className="flex items-center gap-4 rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 to-white p-4 shadow-sm"><div className="flex h-12 w-12 items-center justify-center rounded-xl bg-violet-100 text-violet-700"><Building2 className="h-6 w-6" /></div><div><p className="text-sm font-semibold text-slate-700">B2B Business Delivery <span className="font-normal text-slate-500">(All stages)</span></p><p className="text-3xl font-extrabold text-slate-950">{b2bQ.isLoading ? "—" : b2bRows.length}</p><p className="text-xs text-slate-500">Warehouse → Business buyer</p></div></div>
       </section>
 
       <nav className="grid grid-cols-1 gap-2 sm:grid-cols-3" aria-label="History categories">
@@ -270,7 +311,7 @@ export default function PickupHistoryPage() {
           <label><span className="mb-1 block text-xs font-semibold text-slate-600">From date</span><input type="date" value={startDate} max={endDate || undefined} onChange={event => { setStartDate(event.target.value); setQuickRange(null); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700" /></label>
           <label><span className="mb-1 block text-xs font-semibold text-slate-600">To date</span><input type="date" value={endDate} min={startDate || undefined} onChange={event => { setEndDate(event.target.value); setQuickRange(null); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700" /></label>
           <label><span className="mb-1 block text-xs font-semibold text-slate-600">Warehouse</span><select value={warehouse} onChange={event => { setWarehouse(event.target.value); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"><option value="all">All Warehouses</option>{warehouses.map(item => <option key={item} value={item}>{item}</option>)}</select></label>
-          <label><span className="mb-1 block text-xs font-semibold text-slate-600">Status</span><select value={status} onChange={event => { setStatus(event.target.value); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"><option value="all">All statuses</option>{availableStatuses.map(value => <option key={value} value={value}>{value === "pickup_completed" ? "Pickup Completed" : value === "transfer_completed" ? "Transfer Completed" : "Delivered"}</option>)}</select></label>
+          <label><span className="mb-1 block text-xs font-semibold text-slate-600">Status</span><select value={status} onChange={event => { setStatus(event.target.value); setPage(1); }} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700"><option value="all">All statuses</option>{availableStatuses.map(value => <option key={value} value={value}>{value.replace(/_/g, " ").replace(/\b\w/g, letter => letter.toUpperCase())}</option>)}</select></label>
           <div className="flex items-end gap-2"><Button type="button" onClick={() => { setAppliedSearch(searchText.trim()); setPage(1); }} className="h-10 bg-emerald-700 text-white hover:bg-emerald-800"><Search className="mr-2 h-4 w-4" />Search</Button><Button type="button" variant="outline" onClick={clearFilters} className="h-10 bg-white"><RotateCcw className="mr-2 h-4 w-4" />Clear</Button></div>
         </div>
       </section>
@@ -282,8 +323,8 @@ export default function PickupHistoryPage() {
         </div>
         {isLoading ? <div className="space-y-3 p-5">{[1, 2, 3].map(item => <div key={item} className="h-14 animate-pulse rounded-lg bg-slate-100" />)}</div>
           : isError ? <div className="px-5 py-14 text-center text-sm text-slate-600">History could not be loaded. Refresh the page and try again.</div>
-          : filteredRows.length === 0 ? <div className="px-5 py-14 text-center"><PackageCheck className="mx-auto h-10 w-10 text-slate-300" /><p className="mt-3 font-semibold text-slate-900">No completed records found</p><p className="mt-1 text-sm text-slate-500">Try changing the date range or clearing your search.</p></div>
-          : <div className="overflow-x-auto"><table className="w-full min-w-[1050px] text-left text-sm"><thead className="bg-emerald-50 text-xs font-semibold uppercase tracking-wide text-emerald-950"><tr><th className="px-4 py-3"># / Route</th><th className="px-4 py-3">Date &amp; Time</th><th className="px-4 py-3">{tab === "pickup" ? "Farmer / Farm" : tab === "transfer" ? "Source" : "Business Buyer"}</th><th className="px-4 py-3">{tab === "pickup" ? "Area / Locality" : "Destination"}</th><th className="px-4 py-3">Products &amp; Quantity</th><th className="px-4 py-3">Warehouse</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{visibleRows.map((row, index) => { const open = Boolean(expanded[row.key]); return <tr key={row.key} className="align-top hover:bg-slate-50/70"><td className="px-4 py-3"><span className="font-semibold text-slate-900">{(page - 1) * pageSize + index + 1}. {row.number}</span></td><td className="whitespace-nowrap px-4 py-3 text-slate-600"><span className="inline-flex items-center gap-1.5"><CalendarDays className="h-4 w-4 text-slate-400" />{formatDate(row.date)}</span></td><td className="px-4 py-3"><span className="font-semibold text-slate-900">{row.person}</span></td><td className="px-4 py-3"><span className="inline-flex items-start gap-1.5 text-slate-700"><MapPin className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />{row.area}</span></td><td className="px-4 py-3"><p className="font-medium text-slate-800">{row.products}</p><p className="mt-1 text-xs text-slate-500">{row.quantity}</p></td><td className="px-4 py-3"><span className="inline-flex items-center gap-1.5 text-slate-700"><Warehouse className="h-4 w-4 text-slate-400" />{row.warehouse}</span></td><td className="px-4 py-3"><Badge variant="success"><CheckCircle2 className="mr-1 h-3.5 w-3.5" />{row.status}</Badge></td><td className="px-4 py-3"><Button type="button" size="sm" variant="outline" onClick={() => setExpanded(previous => ({ ...previous, [row.key]: !previous[row.key] }))} className="bg-white"><Eye className="mr-1.5 h-4 w-4" />{open ? "Hide" : "View Details"}</Button>{open && <div className="mt-2 min-w-64 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600"><p className="font-semibold text-slate-900">Record details</p><pre className="mt-2 whitespace-pre-wrap break-words font-sans">{tab === "pickup" ? (row.detail.products || []).map((item: any) => (item.productName || "Product") + ": " + (item.actualQuantity ?? item.quantity ?? "—") + " kg").join("\n") : JSON.stringify(row.detail, (key, value) => key.startsWith("_") ? undefined : value, 2)}</pre></div>}</td></tr>; })}</tbody></table></div>}
+          : filteredRows.length === 0 ? <div className="px-5 py-14 text-center"><PackageCheck className="mx-auto h-10 w-10 text-slate-300" /><p className="mt-3 font-semibold text-slate-900">No matching pickup or delivery records found</p><p className="mt-1 text-sm text-slate-500">Try changing the date range or clearing your search.</p></div>
+          : <div className="overflow-x-auto"><table className="w-full min-w-[1050px] text-left text-sm"><thead className="bg-emerald-50 text-xs font-semibold uppercase tracking-wide text-emerald-950"><tr><th className="px-4 py-3"># / Route</th><th className="px-4 py-3">Date &amp; Time</th><th className="px-4 py-3">{tab === "pickup" ? "Farmer / Farm" : tab === "transfer" ? "Source" : "Business Buyer"}</th><th className="px-4 py-3">{tab === "pickup" ? "Area / Locality" : "Destination"}</th><th className="px-4 py-3">Products &amp; Quantity</th><th className="px-4 py-3">Warehouse</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{visibleRows.map((row, index) => { const open = Boolean(expanded[row.key]); return <tr key={row.key} className="align-top hover:bg-slate-50/70"><td className="px-4 py-3"><span className="font-semibold text-slate-900">{(page - 1) * pageSize + index + 1}. {row.number}</span></td><td className="whitespace-nowrap px-4 py-3 text-slate-600"><span className="inline-flex items-center gap-1.5"><CalendarDays className="h-4 w-4 text-slate-400" />{formatDate(row.date)}</span></td><td className="px-4 py-3"><span className="font-semibold text-slate-900">{row.person}</span></td><td className="px-4 py-3"><span className="inline-flex items-start gap-1.5 text-slate-700"><MapPin className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />{row.area}</span></td><td className="px-4 py-3"><p className="font-medium text-slate-800">{row.products}</p><p className="mt-1 text-xs text-slate-500">{row.quantity}</p></td><td className="px-4 py-3"><span className="inline-flex items-center gap-1.5 text-slate-700"><Warehouse className="h-4 w-4 text-slate-400" />{row.warehouse}</span></td><td className="px-4 py-3"><Badge variant={["delivered", "completed", "pickup_completed", "arrived_at_warehouse", "arrived_at_destination", "arrived_at_local_hub"].includes(row.statusKey) ? "success" : "outline"}>{row.status}</Badge></td><td className="px-4 py-3"><Button type="button" size="sm" variant="outline" onClick={() => setExpanded(previous => ({ ...previous, [row.key]: !previous[row.key] }))} className="bg-white"><Eye className="mr-1.5 h-4 w-4" />{open ? "Hide" : "View Details"}</Button>{open && <div className="mt-2 min-w-64 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600"><p className="font-semibold text-slate-900">Record details</p><pre className="mt-2 whitespace-pre-wrap break-words font-sans">{tab === "pickup" ? (row.detail.products || []).map((item: any) => (item.productName || "Product") + ": " + (item.actualQuantity ?? item.quantity ?? "—") + " kg").join("\n") : JSON.stringify(row.detail, (key, value) => key.startsWith("_") ? undefined : value, 2)}</pre></div>}</td></tr>; })}</tbody></table></div>}
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-4 py-3 text-sm text-slate-600"><span>Showing {filteredRows.length ? (page - 1) * pageSize + 1 : 0}–{Math.min(page * pageSize, filteredRows.length)} of {filteredRows.length} records</span><div className="flex items-center gap-1"><Button type="button" size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(value => Math.max(1, value - 1))}><ChevronLeft className="h-4 w-4" /></Button><span className="px-2 font-semibold text-slate-800">{page} / {pageCount}</span><Button type="button" size="sm" variant="outline" disabled={page >= pageCount} onClick={() => setPage(value => Math.min(pageCount, value + 1))}><ChevronRight className="h-4 w-4" /></Button></div></div>
       </section>
     </div>
