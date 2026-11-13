@@ -2,12 +2,21 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, Boxes, RefreshCw, Snowflake, TrendingUp, Warehouse } from "lucide-react";
+import {
+  Activity,
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  CheckCircle2,
+  Clock3,
+  PackageCheck,
+  RefreshCw,
+  Route,
+  ShieldAlert,
+  Warehouse,
+} from "lucide-react";
 import {
   Area,
   AreaChart,
-  Bar,
-  BarChart,
   CartesianGrid,
   ResponsiveContainer,
   Tooltip,
@@ -16,173 +25,318 @@ import {
 } from "recharts";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
-import { Progress } from "../../../components/ui/progress";
 import { Badge } from "../../../components/ui/badge";
 import { cn } from "../../../lib/utils";
 import { api } from "../../../lib/api/client";
 
-const stockStatusLabels: Record<string, string> = {
-  in_stock: "In Stock",
-  low_stock: "Low Stock",
-  out_of_stock: "Out of Stock",
-  expired: "Expired",
-  reserved: "Reserved",
+type Period = "week" | "month" | "year";
+type AnyRow = Record<string, any>;
+
+const asRows = (value: any, key: string): AnyRow[] => {
+  const rows = value?.data?.[key] ?? value?.[key] ?? [];
+  return Array.isArray(rows) ? rows : [];
 };
 
+const statusOf = (row: AnyRow) => String(row?.status ?? row?.stage ?? "unknown").toLowerCase().replaceAll("-", "_");
+const qualityOf = (row: AnyRow) => String(row?.qualityCheck ?? row?.qualityStatus ?? row?.inspectionStatus ?? "pending").toLowerCase();
+const fulfillmentOf = (row: AnyRow) => {
+  const value = String(row?.fulfillmentMethod ?? row?.fulfillmentType ?? row?.sourceMode ?? "").toLowerCase();
+  if (value.includes("farmer")) return "Farmer fulfillment";
+  if (value.includes("warehouse")) return "Warehouse fulfillment";
+  return "Not classified";
+};
+const dateOf = (row: AnyRow) => {
+  const value = row?.receivedAt ?? row?.dispatchedAt ?? row?.createdAt ?? row?.updatedAt ?? row?.expectedDate;
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+const countMatching = (rows: AnyRow[], predicate: (row: AnyRow) => boolean) => rows.filter(predicate).length;
+const number = (value: any) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+const formatNumber = (value: number) => new Intl.NumberFormat("en-IN", { maximumFractionDigits: 1 }).format(value);
+
+function MetricCard({
+  title,
+  value,
+  description,
+  icon: Icon,
+  tone = "slate",
+}: {
+  title: string;
+  value: string | number;
+  description: string;
+  icon: any;
+  tone?: "slate" | "green" | "blue" | "amber";
+}) {
+  const tones = {
+    slate: "bg-slate-100 text-slate-700",
+    green: "bg-emerald-50 text-emerald-700",
+    blue: "bg-blue-50 text-blue-700",
+    amber: "bg-amber-50 text-amber-700",
+  };
+  return (
+    <Card className="border-slate-200 shadow-sm">
+      <CardContent className="flex items-start justify-between gap-4 p-5">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-muted-foreground">{title}</p>
+          <p className="mt-2 text-3xl font-semibold tracking-tight text-slate-900">{value}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{description}</p>
+        </div>
+        <span className={cn("rounded-xl p-3", tones[tone])}><Icon className="h-5 w-5" /></span>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ProgressRow({ label, value, total, color = "bg-emerald-500" }: { label: string; value: number; total: number; color?: string }) {
+  const percent = total > 0 ? Math.min(100, (value / total) * 100) : 0;
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-3 text-sm">
+        <span className="text-slate-600">{label}</span>
+        <span className="font-semibold tabular-nums text-slate-900">{value} <span className="font-normal text-slate-400">/ {total}</span></span>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+        <div className={cn("h-full rounded-full transition-all", color)} style={{ width: `${percent}%` }} />
+      </div>
+    </div>
+  );
+}
+
 export default function WarehouseAnalyticsPage() {
-  const [period, setPeriod] = useState<"week" | "month" | "year">("month");
+  const [period, setPeriod] = useState<Period>("month");
 
   const dashboardQuery = useQuery({
-    queryKey: ["warehouseAnalyticsDashboard", period],
-    queryFn: () => api.get(`/warehouse/me/dashboard?period=${period}`),
+    queryKey: ["warehouseAnalyticsDashboard"],
+    queryFn: () => api.get("/warehouse/me/dashboard"),
   });
-
-  const stockQuery = useQuery({
-    queryKey: ["warehouseAnalyticsStock"],
-    queryFn: () => api.get("/warehouse/me/stock", { params: { limit: 100 } }),
-  });
-
   const incomingQuery = useQuery({
-    queryKey: ["warehouseAnalyticsIncoming"],
-    queryFn: () => api.get("/warehouse/me/incoming", { params: { limit: 100, date: period === "week" ? "week" : period === "month" ? "month" : "all" } }),
+    queryKey: ["warehouseAnalyticsIncoming", period],
+    queryFn: () => api.get("/warehouse/me/incoming", {
+      params: { limit: 100, date: period === "week" ? "week" : period === "month" ? "month" : "all" },
+    }),
   });
-
   const outgoingQuery = useQuery({
     queryKey: ["warehouseAnalyticsOutgoing"],
     queryFn: () => api.get("/warehouse/me/outgoing", { params: { limit: 100 } }),
   });
 
-  const coldStorageQuery = useQuery({
-    queryKey: ["warehouseAnalyticsColdStorage"],
-    queryFn: () => api.get("/warehouse/me/cold-storage", { params: { limit: 100 } }),
-  });
+  const dashboard = dashboardQuery.data?.data ?? dashboardQuery.data ?? {};
+  const incomingItems = useMemo(() => asRows(incomingQuery.data, "incoming"), [incomingQuery.data]);
+  const outgoingItems = useMemo(() => asRows(outgoingQuery.data, "outgoing"), [outgoingQuery.data]);
+  const isLoading = dashboardQuery.isLoading || incomingQuery.isLoading || outgoingQuery.isLoading;
+  const hasError = dashboardQuery.isError || incomingQuery.isError || outgoingQuery.isError;
 
-  const dashboard = dashboardQuery.data;
-  const stockItems = useMemo(() => stockQuery.data?.data?.stock || [], [stockQuery.data]);
-  const incomingItems = useMemo(() => incomingQuery.data?.data?.incoming || [], [incomingQuery.data]);
-  const outgoingItems = useMemo(() => outgoingQuery.data?.data?.outgoing || [], [outgoingQuery.data]);
-  const coldStorageItems = useMemo(() => coldStorageQuery.data?.data?.coldStorage || [], [coldStorageQuery.data]);
-  const isLoading = dashboardQuery.isLoading || stockQuery.isLoading || incomingQuery.isLoading || outgoingQuery.isLoading || coldStorageQuery.isLoading;
+  const incomingStats = useMemo(() => ({
+    total: incomingItems.length,
+    received: countMatching(incomingItems, row => ["received", "quality_check", "quality_checked", "accepted", "completed"].includes(statusOf(row)) || Boolean(row.receivedAt)),
+    inTransit: countMatching(incomingItems, row => ["in_transit", "assigned", "dispatched"].includes(statusOf(row))),
+    passed: countMatching(incomingItems, row => ["passed", "pass", "approved"].includes(qualityOf(row))),
+    failed: countMatching(incomingItems, row => ["failed", "fail", "rejected"].includes(qualityOf(row))),
+    pendingQuality: countMatching(incomingItems, row => !["passed", "pass", "approved", "failed", "fail", "rejected"].includes(qualityOf(row)) && (["received", "quality_check", "quality_checked"].includes(statusOf(row)) || Boolean(row.receivedAt))),
+  }), [incomingItems]);
 
-  const stockTotals = useMemo(() => {
-    return stockItems.reduce(
-      (totals: any, item: any) => {
-        const quantity = Number(item.quantity || 0);
-        totals.quantity += quantity;
-        totals.reserved += Number(item.reservedQuantity || 0);
-        totals.byStatus[item.status || "in_stock"] = (totals.byStatus[item.status || "in_stock"] || 0) + 1;
-        totals.byStorage[item.storageType || "ambient"] = (totals.byStorage[item.storageType || "ambient"] || 0) + quantity;
-        return totals;
-      },
-      { quantity: 0, reserved: 0, byStatus: {}, byStorage: {} }
-    );
-  }, [stockItems]);
+  const outgoingStats = useMemo(() => ({
+    total: outgoingItems.length,
+    ready: countMatching(outgoingItems, row => ["pending", "packed", "ready_for_dispatch", "verified"].includes(statusOf(row))),
+    dispatched: countMatching(outgoingItems, row => ["dispatched", "in_transit", "delivered", "completed"].includes(statusOf(row))),
+  }), [outgoingItems]);
 
-  const flowData = useMemo(() => {
-    const buckets = ["Scheduled", "In Transit", "Received", "Stored", "Rejected"];
-    return buckets.map((label) => {
-      const key = label.toLowerCase().replaceAll(" ", "_");
-      return {
-        name: label,
-        incoming: incomingItems.filter((item: any) => item.status === key).length,
-        outgoing: outgoingItems.filter((item: any) => item.status === key || (label === "Stored" && item.status === "packed")).length,
-      };
-    });
+  const fulfillmentStats = useMemo(() => {
+    const rows = [...incomingItems, ...outgoingItems];
+    return [
+      { label: "Farmer fulfillment", count: countMatching(rows, row => fulfillmentOf(row) === "Farmer fulfillment") },
+      { label: "Warehouse fulfillment", count: countMatching(rows, row => fulfillmentOf(row) === "Warehouse fulfillment") },
+      { label: "Not classified", count: countMatching(rows, row => fulfillmentOf(row) === "Not classified") },
+    ];
   }, [incomingItems, outgoingItems]);
 
-  const storageData = Object.entries(stockTotals.byStorage).map(([name, quantity]) => ({
-    name: String(name).replaceAll("_", " "),
-    quantity,
-  }));
+  const activityData = useMemo(() => {
+    const now = new Date();
+    const days = period === "week" ? 7 : period === "month" ? 30 : 12;
+    const buckets = Array.from({ length: days }, (_, index) => {
+      const date = new Date(now);
+      if (period === "year") date.setMonth(now.getMonth() - (days - 1 - index), 1);
+      else date.setDate(now.getDate() - (days - 1 - index));
+      const key = period === "year"
+        ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`
+        : date.toISOString().slice(0, 10);
+      return { key, label: period === "year" ? date.toLocaleDateString("en-IN", { month: "short" }) : date.toLocaleDateString("en-IN", { day: "numeric", month: "short" }), incoming: 0, outgoing: 0 };
+    });
+    const byKey = new Map(buckets.map(bucket => [bucket.key, bucket]));
+    incomingItems.forEach(row => {
+      const date = dateOf(row);
+      if (!date) return;
+      const key = period === "year" ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}` : date.toISOString().slice(0, 10);
+      const bucket = byKey.get(key);
+      if (bucket) bucket.incoming += 1;
+    });
+    outgoingItems.forEach(row => {
+      const date = dateOf(row);
+      if (!date) return;
+      const key = period === "year" ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}` : date.toISOString().slice(0, 10);
+      const bucket = byKey.get(key);
+      if (bucket) bucket.outgoing += 1;
+    });
+    return buckets;
+  }, [incomingItems, outgoingItems, period]);
 
+  const capacity = number(dashboard?.capacityUtilization);
+  const totalCapacity = number(dashboard?.warehouse?.totalCapacity);
+  const usedCapacity = number(dashboard?.warehouse?.usedCapacity);
   const refreshAll = () => {
     dashboardQuery.refetch();
-    stockQuery.refetch();
     incomingQuery.refetch();
     outgoingQuery.refetch();
-    coldStorageQuery.refetch();
   };
 
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">{[1, 2, 3, 4].map((item) => <div key={item} className="h-28 animate-pulse rounded-lg bg-muted" />)}</div>
-        <div className="h-96 animate-pulse rounded-lg bg-muted" />
+        <div className="h-24 animate-pulse rounded-2xl bg-slate-100" />
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{[1, 2, 3, 4].map(item => <div key={item} className="h-32 animate-pulse rounded-xl bg-slate-100" />)}</div>
+        <div className="grid gap-5 lg:grid-cols-3"><div className="h-80 animate-pulse rounded-xl bg-slate-100 lg:col-span-2" /><div className="h-80 animate-pulse rounded-xl bg-slate-100" /></div>
       </div>
     );
   }
 
   return (
-    <div className="warehouse-analytics-page space-y-7">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Warehouse Analytics</h1>
-          <p className="text-muted-foreground">Stock movement, capacity usage, and operational performance.</p>
+    <div className="min-h-full space-y-6 bg-slate-50/50 pb-8">
+      <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-6">
+        <div className="flex items-start gap-3">
+          <div className="rounded-xl bg-emerald-50 p-3 text-emerald-700"><Activity className="h-6 w-6" /></div>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">Operations overview</p>
+            <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">Warehouse Analytics</h1>
+            <p className="mt-1 text-sm text-slate-500">A clear view of receipts, quality checks and dispatch activity.</p>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="flex rounded-lg border p-1">
-            {(["week", "month", "year"] as const).map((item) => (
-              <button key={item} onClick={() => setPeriod(item)} className={cn("rounded-md px-3 py-1.5 text-sm font-medium transition-colors", period === item ? "bg-primary text-primary-foreground" : "hover:bg-muted")}>
-                {item.charAt(0).toUpperCase() + item.slice(1)}
-              </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1">
+            {(["week", "month", "year"] as const).map(item => (
+              <button key={item} type="button" onClick={() => setPeriod(item)} className={cn("rounded-md px-3 py-2 text-sm font-medium capitalize transition-colors", period === item ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-900")}>{item}</button>
             ))}
           </div>
-          <Button variant="outline" size="icon" onClick={refreshAll}><RefreshCw className="h-4 w-4" /></Button>
+          <Button variant="outline" size="icon" onClick={refreshAll} aria-label="Refresh analytics" title="Refresh analytics"><RefreshCw className="h-4 w-4" /></Button>
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {[
-          { title: "Total Quantity", value: stockTotals.quantity, note: `${stockItems.length} stock lines`, icon: Boxes },
-          { title: "Reserved", value: stockTotals.reserved, note: "Units held for orders", icon: TrendingUp },
-          { title: "Incoming", value: incomingItems.length, note: `${dashboard?.incomingToday || 0} due today`, icon: ArrowDown },
-          { title: "Outgoing", value: outgoingItems.length, note: `${dashboard?.outgoingToday || 0} today`, icon: ArrowUp },
-        ].map((stat) => (
-          <Card key={stat.title}><CardContent className="p-6"><div className="flex items-center justify-between"><div><p className="text-sm text-muted-foreground">{stat.title}</p><p className="mt-1 text-2xl font-bold">{stat.value}</p></div><div className="rounded-full bg-muted p-2 text-emerald-600"><stat.icon className="h-5 w-5" /></div></div><p className="mt-3 text-sm text-muted-foreground">{stat.note}</p></CardContent></Card>
-        ))}
-      </div>
+      {hasError && (
+        <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0" />
+          <div><p className="font-semibold">Some analytics could not be loaded</p><p className="mt-1 text-amber-800">The figures below use the records that loaded successfully. Refresh to retry the failed requests.</p></div>
+        </div>
+      )}
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardHeader><CardTitle>Stock Flow</CardTitle><CardDescription>Incoming and outgoing work grouped by current status.</CardDescription></CardHeader>
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricCard title="Incoming records" value={incomingStats.total} description={`${incomingStats.inTransit} currently in transit / assigned`} icon={ArrowDownToLine} tone="blue" />
+        <MetricCard title="Received at warehouse" value={incomingStats.received} description="Records marked as received or further along" icon={PackageCheck} tone="green" />
+        <MetricCard title="Quality passed" value={incomingStats.passed} description={`${incomingStats.failed} failed · ${incomingStats.pendingQuality} awaiting a quality outcome`} icon={CheckCircle2} tone="green" />
+        <MetricCard title="Outgoing records" value={outgoingStats.total} description={`${outgoingStats.dispatched} dispatched or beyond`} icon={ArrowUpFromLine} tone="amber" />
+      </section>
+
+      <section className="grid gap-5 xl:grid-cols-3">
+        <Card className="border-slate-200 shadow-sm xl:col-span-2">
+          <CardHeader className="flex flex-row items-start justify-between space-y-0">
+            <div><CardTitle className="text-base font-semibold">Warehouse activity</CardTitle><CardDescription className="mt-1">Incoming and outgoing records by recorded date.</CardDescription></div>
+            <Badge variant="outline" className="capitalize">{period} view</Badge>
+          </CardHeader>
           <CardContent>
-            <div className="h-[320px]"><ResponsiveContainer width="100%" height="100%"><AreaChart data={flowData}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="name" /><YAxis allowDecimals={false} /><Tooltip /><Area type="monotone" dataKey="incoming" stroke="#16a34a" fill="#16a34a" fillOpacity={0.18} /><Area type="monotone" dataKey="outgoing" stroke="#2563eb" fill="#2563eb" fillOpacity={0.14} /></AreaChart></ResponsiveContainer></div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader><CardTitle>Capacity</CardTitle><CardDescription>Live utilization from warehouse records.</CardDescription></CardHeader>
-          <CardContent className="space-y-6">
-            <div><div className="flex justify-between text-sm"><span>General Storage</span><span className="font-medium">{Math.round(dashboard?.capacityUtilization || 0)}%</span></div><Progress value={dashboard?.capacityUtilization || 0} className="mt-2" /></div>
-            <div><div className="flex justify-between text-sm"><span>Cold Storage</span><span className="font-medium">{Math.round(dashboard?.coldStorageUtilization || 0)}%</span></div><Progress value={dashboard?.coldStorageUtilization || 0} className="mt-2" /></div>
-            <div className="rounded-lg border p-4"><div className="flex items-center gap-2"><Snowflake className="h-4 w-4 text-blue-600" /><span className="text-sm font-medium">Cold Storage Lines</span></div><p className="mt-2 text-2xl font-bold">{coldStorageItems.length}</p></div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader><CardTitle>Storage Mix</CardTitle><CardDescription>Quantity by storage type.</CardDescription></CardHeader>
-          <CardContent><div className="h-[280px]"><ResponsiveContainer width="100%" height="100%"><BarChart data={storageData}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="name" /><YAxis allowDecimals={false} /><Tooltip /><Bar dataKey="quantity" fill="#0f766e" radius={[4, 4, 0, 0]} /></BarChart></ResponsiveContainer></div></CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader><CardTitle>Stock Status</CardTitle><CardDescription>Items grouped by availability.</CardDescription></CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {Object.entries(stockStatusLabels).map(([status, label]) => {
-                const count = stockTotals.byStatus[status] || 0;
-                return (
-                  <div key={status} className="flex items-center justify-between rounded-lg border p-3">
-                    <div className="flex items-center gap-3"><Warehouse className="h-4 w-4 text-muted-foreground" /><span className="font-medium">{label}</span></div>
-                    <Badge variant={status === "low_stock" || status === "expired" ? "warning" : status === "out_of_stock" ? "destructive" : "outline"}>{count}</Badge>
-                  </div>
-                );
-              })}
+            <div className="h-[290px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={activityData} margin={{ top: 10, right: 10, left: -18, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="incomingFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#0f766e" stopOpacity={0.2} /><stop offset="95%" stopColor="#0f766e" stopOpacity={0.01} /></linearGradient>
+                    <linearGradient id="outgoingFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#2563eb" stopOpacity={0.16} /><stop offset="95%" stopColor="#2563eb" stopOpacity={0.01} /></linearGradient>
+                  </defs>
+                  <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: "#64748b", fontSize: 11 }} minTickGap={20} />
+                  <YAxis allowDecimals={false} tickLine={false} axisLine={false} tick={{ fill: "#64748b", fontSize: 11 }} />
+                  <Tooltip contentStyle={{ borderRadius: 12, borderColor: "#e2e8f0", fontSize: 12 }} />
+                  <Area type="monotone" dataKey="incoming" name="Incoming" stroke="#0f766e" strokeWidth={2} fill="url(#incomingFill)" />
+                  <Area type="monotone" dataKey="outgoing" name="Outgoing" stroke="#2563eb" strokeWidth={2} fill="url(#outgoingFill)" />
+                </AreaChart>
+              </ResponsiveContainer>
             </div>
+            {activityData.every(row => row.incoming === 0 && row.outgoing === 0) && <p className="text-center text-xs text-slate-400">No dated activity records are available for this period.</p>}
           </CardContent>
         </Card>
-      </div>
+
+        <Card className="border-slate-200 shadow-sm">
+          <CardHeader><CardTitle className="text-base font-semibold">Quality overview</CardTitle><CardDescription>Quality outcomes recorded on incoming shipments.</CardDescription></CardHeader>
+          <CardContent className="space-y-6">
+            <div className="rounded-xl bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">Quality decisions recorded</p>
+              <p className="mt-1 text-3xl font-semibold text-slate-950">{incomingStats.passed + incomingStats.failed}</p>
+              <p className="mt-1 text-xs text-slate-500">Based on the loaded incoming records</p>
+            </div>
+            <ProgressRow label="Passed" value={incomingStats.passed} total={incomingStats.total} color="bg-emerald-500" />
+            <ProgressRow label="Failed / rejected" value={incomingStats.failed} total={incomingStats.total} color="bg-rose-500" />
+            <ProgressRow label="Awaiting outcome" value={incomingStats.pendingQuality} total={incomingStats.total} color="bg-amber-400" />
+            <p className="text-xs leading-5 text-slate-400">A pending result is not counted as a pass or failure. Inspection should follow physical receipt.</p>
+          </CardContent>
+        </Card>
+      </section>
+
+      <section className="grid gap-5 lg:grid-cols-2">
+        <Card className="border-slate-200 shadow-sm">
+          <CardHeader><CardTitle className="text-base font-semibold">Dispatch readiness</CardTitle><CardDescription>Current status distribution from outgoing shipment records.</CardDescription></CardHeader>
+          <CardContent className="space-y-5">
+            <div className="flex items-center justify-between rounded-xl border border-slate-100 p-4">
+              <div className="flex items-center gap-3"><span className="rounded-lg bg-amber-50 p-2 text-amber-700"><Clock3 className="h-5 w-5" /></span><div><p className="font-medium text-slate-800">Ready / awaiting dispatch</p><p className="text-xs text-slate-500">Pending, packed or verified</p></div></div>
+              <span className="text-2xl font-semibold tabular-nums text-slate-900">{outgoingStats.ready}</span>
+            </div>
+            <div className="flex items-center justify-between rounded-xl border border-slate-100 p-4">
+              <div className="flex items-center gap-3"><span className="rounded-lg bg-blue-50 p-2 text-blue-700"><Route className="h-5 w-5" /></span><div><p className="font-medium text-slate-800">Dispatched / beyond</p><p className="text-xs text-slate-500">Dispatched, in transit or completed</p></div></div>
+              <span className="text-2xl font-semibold tabular-nums text-slate-900">{outgoingStats.dispatched}</span>
+            </div>
+            <div className="rounded-lg bg-slate-50 p-3 text-xs leading-5 text-slate-500">Dispatch readiness is based on outgoing shipment status. It does not assume that a shipment is delivered unless its record says so.</div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-200 shadow-sm">
+          <CardHeader><CardTitle className="text-base font-semibold">Fulfillment source mix</CardTitle><CardDescription>Source labels found on incoming and outgoing records.</CardDescription></CardHeader>
+          <CardContent className="space-y-5">
+            {fulfillmentStats.map((item, index) => (
+              <ProgressRow key={item.label} label={item.label} value={item.count} total={incomingItems.length + outgoingItems.length} color={index === 0 ? "bg-emerald-500" : index === 1 ? "bg-blue-500" : "bg-slate-300"} />
+            ))}
+            <p className="text-xs leading-5 text-slate-400">Records without a recognized fulfillment field remain unclassified; they are not assigned to either workflow.</p>
+          </CardContent>
+        </Card>
+      </section>
+
+      <section className="grid gap-5 lg:grid-cols-2">
+        <Card className="border-slate-200 shadow-sm">
+          <CardHeader><CardTitle className="text-base font-semibold">Warehouse capacity</CardTitle><CardDescription>Shown only when physical capacity has been configured.</CardDescription></CardHeader>
+          <CardContent>
+            {totalCapacity > 0 ? (
+              <div className="space-y-4">
+                <div className="flex items-end justify-between"><div><p className="text-sm text-slate-500">Used capacity</p><p className="mt-1 text-3xl font-semibold text-slate-950">{formatNumber(usedCapacity)}</p></div><p className="text-lg font-semibold text-emerald-700">{Math.round(capacity)}%</p></div>
+                <div className="h-3 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-600" style={{ width: `${Math.max(0, Math.min(100, capacity))}%` }} /></div>
+                <div className="flex justify-between text-xs text-slate-500"><span>Used</span><span>Total capacity: {formatNumber(totalCapacity)}</span></div>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center">
+                <Warehouse className="mx-auto h-7 w-7 text-slate-400" />
+                <p className="mt-3 text-sm font-medium text-slate-700">Capacity not configured</p>
+                <p className="mt-1 text-xs text-slate-500">Set the warehouse's physical capacity to display utilization here.</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-200 shadow-sm">
+          <CardHeader><CardTitle className="text-base font-semibold">Data coverage</CardTitle><CardDescription>Records currently available to this dashboard.</CardDescription></CardHeader>
+          <CardContent className="grid grid-cols-2 gap-3">
+            <div className="rounded-xl bg-slate-50 p-4"><p className="text-xs text-slate-500">Incoming loaded</p><p className="mt-1 text-2xl font-semibold text-slate-900">{incomingItems.length}</p></div>
+            <div className="rounded-xl bg-slate-50 p-4"><p className="text-xs text-slate-500">Outgoing loaded</p><p className="mt-1 text-2xl font-semibold text-slate-900">{outgoingItems.length}</p></div>
+            <div className="col-span-2 rounded-lg border border-slate-100 p-3 text-xs leading-5 text-slate-500">Analytics are calculated from the records returned by the warehouse APIs (up to 100 incoming and 100 outgoing records). This page does not estimate missing history or create synthetic performance scores.</div>
+          </CardContent>
+        </Card>
+      </section>
     </div>
   );
 }
