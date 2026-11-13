@@ -142,7 +142,7 @@ export default function DeliveryEarningsPage() {
             <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={()=>setPayout({paymentMethod:settingsData?.data?.payout?.paymentMethod||"bank_transfer",upiId:settingsData?.data?.payout?.upiId||"",minWithdrawal:Number(settingsData?.data?.payout?.minWithdrawal??200),autoWithdraw:Boolean(settingsData?.data?.payout?.autoWithdraw)})} disabled={savingPayout}>Cancel changes</Button><Button type="button" className="bg-emerald-700 hover:bg-emerald-800" onClick={handleSavePayout} disabled={savingPayout||payout.minWithdrawal<1||(payout.paymentMethod==="upi"&&!payout.upiId.trim())}>{savingPayout?<Loader2 className="mr-2 h-4 w-4 animate-spin"/>:<Save className="mr-2 h-4 w-4"/>}Save changes</Button></div>
           </div>
         </CardContent>
-      </Card>>
+      </Card>
     </>}
   </div>;
 }
