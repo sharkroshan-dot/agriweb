@@ -7,11 +7,75 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../..
 import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
 import { Select, SelectContent, SelectItem } from "../../../components/ui/select";
-import { Switch } from "../../../components/ui/switch";
 import { Badge } from "../../../components/ui/badge";
 import { Progress } from "../../../components/ui/progress";
+import { WarehousePageHeader } from "../../../components/warehouse/warehouse-page-header";
 import { api } from "../../../lib/api/client";
 import toast from "react-hot-toast";
+
+function SettingsToggle({ checked, onChange, label }: { checked: boolean; onChange: (value: boolean) => void; label: string }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={() => onChange(!checked)}
+      className="settings-modern-switch focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: checked ? "flex-end" : "flex-start",
+        width: 44,
+        minWidth: 44,
+        maxWidth: 44,
+        height: 24,
+        minHeight: 24,
+        maxHeight: 24,
+        flexShrink: 0,
+        padding: 2,
+        boxSizing: "border-box",
+        border: 0,
+        borderRadius: 9999,
+        backgroundColor: checked ? "#059669" : "#cbd5e1",
+        cursor: "pointer",
+        transition: "background-color 180ms ease",
+        verticalAlign: "middle",
+      }}
+    >
+      <span aria-hidden="true" style={{
+        display: "block",
+        width: 20,
+        minWidth: 20,
+        height: 20,
+        borderRadius: "50%",
+        backgroundColor: "#ffffff",
+        boxShadow: "0 1px 3px rgba(15, 23, 42, 0.25)",
+        transition: "transform 180ms ease",
+      }} />
+    </button>
+  );
+}
+
+function SettingToggleRow({ title, description, checked, onChange }: {
+  title: string;
+  description: string;
+  checked: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white p-4 transition-colors hover:border-emerald-200">
+      <div className="min-w-0">
+        <p className="text-sm font-semibold text-slate-800">{title}</p>
+        <p className="mt-1 text-xs leading-5 text-slate-500">{description}</p>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        <span className={checked ? "text-xs font-semibold text-emerald-700" : "text-xs font-medium text-slate-400"}>{checked ? "On" : "Off"}</span>
+        <SettingsToggle checked={checked} onChange={onChange} label={title} />
+      </div>
+    </div>
+  );
+}
 
 const emptyForm = {
   name: "",
@@ -214,23 +278,24 @@ export default function WarehouseSettingsPage() {
   }
 
   return (
-    <div className="warehouse-settings-page space-y-7">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Warehouse Settings</h1>
-          <p className="text-muted-foreground">Manage warehouse profile, capacity, location, inventory and operational alerts.</p>
-        </div>
-        <div className="flex items-center gap-2">
-          {lastSaved && <span className="text-xs text-muted-foreground">Saved at {lastSaved}</span>}
-          <Button variant="outline" size="icon" onClick={() => refetch()}><RefreshCw className="h-4 w-4" /></Button>
-        </div>
-      </div>
+    <div className="warehouse-settings-page w-full max-w-none space-y-5 pb-8">
+      <WarehousePageHeader
+        eyebrow="Warehouse configuration"
+        title="Warehouse Settings"
+        description="Manage your warehouse profile, collection coverage, capacity and operational preferences."
+        meta={<span>{lastSaved ? `Last saved at ${lastSaved}` : "Changes are applied when you save settings"}</span>}
+        actions={
+          <Button type="button" variant="outline" size="sm" onClick={() => { refetch(); refetchPrefs(); }}>
+            <RefreshCw className="mr-2 h-4 w-4" />Refresh
+          </Button>
+        }
+      />
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <form className="space-y-6 lg:col-span-2" onSubmit={handleSave}>
+      <div className="grid min-w-0 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+        <form className="min-w-0 space-y-5" onSubmit={handleSave}>
           <Card>
-            <CardHeader><CardTitle className="flex items-center gap-2"><Warehouse className="h-5 w-5" />Profile</CardTitle><CardDescription>Core details shown across warehouse workflows.</CardDescription></CardHeader>
-            <CardContent className="space-y-4">
+            <CardHeader className="border-b border-emerald-100 bg-emerald-50/50 pb-4"><CardTitle className="flex items-center gap-2"><Warehouse className="h-5 w-5" />Profile</CardTitle><CardDescription>Core details shown across warehouse workflows.</CardDescription></CardHeader>
+            <CardContent className="space-y-4 p-5">
               <div><label className="text-sm font-medium">Warehouse Name</label><Input value={form.name} onChange={(event) => updateForm("name", event.target.value)} className="mt-1" required /></div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
@@ -268,7 +333,7 @@ export default function WarehouseSettingsPage() {
               <CardTitle className="flex items-center gap-2"><MapPin className="h-5 w-5" />Farm Collection Districts</CardTitle>
               <CardDescription>Choose the districts this warehouse is responsible for collecting farm orders from. The Farm Collection queue will show pickups from these districts only.</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="space-y-3 p-5">
               <div>
                 <label className="text-sm font-medium">Districts to collect from</label>
                 <Input value={form.farmCollectionDistricts} onChange={(event) => updateForm("farmCollectionDistricts", event.target.value)} className="mt-1" placeholder="Tiruchirappalli, Perambalur" aria-label="Farm collection districts" />
@@ -283,7 +348,7 @@ export default function WarehouseSettingsPage() {
 
           <Card>
             <CardHeader><CardTitle className="flex items-center gap-2"><MapPin className="h-5 w-5" />Location</CardTitle><CardDescription>Address and coordinates for routing and logistics.</CardDescription></CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-4 p-5">
               <div><label className="text-sm font-medium">Address Line 1</label><Input value={form.addressLine1} onChange={(event) => updateForm("addressLine1", event.target.value)} className="mt-1" /></div>
               <div><label className="text-sm font-medium">Address Line 2</label><Input value={form.addressLine2} onChange={(event) => updateForm("addressLine2", event.target.value)} className="mt-1" /></div>
               <div className="grid gap-4 sm:grid-cols-2">
@@ -310,8 +375,8 @@ export default function WarehouseSettingsPage() {
           </Card>
 
           <Card>
-            <CardHeader><CardTitle className="flex items-center gap-2"><Bell className="h-5 w-5" />Inventory & stock alerts</CardTitle><CardDescription>When to warn staff about low stock.</CardDescription></CardHeader>
-            <CardContent className="grid gap-4 sm:grid-cols-2">
+            <CardHeader className="border-b border-emerald-100 bg-emerald-50/50 pb-4"><CardTitle className="flex items-center gap-2"><Bell className="h-5 w-5" />Inventory & stock alerts</CardTitle><CardDescription>When to warn staff about low stock.</CardDescription></CardHeader>
+            <CardContent className="grid gap-4 p-5 sm:grid-cols-2">
               <div><label className="text-sm font-medium">Low stock alert (units)</label><Input type="number" min="0" value={prefs.lowStockAlert} onChange={(event) => updatePrefs("lowStockAlert", Number(event.target.value))} className="mt-1" /></div>
               <div><label className="text-sm font-medium">Critical stock (units)</label><Input type="number" min="0" value={prefs.criticalStock} onChange={(event) => updatePrefs("criticalStock", Number(event.target.value))} className="mt-1" /></div>
               <div>
@@ -324,30 +389,15 @@ export default function WarehouseSettingsPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="flex items-end pb-1">
-                <div className="flex w-full items-center justify-between rounded-lg border p-3 text-sm font-medium">
-                  Low stock warnings
-                  <Switch checked={prefs.lowStockAlerts} onCheckedChange={(on) => updatePrefs("lowStockAlerts", on)} aria-label="Low stock warnings" />
-                </div>
-              </div>
-              <div className="flex items-end pb-1">
-                <div className="flex w-full items-center justify-between rounded-lg border p-3 text-sm font-medium">
-                  Expiry alerts
-                  <Switch checked={prefs.expiryAlerts} onCheckedChange={(on) => updatePrefs("expiryAlerts", on)} aria-label="Expiry alerts" />
-                </div>
-              </div>
-              <div className="flex items-end pb-1">
-                <div className="flex w-full items-center justify-between rounded-lg border p-3 text-sm font-medium">
-                  Incoming stock updates
-                  <Switch checked={prefs.incomingAlerts} onCheckedChange={(on) => updatePrefs("incomingAlerts", on)} aria-label="Incoming stock updates" />
-                </div>
-              </div>
+              <SettingToggleRow title="Low stock warnings" description="Notify staff when available stock reaches the configured threshold." checked={prefs.lowStockAlerts} onChange={(on) => updatePrefs("lowStockAlerts", on)} />
+              <SettingToggleRow title="Expiry alerts" description="Warn staff about stock approaching its expiry date." checked={prefs.expiryAlerts} onChange={(on) => updatePrefs("expiryAlerts", on)} />
+              <SettingToggleRow title="Incoming stock updates" description="Notify staff when new shipments are assigned or received." checked={prefs.incomingAlerts} onChange={(on) => updatePrefs("incomingAlerts", on)} />
             </CardContent>
           </Card>
 
           <Card>
-            <CardHeader><CardTitle className="flex items-center gap-2"><Settings className="h-5 w-5" />Warehouse operations</CardTitle><CardDescription>Control checks used during receiving and inventory handling.</CardDescription></CardHeader>
-            <CardContent className="grid gap-3 sm:grid-cols-2">
+            <CardHeader className="border-b border-emerald-100 bg-emerald-50/50 pb-4"><CardTitle className="flex items-center gap-2"><Settings className="h-5 w-5" />Warehouse operations</CardTitle><CardDescription>Control checks used during receiving and inventory handling.</CardDescription></CardHeader>
+            <CardContent className="grid gap-3 p-5 sm:grid-cols-2">
               {[
                 ["allowStockReceiving", "Allow stock receiving", "Warehouse staff can receive incoming stock."],
                 ["requireQualityCheck", "Require quality check", "Receiving must pass a quality check before stock is added."],
@@ -356,39 +406,37 @@ export default function WarehouseSettingsPage() {
                 ["requireStorageLocation", "Require storage location", "Stock must be assigned to a storage location."],
                 ["lowCapacityAlerts", "Low capacity alerts", "Notify staff when warehouse capacity is getting high."],
               ].map(([key, title, description]) => (
-                <div key={key} className="flex items-center justify-between gap-4 rounded-lg border p-3">
-                  <div><p className="text-sm font-medium">{title}</p><p className="text-xs text-muted-foreground">{description}</p></div>
-                  <Switch checked={Boolean(prefs[key as keyof typeof prefs])} onCheckedChange={(on) => updatePrefs(key as keyof typeof prefs, on)} aria-label={title} />
-                </div>
+                <SettingToggleRow
+                  key={key}
+                  title={title}
+                  description={description}
+                  checked={Boolean(prefs[key as keyof typeof prefs])}
+                  onChange={(on) => updatePrefs(key as keyof typeof prefs, on)}
+                />
               ))}
             </CardContent>
           </Card>
 
           <Card>
-            <CardHeader><CardTitle className="flex items-center gap-2"><Snowflake className="h-5 w-5" />Cold storage settings</CardTitle><CardDescription>Environment defaults for cold rooms.</CardDescription></CardHeader>
+            <CardHeader className="border-b border-emerald-100 bg-emerald-50/50 pb-4"><CardTitle className="flex items-center gap-2"><Snowflake className="h-5 w-5" />Cold storage settings</CardTitle><CardDescription>Environment defaults for cold rooms.</CardDescription></CardHeader>
             <CardContent className="grid gap-4 sm:grid-cols-2">
               <div><label className="text-sm font-medium">Default temperature (°C)</label><Input type="number" step="0.5" value={prefs.defaultTemperature} onChange={(event) => updatePrefs("defaultTemperature", Number(event.target.value))} className="mt-1" /></div>
               <div><label className="text-sm font-medium">Default humidity (%)</label><Input type="number" min="0" max="100" value={prefs.defaultHumidity} onChange={(event) => updatePrefs("defaultHumidity", Number(event.target.value))} className="mt-1" /></div>
               <div><label className="text-sm font-medium">Alert threshold (±°C)</label><Input type="number" step="0.5" value={prefs.alertThreshold} onChange={(event) => updatePrefs("alertThreshold", Number(event.target.value))} className="mt-1" /></div>
-              <div className="flex items-end pb-1">
-                <div className="flex w-full items-center justify-between rounded-lg border p-3 text-sm font-medium">
-                  Temperature alert
-                  <Switch checked={prefs.temperatureAlert} onCheckedChange={(on) => updatePrefs("temperatureAlert", on)} aria-label="Temperature alert" />
-                </div>
-              </div>
+              <SettingToggleRow title="Temperature alert" description="Alert staff when cold-room temperature moves beyond the configured threshold." checked={prefs.temperatureAlert} onChange={(on) => updatePrefs("temperatureAlert", on)} />
             </CardContent>
           </Card>
 
-          <div className="flex justify-end gap-2">
+          <div className="sticky bottom-3 z-10 flex justify-end gap-2 rounded-xl border border-slate-200 bg-white/95 p-3 shadow-lg backdrop-blur">
             <Button type="button" variant="outline" onClick={() => refetch()}>Reset</Button>
-            <Button type="submit" disabled={isSaving}><Save className="mr-2 h-4 w-4" />{isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Save Settings</Button>
+            <Button type="submit" disabled={isSaving} className="bg-emerald-700 text-white hover:bg-emerald-800"><Save className="mr-2 h-4 w-4" />{isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Save Settings</Button>
           </div>
         </form>
 
         <div className="space-y-6">
           <Card>
             <CardHeader><CardTitle className="flex items-center gap-2"><Settings className="h-5 w-5" />Status</CardTitle><CardDescription>Used capacity is calculated automatically from live inventory records.</CardDescription></CardHeader>
-            <CardContent className="space-y-5">
+            <CardContent className="space-y-5 p-5">
               <div>
                 <div className="flex justify-between text-sm"><span>General Capacity</span><span className="font-medium">{warehouse?.usedCapacity ?? 0} / {warehouse?.totalCapacity ?? 0}</span></div>
                 <Progress value={warehouse?.totalCapacity ? Math.min(100, ((warehouse.usedCapacity ?? 0) / warehouse.totalCapacity) * 100) : 0} className="mt-2" />
