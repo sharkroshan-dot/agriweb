@@ -285,14 +285,20 @@ export default function WarehouseSettingsPage() {
         description="Manage your warehouse profile, collection coverage, capacity and operational preferences."
         meta={<span>{lastSaved ? `Last saved at ${lastSaved}` : "Changes are applied when you save settings"}</span>}
         actions={
-          <Button type="button" variant="outline" size="sm" onClick={() => { refetch(); refetchPrefs(); }}>
-            <RefreshCw className="mr-2 h-4 w-4" />Refresh
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" variant="outline" size="sm" disabled={isSaving} onClick={() => { refetch(); refetchPrefs(); }}>
+              <RefreshCw className="mr-2 h-4 w-4" />Reset
+            </Button>
+            <Button type="submit" form="warehouse-settings-form" size="sm" disabled={isSaving} className="bg-emerald-700 text-white hover:bg-emerald-800">
+              {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+              {isSaving ? "Saving..." : "Save Settings"}
+            </Button>
+          </div>
         }
       />
 
       <div className="grid min-w-0 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
-        <form className="min-w-0 space-y-5" onSubmit={handleSave}>
+        <form id="warehouse-settings-form" className="min-w-0 space-y-5" onSubmit={handleSave}>
           <Card>
             <CardHeader className="border-b border-emerald-100 bg-emerald-50/50 pb-4"><CardTitle className="flex items-center gap-2"><Warehouse className="h-5 w-5" />Profile</CardTitle><CardDescription>Core details shown across warehouse workflows.</CardDescription></CardHeader>
             <CardContent className="space-y-4 p-5">
@@ -427,10 +433,6 @@ export default function WarehouseSettingsPage() {
             </CardContent>
           </Card>
 
-          <div className="sticky bottom-3 z-10 flex justify-end gap-2 rounded-xl border border-slate-200 bg-white/95 p-3 shadow-lg backdrop-blur">
-            <Button type="button" variant="outline" onClick={() => refetch()}>Reset</Button>
-            <Button type="submit" disabled={isSaving} className="bg-emerald-700 text-white hover:bg-emerald-800"><Save className="mr-2 h-4 w-4" />{isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Save Settings</Button>
-          </div>
         </form>
 
         <div className="space-y-6">
