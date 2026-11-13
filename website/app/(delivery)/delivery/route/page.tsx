@@ -214,7 +214,7 @@ export default function DeliveryRoutePage() {
       const requested = new Set(requestedOrderIds.map(String));
       const matches = [...routeWaypoints, ...todayDeliveries, ...activeDeliveries]
         .filter((delivery: any) => requested.has(getDeliveryId(delivery)));
-      if (matches.length) return matches;
+      return matches;
     }
     if (requestedOrderId) {
       // The deliveries page can link using either the order id or assignment
@@ -406,27 +406,17 @@ export default function DeliveryRoutePage() {
     }
 
     try {
-      const res = await api.put(`/orders/${orderId}/status`, { status: "delivered" });
+      if (!assignmentId) {
+        throw new Error("Delivery assignment is unavailable. Refresh the route before completing this stop.");
+      }
+      const res = await api.put(`/delivery/assignments/${assignmentId}/deliver`);
       if (res?.success === false) {
-        if (!assignmentId) {
-          throw new Error(res?.detail || "Failed to complete delivery");
-        }
-        await api.put(`/delivery/assignments/${assignmentId}/complete`);
+        throw new Error(res?.detail || "Failed to complete delivery");
       }
       toast.success("Delivery completed");
     } catch (err: any) {
-      if (assignmentId) {
-        try {
-          await api.put(`/delivery/assignments/${assignmentId}/complete`);
-          toast.success("Delivery completed");
-        } catch {
-          toast.error(err?.message || "Failed to complete delivery");
-          return;
-        }
-      } else {
-        toast.error(err?.message || "Failed to complete delivery");
-        return;
-      }
+      toast.error(err?.message || "Failed to complete delivery");
+      return;
     }
 
     await Promise.all([
