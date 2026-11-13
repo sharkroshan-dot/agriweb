@@ -742,12 +742,9 @@ async def get_my_delivery_history(
     status_filter: str = Query("all", alias="status"),
     current_user: dict = Depends(get_current_user)
 ):
-    """Return terminal customer-delivery records for the authenticated partner."""
+    """Return terminal delivery records for the authenticated partner."""
     if current_user.get("role") != "delivery":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only delivery partners can access this endpoint"
-        )
+        raise HTTPException(status_code=403, detail="Only delivery partners can access this endpoint")
 
     allowed_filters = {"all", "delivered", "failed", "returned", "cancelled"}
     requested_status = (status_filter or "all").lower()
@@ -755,93 +752,80 @@ async def get_my_delivery_history(
         raise HTTPException(status_code=400, detail="Invalid delivery history status")
 
     profile = await _get_or_create_partner(str(current_user["_id"]))
-    partner_id = str(profile["_id"])
-    user_id = str(current_user["_id"])
+    partner_ids = [str(profile["_id"]), str(current_user["_id"])]
 
-    async def _fetch_history(key: str) -> list:
-        # Read a broad window first, then filter terminal states before paging.
-        # This prevents active assignments at the top of the collection from
-        # hiding older completed/failed records.
-        assignments = await DeliveryService.get_partner_deliveries(key, skip=0, limit=1000)
-        orders = await order_repository.get_by_delivery_partner(key, skip=0, limit=1000)
-
-        order_by_id = {str(o.get("_id")): o for o in orders if o.get("_id")}
-        seen = set()
-        result = []
-
-        for assignment in assignments:
-            oid = str(assignment.get("orderId") or "")
-            if not oid or oid in seen:
-                continue
-            seen.add(oid)
-            order = order_by_id.get(oid) or await order_repository.get_by_id(oid)
-            assignment_status = str(assignment.get("status") or "").lower()
-            order_status = str((order or {}).get("orderStatus") or "").lower()
-            record_status = (
-                "returned" if "return" in assignment_status or "return" in order_status
-                else "failed" if assignment_status == "failed" or order_status == "failed"
-                else "cancelled" if assignment_status == "cancelled" or order_status == "cancelled"
-                else "delivered" if assignment_status == "delivered" or order_status == "delivered"
-                else None
+    async def _fetch_history(partner_id: str) -> list:
+        # Keep the original delivered query path intact; it is the established
+        # path that populated the previous history screen.
+        status_map = {
+            "delivered": DeliveryStatus.DELIVERED,
+            "failed": DeliveryStatus.FAILED,
+            "cancelled": DeliveryStatus.CANCELLED,
+        }
+        records_by_order = {}
+        for label, enum_status in status_map.items():
+            assignments = await DeliveryService.get_partner_deliveries(
+                partner_id, status=enum_status, skip=0, limit=1000
             )
-            if not record_status:
-                continue
+            for assignment in assignments:
+                oid = str(assignment.get("orderId") or "")
+                if oid:
+                    records_by_order[oid] = (assignment, label)
 
-            item = dict(assignment)
-            item["id"] = str(assignment.get("_id") or oid)
+        # Also include matching order documents for legacy records where the
+        # assignment row is missing or status was only written to the order.
+        for label in ("delivered", "failed", "cancelled", "returned"):
+            try:
+                orders = await order_repository.get_by_delivery_partner(
+                    partner_id, skip=0, limit=1000, status=label
+                )
+            except Exception:
+                orders = []
+            for order in orders:
+                oid = str(order.get("_id") or "")
+                if oid and oid not in records_by_order:
+                    records_by_order[oid] = (None, label)
+
+        # Return records are stored under differing workflow labels in older
+        # orders; include only explicitly return-labelled order statuses.
+        for label in ("return_requested", "returning", "returned"):
+            try:
+                orders = await order_repository.get_by_delivery_partner(
+                    partner_id, skip=0, limit=1000, status=label
+                )
+            except Exception:
+                orders = []
+            for order in orders:
+                oid = str(order.get("_id") or "")
+                if oid:
+                    records_by_order[oid] = (None, "returned")
+
+        enriched = []
+        for oid, (assignment, label) in records_by_order.items():
+            order = await order_repository.get_by_id(oid)
+            item = dict(assignment or order or {})
+            item["id"] = str((assignment or {}).get("_id") or oid)
             item["orderId"] = oid
-            item["historyStatus"] = record_status
+            item["historyStatus"] = label
             if order:
                 item["orderNumber"] = order.get("orderNumber")
                 item["totalAmount"] = order.get("totalAmount")
                 item["deliveryAddress"] = order.get("deliveryAddress")
                 item["items"] = order.get("items", [])
                 item["paymentMethod"] = order.get("paymentMethod")
-                item["deliveredAt"] = order.get("deliveredAt") or assignment.get("completedAt")
+                item["deliveredAt"] = order.get("deliveredAt") or (assignment or {}).get("completedAt")
                 customer_id = order.get("customerId")
                 if customer_id:
                     customer = await UserService.get_user_by_id(str(customer_id))
                     if customer:
                         item["customerName"] = f"{customer.get('firstName', '')} {customer.get('lastName', '')}".strip()
                         item["customerPhone"] = customer.get("phone")
-            result.append(item)
+            enriched.append(item)
+        return enriched
 
-        # Include terminal orders which may predate/omit a delivery-assignment row.
-        for order in orders:
-            oid = str(order.get("_id") or "")
-            if not oid or oid in seen:
-                continue
-            order_status = str(order.get("orderStatus") or "").lower()
-            record_status = (
-                "returned" if "return" in order_status
-                else "failed" if order_status == "failed"
-                else "cancelled" if order_status == "cancelled"
-                else "delivered" if order_status == "delivered"
-                else None
-            )
-            if not record_status:
-                continue
-            item = dict(order)
-            item["id"] = oid
-            item["orderId"] = oid
-            item["historyStatus"] = record_status
-            item["orderNumber"] = order.get("orderNumber")
-            item["totalAmount"] = order.get("totalAmount")
-            item["deliveryAddress"] = order.get("deliveryAddress")
-            item["items"] = order.get("items", [])
-            customer_id = order.get("customerId")
-            if customer_id:
-                customer = await UserService.get_user_by_id(str(customer_id))
-                if customer:
-                    item["customerName"] = f"{customer.get('firstName', '')} {customer.get('lastName', '')}".strip()
-                    item["customerPhone"] = customer.get("phone")
-            result.append(item)
-
-        return result
-
-    records = await _fetch_history(partner_id)
+    records = await _fetch_history(partner_ids[0])
     if not records:
-        records = await _fetch_history(user_id)
+        records = await _fetch_history(partner_ids[1])
 
     counts = {
         "all": len(records),
@@ -853,17 +837,24 @@ async def get_my_delivery_history(
     filtered = records if requested_status == "all" else [
         item for item in records if item.get("historyStatus") == requested_status
     ]
-    filtered.sort(
-        key=lambda item: item.get("deliveredAt") or item.get("completedAt") or item.get("updatedAt") or item.get("createdAt") or datetime.min,
-        reverse=True
-    )
-    skip = (page - 1) * limit
-    paged = filtered[skip:skip + limit]
 
+    def _history_sort_value(item):
+        value = item.get("deliveredAt") or item.get("completedAt") or item.get("updatedAt") or item.get("createdAt")
+        if isinstance(value, datetime):
+            return value.timestamp()
+        if isinstance(value, str):
+            try:
+                return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+            except (ValueError, TypeError):
+                return 0
+        return 0
+
+    filtered.sort(key=_history_sort_value, reverse=True)
+    skip = (page - 1) * limit
     return _serialize_delivery_data({
         "success": True,
         "data": {
-            "deliveries": paged,
+            "deliveries": filtered[skip:skip + limit],
             "count": len(filtered),
             "counts": counts,
             "page": page,
