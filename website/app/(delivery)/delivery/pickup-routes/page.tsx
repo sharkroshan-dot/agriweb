@@ -235,13 +235,12 @@ export default function DeliveryPickupRoutesPage() {
 
   // Keep unfinished routes from earlier days visible while viewing Today so a
   // delivery partner cannot lose sight of work that still needs handover.
+  // Once the warehouse handover is recorded, the farm pickup route leaves
+  // the active route workspace and is shown in Pickup History instead.
   const routes = allRoutes.filter((item: any) => {
-    // A returned/received route belongs to the day the warehouse handover
-    // actually happened, not the original route creation day.
-    const completed = isPickupCompleted(item);
+    if (isPickupCompleted(item)) return false;
     return isInDatePeriod(item, datePeriod, "pickup") ||
-      (completed && isInDatePeriod(item, datePeriod, "pickup")) ||
-      (datePeriod === "today" && isCarryoverRoute(item) && !completed);
+      (datePeriod === "today" && isCarryoverRoute(item));
   });
   // The offers endpoint can return a stale open copy of an order whose valid route
   // is already assigned and visible in My Routes. Match by route ID AND stable
