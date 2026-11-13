@@ -126,6 +126,7 @@ export default function DeliveryRoutePage() {
   const lastLocationSyncAt = useRef(0);
   const [chatStop, setChatStop] = useState<any | null>(null);
   const [removingOrderId, setRemovingOrderId] = useState<string | null>(null);
+  const [activeRouteTab, setActiveRouteTab] = useState<"stops" | "details" | "timeline">("stops");
   const { data: session } = useSession();
   const accessToken = (session as any)?.accessToken as string | undefined;
 
@@ -492,169 +493,47 @@ export default function DeliveryRoutePage() {
     );
   }
 
+  const metrics = routeData?.data || {};
+  const weightKg = stops.reduce((n: number, stop: any) => n + (Number(stop.weight ?? stop.order?.weight ?? 0) || 0), 0);
+  const distanceKm = metrics.totalDistanceKm ?? metrics.distanceKm ?? metrics.distance;
+  const durationMin = metrics.estimatedDurationMinutes ?? metrics.estimatedTimeMinutes;
+  const completed = stops.filter((stop: any) => ["delivered", "completed"].includes(stop.status)).length;
+  const metric = (v: any, suffix: string) => v == null || v === "" ? "—" : `${v} ${suffix}`;
+
   return (
-    <div className="space-y-6">
-      <div className="delivery-page-header flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="delivery-page-title text-3xl font-bold">Live Route</h1>
-          <p className="text-muted-foreground">{isNavigating ? "Navigation active" : routeLength > 0 ? "Route planned" : "No route assigned"}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          {routeLength > 0 && (
-            <Button variant={isNavigating ? "destructive" : "default"} onClick={isNavigating ? () => setIsNavigating(false) : handleStartRoute}>
-              {isNavigating ? <><Pause className="mr-2 h-4 w-4" />Stop Navigation</> : <><Navigation className="mr-2 h-4 w-4" />Start Route</>}
-            </Button>
-          )}
-          <Button variant="outline" size="icon" onClick={() => { refetch(); }}><RefreshCw className="h-4 w-4" /></Button>
-        </div>
+    <div className="space-y-5 pb-6">
+      <div className="delivery-page-header flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div><h1 className="delivery-page-title text-2xl font-bold tracking-tight">Delivery Route</h1><p className="text-sm text-muted-foreground">Manage your selected deliveries, follow the optimized route and complete all stops.</p></div>
+        <div className="flex flex-wrap items-center gap-2"><Badge variant={isNavigating ? "success" : "secondary"}>{isNavigating ? "In progress" : "Route ready"}</Badge><Button size="sm" variant="outline" onClick={() => { refetch(); void queryClient.invalidateQueries({queryKey:["deliveryToday"]}); }}><RefreshCw className="mr-2 h-4 w-4"/>Refresh</Button>{routeLength > 0 && <Button size="sm" onClick={isNavigating ? () => setIsNavigating(false) : handleStartRoute}>{isNavigating ? <><Pause className="mr-2 h-4 w-4"/>Stop route</> : <><Navigation className="mr-2 h-4 w-4"/>Start route</>}</Button>}</div>
       </div>
 
-      <Card className="border-blue-200 bg-blue-50/40">
-        <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="font-semibold text-slate-900">Keep the route profitable</p>
-            <p className="text-xs text-slate-600">
-              Show orders within this distance from the start point. {routeOrigin
-                ? `Your live location is being used as the start${locationAccuracy != null ? ` (±${Math.round(locationAccuracy)} m accuracy)` : ""}.`
-                : "Waiting for a live GPS location; no saved route start will be used."}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            {[5, 10, 20, 25, 50].map((distance) => (
-              <Button
-                key={distance}
-                size="sm"
-                variant={radiusKm === distance ? "default" : "outline"}
-                onClick={() => { setRadiusKm(distance); setCurrentStop(0); }}
-              >
-                {distance} km
-              </Button>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+        <Card><CardContent className="flex items-center gap-3 p-4"><div className="rounded-full bg-emerald-100 p-3 text-emerald-700"><Route className="h-5 w-5"/></div><div className="min-w-0"><p className="text-xs text-muted-foreground">Current route</p><p className="truncate font-semibold">{String(metrics.routeNumber || metrics.routeId || "Active route")}</p><p className="text-xs text-emerald-700">{isNavigating ? "In progress" : "Ready"}</p></div></CardContent></Card>
+        <Card><CardContent className="flex items-center gap-3 p-4"><MapPin className="h-6 w-6 text-emerald-600"/><div><p className="text-xs text-muted-foreground">Total stops</p><p className="text-xl font-bold">{routeLength}</p></div></CardContent></Card>
+        <Card><CardContent className="flex items-center gap-3 p-4"><CheckCircle className="h-6 w-6 text-blue-600"/><div><p className="text-xs text-muted-foreground">Completed</p><p className="text-xl font-bold">{completed}</p></div></CardContent></Card>
+        <Card><CardContent className="flex items-center gap-3 p-4"><Truck className="h-6 w-6 text-emerald-600"/><div><p className="text-xs text-muted-foreground">Total weight</p><p className="text-xl font-bold">{weightKg > 0 ? `${weightKg} kg` : "—"}</p></div></CardContent></Card>
+        <Card><CardContent className="flex items-center gap-3 p-4"><Route className="h-6 w-6 text-emerald-600"/><div><p className="text-xs text-muted-foreground">Route distance</p><p className="text-xl font-bold">{metric(distanceKm,"km")}</p></div></CardContent></Card>
+        <Card><CardContent className="flex items-center gap-3 p-4"><Clock className="h-6 w-6 text-emerald-600"/><div><p className="text-xs text-muted-foreground">Estimated time</p><p className="text-xl font-bold">{metric(durationMin,"min")}</p></div></CardContent></Card>
+      </div>
 
-      {routeLength === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <Route className="mx-auto h-12 w-12 text-muted-foreground/50" />
-            <p className="mt-4 text-lg font-medium">No route assigned</p>
-            <p className="mt-1 text-sm text-muted-foreground">You don&apos;t have any deliveries scheduled today.</p>
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.3fr)]">
+        <div className="space-y-4">
+          <Card className="overflow-hidden"><CardHeader className="border-b py-4"><CardTitle className="flex items-center gap-2 text-base"><MapPin className="h-5 w-5 text-emerald-600"/>Delivery Route Map</CardTitle></CardHeader><CardContent className="p-2">{mapMarkers.length ? <Map center={{lat:displayedRouteOrigin?.lat || 11.2322,lng:displayedRouteOrigin?.lng || 78.8805}} zoom={12} trackUserLocation userLocation={liveOrigin} route={mapRoute} markers={mapMarkers} height="520px"/> : <div className="flex h-[360px] items-center justify-center rounded-lg bg-muted/30 text-sm text-muted-foreground">No mapped delivery stops yet</div>}</CardContent></Card>
+          <Card className="border-emerald-200 bg-emerald-50/50"><CardContent className="flex flex-col gap-3 p-4"><div><p className="font-semibold text-emerald-900">Route planning</p><p className="text-xs text-emerald-800">{routeOrigin ? "Your live GPS location is being used as the start point." : "Waiting for live GPS location. Allow location access to enable navigation."}</p></div><div className="flex flex-wrap gap-2">{[5,10,20,25,50].map((d)=><Button key={d} size="sm" variant={radiusKm===d?"default":"outline"} onClick={()=>{setRadiusKm(d);setCurrentStop(0);}}>{d} km</Button>)}</div></CardContent></Card>
+        </div>
+        <Card className="overflow-hidden">
+          <div className="grid grid-cols-3 gap-1 border-b bg-muted/30 p-2"><Button size="sm" variant={activeRouteTab==="stops"?"default":"ghost"} onClick={()=>setActiveRouteTab("stops")}><MapPin className="mr-1 h-4 w-4"/>Stops ({routeLength})</Button><Button size="sm" variant={activeRouteTab==="details"?"default":"ghost"} onClick={()=>setActiveRouteTab("details")}><Route className="mr-1 h-4 w-4"/>Details</Button><Button size="sm" variant={activeRouteTab==="timeline"?"default":"ghost"} onClick={()=>setActiveRouteTab("timeline")}><Clock className="mr-1 h-4 w-4"/>Timeline</Button></div>
+          <CardContent className="p-4 sm:p-5">
+            {activeRouteTab==="stops" && <><div className="mb-3 flex items-center justify-between"><div><h2 className="font-semibold">Delivery Stops ({routeLength})</h2><p className="text-xs text-muted-foreground">Orders assigned to your current route</p></div><Badge variant="outline">{completed}/{routeLength} completed</Badge></div><div className="flex gap-3 border-b py-3"><div className="rounded-full bg-emerald-100 p-2 text-emerald-700"><Truck className="h-4 w-4"/></div><div><p className="text-sm font-semibold">Start point · Your location</p><p className="text-xs text-muted-foreground">{liveOrigin ? `${liveOrigin.lat.toFixed(5)}, ${liveOrigin.lng.toFixed(5)}` : "Waiting for GPS"}</p></div></div>
+              {stops.map((stop:any,index:number)=><div key={stop.index ?? index} className={cn("flex flex-col gap-3 border-b py-4 sm:flex-row sm:items-center",index===currentStop&&isNavigating&&"rounded-lg bg-emerald-50/70")}><div className="flex min-w-0 flex-1 gap-3"><div className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white",index<currentStop?"bg-emerald-600":"bg-blue-600")}>{index+1}</div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><p className="text-sm font-semibold">{stop.orderId || `Stop ${index+1}`}</p>{index<currentStop?<Badge variant="success">Done</Badge>:index===currentStop&&isNavigating?<Badge variant="warning">Current</Badge>:<Badge variant="outline">Pending</Badge>}</div><p className="text-sm">{stop.customerName}</p><p className="text-xs text-muted-foreground">{stop.address || "Delivery address unavailable"}</p><div className="mt-2 flex flex-wrap items-center gap-2"><DeliveryPriorityBadge delivery={stop} compact/>{stop.eta&&<span className="text-xs text-muted-foreground">ETA {stop.eta}</span>}{stop.distanceFromStartKm!=null&&<span className="text-xs text-muted-foreground">{stop.distanceFromStartKm.toFixed(1)} km direct distance</span>}</div></div></div><div className="flex shrink-0 flex-wrap gap-1.5">{stop.phone&&<Button variant="outline" size="icon" onClick={()=>contactCustomer(stop.phone,"call")} aria-label="Call customer"><Phone className="h-4 w-4"/></Button>}<Button variant="outline" size="icon" onClick={()=>openTurnByTurnNavigation(stop)} aria-label="Navigate to customer"><Navigation className="h-4 w-4"/></Button><Button variant="outline" size="icon" onClick={()=>setChatStop(stop)} aria-label="Message customer"><MessageSquare className="h-4 w-4"/></Button>{["assigned","accepted"].includes(stop.status)&&stop.assignmentId&&<Button size="sm" variant="outline" className="text-destructive" disabled={removingOrderId===stop.orderId||isNavigating} onClick={()=>void handleRemoveStop(stop)}><X className="mr-1 h-4 w-4"/>{removingOrderId===stop.orderId?"Removing":"Remove"}</Button>}{index===currentStop&&isNavigating&&<Button size="sm" onClick={handleNextStop}>Deliver<ArrowRight className="ml-1 h-4 w-4"/></Button>}</div></div>)}
+              {routeLength===0&&<p className="py-10 text-center text-sm text-muted-foreground">No active delivery orders assigned.</p>}</>}
+            {activeRouteTab==="details"&&<div className="space-y-4"><h2 className="font-semibold">Route Details</h2><div className="grid gap-3 sm:grid-cols-2">{[["Route reference",String(metrics.routeNumber||metrics.routeId||"Not assigned")],["Status",isNavigating?"Navigation active":"Ready to start"],["Total stops",String(routeLength)],["Completed stops",String(completed)],["Route distance",metric(distanceKm,"km")],["Estimated duration",metric(durationMin,"min")]].map(([k,v])=><div key={k} className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">{k}</p><p className="mt-1 font-semibold">{v}</p></div>)}</div><p className="text-xs text-muted-foreground">Distance and duration are shown only when provided by the route service. Straight-line GPS distance is not presented as road distance.</p></div>}
+            {activeRouteTab==="timeline"&&<div className="space-y-3"><h2 className="font-semibold">Delivery Timeline</h2><p className="text-xs text-muted-foreground">Actual recorded timestamps are shown when available.</p>{stops.map((stop:any,index:number)=><div key={stop.index??index} className="flex gap-3 border-b pb-3"><span className={cn("mt-1 h-3 w-3 rounded-full",["delivered","completed"].includes(stop.status)?"bg-emerald-600":"bg-blue-600")}/><div><p className="text-sm font-medium">{stop.customerName}</p><p className="text-xs text-muted-foreground">{stop.orderId} · {stop.status||"Status pending"}</p><p className="text-xs text-muted-foreground">Time: {stop.deliveredAt||stop.completedAt||stop.updatedAt||"Not recorded"}</p></div></div>)}</div>}
+            {routeLength>0&&<div className="mt-5 flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between"><div className="grid grid-cols-2 gap-4 sm:grid-cols-4"><div><p className="text-xs text-muted-foreground">Distance</p><p className="font-semibold">{metric(distanceKm,"km")}</p></div><div><p className="text-xs text-muted-foreground">Est. time</p><p className="font-semibold">{metric(durationMin,"min")}</p></div><div><p className="text-xs text-muted-foreground">Weight</p><p className="font-semibold">{weightKg>0?`${weightKg} kg`:"—"}</p></div><div><p className="text-xs text-muted-foreground">Orders</p><p className="font-semibold">{routeLength}</p></div></div><Button onClick={isNavigating?()=>setIsNavigating(false):handleStartRoute}>{isNavigating?<><Pause className="mr-2 h-4 w-4"/>Stop</>:<><Navigation className="mr-2 h-4 w-4"/>Start route</>}</Button></div>}
           </CardContent>
         </Card>
-      ) : (
-        <>
-          <div className="grid gap-4 md:grid-cols-4">
-            <Card>
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Stops</p>
-                    <p className="text-xl font-bold">{routeLength}</p>
-                  </div>
-                  <MapPin className="h-5 w-5 text-muted-foreground" />
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Status</p>
-                    <p className="text-xl font-bold">{currentStop >= routeLength ? "Complete" : "Active"}</p>
-                  </div>
-                  <Clock className="h-5 w-5 text-muted-foreground" />
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          <Card>
-            <CardContent className="p-0">
-              {mapMarkers.length > 0 && (
-                <Map
-                  center={{ lat: displayedRouteOrigin?.lat || 11.2322, lng: displayedRouteOrigin?.lng || 78.8805 }}
-                  zoom={12}
-                  trackUserLocation
-                  userLocation={liveOrigin}
-                  route={mapRoute}
-                  markers={mapMarkers}
-                  height="500px"
-                />
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <MapPin className="h-5 w-5 text-primary" />
-                Route Stops
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {stops.map((stop: any, index: number) => (
-                  <div
-                    key={stop.index ?? index}
-                    className={cn(
-                      "flex items-center gap-4 rounded-lg border-l-4 p-4",
-                      index === currentStop && isNavigating ? "border-primary bg-primary/5" : index < currentStop ? "border-green-500 bg-green-50/50" : "border-muted bg-muted/20"
-                    )}
-                  >
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">{index + 1}</div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="font-medium">{stop.customerName}</p>
-                        {index < currentStop ? <Badge variant="success">Done</Badge> : index === currentStop && isNavigating ? <Badge variant="warning">Current</Badge> : <Badge variant="outline">Pending</Badge>}
-                      </div>
-                      <p className="text-sm text-muted-foreground">{stop.address || "Delivery address"}</p>
-                      <div className="mt-2"><DeliveryPriorityBadge delivery={stop} compact /></div>
-                      <div className="mt-1 flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
-                        <span className="flex items-center gap-1"><Clock className="h-3 w-3" />ETA: {stop.eta || "Pending"}</span>
-                        {stop.distanceFromStartKm != null && (
-                          <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{stop.distanceFromStartKm.toFixed(1)} km from start</span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {stop.phone && (
-                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => contactCustomer(stop.phone, "call")} aria-label={`Call ${stop.customerName}`}><Phone className="h-4 w-4" /></Button>
-                      )}
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setChatStop(stop)} aria-label={`Message ${stop.customerName}`}><MessageSquare className="h-4 w-4" /></Button>
-                      {["assigned", "accepted"].includes(stop.status) && stop.assignmentId && (
-                        <Button variant="ghost" size="sm" className="h-8 text-destructive hover:bg-destructive/10 hover:text-destructive" disabled={removingOrderId === stop.orderId || isNavigating} onClick={() => void handleRemoveStop(stop)}>
-                          <X className="mr-1 h-4 w-4" />{removingOrderId === stop.orderId ? "Removing..." : "Remove"}
-                        </Button>
-                      )}
-                      {index === currentStop && isNavigating && (
-                        <>
-                          <Button size="sm" variant="outline" onClick={() => openTurnByTurnNavigation(stop)}>
-                            <Navigation className="mr-2 h-4 w-4" />Navigate
-                          </Button>
-                          <Button size="sm" onClick={handleNextStop}>
-                            Deliver
-                            <ArrowRight className="ml-2 h-4 w-4" />
-                          </Button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                ))}
-                <div className="flex items-center gap-4 rounded-lg border-l-4 border-green-500 bg-green-50/30 p-4">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-green-100 text-green-600">•</div>
-                  <div className="flex-1">
-                    <p className="font-medium">End Location</p>
-                    <p className="text-sm text-muted-foreground">Complete all deliveries</p>
-                  </div>
-                  {currentStop === routeLength && <Badge variant="success">Completed</Badge>}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </>
-      )}
-      {chatStop?.orderId && <LiveChatDialog orderId={chatStop.orderId} customerName={chatStop.customerName} onClose={() => setChatStop(null)} />}
+      </div>
+      {chatStop?.orderId&&<LiveChatDialog orderId={chatStop.orderId} customerName={chatStop.customerName} onClose={()=>setChatStop(null)}/>}
     </div>
   );
 }
