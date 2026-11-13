@@ -1,15 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import {
   ArrowRight, Bell, CalendarDays, CheckCircle2, Clock3, CreditCard,
   Gift, Heart, Leaf, Loader2, MapPin, MessageCircle, Package,
   PackageCheck, Plus, RotateCcw, Search, ShoppingBasket, ShoppingCart,
-  Star, Tag, Truck, WalletCards
+  Tag, Truck, WalletCards
 } from "lucide-react";
 import { Card, CardContent } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
@@ -42,13 +41,11 @@ const pickArray = (value: any, ...paths: string[]) => {
 };
 
 export default function CustomerDashboardPage() {
-  const router = useRouter();
   const addItem = useCartStore((s: any) => s.addItem);
   const { data: session } = useSession();
   const customerId = String((session?.user as any)?.id || "");
   const userName = String((session?.user as any)?.name || "there").split(" ")[0];
   const { items: wishlistItems } = useWishlist();
-  const wishlistCount = wishlistItems.length;
 
   const { data: ordersData, isLoading: ordersLoading } = useQuery({
     queryKey: ["customerOrders", "dashboard"],
@@ -108,7 +105,6 @@ export default function CustomerDashboardPage() {
     addItem({ id, name: product.name || product.productName || "Fresh Produce", price: Number(product.price || 0), quantity: 1, image: product.images?.[0] || product.image || "/images/placeholder-product.jpg", originalPrice: Number(product.price || 0) });
     toast.success("Added to your cart");
   };
-  const locationLabel = String((session?.user as any)?.city || (session?.user as any)?.location || "Set delivery location");
 
   if (ordersLoading) return <div className="flex min-h-[50vh] items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-emerald-600" /></div>;
 
