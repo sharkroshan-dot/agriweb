@@ -183,7 +183,7 @@ export default function WarehouseAnalyticsPage() {
     outgoingItems.forEach(row => {
       const date = dateOf(row);
       if (!date) return;
-      const key = period === "year" ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}` : date.toISOString().slice(0, 10);
+      const key = period === "year" ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}` : localDateKey(date);
       const bucket = byKey.get(key);
       if (bucket) bucket.outgoing += 1;
     });
