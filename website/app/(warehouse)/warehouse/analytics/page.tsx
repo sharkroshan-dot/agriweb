@@ -45,6 +45,7 @@ const fulfillmentOf = (row: AnyRow) => {
   if (value.includes("warehouse")) return "Warehouse fulfillment";
   return "Not classified";
 };
+const localDateKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 const dateOf = (row: AnyRow) => {
   const value = row?.receivedAt ?? row?.dispatchedAt ?? row?.createdAt ?? row?.updatedAt ?? row?.expectedDate;
   if (!value) return null;
@@ -145,6 +146,11 @@ export default function WarehouseAnalyticsPage() {
     dispatched: countMatching(outgoingItems, row => ["dispatched", "in_transit", "delivered", "completed"].includes(statusOf(row))),
   }), [outgoingItems]);
 
+  const qualityDecisionCount = incomingStats.passed + incomingStats.failed;
+  const receiptRate = incomingStats.total > 0 ? Math.round((incomingStats.received / incomingStats.total) * 100) : 0;
+  const qualityPassRate = qualityDecisionCount > 0 ? Math.round((incomingStats.passed / qualityDecisionCount) * 100) : 0;
+  const dispatchProgressRate = outgoingStats.total > 0 ? Math.round((outgoingStats.dispatched / outgoingStats.total) * 100) : 0;
+
   const fulfillmentStats = useMemo(() => {
     const rows = [...incomingItems, ...outgoingItems];
     return [
@@ -163,14 +169,14 @@ export default function WarehouseAnalyticsPage() {
       else date.setDate(now.getDate() - (days - 1 - index));
       const key = period === "year"
         ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`
-        : date.toISOString().slice(0, 10);
+        : localDateKey(date);
       return { key, label: period === "year" ? date.toLocaleDateString("en-IN", { month: "short" }) : date.toLocaleDateString("en-IN", { day: "numeric", month: "short" }), incoming: 0, outgoing: 0 };
     });
     const byKey = new Map(buckets.map(bucket => [bucket.key, bucket]));
     incomingItems.forEach(row => {
       const date = dateOf(row);
       if (!date) return;
-      const key = period === "year" ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}` : date.toISOString().slice(0, 10);
+      const key = period === "year" ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}` : localDateKey(date);
       const bucket = byKey.get(key);
       if (bucket) bucket.incoming += 1;
     });
@@ -256,11 +262,44 @@ export default function WarehouseAnalyticsPage() {
         <MetricCard title="Outgoing records" value={outgoingStats.total} description={`${outgoingStats.dispatched} dispatched or beyond`} icon={ArrowUpFromLine} tone="amber" />
       </section>
 
+      <section aria-label="Operational performance" className="grid gap-3 sm:grid-cols-3">
+        <Card className="border-slate-200 shadow-sm">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div><p className="text-xs font-medium uppercase tracking-wide text-slate-500">Receipt completion</p><p className="mt-1 text-2xl font-semibold tabular-nums text-slate-900">{receiptRate}%</p></div>
+              <span className="rounded-lg bg-blue-50 p-2.5 text-blue-700"><PackageCheck className="h-5 w-5" /></span>
+            </div>
+            <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-500" style={{ width: `${receiptRate}%` }} /></div>
+            <p className="mt-2 text-xs text-slate-500">{incomingStats.received} of {incomingStats.total} incoming records received</p>
+          </CardContent>
+        </Card>
+        <Card className="border-slate-200 shadow-sm">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div><p className="text-xs font-medium uppercase tracking-wide text-slate-500">Quality pass rate</p><p className="mt-1 text-2xl font-semibold tabular-nums text-slate-900">{qualityDecisionCount > 0 ? `${qualityPassRate}%` : "—"}</p></div>
+              <span className="rounded-lg bg-emerald-50 p-2.5 text-emerald-700"><CheckCircle2 className="h-5 w-5" /></span>
+            </div>
+            <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${qualityPassRate}%` }} /></div>
+            <p className="mt-2 text-xs text-slate-500">{qualityDecisionCount} completed quality decisions; pending checks excluded</p>
+          </CardContent>
+        </Card>
+        <Card className="border-slate-200 shadow-sm">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div><p className="text-xs font-medium uppercase tracking-wide text-slate-500">Dispatch progress</p><p className="mt-1 text-2xl font-semibold tabular-nums text-slate-900">{outgoingStats.total > 0 ? `${dispatchProgressRate}%` : "—"}</p></div>
+              <span className="rounded-lg bg-amber-50 p-2.5 text-amber-700"><Route className="h-5 w-5" /></span>
+            </div>
+            <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-amber-500" style={{ width: `${dispatchProgressRate}%` }} /></div>
+            <p className="mt-2 text-xs text-slate-500">{outgoingStats.dispatched} of {outgoingStats.total} outgoing records dispatched or beyond</p>
+          </CardContent>
+        </Card>
+      </section>
+
       <section className="grid gap-5 xl:grid-cols-3">
         <Card className="border-slate-200 shadow-sm xl:col-span-2">
           <CardHeader className="flex flex-row items-start justify-between space-y-0">
-            <div><CardTitle className="text-base font-semibold">Warehouse activity</CardTitle><CardDescription className="mt-1">Incoming and outgoing records by recorded date.</CardDescription></div>
-            <Badge variant="outline" className="capitalize">{period} view</Badge>
+            <div><CardTitle className="text-base font-semibold">Warehouse activity</CardTitle><CardDescription className="mt-1">Recorded receipts and dispatches across the selected time window. Counts reflect the records currently returned by the APIs.</CardDescription></div>
+            <Badge variant="outline" className="capitalize">{period === "year" ? "Rolling 12 months" : period === "month" ? "Last 30 days" : "Last 7 days"}</Badge>
           </CardHeader>
           <CardContent>
             <div className="h-[290px] w-full">
@@ -291,8 +330,8 @@ export default function WarehouseAnalyticsPage() {
               <p className="mt-1 text-3xl font-semibold text-slate-950">{incomingStats.passed + incomingStats.failed}</p>
               <p className="mt-1 text-xs text-slate-500">Based on the loaded incoming records</p>
             </div>
-            <ProgressRow label="Passed" value={incomingStats.passed} total={incomingStats.total} color="bg-emerald-500" />
-            <ProgressRow label="Failed / rejected" value={incomingStats.failed} total={incomingStats.total} color="bg-rose-500" />
+            <ProgressRow label="Passed" value={incomingStats.passed} total={qualityDecisionCount} color="bg-emerald-500" />
+            <ProgressRow label="Failed / rejected" value={incomingStats.failed} total={qualityDecisionCount} color="bg-rose-500" />
             <ProgressRow label="Awaiting outcome" value={incomingStats.pendingQuality} total={incomingStats.total} color="bg-amber-400" />
             <p className="text-xs leading-5 text-slate-400">A pending result is not counted as a pass or failure. Inspection should follow physical receipt.</p>
           </CardContent>
@@ -351,7 +390,7 @@ export default function WarehouseAnalyticsPage() {
           <CardContent className="grid grid-cols-2 gap-3">
             <div className="rounded-xl bg-slate-50 p-4"><p className="text-xs text-slate-500">Incoming loaded</p><p className="mt-1 text-2xl font-semibold text-slate-900">{incomingItems.length}</p></div>
             <div className="rounded-xl bg-slate-50 p-4"><p className="text-xs text-slate-500">Outgoing loaded</p><p className="mt-1 text-2xl font-semibold text-slate-900">{outgoingItems.length}</p></div>
-            <div className="col-span-2 rounded-lg border border-slate-100 p-3 text-xs leading-5 text-slate-500">Analytics are calculated from the records returned by the warehouse APIs (up to 100 incoming and 100 outgoing records). This page does not estimate missing history or create synthetic performance scores.</div>
+            <div className="col-span-2 rounded-lg border border-slate-100 p-3 text-xs leading-5 text-slate-500">This view uses up to 100 incoming records for the selected filter and up to 100 outgoing records returned by the API. It is an operational snapshot, not a complete historical ledger.</div>
           </CardContent>
         </Card>
       </section>
