@@ -151,16 +151,31 @@ export default function DeliveryDashboardPage() {
 
   return (
     <div className="w-full space-y-6 pb-10 text-[15px] leading-relaxed">
-      <div>
-        <p className="text-[15px] font-medium text-emerald-700">Delivery Partner Workspace</p>
-        <h1 className="text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">Dashboard</h1>
-        <p className="mt-2 text-[16px] text-slate-600">Your delivery overview and today's priorities.</p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-[15px] font-medium text-emerald-700">Delivery Partner Workspace</p>
+          <h1 className="text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">Dashboard</h1>
+          <p className="mt-2 text-[16px] text-slate-600">Your delivery overview and today's priorities.</p>
+        </div>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Badge variant={isAvailable ? "success" : "secondary"} className="px-3 py-2 text-sm">
+            <span className={`mr-2 inline-block h-2.5 w-2.5 rounded-full ${isAvailable ? "bg-emerald-500" : "bg-slate-400"}`} />
+            {isAvailable ? "Online" : "Offline"}
+          </Badge>
+          <Button variant="outline" size="default" className="h-10 px-4" onClick={refreshAll} disabled={statsQuery.isFetching || customerQuery.isFetching || pickupQuery.isFetching}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${statsQuery.isFetching || customerQuery.isFetching || pickupQuery.isFetching ? "animate-spin" : ""}`} />
+            {statsQuery.isFetching || customerQuery.isFetching || pickupQuery.isFetching ? "Refreshing..." : "Refresh"}
+          </Button>
+          <Button size="default" className="h-10 px-4" variant={isAvailable ? "outline" : "default"} onClick={toggleAvailability} disabled={isToggling}>
+            {isToggling ? "Updating..." : isAvailable ? "Go offline" : "Go online"}
+          </Button>
+        </div>
       </div>
 
       <section className="relative overflow-hidden rounded-2xl border border-emerald-900 bg-gradient-to-r from-emerald-950 via-emerald-800 to-green-700 px-5 py-7 text-white shadow-md sm:px-8 sm:py-8">
         <div className="pointer-events-none absolute -right-10 -top-20 h-64 w-64 rounded-full border-[32px] border-white/5" />
         <div className="pointer-events-none absolute bottom-0 right-28 h-40 w-40 rounded-full bg-lime-300/10 blur-2xl" />
-        <div className="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+        <div className="relative">
           <div className="max-w-2xl">
             <p className="text-[15px] font-medium text-emerald-100">{formatDate()}</p>
             <h2 className="mt-3 text-3xl font-bold tracking-tight !text-white sm:text-4xl">Good day, {displayName}!</h2>
@@ -173,25 +188,7 @@ export default function DeliveryDashboardPage() {
             </div>
           </div>
 
-          <div className="relative z-10 flex w-full flex-col gap-3 rounded-2xl border border-white/20 bg-white/10 p-4 shadow-lg backdrop-blur-sm sm:p-5 lg:w-[300px] lg:shrink-0">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-sm font-semibold text-emerald-50">Availability status</span>
-              <Badge className={`px-3 py-1.5 text-sm font-bold ${isAvailable ? "border border-emerald-200 bg-emerald-100 text-emerald-900" : "border border-slate-200 bg-slate-100 text-slate-700"}`}>
-                <span className={`mr-2 inline-block h-2.5 w-2.5 rounded-full ${isAvailable ? "bg-emerald-600" : "bg-slate-500"}`} />
-                {isAvailable ? "Online" : "Offline"}
-              </Badge>
-            </div>
-            <Button className="h-11 w-full border-white bg-white text-emerald-900 shadow-sm hover:bg-emerald-50" variant="outline" onClick={toggleAvailability} disabled={isToggling}>
-              <span className={`mr-2 inline-block h-2.5 w-2.5 rounded-full ${isAvailable ? "bg-slate-500" : "bg-emerald-600"}`} />
-              {isToggling ? "Updating status..." : isAvailable ? "Go offline" : "Go online"}
-            </Button>
-            <Button className="h-11 w-full border-white/40 bg-white/10 text-white hover:bg-white/20" variant="outline" onClick={refreshAll} disabled={statsQuery.isFetching || customerQuery.isFetching || pickupQuery.isFetching}>
-              <RefreshCw className={`mr-2 h-4 w-4 ${statsQuery.isFetching || customerQuery.isFetching || pickupQuery.isFetching ? "animate-spin" : ""}`} />
-              {statsQuery.isFetching || customerQuery.isFetching || pickupQuery.isFetching ? "Refreshing..." : "Refresh dashboard"}
-            </Button>
-            <p className="text-center text-xs text-emerald-100">Status controls whether you can receive new assignments.</p>
-          </div>
-        </div>
+       </div>
       </section>
 
       <section aria-label="Workflow overview" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
