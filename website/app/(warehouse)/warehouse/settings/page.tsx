@@ -285,8 +285,8 @@ export default function WarehouseSettingsPage() {
         description="Manage your warehouse profile, collection coverage, capacity and operational preferences."
         meta={<span>{lastSaved ? `Last saved at ${lastSaved}` : "Changes are applied when you save settings"}</span>}
         actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <Button type="button" variant="outline" size="sm" disabled={isSaving} onClick={() => { refetch(); refetchPrefs(); }}>
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+            <Button type="button" variant="outline" size="sm" className="border-slate-200 bg-white" disabled={isSaving} onClick={() => { refetch(); refetchPrefs(); }}>
               <RefreshCw className="mr-2 h-4 w-4" />Reset
             </Button>
             <Button type="submit" form="warehouse-settings-form" size="sm" disabled={isSaving} className="bg-emerald-700 text-white hover:bg-emerald-800">
@@ -299,73 +299,72 @@ export default function WarehouseSettingsPage() {
 
       <div className="grid min-w-0 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
         <form id="warehouse-settings-form" className="min-w-0 space-y-5" onSubmit={handleSave}>
-          <Card>
-            <CardHeader className="border-b border-emerald-100 bg-emerald-50/50 pb-4"><CardTitle className="flex items-center gap-2"><Warehouse className="h-5 w-5" />Profile</CardTitle><CardDescription>Core details shown across warehouse workflows.</CardDescription></CardHeader>
-            <CardContent className="space-y-4 p-5">
-              <div><label className="text-sm font-medium">Warehouse Name</label><Input value={form.name} onChange={(event) => updateForm("name", event.target.value)} className="mt-1" required /></div>
+          <Card className="overflow-hidden rounded-2xl border-slate-200/90 bg-white shadow-sm transition-shadow hover:shadow-md">
+            <CardHeader className="border-b border-slate-100 bg-slate-50/70 px-5 py-4"><CardTitle className="flex items-center gap-2"><Warehouse className="h-5 w-5" />Profile</CardTitle><CardDescription>Core details shown across warehouse workflows.</CardDescription></CardHeader>
+            <CardContent className="space-y-5 p-5 sm:p-6">
+              <div><label className="mb-1.5 block text-sm font-semibold text-slate-700">Warehouse Name</label><Input value={form.name} onChange={(event) => updateForm("name", event.target.value)} className="mt-1.5 h-10 rounded-lg border-slate-200 bg-white shadow-none focus-visible:ring-emerald-500" required /></div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="text-sm font-medium">Total Capacity</label>
-                  <Input type="number" min="0" step="0.01" value={form.totalCapacity} onChange={(event) => updateForm("totalCapacity", event.target.value)} className="mt-1" required />
+                  <label className="mb-1.5 block text-sm font-semibold text-slate-700">Total Capacity</label>
+                  <Input type="number" min="0" step="0.01" value={form.totalCapacity} onChange={(event) => updateForm("totalCapacity", event.target.value)} className="mt-1.5 h-10 rounded-lg border-slate-200 bg-white shadow-none focus-visible:ring-emerald-500" required />
                   <p className="mt-1 text-xs text-muted-foreground">Maximum physical warehouse capacity. Entered by the warehouse manager.</p>
                 </div>
                 <div>
-                  <label className="text-sm font-medium">Cold Storage Capacity</label>
-                  <Input type="number" min="0" step="0.01" value={form.coldStorageCapacity} onChange={(event) => updateForm("coldStorageCapacity", event.target.value)} className="mt-1" />
+                  <label className="mb-1.5 block text-sm font-semibold text-slate-700">Cold Storage Capacity</label>
+                  <Input type="number" min="0" step="0.01" value={form.coldStorageCapacity} onChange={(event) => updateForm("coldStorageCapacity", event.target.value)} className="mt-1.5 h-10 rounded-lg border-slate-200 bg-white shadow-none focus-visible:ring-emerald-500" />
                   <p className="mt-1 text-xs text-muted-foreground">Used quantity is calculated automatically from cold-storage records.</p>
                 </div>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="text-sm font-medium">Service Areas</label>
-                  <Input value={form.serviceAreas} onChange={(event) => updateForm("serviceAreas", event.target.value)} className="mt-1" placeholder="Coimbatore, Tiruppur, Erode" />
+                  <label className="mb-1.5 block text-sm font-semibold text-slate-700">Service Areas</label>
+                  <Input value={form.serviceAreas} onChange={(event) => updateForm("serviceAreas", event.target.value)} className="mt-1.5 h-10 rounded-lg border-slate-200 bg-white shadow-none focus-visible:ring-emerald-500" placeholder="Coimbatore, Tiruppur, Erode" />
                   <p className="mt-1 text-xs text-muted-foreground">Comma-separated districts/areas this warehouse can serve. This is not a fixed one-district assignment.</p>
                 </div>
                 <div>
-                  <label className="text-sm font-medium">Supported Storage Types</label>
-                  <Input value={form.supportedStorageTypes} onChange={(event) => updateForm("supportedStorageTypes", event.target.value)} className="mt-1" placeholder="ambient, chilled, frozen" />
+                  <label className="mb-1.5 block text-sm font-semibold text-slate-700">Supported Storage Types</label>
+                  <Input value={form.supportedStorageTypes} onChange={(event) => updateForm("supportedStorageTypes", event.target.value)} className="mt-1.5 h-10 rounded-lg border-slate-200 bg-white shadow-none focus-visible:ring-emerald-500" placeholder="ambient, chilled, frozen" />
                   <p className="mt-1 text-xs text-muted-foreground">Leave empty to accept all storage types.</p>
                 </div>
               </div>
-              <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm">
                 <p className="font-medium">Warehouse status</p>
                 <p className="mt-1 text-xs text-muted-foreground">Activation and verification are controlled by the warehouse workflow and cannot be changed here.</p>
               </div>
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2"><MapPin className="h-5 w-5" />Farm Collection Districts</CardTitle>
+          <Card className="overflow-hidden rounded-2xl border-slate-200/90 bg-white shadow-sm transition-shadow hover:shadow-md">
+            <CardHeader className="border-b border-slate-100 bg-slate-50/70 px-5 py-4"><CardTitle className="flex items-center gap-2"><MapPin className="h-5 w-5" />Farm Collection Districts</CardTitle>
               <CardDescription>Choose the districts this warehouse is responsible for collecting farm orders from. The Farm Collection queue will show pickups from these districts only.</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3 p-5">
+            <CardContent className="space-y-4 p-5 sm:p-6">
               <div>
-                <label className="text-sm font-medium">Districts to collect from</label>
-                <Input value={form.farmCollectionDistricts} onChange={(event) => updateForm("farmCollectionDistricts", event.target.value)} className="mt-1" placeholder="Tiruchirappalli, Perambalur" aria-label="Farm collection districts" />
+                <label className="mb-1.5 block text-sm font-semibold text-slate-700">Districts to collect from</label>
+                <Input value={form.farmCollectionDistricts} onChange={(event) => updateForm("farmCollectionDistricts", event.target.value)} className="mt-1.5 h-10 rounded-lg border-slate-200 bg-white shadow-none focus-visible:ring-emerald-500" placeholder="Tiruchirappalli, Perambalur" aria-label="Farm collection districts" />
                 <p className="mt-1 text-xs text-muted-foreground">Enter official district names separated by commas. Example: Tiruchirappalli. Use this setting for farm pickup coverage; Service Areas are separate and do not control the farm collection queue.</p>
               </div>
-              <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm">
                 <p className="font-medium">How this affects Farm Collection</p>
                 <p className="mt-1 text-xs text-muted-foreground">Only jobs whose farmer district matches a selected district are listed for route planning and pickup-team assignment. Orders without a verifiable district are not silently routed into another district.</p>
               </div>
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader><CardTitle className="flex items-center gap-2"><MapPin className="h-5 w-5" />Location</CardTitle><CardDescription>Address and coordinates for routing and logistics.</CardDescription></CardHeader>
-            <CardContent className="space-y-4 p-5">
-              <div><label className="text-sm font-medium">Address Line 1</label><Input value={form.addressLine1} onChange={(event) => updateForm("addressLine1", event.target.value)} className="mt-1" /></div>
-              <div><label className="text-sm font-medium">Address Line 2</label><Input value={form.addressLine2} onChange={(event) => updateForm("addressLine2", event.target.value)} className="mt-1" /></div>
+          <Card className="overflow-hidden rounded-2xl border-slate-200/90 bg-white shadow-sm transition-shadow hover:shadow-md">
+            <CardHeader className="border-b border-slate-100 bg-slate-50/70 px-5 py-4"><CardTitle className="flex items-center gap-2"><MapPin className="h-5 w-5" />Location</CardTitle><CardDescription>Address and coordinates for routing and logistics.</CardDescription></CardHeader>
+            <CardContent className="space-y-5 p-5 sm:p-6">
+              <div><label className="mb-1.5 block text-sm font-semibold text-slate-700">Address Line 1</label><Input value={form.addressLine1} onChange={(event) => updateForm("addressLine1", event.target.value)} className="mt-1.5 h-10 rounded-lg border-slate-200 bg-white shadow-none focus-visible:ring-emerald-500" /></div>
+              <div><label className="mb-1.5 block text-sm font-semibold text-slate-700">Address Line 2</label><Input value={form.addressLine2} onChange={(event) => updateForm("addressLine2", event.target.value)} className="mt-1.5 h-10 rounded-lg border-slate-200 bg-white shadow-none focus-visible:ring-emerald-500" /></div>
               <div className="grid gap-4 sm:grid-cols-2">
-                <div><label className="text-sm font-medium">City</label><Input value={form.city} onChange={(event) => updateForm("city", event.target.value)} className="mt-1" /></div>
-                <div><label className="text-sm font-medium">State</label><Input value={form.state} onChange={(event) => updateForm("state", event.target.value)} className="mt-1" /></div>
-                <div><label className="text-sm font-medium">Postal Code</label><Input value={form.postalCode} onChange={(event) => updateForm("postalCode", event.target.value)} className="mt-1" /></div>
-                <div><label className="text-sm font-medium">Country</label><Input value={form.country} onChange={(event) => updateForm("country", event.target.value)} className="mt-1" /></div>
-                <div className="sm:col-span-2 rounded-lg border bg-muted/30 p-4">
+                <div><label className="mb-1.5 block text-sm font-semibold text-slate-700">City</label><Input value={form.city} onChange={(event) => updateForm("city", event.target.value)} className="mt-1.5 h-10 rounded-lg border-slate-200 bg-white shadow-none focus-visible:ring-emerald-500" /></div>
+                <div><label className="mb-1.5 block text-sm font-semibold text-slate-700">State</label><Input value={form.state} onChange={(event) => updateForm("state", event.target.value)} className="mt-1.5 h-10 rounded-lg border-slate-200 bg-white shadow-none focus-visible:ring-emerald-500" /></div>
+                <div><label className="mb-1.5 block text-sm font-semibold text-slate-700">Postal Code</label><Input value={form.postalCode} onChange={(event) => updateForm("postalCode", event.target.value)} className="mt-1.5 h-10 rounded-lg border-slate-200 bg-white shadow-none focus-visible:ring-emerald-500" /></div>
+                <div><label className="mb-1.5 block text-sm font-semibold text-slate-700">Country</label><Input value={form.country} onChange={(event) => updateForm("country", event.target.value)} className="mt-1.5 h-10 rounded-lg border-slate-200 bg-white shadow-none focus-visible:ring-emerald-500" /></div>
+                <div className="sm:col-span-2 rounded-xl border border-emerald-100 bg-emerald-50/40 p-4">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                      <p className="text-sm font-medium">Warehouse live location</p>
+                      <p className="mb-1.5 block text-sm font-semibold text-slate-700">Warehouse live location</p>
                       <p className="text-xs text-muted-foreground">Use the device's current GPS location for routing and logistics. Latitude and longitude are stored automatically.</p>
                     </div>
                     <Button type="button" variant="outline" onClick={useCurrentLocation}>
@@ -380,14 +379,14 @@ export default function WarehouseSettingsPage() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader className="border-b border-emerald-100 bg-emerald-50/50 pb-4"><CardTitle className="flex items-center gap-2"><Bell className="h-5 w-5" />Inventory & stock alerts</CardTitle><CardDescription>When to warn staff about low stock.</CardDescription></CardHeader>
-            <CardContent className="grid gap-4 p-5 sm:grid-cols-2">
-              <div><label className="text-sm font-medium">Low stock alert (units)</label><Input type="number" min="0" value={prefs.lowStockAlert} onChange={(event) => updatePrefs("lowStockAlert", Number(event.target.value))} className="mt-1" /></div>
-              <div><label className="text-sm font-medium">Critical stock (units)</label><Input type="number" min="0" value={prefs.criticalStock} onChange={(event) => updatePrefs("criticalStock", Number(event.target.value))} className="mt-1" /></div>
+          <Card className="overflow-hidden rounded-2xl border-slate-200/90 bg-white shadow-sm transition-shadow hover:shadow-md">
+            <CardHeader className="border-b border-slate-100 bg-slate-50/70 px-5 py-4"><CardTitle className="flex items-center gap-2"><Bell className="h-5 w-5" />Inventory & stock alerts</CardTitle><CardDescription>When to warn staff about low stock.</CardDescription></CardHeader>
+            <CardContent className="grid gap-4 p-5 sm:grid-cols-2 sm:p-6">
+              <div><label className="mb-1.5 block text-sm font-semibold text-slate-700">Low stock alert (units)</label><Input type="number" min="0" value={prefs.lowStockAlert} onChange={(event) => updatePrefs("lowStockAlert", Number(event.target.value))} className="mt-1.5 h-10 rounded-lg border-slate-200 bg-white shadow-none focus-visible:ring-emerald-500" /></div>
+              <div><label className="mb-1.5 block text-sm font-semibold text-slate-700">Critical stock (units)</label><Input type="number" min="0" value={prefs.criticalStock} onChange={(event) => updatePrefs("criticalStock", Number(event.target.value))} className="mt-1.5 h-10 rounded-lg border-slate-200 bg-white shadow-none focus-visible:ring-emerald-500" /></div>
               <div>
-                <label className="text-sm font-medium">Alert frequency</label>
-                <Select className="mt-1" value={prefs.alertFrequency} onValueChange={(v) => updatePrefs("alertFrequency", v)}>
+                <label className="mb-1.5 block text-sm font-semibold text-slate-700">Alert frequency</label>
+                <Select className="mt-1.5 h-10 rounded-lg border-slate-200 bg-white shadow-none focus-visible:ring-emerald-500" value={prefs.alertFrequency} onValueChange={(v) => updatePrefs("alertFrequency", v)}>
                   <SelectContent>
                     <SelectItem value="immediate">Immediate</SelectItem>
                     <SelectItem value="daily">Daily</SelectItem>
@@ -401,9 +400,9 @@ export default function WarehouseSettingsPage() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader className="border-b border-emerald-100 bg-emerald-50/50 pb-4"><CardTitle className="flex items-center gap-2"><Settings className="h-5 w-5" />Warehouse operations</CardTitle><CardDescription>Control checks used during receiving and inventory handling.</CardDescription></CardHeader>
-            <CardContent className="grid gap-3 p-5 sm:grid-cols-2">
+          <Card className="overflow-hidden rounded-2xl border-slate-200/90 bg-white shadow-sm transition-shadow hover:shadow-md">
+            <CardHeader className="border-b border-slate-100 bg-slate-50/70 px-5 py-4"><CardTitle className="flex items-center gap-2"><Settings className="h-5 w-5" />Warehouse operations</CardTitle><CardDescription>Control checks used during receiving and inventory handling.</CardDescription></CardHeader>
+            <CardContent className="grid gap-3 p-5 sm:grid-cols-2 sm:p-6">
               {[
                 ["allowStockReceiving", "Allow stock receiving", "Warehouse staff can receive incoming stock."],
                 ["requireQualityCheck", "Require quality check", "Receiving must pass a quality check before stock is added."],
@@ -423,12 +422,12 @@ export default function WarehouseSettingsPage() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader className="border-b border-emerald-100 bg-emerald-50/50 pb-4"><CardTitle className="flex items-center gap-2"><Snowflake className="h-5 w-5" />Cold storage settings</CardTitle><CardDescription>Environment defaults for cold rooms.</CardDescription></CardHeader>
+          <Card className="overflow-hidden rounded-2xl border-slate-200/90 bg-white shadow-sm transition-shadow hover:shadow-md">
+            <CardHeader className="border-b border-slate-100 bg-slate-50/70 px-5 py-4"><CardTitle className="flex items-center gap-2"><Snowflake className="h-5 w-5" />Cold storage settings</CardTitle><CardDescription>Environment defaults for cold rooms.</CardDescription></CardHeader>
             <CardContent className="grid gap-4 sm:grid-cols-2">
-              <div><label className="text-sm font-medium">Default temperature (°C)</label><Input type="number" step="0.5" value={prefs.defaultTemperature} onChange={(event) => updatePrefs("defaultTemperature", Number(event.target.value))} className="mt-1" /></div>
-              <div><label className="text-sm font-medium">Default humidity (%)</label><Input type="number" min="0" max="100" value={prefs.defaultHumidity} onChange={(event) => updatePrefs("defaultHumidity", Number(event.target.value))} className="mt-1" /></div>
-              <div><label className="text-sm font-medium">Alert threshold (±°C)</label><Input type="number" step="0.5" value={prefs.alertThreshold} onChange={(event) => updatePrefs("alertThreshold", Number(event.target.value))} className="mt-1" /></div>
+              <div><label className="mb-1.5 block text-sm font-semibold text-slate-700">Default temperature (°C)</label><Input type="number" step="0.5" value={prefs.defaultTemperature} onChange={(event) => updatePrefs("defaultTemperature", Number(event.target.value))} className="mt-1.5 h-10 rounded-lg border-slate-200 bg-white shadow-none focus-visible:ring-emerald-500" /></div>
+              <div><label className="mb-1.5 block text-sm font-semibold text-slate-700">Default humidity (%)</label><Input type="number" min="0" max="100" value={prefs.defaultHumidity} onChange={(event) => updatePrefs("defaultHumidity", Number(event.target.value))} className="mt-1.5 h-10 rounded-lg border-slate-200 bg-white shadow-none focus-visible:ring-emerald-500" /></div>
+              <div><label className="mb-1.5 block text-sm font-semibold text-slate-700">Alert threshold (±°C)</label><Input type="number" step="0.5" value={prefs.alertThreshold} onChange={(event) => updatePrefs("alertThreshold", Number(event.target.value))} className="mt-1.5 h-10 rounded-lg border-slate-200 bg-white shadow-none focus-visible:ring-emerald-500" /></div>
               <SettingToggleRow title="Temperature alert" description="Alert staff when cold-room temperature moves beyond the configured threshold." checked={prefs.temperatureAlert} onChange={(on) => updatePrefs("temperatureAlert", on)} />
             </CardContent>
           </Card>
@@ -436,19 +435,27 @@ export default function WarehouseSettingsPage() {
         </form>
 
         <div className="space-y-6">
-          <Card>
-            <CardHeader><CardTitle className="flex items-center gap-2"><Settings className="h-5 w-5" />Status</CardTitle><CardDescription>Used capacity is calculated automatically from live inventory records.</CardDescription></CardHeader>
-            <CardContent className="space-y-5 p-5">
-              <div>
-                <div className="flex justify-between text-sm"><span>General Capacity</span><span className="font-medium">{warehouse?.usedCapacity ?? 0} / {warehouse?.totalCapacity ?? 0}</span></div>
-                <Progress value={warehouse?.totalCapacity ? Math.min(100, ((warehouse.usedCapacity ?? 0) / warehouse.totalCapacity) * 100) : 0} className="mt-2" />
+          <Card className="overflow-hidden rounded-2xl border-slate-200/90 bg-white shadow-sm transition-shadow hover:shadow-md">
+            <CardHeader className="border-b border-slate-100 bg-slate-50/70 px-5 py-4"><CardTitle className="flex items-center gap-2"><Settings className="h-5 w-5" />Status</CardTitle><CardDescription>Used capacity is calculated automatically from live inventory records.</CardDescription></CardHeader>
+            <CardContent className="space-y-5 p-5 sm:p-6">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span className="font-medium text-slate-700">General capacity</span>
+                  <span className="font-semibold tabular-nums text-slate-900">{warehouse?.totalCapacity ? `${Math.round(((warehouse.usedCapacity ?? 0) / warehouse.totalCapacity) * 100)}%` : "Not configured"}</span>
+                </div>
+                <Progress value={warehouse?.totalCapacity ? Math.min(100, ((warehouse.usedCapacity ?? 0) / warehouse.totalCapacity) * 100) : 0} className="h-2 bg-slate-100" />
+                <p className="text-xs text-slate-500">{warehouse?.usedCapacity ?? 0} used of {warehouse?.totalCapacity ?? 0} total capacity</p>
               </div>
-              <div>
-                <div className="flex justify-between text-sm"><span>Cold Storage</span><span className="font-medium">{warehouse?.coldStorageUsed ?? 0} / {warehouse?.coldStorageCapacity ?? 0}</span></div>
-                <Progress value={warehouse?.coldStorageCapacity ? Math.min(100, ((warehouse.coldStorageUsed ?? 0) / warehouse.coldStorageCapacity) * 100) : 0} className="mt-2" />
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span className="font-medium text-slate-700">Cold storage</span>
+                  <span className="font-semibold tabular-nums text-slate-900">{warehouse?.coldStorageCapacity ? `${Math.round(((warehouse.coldStorageUsed ?? 0) / warehouse.coldStorageCapacity) * 100)}%` : "Not configured"}</span>
+                </div>
+                <Progress value={warehouse?.coldStorageCapacity ? Math.min(100, ((warehouse.coldStorageUsed ?? 0) / warehouse.coldStorageCapacity) * 100) : 0} className="h-2 bg-slate-100" />
+                <p className="text-xs text-slate-500">{warehouse?.coldStorageUsed ?? 0} used of {warehouse?.coldStorageCapacity ?? 0} total capacity</p>
               </div>
               <Badge variant={warehouse?.isActive ? "success" : "secondary"}>{warehouse?.isActive ? "Active" : "Inactive"}</Badge>
-              <div className="rounded-lg border p-3 text-xs text-muted-foreground"><p className="font-medium text-foreground">System calculated</p><p className="mt-1">Used capacity comes from live inventory, receiving, dispatch and transfer records. Managers never enter it manually.</p></div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs text-muted-foreground"><p className="font-medium text-foreground">System calculated</p><p className="mt-1.5 h-10 rounded-lg border-slate-200 bg-white shadow-none focus-visible:ring-emerald-500">Used capacity comes from live inventory, receiving, dispatch and transfer records. Managers never enter it manually.</p></div>
             </CardContent>
           </Card>
         </div>
