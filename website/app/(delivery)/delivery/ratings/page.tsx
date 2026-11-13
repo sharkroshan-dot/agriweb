@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
-import { CheckCircle2, MessageSquare, RefreshCw, Star, Truck, UserRound } from "lucide-react";
+import { CheckCircle2, MessageSquare, RefreshCw, Star, Truck, User } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
@@ -75,7 +75,7 @@ export default function DeliveryMyRatingsPage() {
       : <>
         <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           <Card><CardContent className="flex items-center gap-3 p-4"><div className="rounded-full bg-amber-100 p-3 text-amber-600"><Star className="h-5 w-5 fill-amber-400"/></div><div><p className="text-xs text-muted-foreground">Average rating</p><p className="text-2xl font-bold">{metric(summary.overallAvg)} <span className="text-sm font-medium text-muted-foreground">/ 5</span></p><Stars value={summary.overallAvg}/></div></CardContent></Card>
-          <Card><CardContent className="flex items-center gap-3 p-4"><div className="rounded-full bg-emerald-100 p-3 text-emerald-700"><UserRound className="h-5 w-5"/></div><div><p className="text-xs text-muted-foreground">Total reviews</p><p className="text-2xl font-bold">{total}</p></div></CardContent></Card>
+          <Card><CardContent className="flex items-center gap-3 p-4"><div className="rounded-full bg-emerald-100 p-3 text-emerald-700"><User className="h-5 w-5"/></div><div><p className="text-xs text-muted-foreground">Total reviews</p><p className="text-2xl font-bold">{total}</p></div></CardContent></Card>
           <Card><CardContent className="flex items-center gap-3 p-4"><div className="rounded-full bg-green-100 p-3 text-green-700"><Truck className="h-5 w-5"/></div><div><p className="text-xs text-muted-foreground">On-time score</p><p className="text-2xl font-bold">{summary.onTimePercentage != null ? `${Math.round(summary.onTimePercentage)}%` : summary.onTimeAvg != null ? metric(summary.onTimeAvg) + " / 5" : "—"}</p></div></CardContent></Card>
           <Card><CardContent className="flex items-center gap-3 p-4"><div className="rounded-full bg-blue-100 p-3 text-blue-700"><MessageSquare className="h-5 w-5"/></div><div><p className="text-xs text-muted-foreground">Reviews this month</p><p className="text-2xl font-bold">{reviewsThisMonth}</p></div></CardContent></Card>
           <Card><CardContent className="flex items-center gap-3 p-4"><div className="rounded-full bg-emerald-100 p-3 text-emerald-700"><Star className="h-5 w-5"/></div><div><p className="text-xs text-muted-foreground">Positive reviews (4–5★)</p><p className="text-2xl font-bold">{total ? `${positivePercent}%` : "—"}</p></div></CardContent></Card>
