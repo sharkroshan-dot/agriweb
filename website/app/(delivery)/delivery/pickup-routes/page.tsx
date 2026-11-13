@@ -59,6 +59,28 @@ const isTransferCompleted = (item: any) =>
   // generic "completed" status must not mark this transfer leg complete.
   ["arrived_at_destination", "arrived_at_hub"].includes(String(item?.status || "").toLowerCase());
 
+// Customer last-mile deliveries belong in My Deliveries / Delivery History,
+// never in the farm-to-warehouse pickup workspace. Some legacy API responses
+// can include delivered customer orders in the pickup route feed, so filter
+// by both explicit workflow metadata and terminal delivery statuses.
+const isCustomerDeliveryRecord = (item: any) => {
+  const workflowFields = [
+    item?.workflowType, item?.workflow, item?.assignmentType,
+    item?.jobType, item?.deliveryType, item?.fulfillmentType,
+  ].map((value) => String(value || "").toLowerCase().replace(/[ -]+/g, "_"));
+  if (workflowFields.some((value) => ["customer_delivery", "last_mile_delivery", "business_delivery", "b2b_delivery"].includes(value))) return true;
+  const terminalDeliveryStatuses = new Set(["delivered", "delivery_completed", "completed_delivery", "delivered_to_customer", "delivered_to_business"]);
+  const routeStatus = String(item?.status || item?.routeStatus || item?.deliveryStatus || "").toLowerCase().replace(/[ -]+/g, "_");
+  if (terminalDeliveryStatuses.has(routeStatus)) return true;
+  const nestedOrders = (Array.isArray(item?.orders) ? item.orders : []).concat(
+    ...(Array.isArray(item?.stops) ? item.stops.map((stop: any) => Array.isArray(stop?.orders) ? stop.orders : [stop]) : [])
+  );
+  return nestedOrders.length > 0 && nestedOrders.every((order: any) => {
+    const status = String(order?.deliveryStatus || order?.status || order?.orderStatus || "").toLowerCase().replace(/[ -]+/g, "_");
+    return terminalDeliveryStatuses.has(status);
+  });
+};
+
 const routeDateValue = (item: any, workflow: "pickup" | "transfer" = "pickup") => {
   if (workflow === "pickup" && isPickupCompleted(item)) {
     return item?.warehouseArrivalAt || item?.arrivedWarehouseAt || item?.warehouseArrivedAt || item?.returnedAt || item?.completedAt || item?.updatedAt || item?.routeDate || item?.createdAt;
@@ -238,7 +260,7 @@ export default function DeliveryPickupRoutesPage() {
   // Once the warehouse handover is recorded, the farm pickup route leaves
   // the active route workspace and is shown in Pickup History instead.
   const routes = allRoutes.filter((item: any) => {
-    if (isPickupCompleted(item)) return false;
+    if (isCustomerDeliveryRecord(item) || isPickupCompleted(item)) return false;
     return isInDatePeriod(item, datePeriod, "pickup") ||
       (datePeriod === "today" && isCarryoverRoute(item));
   });
@@ -287,15 +309,17 @@ export default function DeliveryPickupRoutesPage() {
     }
   }
   const offers = allOffers.filter((item: any) => {
-    if (!isInDatePeriod(item, datePeriod, "pickup")) return false;
+    if (isCustomerDeliveryRecord(item) || !isInDatePeriod(item, datePeriod, "pickup")) return false;
     if (normalizeRouteKey(item?.status || "offered") !== "offered") return true;
     const keys = routeBusinessKeys(item);
     return !Array.from(keys).some((key) => activeRouteKeys.has(key));
   });
-  const pickupJobs = allPickupJobs.filter((item: any) => isInDatePeriod(item, datePeriod, "pickup"));
+  const pickupJobs = allPickupJobs.filter((item: any) => !isCustomerDeliveryRecord(item) && isInDatePeriod(item, datePeriod, "pickup"));
   const acceptedPickupJobs = allAcceptedPickupJobs.filter((item: any) =>
-    isInDatePeriod(item, datePeriod, "pickup") ||
-    (datePeriod === "today" && isCarryoverRoute(item) && !isPickupCompleted(item))
+    !isCustomerDeliveryRecord(item) && !isPickupCompleted(item) && (
+      isInDatePeriod(item, datePeriod, "pickup") ||
+      (datePeriod === "today" && isCarryoverRoute(item))
+    )
   );
   const hubTransfers = allHubTransfers.filter((item: any) => isInDatePeriod(item, datePeriod, "transfer"));
   const warehouseTransfers = allWarehouseTransfers.filter((item: any) => isInDatePeriod(item, datePeriod, "transfer"));
