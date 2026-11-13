@@ -15,7 +15,6 @@ import { Button } from "../../../components/ui/button";
 import { Badge } from "../../../components/ui/badge";
 import { formatPrice } from "../../../lib/utils";
 import { api } from "../../../lib/api/client";
-import { useWishlist } from "../../../lib/hooks/use-wishlist";
 import { useCartStore } from "../../../lib/store/cart-store";
 import toast from "react-hot-toast";
 
@@ -45,7 +44,6 @@ export default function CustomerDashboardPage() {
   const { data: session } = useSession();
   const customerId = String((session?.user as any)?.id || "");
   const userName = String((session?.user as any)?.name || "there").split(" ")[0];
-  const { items: wishlistItems } = useWishlist();
 
   const { data: ordersData, isLoading: ordersLoading } = useQuery({
     queryKey: ["customerOrders", "dashboard"],
