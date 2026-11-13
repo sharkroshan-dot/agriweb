@@ -121,34 +121,34 @@ export default function PickupTeamApplicationPage() {
   const assignmentId = (item: any, index: number) => firstValue(item.assignmentNumber, item.routeNumber, item.jobNumber, item.orderNumber, item.id, item._id, "Pickup " + (index + 1));
 
   return (
-    <div className="min-w-0 space-y-6 pb-8">
-      <header className="rounded-xl border border-slate-200 bg-white px-5 py-5 shadow-sm sm:px-6">
+    <div className="min-w-0 space-y-6 pb-10">
+      <header className="relative overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-r from-white via-white to-emerald-50/80 px-5 py-6 shadow-sm sm:px-7">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-start gap-3">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-100">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-100 to-emerald-50 text-emerald-700 shadow-sm ring-1 ring-inset ring-emerald-200">
               <Warehouse className="h-5 w-5" />
             </div>
             <div className="min-w-0">
               <p className="mb-1 text-xs font-semibold uppercase tracking-[0.12em] text-emerald-700">Warehouse Pickup</p>
-              <h1 className="text-2xl font-bold leading-tight tracking-tight text-slate-900 sm:text-[28px]">Pickup Assignments</h1>
+              <h1 className="text-2xl font-extrabold leading-tight tracking-tight text-slate-950 sm:text-3xl">Pickup Assignments</h1>
               <p className="mt-1.5 max-w-2xl text-sm leading-6 text-slate-600">Manage warehouse partnerships and review farm pickup assignments received from warehouses.</p>
             </div>
           </div>
-          <Button onClick={() => setShowApplicationForm((value) => !value)} className="h-10 shrink-0 rounded-lg bg-emerald-700 px-4 font-semibold text-white shadow-sm hover:bg-emerald-800">
+          <Button onClick={() => setShowApplicationForm((value) => !value)} className="h-11 shrink-0 rounded-xl bg-emerald-700 px-5 font-semibold text-white shadow-md shadow-emerald-900/10 transition-all hover:-translate-y-0.5 hover:bg-emerald-800 hover:shadow-lg">
             <PlusCircle className="mr-2 h-4 w-4" /> Apply for Partnership
           </Button>
         </div>
       </header>
 
       <section aria-label="Pickup assignment summary" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Card className="border-emerald-200 bg-emerald-50/60 shadow-sm"><CardContent className="flex items-center justify-between p-5"><div><p className="text-sm font-semibold text-emerald-900">Assigned Pickups</p><p className="mt-2 text-3xl font-bold tabular-nums text-slate-950">{jobsQ.isLoading || offersQ.isLoading || routesQ.isLoading ? "—" : assignments.length}</p><p className="mt-1 text-sm text-slate-600">Jobs assigned to you</p></div><div className="rounded-xl bg-white p-3 text-emerald-700"><Package className="h-6 w-6" /></div></CardContent></Card>
-        <Card className="border-amber-200 bg-amber-50/60 shadow-sm"><CardContent className="flex items-center justify-between p-5"><div><p className="text-sm font-semibold text-amber-900">Pending Approval</p><p className="mt-2 text-3xl font-bold tabular-nums text-slate-950">{q.isLoading ? "—" : pendingApplications}</p><p className="mt-1 text-sm text-slate-600">Partnership applications</p></div><div className="rounded-xl bg-white p-3 text-amber-700"><Clock3 className="h-6 w-6" /></div></CardContent></Card>
-        <Card className="border-blue-200 bg-blue-50/60 shadow-sm"><CardContent className="flex items-center justify-between p-5"><div><p className="text-sm font-semibold text-blue-900">Approved Warehouses</p><p className="mt-2 text-3xl font-bold tabular-nums text-slate-950">{q.isLoading ? "—" : approvedWarehouses}</p><p className="mt-1 text-sm text-slate-600">Active partnerships</p></div><div className="rounded-xl bg-white p-3 text-blue-700"><Building2 className="h-6 w-6" /></div></CardContent></Card>
-        <Card className="border-violet-200 bg-violet-50/60 shadow-sm"><CardContent className="flex items-center justify-between p-5"><div><p className="text-sm font-semibold text-violet-900">Completed Pickups</p><p className="mt-2 text-3xl font-bold tabular-nums text-slate-950">{routesQ.isLoading ? "—" : completedPickups}</p><p className="mt-1 text-sm text-slate-600">Warehouse handovers recorded</p></div><div className="rounded-xl bg-white p-3 text-violet-700"><CheckCircle2 className="h-6 w-6" /></div></CardContent></Card>
+        <Card className="border-emerald-200 bg-gradient-to-br from-emerald-50 to-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"><CardContent className="flex items-center justify-between p-5"><div><p className="text-sm font-semibold text-emerald-900">Assigned Pickups</p><p className="mt-2 text-3xl font-bold tabular-nums text-slate-950">{jobsQ.isLoading || offersQ.isLoading || routesQ.isLoading ? "—" : assignments.length}</p><p className="mt-1 text-sm text-slate-600">Jobs assigned to you</p></div><div className="rounded-2xl bg-white p-3.5 text-emerald-700 shadow-sm ring-1 ring-emerald-100"><Package className="h-6 w-6" /></div></CardContent></Card>
+        <Card className="border-amber-200 bg-gradient-to-br from-amber-50 to-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"><CardContent className="flex items-center justify-between p-5"><div><p className="text-sm font-semibold text-amber-900">Pending Approval</p><p className="mt-2 text-3xl font-bold tabular-nums text-slate-950">{q.isLoading ? "—" : pendingApplications}</p><p className="mt-1 text-sm text-slate-600">Partnership applications</p></div><div className="rounded-2xl bg-white p-3.5 text-amber-700 shadow-sm ring-1 ring-amber-100"><Clock3 className="h-6 w-6" /></div></CardContent></Card>
+        <Card className="border-blue-200 bg-gradient-to-br from-blue-50 to-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"><CardContent className="flex items-center justify-between p-5"><div><p className="text-sm font-semibold text-blue-900">Approved Warehouses</p><p className="mt-2 text-3xl font-bold tabular-nums text-slate-950">{q.isLoading ? "—" : approvedWarehouses}</p><p className="mt-1 text-sm text-slate-600">Active partnerships</p></div><div className="rounded-2xl bg-white p-3.5 text-blue-700 shadow-sm ring-1 ring-blue-100"><Building2 className="h-6 w-6" /></div></CardContent></Card>
+        <Card className="border-violet-200 bg-gradient-to-br from-violet-50 to-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"><CardContent className="flex items-center justify-between p-5"><div><p className="text-sm font-semibold text-violet-900">Completed Pickups</p><p className="mt-2 text-3xl font-bold tabular-nums text-slate-950">{routesQ.isLoading ? "—" : completedPickups}</p><p className="mt-1 text-sm text-slate-600">Warehouse handovers recorded</p></div><div className="rounded-2xl bg-white p-3.5 text-violet-700 shadow-sm ring-1 ring-violet-100"><CheckCircle2 className="h-6 w-6" /></div></CardContent></Card>
       </section>
 
       {showApplicationForm && (
-        <Card id="partnership-application" className="border-emerald-200 shadow-sm">
+        <Card id="partnership-application" className="overflow-hidden rounded-2xl border-emerald-200 shadow-sm">
           <CardHeader className="flex flex-row items-start justify-between gap-3">
             <div><CardTitle className="flex items-center gap-2 text-slate-900"><PlusCircle className="h-5 w-5 text-emerald-700" /> Apply for Warehouse Partnership</CardTitle><CardDescription>Submit your vehicle details for warehouse verification and approval.</CardDescription></div>
             <Button variant="ghost" size="sm" onClick={() => setShowApplicationForm(false)}>Close</Button>
@@ -175,9 +175,9 @@ export default function PickupTeamApplicationPage() {
         </Card>
       )}
 
-      <section className="grid items-start gap-5 xl:grid-cols-[1.45fr_1fr]">
-        <Card className="overflow-hidden border-slate-200 shadow-sm">
-          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 border-b bg-white">
+      <section className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,1fr)]">
+        <Card className="overflow-hidden rounded-2xl border-slate-200 shadow-sm">
+          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-gradient-to-r from-white to-slate-50/80 px-5 py-4">
             <div><CardTitle className="flex items-center gap-2 text-lg text-slate-950"><ClipboardList className="h-5 w-5 text-emerald-700" /> Recent Pickup Assignments</CardTitle><CardDescription>Review work assigned by your approved warehouse partners.</CardDescription></div>
             <Button asChild variant="outline" size="sm"><Link href="/delivery/pickup-routes">View All Routes <ArrowRight className="ml-2 h-4 w-4" /></Link></Button>
           </CardHeader>
@@ -189,7 +189,7 @@ export default function PickupTeamApplicationPage() {
                 {assignments.slice(0, 5).map((item: any, index: number) => {
                   const status = assignmentStatus(item);
                   const qty = quantity(item);
-                  return <div key={String(item.id || item._id || assignmentId(item, index))} className="grid gap-3 px-5 py-4 md:grid-cols-[minmax(0,1.2fr)_minmax(0,1.2fr)_auto] md:items-center">
+                  return <div key={String(item.id || item._id || assignmentId(item, index))} className="grid gap-3 px-5 py-4 transition-colors hover:bg-emerald-50/50 md:grid-cols-[minmax(0,1.1fr)_minmax(0,1.2fr)_auto] md:items-center">
                     <div className="min-w-0"><p className="font-semibold text-slate-900">{assignmentId(item, index)}</p><p className="mt-1 flex items-center gap-1.5 text-sm text-slate-600"><CalendarDays className="h-3.5 w-3.5 shrink-0" /> {dateLabel(schedule(item))}</p></div>
                     <div className="min-w-0"><p className="flex items-center gap-1.5 text-sm font-semibold text-slate-800"><Warehouse className="h-4 w-4 shrink-0 text-emerald-700" /> <span className="truncate">{warehouseName(item)}</span></p><p className="mt-1 flex items-center gap-1.5 text-sm text-slate-600"><MapPin className="h-3.5 w-3.5 shrink-0" /> <span className="truncate">{pickupArea(item)} · {farmCount(item)} farms</span></p><p className="mt-1 text-sm text-slate-600">{orderCount(item)} orders{qty !== null ? " · " + qty + " kg" : ""}</p></div>
                     <div className="flex items-center justify-between gap-3 md:justify-end"><Badge variant={statusTone(status) as any}>{statusLabel(status)}</Badge><Button asChild size="sm" className="bg-emerald-700 text-white hover:bg-emerald-800"><Link href="/delivery/pickup-routes">View Route <ArrowRight className="ml-1.5 h-4 w-4" /></Link></Button></div>
@@ -200,21 +200,21 @@ export default function PickupTeamApplicationPage() {
         </Card>
 
         <div className="space-y-5">
-          <Card className="border-emerald-200 shadow-sm">
+          <Card className="overflow-hidden rounded-2xl border-emerald-200 shadow-sm">
             <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3"><CardTitle className="flex items-center gap-2 text-lg text-slate-950"><ShieldCheck className="h-5 w-5 text-emerald-700" /> Warehouse Partnership</CardTitle><Badge variant={approvedWarehouses > 0 ? "success" : "secondary"}>{approvedWarehouses > 0 ? "Approved" : "No approval yet"}</Badge></CardHeader>
             <CardContent className="space-y-4">
               {q.isLoading ? <div className="h-20 animate-pulse rounded-lg bg-muted" /> : memberships.length === 0 ? <div className="rounded-xl border border-dashed p-4 text-center"><Warehouse className="mx-auto h-8 w-8 text-slate-400" /><p className="mt-2 font-semibold text-slate-800">No approved partnerships</p><p className="mt-1 text-sm text-slate-600">Apply to a warehouse to start receiving pickup assignments.</p><Button size="sm" className="mt-3 bg-emerald-700 text-white hover:bg-emerald-800" onClick={() => setShowApplicationForm(true)}>Apply for Partnership</Button></div>
-                : <div className="space-y-3">{memberships.slice(0, 2).map((membership: any, index: number) => <div key={membership.id || membership.warehouseId || index} className="rounded-xl border border-slate-200 p-3"><div className="flex items-start justify-between gap-2"><p className="font-semibold text-slate-900">{membership.warehouseName || membership.name || "Approved warehouse"}</p><Badge variant={statusTone(membership.status || "approved") as any}>{statusLabel(membership.status || "approved")}</Badge></div><p className="mt-1 text-sm text-slate-600">{membership.warehouseAddress || membership.address || membership.city || "Location details not available"}</p><p className="mt-2 flex items-center gap-2 text-sm text-slate-700"><Truck className="h-4 w-4 text-emerald-700" /> {[membership.vehicleType, membership.vehicleNumber].filter(Boolean).join(" · ") || "Vehicle details unavailable"}</p>{membership.capacity && <p className="mt-1 flex items-center gap-2 text-sm text-slate-700"><Weight className="h-4 w-4 text-emerald-700" /> Carrying capacity: {membership.capacity} kg</p>}</div>)}</div>}
+                : <div className="space-y-3">{memberships.slice(0, 2).map((membership: any, index: number) => <div key={membership.id || membership.warehouseId || index} className="rounded-xl border border-slate-200 bg-gradient-to-br from-white to-slate-50/70 p-4 shadow-sm transition-shadow hover:shadow-md"><div className="flex items-start justify-between gap-2"><p className="font-semibold text-slate-900">{membership.warehouseName || membership.name || "Approved warehouse"}</p><Badge variant={statusTone(membership.status || "approved") as any}>{statusLabel(membership.status || "approved")}</Badge></div><p className="mt-1 text-sm text-slate-600">{membership.warehouseAddress || membership.address || membership.city || "Location details not available"}</p><p className="mt-2 flex items-center gap-2 text-sm text-slate-700"><Truck className="h-4 w-4 text-emerald-700" /> {[membership.vehicleType, membership.vehicleNumber].filter(Boolean).join(" · ") || "Vehicle details unavailable"}</p>{membership.capacity && <p className="mt-1 flex items-center gap-2 text-sm text-slate-700"><Weight className="h-4 w-4 text-emerald-700" /> Carrying capacity: {membership.capacity} kg</p>}</div>)}</div>}
               <div className="grid grid-cols-2 gap-2"><Button asChild variant="outline" size="sm"><Link href="#partnership-application" onClick={() => setShowApplicationForm(true)}>Apply for Partnership</Link></Button><Button variant="outline" size="sm" onClick={() => q.refetch()}>Refresh Status</Button></div>
             </CardContent>
           </Card>
 
-          <Card className="border-sky-200 bg-sky-50/50 shadow-sm">
+          <Card className="overflow-hidden rounded-2xl border-sky-200 bg-gradient-to-br from-sky-50 to-white shadow-sm">
             <CardHeader className="pb-3"><CardTitle className="flex items-center gap-2 text-lg text-slate-950"><HelpCircle className="h-5 w-5 text-sky-700" /> Quick Info / Help</CardTitle></CardHeader>
             <CardContent className="space-y-4 text-sm">
-              <div className="flex gap-3"><div className="rounded-lg bg-white p-2 text-emerald-700"><Info className="h-5 w-5" /></div><div><p className="font-semibold text-slate-900">What is a pickup assignment?</p><p className="mt-1 leading-5 text-slate-600">A warehouse assigns farm collection work to an approved pickup partner.</p></div></div>
-              <div className="flex gap-3"><div className="rounded-lg bg-white p-2 text-emerald-700"><Route className="h-5 w-5" /></div><div><p className="font-semibold text-slate-900">What should I do?</p><p className="mt-1 leading-5 text-slate-600">Open Pickup Routes to accept and complete farm collection and warehouse handover steps.</p></div></div>
-              <div className="flex gap-3"><div className="rounded-lg bg-white p-2 text-emerald-700"><Headphones className="h-5 w-5" /></div><div><p className="font-semibold text-slate-900">Need help?</p><p className="mt-1 leading-5 text-slate-600">Contact your warehouse or AgriConnect support if an assignment needs attention.</p></div></div>
+              <div className="flex gap-3"><div className="rounded-xl bg-white p-2.5 text-emerald-700 shadow-sm ring-1 ring-slate-100"><Info className="h-5 w-5" /></div><div><p className="font-semibold text-slate-900">What is a pickup assignment?</p><p className="mt-1 leading-5 text-slate-600">A warehouse assigns farm collection work to an approved pickup partner.</p></div></div>
+              <div className="flex gap-3"><div className="rounded-xl bg-white p-2.5 text-emerald-700 shadow-sm ring-1 ring-slate-100"><Route className="h-5 w-5" /></div><div><p className="font-semibold text-slate-900">What should I do?</p><p className="mt-1 leading-5 text-slate-600">Open Pickup Routes to accept and complete farm collection and warehouse handover steps.</p></div></div>
+              <div className="flex gap-3"><div className="rounded-xl bg-white p-2.5 text-emerald-700 shadow-sm ring-1 ring-slate-100"><Headphones className="h-5 w-5" /></div><div><p className="font-semibold text-slate-900">Need help?</p><p className="mt-1 leading-5 text-slate-600">Contact your warehouse or AgriConnect support if an assignment needs attention.</p></div></div>
               <Button asChild variant="outline" className="w-full border-sky-300 bg-white text-slate-800 hover:bg-sky-100"><Link href="/delivery/support"><Headphones className="mr-2 h-4 w-4" /> Contact Support</Link></Button>
             </CardContent>
           </Card>
