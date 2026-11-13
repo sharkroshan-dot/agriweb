@@ -418,7 +418,20 @@ export default function DeliveryOrderMapPage({ compact = false }: { compact?: bo
         </Card>
       </div>}
 
-      <div className={compact ? "grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]" : "grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.8fr)]"}>
+      {compact && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-100 bg-white p-3 shadow-sm">
+        <div>
+          <p className="text-sm font-semibold text-slate-900">Live Order Map</p>
+          <p className="text-xs text-muted-foreground">{visibleOrders.length} visible orders · {liveLocation ? "GPS active" : "Waiting for location"}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {RADIUS_OPTIONS.map((distance) => <Button key={distance} size="sm" variant={radiusKm === distance ? "default" : "outline"} onClick={() => setRadiusKm(distance)}>{distance} km</Button>)}
+          <Button size="sm" variant={radiusKm === "all" ? "default" : "outline"} onClick={() => setRadiusKm("all")}>All</Button>
+          <Button size="sm" variant="outline" onClick={requestLiveLocation} disabled={locationLoading}>{locationLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Crosshair className="h-4 w-4" />}<span className="ml-1">Locate</span></Button>
+          <Button size="sm" variant="outline" onClick={refetchOrders}><RefreshCw className="mr-1 h-4 w-4" />Refresh</Button>
+        </div>
+      </div>}
+
+      <div className={compact ? "grid gap-3 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]" : "grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.8fr)]"}>
         <Card>
           <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -461,8 +474,8 @@ export default function DeliveryOrderMapPage({ compact = false }: { compact?: bo
           </CardContent>
         </Card>
 
-        <div className={compact ? "grid gap-4 xl:grid-cols-2 xl:items-start" : "space-y-4"}>
-          <Card>
+        <div className={compact ? "grid gap-3 xl:grid-cols-2 xl:items-start" : "space-y-4"}>
+          <Card className={compact ? "xl:order-2" : ""}>
             <CardHeader>
               <CardTitle>Selected Order</CardTitle>
               <CardDescription>Accept one order or build a route from all visible orders.</CardDescription>
@@ -511,7 +524,7 @@ export default function DeliveryOrderMapPage({ compact = false }: { compact?: bo
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className={compact ? "xl:order-1" : ""}>
             <CardHeader>
               <div className="flex items-start justify-between gap-3">
                 <div>
