@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -34,7 +35,11 @@ type AnyRow = Record<string, any>;
 
 const asRows = (value: any, key: string): AnyRow[] => {
   const rows = value?.data?.[key] ?? value?.[key] ?? [];
-  return Array.isArray(rows) ? rows : [];
+  if (Array.isArray(rows)) return rows;
+  if (Array.isArray(rows?.items)) return rows.items;
+  if (Array.isArray(rows?.results)) return rows.results;
+  if (Array.isArray(rows?.records)) return rows.records;
+  return [];
 };
 
 const statusOf = (row: AnyRow) => String(row?.status ?? row?.stage ?? "unknown").toLowerCase().replaceAll("-", "_");
@@ -145,6 +150,16 @@ export default function WarehouseAnalyticsPage() {
     ready: countMatching(outgoingItems, row => ["pending", "packed", "ready_for_dispatch", "verified"].includes(statusOf(row))),
     dispatched: countMatching(outgoingItems, row => ["dispatched", "in_transit", "delivered", "completed"].includes(statusOf(row))),
   }), [outgoingItems]);
+
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const overdueIncoming = incomingItems.filter(row => {
+    const status = statusOf(row);
+    const expected = row?.expectedDate ? new Date(row.expectedDate) : null;
+    return expected && !Number.isNaN(expected.getTime()) && expected < todayStart &&
+      ["scheduled", "ready_for_pickup", "assigned", "in_transit", "dispatched"].includes(status) &&
+      !row?.receivedAt;
+  }).length;
 
   const qualityDecisionCount = incomingStats.passed + incomingStats.failed;
   const receiptRate = incomingStats.total > 0 ? Math.round((incomingStats.received / incomingStats.total) * 100) : 0;
@@ -260,6 +275,42 @@ export default function WarehouseAnalyticsPage() {
         <MetricCard title="Received at warehouse" value={incomingStats.received} description="Records marked as received or further along" icon={PackageCheck} tone="green" />
         <MetricCard title="Quality passed" value={incomingStats.passed} description={`${incomingStats.failed} failed · ${incomingStats.pendingQuality} awaiting a quality outcome`} icon={CheckCircle2} tone="green" />
         <MetricCard title="Outgoing records" value={outgoingStats.total} description={`${outgoingStats.dispatched} dispatched or beyond`} icon={ArrowUpFromLine} tone="amber" />
+      </section>
+
+      <section aria-labelledby="warehouse-attention-title" className="space-y-3">
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <h2 id="warehouse-attention-title" className="text-base font-semibold text-slate-900">Work requiring attention</h2>
+            <p className="mt-1 text-sm text-slate-500">Quick links to queues where the warehouse team may need to take action.</p>
+          </div>
+          <Badge variant="outline">Based on loaded records</Badge>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <Link href="/warehouse/quality-inspection" className="group rounded-xl border border-slate-200 bg-white p-4 transition-colors hover:border-amber-300 hover:bg-amber-50/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-600">
+            <div className="flex items-center justify-between gap-3"><span className="rounded-lg bg-amber-50 p-2 text-amber-700"><Clock3 className="h-5 w-5" /></span><span className="text-2xl font-semibold tabular-nums text-slate-900">{incomingStats.pendingQuality}</span></div>
+            <p className="mt-3 text-sm font-semibold text-slate-800">Quality checks pending</p>
+            <p className="mt-1 text-xs text-slate-500">Received records awaiting a quality outcome</p>
+            <p className="mt-3 text-xs font-semibold text-emerald-700 group-hover:underline">Open quality inspection →</p>
+          </Link>
+          <Link href="/warehouse/outgoing" className="group rounded-xl border border-slate-200 bg-white p-4 transition-colors hover:border-blue-300 hover:bg-blue-50/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-600">
+            <div className="flex items-center justify-between gap-3"><span className="rounded-lg bg-blue-50 p-2 text-blue-700"><Route className="h-5 w-5" /></span><span className="text-2xl font-semibold tabular-nums text-slate-900">{outgoingStats.ready}</span></div>
+            <p className="mt-3 text-sm font-semibold text-slate-800">Ready / awaiting dispatch</p>
+            <p className="mt-1 text-xs text-slate-500">Outgoing records marked pending, packed or verified</p>
+            <p className="mt-3 text-xs font-semibold text-emerald-700 group-hover:underline">Open outgoing shipments →</p>
+          </Link>
+          <Link href="/warehouse/incoming" className="group rounded-xl border border-slate-200 bg-white p-4 transition-colors hover:border-violet-300 hover:bg-violet-50/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-600">
+            <div className="flex items-center justify-between gap-3"><span className="rounded-lg bg-violet-50 p-2 text-violet-700"><ArrowDownToLine className="h-5 w-5" /></span><span className="text-2xl font-semibold tabular-nums text-slate-900">{incomingStats.inTransit}</span></div>
+            <p className="mt-3 text-sm font-semibold text-slate-800">Incoming in transit</p>
+            <p className="mt-1 text-xs text-slate-500">Assigned or dispatched records not yet received</p>
+            <p className="mt-3 text-xs font-semibold text-emerald-700 group-hover:underline">Open incoming stock →</p>
+          </Link>
+          <Link href="/warehouse/incoming" className="group rounded-xl border border-slate-200 bg-white p-4 transition-colors hover:border-rose-300 hover:bg-rose-50/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-600">
+            <div className="flex items-center justify-between gap-3"><span className="rounded-lg bg-rose-50 p-2 text-rose-700"><ShieldAlert className="h-5 w-5" /></span><span className="text-2xl font-semibold tabular-nums text-slate-900">{overdueIncoming}</span></div>
+            <p className="mt-3 text-sm font-semibold text-slate-800">Past expected date</p>
+            <p className="mt-1 text-xs text-slate-500">Open incoming records with an expected date before today</p>
+            <p className="mt-3 text-xs font-semibold text-emerald-700 group-hover:underline">Review incoming records →</p>
+          </Link>
+        </div>
       </section>
 
       <section aria-label="Operational performance" className="grid gap-3 sm:grid-cols-3">
