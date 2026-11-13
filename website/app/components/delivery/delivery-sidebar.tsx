@@ -9,6 +9,8 @@ import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard,
   Truck,
+  MapPinned,
+  PackageCheck,
   Settings,
   History,
   CheckCircle,
@@ -75,6 +77,8 @@ export function DeliverySidebar() {
       label: "Customer Delivery",
       items: [
         { name: "Order Map & My Deliveries", href: "/delivery/orders", icon: Truck, badge: todayCount > 0 ? todayCount : undefined },
+        { name: "Order Map", href: "/delivery/order-map", icon: MapPinned },
+        { name: "My Deliveries", href: "/delivery/deliveries", icon: PackageCheck },
         { name: "Delivery Routes", href: "/delivery/route", icon: Route },
         { name: "Delivery History", href: "/delivery/history", icon: History },
       ],
