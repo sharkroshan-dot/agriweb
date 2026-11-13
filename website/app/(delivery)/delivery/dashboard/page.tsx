@@ -126,6 +126,12 @@ export default function DeliveryDashboardPage() {
 
   const deliveryList = useMemo(() => sortByDeliveryPriority(deliveries?.data?.deliveries || []), [deliveries?.data?.deliveries]);
   const completedCount = deliveryList.filter((d: any) => d.status === "delivered").length;
+  const cancelledCount = deliveryList.filter((d: any) => d.status === "cancelled").length;
+  const activeCount = deliveryList.filter((d: any) => ["in_transit", "dispatched", "processing"].includes(d.status)).length;
+  const readyCount = deliveryList.filter((d: any) => d.status === "ready_for_delivery").length;
+  const pendingCount = deliveryList.filter((d: any) => !["delivered", "cancelled"].includes(d.status)).length;
+  const completionRate = deliveryList.length ? Math.round((completedCount / deliveryList.length) * 100) : 0;
+  const nextDelivery = deliveryList.find((d: any) => !["delivered", "cancelled"].includes(d.status));
   const totalEarnings = stats?.data?.totalEarnings || 0;
   const averageRating = stats?.data?.averageRating || 0;
   const totalDeliveries = stats?.data?.totalDeliveries || 0;
@@ -304,7 +310,7 @@ export default function DeliveryDashboardPage() {
 
   const totalDistance = routeData?.data?.totalDistance || 0;
   const estimatedTime = routeData?.data?.estimatedTime || 0;
-  const fuelCost = totalDistance ? Math.round(totalDistance * 7.5) : 0;
+  
   const weeklyEarnings = stats?.data?.weeklyEarnings || 0;
   const pendingPayout = stats?.data?.pendingPayout || 0;
   const availableBalance = stats?.data?.availableBalance || totalEarnings || 0;
@@ -416,7 +422,7 @@ export default function DeliveryDashboardPage() {
   }
 
   return (
-    <div className="space-y-8">
+    <div className="delivery-dashboard-page w-full max-w-none space-y-5 pb-8">
       {deliveryRisk && (
         <Card className="border-emerald-200 bg-emerald-50/50">
           <CardContent className="p-4">
@@ -457,70 +463,40 @@ export default function DeliveryDashboardPage() {
         </div>
       </DeliveryPageHeader>
 
-      <div className="delivery-next-task flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div><p className="font-semibold text-emerald-950">Next actionable task</p><p className="text-sm text-emerald-800">{deliveryList.length - completedCount > 0 ? "Open My Deliveries to accept or continue the next assigned stop." : "No active stops right now. Stay available for new assignments."}</p></div>
+      <div className="delivery-next-task flex flex-col gap-4 rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><p className="font-semibold text-emerald-950">Next delivery task</p><Badge variant={nextDelivery ? "warning" : "success"}>{nextDelivery ? statusLabel(nextDelivery.status) : "All clear"}</Badge></div><p className="mt-1 text-sm text-emerald-800">{nextDelivery ? `Continue delivery for ${nextDelivery.customerName || "your next customer"}.` : "No pending deliveries. Stay online to receive new assignments."}</p>{nextDelivery && <p className="mt-1 truncate text-xs text-emerald-700">{formatAddress(nextDelivery.deliveryAddress) || "Delivery address not available"}</p>}</div>
         <Button asChild className="delivery-action-button bg-white text-emerald-700 hover:bg-emerald-50"><Link href="/delivery/deliveries">Open delivery queue</Link></Button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">Today's Deliveries</p>
-                <p className="text-2xl font-bold">{deliveryList.length}</p>
-              </div>
-              <div className="rounded-full p-2 bg-muted text-blue-600">
-                <Truck className="h-5 w-5" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">Completed</p>
-                <p className="text-2xl font-bold">{completedCount}</p>
-              </div>
-              <div className="rounded-full p-2 bg-muted text-green-600">
-                <CheckCircle className="h-5 w-5" />
-              </div>
-            </div>
-            <div className="mt-2 text-sm text-muted-foreground">{completedCount}/{deliveryList.length}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">Today's Earnings</p>
-                <p className="text-2xl font-bold">{formatPrice(totalEarnings)}</p>
-              </div>
-              <div className="rounded-full p-2 bg-muted text-green-600">
-                <DollarSign className="h-5 w-5" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">Rating</p>
-                <p className="text-2xl font-bold">{averageRating}</p>
-              </div>
-              <div className="rounded-full p-2 bg-muted text-yellow-600">
-                <Star className="h-5 w-5" />
-              </div>
-            </div>
-            <div className="mt-2 text-sm text-muted-foreground">
-              {ratingCount} rating{ratingCount === 1 ? "" : "s"} • {totalDeliveries} total deliveries
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
+      <section aria-label="Today's delivery performance" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {[
+          { label: "Assigned today", value: deliveryList.length, note: "Deliveries assigned to you", icon: Truck, tone: "blue" },
+          { label: "Ready to deliver", value: readyCount, note: "Waiting for you to start", icon: Package, tone: "amber" },
+          { label: "In progress", value: activeCount, note: "Currently on the way", icon: Navigation, tone: "violet" },
+          { label: "Completed", value: completedCount, note: `${completionRate}% of today's assigned deliveries`, icon: CheckCircle, tone: "green" },
+        ].map((item) => {
+          const Icon = item.icon;
+          return (
+            <Card key={item.label} className="overflow-hidden rounded-2xl border-slate-200/90 bg-white shadow-sm">
+              <CardContent className="flex items-center justify-between gap-3 p-4 sm:p-5">
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-slate-500">{item.label}</p>
+                  <p className="mt-1 text-2xl font-bold tracking-tight text-slate-900 tabular-nums">{item.value}</p>
+                  <p className="mt-1 text-xs text-slate-500">{item.note}</p>
+                </div>
+                <div className={cn(
+                  "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl",
+                  item.tone === "green" ? "bg-emerald-50 text-emerald-700" :
+                    item.tone === "amber" ? "bg-amber-50 text-amber-700" :
+                      item.tone === "violet" ? "bg-violet-50 text-violet-700" : "bg-blue-50 text-blue-700"
+                )}>
+                  <Icon className="h-5 w-5" />
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </section>
       {/* Performance & ratings */}
       <Card>
         <CardHeader>
@@ -866,8 +842,8 @@ export default function DeliveryDashboardPage() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
+      <div className="grid gap-5 xl:grid-cols-3">
+        <Card className="overflow-hidden rounded-2xl border-slate-200/90 shadow-sm lg:col-span-2">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Navigation className="h-5 w-5 text-primary" />
@@ -923,7 +899,7 @@ export default function DeliveryDashboardPage() {
       </div>
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-row items-center justify-between border-b border-slate-100 bg-slate-50/60">
           <div>
             <CardTitle className="flex items-center gap-2">
               <Truck className="h-5 w-5 text-primary" />
@@ -1027,7 +1003,7 @@ export default function DeliveryDashboardPage() {
               <p className="mt-2 text-2xl font-bold text-emerald-700">{formatPrice(totalEarnings)}</p>
               <div className="mt-1 flex items-center gap-1 text-xs text-emerald-600">
                 <TrendingUp className="h-3 w-3" />
-                <span>+12% vs yesterday</span>
+                <span>Recorded earnings today</span>
               </div>
             </div>
 
@@ -1039,7 +1015,7 @@ export default function DeliveryDashboardPage() {
               <p className="mt-2 text-2xl font-bold text-blue-700">{formatPrice(weeklyEarnings)}</p>
               <div className="mt-1 flex items-center gap-1 text-xs text-blue-600">
                 <TrendingUp className="h-3 w-3" />
-                <span>+8% vs last week</span>
+                <span>Recorded earnings this week</span>
               </div>
             </div>
 
@@ -1049,7 +1025,7 @@ export default function DeliveryDashboardPage() {
                 <p className="text-sm text-muted-foreground">Pending Payments</p>
               </div>
               <p className="mt-2 text-2xl font-bold text-amber-700">{formatPrice(pendingPayout)}</p>
-              <p className="mt-1 text-xs text-amber-600">{deliveryList.filter((d: any) => d.status !== "delivered").length} deliveries pending</p>
+              <p className="mt-1 text-xs text-amber-600">{pendingCount} deliveries still open today</p>
             </div>
 
             <div className="rounded-lg border bg-gradient-to-br from-primary/5 to-primary/10 p-4 flex flex-col justify-between">
@@ -1067,9 +1043,9 @@ export default function DeliveryDashboardPage() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-3 md:grid-cols-3">
         <Card>
-          <CardContent className="p-6">
+          <CardContent className="p-4 sm:p-5">
             <div className="flex items-center gap-4">
               <div className="rounded-full bg-blue-100 p-3"><Navigation className="h-6 w-6 text-blue-600" /></div>
               <div><p className="font-medium">Optimize Route</p><p className="text-sm text-muted-foreground">Smart route planning</p></div>
