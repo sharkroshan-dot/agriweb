@@ -455,7 +455,7 @@ export default function WarehouseSettingsPage() {
                 <p className="text-xs text-slate-500">{warehouse?.coldStorageUsed ?? 0} used of {warehouse?.coldStorageCapacity ?? 0} total capacity</p>
               </div>
               <Badge variant={warehouse?.isActive ? "success" : "secondary"}>{warehouse?.isActive ? "Active" : "Inactive"}</Badge>
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs text-muted-foreground"><p className="font-medium text-foreground">System calculated</p><p className="mt-1.5 h-10 rounded-lg border-slate-200 bg-white shadow-none focus-visible:ring-emerald-500">Used capacity comes from live inventory, receiving, dispatch and transfer records. Managers never enter it manually.</p></div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs text-muted-foreground"><p className="font-medium text-foreground">System calculated</p><p className="mt-1 leading-5 text-slate-500">Used capacity comes from live inventory, receiving, dispatch and transfer records. Managers never enter it manually.</p></div>
             </CardContent>
           </Card>
         </div>
