@@ -1,70 +1,41 @@
 "use client";
 
-import { useState } from "react";
 import { MapPinned, PackageCheck } from "lucide-react";
-import { Button } from "../../../components/ui/button";
-import { Card, CardContent } from "../../../components/ui/card";
 import DeliveryOrderMapPage from "../order-map/page";
 import DeliveryDeliveriesPage from "../deliveries/page";
 
-type WorkspaceTab = "map" | "deliveries";
-
 export default function DeliveryOrdersWorkspacePage() {
-  const [activeTab, setActiveTab] = useState<WorkspaceTab>("map");
-
   return (
-    <div className="space-y-5">
-      <div className="delivery-page-header flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="text-sm font-medium text-primary">Customer delivery workspace</p>
-          <h1 className="delivery-page-title text-3xl font-semibold tracking-tight">Order Map &amp; My Deliveries</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Find nearby orders, manage assigned deliveries, and complete every delivery step from one workspace.
-          </p>
-        </div>
+    <div className="space-y-6">
+      <div className="delivery-page-header">
+        <p className="text-sm font-medium text-primary">Customer delivery workspace</p>
+        <h1 className="delivery-page-title text-3xl font-semibold tracking-tight">Order Map &amp; My Deliveries</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Discover nearby delivery orders and manage every assigned delivery from one page.
+        </p>
       </div>
 
-      <Card className="border-slate-200 shadow-sm">
-        <CardContent className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-wrap gap-2" role="tablist" aria-label="Customer delivery workspace">
-            <Button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === "map"}
-              variant={activeTab === "map" ? "default" : "outline"}
-              className={activeTab === "map" ? "bg-emerald-700 hover:bg-emerald-800" : ""}
-              onClick={() => setActiveTab("map")}
-            >
-              <MapPinned className="mr-2 h-4 w-4" />
-              Order Map &amp; Nearby Orders
-            </Button>
-            <Button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === "deliveries"}
-              variant={activeTab === "deliveries" ? "default" : "outline"}
-              className={activeTab === "deliveries" ? "bg-emerald-700 hover:bg-emerald-800" : ""}
-              onClick={() => setActiveTab("deliveries")}
-            >
-              <PackageCheck className="mr-2 h-4 w-4" />
-              My Deliveries &amp; Actions
-            </Button>
+      <section aria-labelledby="combined-order-map-heading" className="space-y-4">
+        <div className="flex items-center gap-2 border-b border-emerald-100 pb-3">
+          <MapPinned className="h-5 w-5 text-emerald-700" />
+          <div>
+            <h2 id="combined-order-map-heading" className="text-lg font-semibold text-slate-900">Order Map &amp; Nearby Orders</h2>
+            <p className="text-sm text-muted-foreground">Live GPS, radius filtering, map markers, route preview and order acceptance.</p>
           </div>
-          <p className="text-xs text-muted-foreground">
-            Switch views without leaving the combined workspace. Existing delivery actions are retained.
-          </p>
-        </CardContent>
-      </Card>
+        </div>
+        <DeliveryOrderMapPage />
+      </section>
 
-      {activeTab === "map" ? (
-        <section role="tabpanel" aria-label="Order map and nearby orders" className="min-w-0">
-          <DeliveryOrderMapPage />
-        </section>
-      ) : (
-        <section role="tabpanel" aria-label="My deliveries and delivery actions" className="min-w-0">
-          <DeliveryDeliveriesPage />
-        </section>
-      )}
+      <section aria-labelledby="combined-my-deliveries-heading" className="space-y-4 border-t-4 border-slate-100 pt-6">
+        <div className="flex items-center gap-2 border-b border-emerald-100 pb-3">
+          <PackageCheck className="h-5 w-5 text-emerald-700" />
+          <div>
+            <h2 id="combined-my-deliveries-heading" className="text-lg font-semibold text-slate-900">My Deliveries &amp; Delivery Operations</h2>
+            <p className="text-sm text-muted-foreground">Assigned orders, pickup, dispatch, OTP/QR verification, proof of delivery and delivery status.</p>
+          </div>
+        </div>
+        <DeliveryDeliveriesPage />
+      </section>
     </div>
   );
 }
