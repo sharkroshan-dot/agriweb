@@ -4,8 +4,8 @@ import { useState } from "react";
 import { MapPinned, PackageCheck } from "lucide-react";
 import { Button } from "../../../components/ui/button";
 import { Card, CardContent } from "../../../components/ui/card";
-import { DeliveryOrderMapPage } from "../order-map/page";
-import { DeliveryDeliveriesPage } from "../deliveries/page";
+import DeliveryOrderMapPage from "../order-map/page";
+import DeliveryDeliveriesPage from "../deliveries/page";
 
 type WorkspaceTab = "map" | "deliveries";
 
@@ -56,23 +56,15 @@ export default function DeliveryOrdersWorkspacePage() {
         </CardContent>
       </Card>
 
-      <section
-        role="tabpanel"
-        aria-label="Order map and nearby orders"
-        hidden={activeTab !== "map"}
-        className="min-w-0"
-      >
-        <DeliveryOrderMapPage />
-      </section>
-
-      <section
-        role="tabpanel"
-        aria-label="My deliveries and delivery actions"
-        hidden={activeTab !== "deliveries"}
-        className="min-w-0"
-      >
-        <DeliveryDeliveriesPage />
-      </section>
+      {activeTab === "map" ? (
+        <section role="tabpanel" aria-label="Order map and nearby orders" className="min-w-0">
+          <DeliveryOrderMapPage />
+        </section>
+      ) : (
+        <section role="tabpanel" aria-label="My deliveries and delivery actions" className="min-w-0">
+          <DeliveryDeliveriesPage />
+        </section>
+      )}
     </div>
   );
 }
