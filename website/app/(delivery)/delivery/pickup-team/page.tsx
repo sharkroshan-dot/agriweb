@@ -122,20 +122,27 @@ export default function PickupTeamApplicationPage() {
 
   return (
     <div className="min-w-0 space-y-6 pb-10">
-      <header className="relative overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-r from-white via-white to-emerald-50/80 px-5 py-6 shadow-sm sm:px-7">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 items-start gap-3">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-100 to-emerald-50 text-emerald-700 shadow-sm ring-1 ring-inset ring-emerald-200">
-              <Warehouse className="h-5 w-5" />
+      <header className="relative isolate min-h-[168px] overflow-hidden rounded-2xl border border-emerald-100 bg-[#eef8f4] shadow-sm sm:min-h-[176px]">
+        <div className="absolute inset-0 -z-20 bg-gradient-to-r from-white via-white/95 to-emerald-50" />
+        <div
+          aria-hidden="true"
+          className="absolute inset-y-0 right-0 -z-10 w-full bg-cover bg-center opacity-95 sm:w-[72%]"
+          style={{ backgroundImage: "url('/images/pickup-warehouse-banner.svg')" }}
+        />
+        <div className="absolute inset-0 -z-0 bg-gradient-to-r from-white via-white/90 to-white/5 sm:via-white/75" />
+        <div className="relative z-10 flex min-h-[168px] flex-col justify-center gap-4 px-5 py-5 sm:min-h-[176px] sm:flex-row sm:items-center sm:justify-between sm:px-7">
+          <div className="flex min-w-0 items-center gap-4">
+            <div className="hidden h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-white/90 text-emerald-700 shadow-sm ring-1 ring-emerald-100 sm:flex">
+              <Warehouse className="h-9 w-9" />
             </div>
-            <div className="min-w-0">
-              <p className="mb-1 text-xs font-semibold uppercase tracking-[0.12em] text-emerald-700">Warehouse Pickup</p>
-              <h1 className="text-2xl font-extrabold leading-tight tracking-tight text-slate-950 sm:text-3xl">Pickup Assignments</h1>
-              <p className="mt-1.5 max-w-2xl text-sm leading-6 text-slate-600">Manage warehouse partnerships and review farm pickup assignments received from warehouses.</p>
+            <div className="min-w-0 max-w-2xl">
+              <p className="mb-1 text-xs font-bold uppercase tracking-[0.12em] text-emerald-800 sm:text-sm">Warehouse Pickup Workspace</p>
+              <h1 className="text-2xl font-extrabold leading-tight tracking-tight text-slate-950 sm:text-4xl">Pickup Assignments</h1>
+              <p className="mt-1.5 max-w-xl text-sm leading-5 text-slate-700 sm:text-base sm:leading-6">Manage warehouse partnerships and review farm pickup assignments received from warehouses.</p>
             </div>
           </div>
-          <Button onClick={() => setShowApplicationForm((value) => !value)} className="h-11 shrink-0 rounded-xl bg-emerald-700 px-5 font-semibold text-white shadow-md shadow-emerald-900/10 transition-all hover:-translate-y-0.5 hover:bg-emerald-800 hover:shadow-lg">
-            <PlusCircle className="mr-2 h-4 w-4" /> Apply for Partnership
+          <Button onClick={() => setShowApplicationForm((value) => !value)} className="h-11 shrink-0 self-start rounded-xl bg-emerald-700 px-5 font-semibold text-white shadow-md shadow-emerald-900/15 transition-all hover:-translate-y-0.5 hover:bg-emerald-800 sm:self-center">
+            <PlusCircle className="mr-2 h-5 w-5" /> Apply for Partnership
           </Button>
         </div>
       </header>
