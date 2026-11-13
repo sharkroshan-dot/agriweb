@@ -53,11 +53,30 @@ export default function DeliveryOrdersWorkspacePage() {
 
   return (
     <div className="space-y-5">
-      <div className="delivery-page-header flex flex-col gap-2">
-        <p className="text-sm font-medium text-emerald-700">Delivery partner workspace</p>
-        <h1 className="delivery-page-title text-3xl font-semibold tracking-tight">Order Map &amp; My Deliveries</h1>
-        <p className="text-sm text-muted-foreground">Find nearby orders and manage the complete customer delivery lifecycle from the same map, order list and details panel.</p>
-      </div>
+      <header className="relative isolate flex min-h-[132px] items-center overflow-hidden rounded-2xl border border-emerald-200/80 bg-gradient-to-r from-[#f2fbe9] via-[#f4fbe9] to-[#dff5c9] px-5 py-5 shadow-sm sm:px-7 lg:min-h-[144px]">
+        <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 w-[48%] overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-r from-[#f2fbe9] via-[#eaf8d8]/70 to-transparent" />
+          <div className="absolute -bottom-16 right-[-3%] h-36 w-[78%] rounded-[50%] bg-gradient-to-b from-[#c9eaa5] to-[#9ed47b] opacity-75" />
+          <div className="absolute -bottom-20 right-[8%] h-32 w-[62%] rotate-[-7deg] rounded-[50%] border-t-[14px] border-white/80 bg-transparent" />
+          <div className="absolute bottom-5 right-[12%] h-2 w-28 rotate-[-7deg] rounded-full bg-white/70" />
+          <div className="absolute bottom-0 right-0 h-20 w-32 rounded-tl-[100%] bg-gradient-to-br from-emerald-300/40 to-green-600/30" />
+          <div className="absolute bottom-3 right-[34%] h-10 w-20 rounded-t-full bg-emerald-500/15 blur-sm" />
+          <div className="absolute bottom-2 right-[5%] rounded-full bg-white/70 p-3 text-emerald-700 shadow-sm">
+            <Truck className="h-12 w-12 sm:h-14 sm:w-14" strokeWidth={1.8} />
+          </div>
+        </div>
+        <div className="relative z-10 flex min-w-0 items-center gap-4 sm:gap-6">
+          <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-emerald-600 text-white shadow-md sm:h-[76px] sm:w-[76px]">
+            <Truck className="h-9 w-9 sm:h-11 sm:w-11" strokeWidth={1.9} />
+          </div>
+          <div className="h-14 w-px shrink-0 bg-emerald-700/60 sm:h-16" />
+          <div className="min-w-0">
+            <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-emerald-800 sm:text-xs">Delivery operations</p>
+            <h1 className="mt-1 text-xl font-bold tracking-tight text-slate-900 sm:text-2xl lg:text-[28px]">Order Map &amp; My Deliveries</h1>
+            <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-700 sm:text-sm">Find nearby orders and manage the complete customer delivery lifecycle from the same map, order list and details panel.</p>
+          </div>
+        </div>
+      </header>
 
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-5">
         {summary.map((item) => {
