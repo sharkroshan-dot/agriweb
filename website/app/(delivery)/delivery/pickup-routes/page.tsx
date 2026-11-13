@@ -448,20 +448,7 @@ export default function DeliveryPickupRoutesPage() {
         </div>
       </header>
 
-      <section aria-label="Route overview" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <div className="flex items-center justify-between gap-3 rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
-          <div><p className="text-sm font-semibold text-slate-700">Active Routes</p><p className="mt-1 text-3xl font-extrabold tabular-nums text-slate-950">{summaryPickupRoutes.length}</p><p className="text-xs text-slate-500">Farm pickup routes</p></div><div className="rounded-2xl bg-emerald-100 p-3 text-emerald-700"><Truck className="h-7 w-7"/></div>
-        </div>
-        <div className="flex items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
-          <div><p className="text-sm font-semibold text-slate-700">Pending Routes</p><p className="mt-1 text-3xl font-extrabold tabular-nums text-slate-950">{pickupPendingCount + transferPendingCount}</p><p className="text-xs text-slate-500">Awaiting completion</p></div><div className="rounded-2xl bg-amber-100 p-3 text-amber-700"><Clock className="h-7 w-7"/></div>
-        </div>
-        <div className="flex items-center justify-between gap-3 rounded-2xl border border-blue-200 bg-gradient-to-br from-blue-50 to-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
-          <div><p className="text-sm font-semibold text-slate-700">Completed Routes</p><p className="mt-1 text-3xl font-extrabold tabular-nums text-slate-950">{pickupCompletedCount + transferCompletedCount}</p><p className="text-xs text-slate-500">Confirmed arrivals / handovers</p></div><div className="rounded-2xl bg-blue-100 p-3 text-blue-700"><CheckCircle2 className="h-7 w-7"/></div>
-        </div>
-        <div className="flex items-center justify-between gap-3 rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 to-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
-          <div><p className="text-sm font-semibold text-slate-700">B2B Business Deliveries</p><p className="mt-1 text-3xl font-extrabold tabular-nums text-slate-950">{b2bDeliveries.length}</p><p className="text-xs text-slate-500">Assigned business orders</p></div><div className="rounded-2xl bg-violet-100 p-3 text-violet-700"><Briefcase className="h-7 w-7"/></div>
-        </div>
-      </section>
+
 
       <Card className="overflow-hidden rounded-2xl border-slate-200 shadow-sm">
         <CardContent className="space-y-4 p-5">
