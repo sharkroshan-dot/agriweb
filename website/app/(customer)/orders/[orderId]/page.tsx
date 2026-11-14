@@ -38,7 +38,7 @@ const stages = [
 ];
 
 function titleCase(value: string) {
-  return String(value || "pending").replace(/_/g, " ").replace(/\\b\\w/g, (letter) => letter.toUpperCase());
+  return String(value || "pending").replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 export default function OrderDetailPage() {
