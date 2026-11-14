@@ -626,19 +626,27 @@ export default function OrderDetailPage() {
   return (
     <div className="customer-retail-shell space-y-5 pb-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex min-w-0 items-start gap-3">
-          <Link
-            href="/orders"
-            className="mt-1 inline-flex shrink-0 items-center gap-2 self-start text-sm font-medium text-slate-600 transition-colors hover:text-emerald-700"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Back
-          </Link>
-          <div className="min-w-0">
-            <div className="mb-1 flex items-center gap-2 text-xs font-medium text-slate-500"><Link href="/orders" className="hover:text-emerald-700">My Orders</Link><span>›</span><span className="text-slate-700">Track Order</span></div>
-            <div className="flex items-center gap-3">
+        <div className="flex min-w-0 flex-col gap-2">
+          <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
+            <Link href="/orders" className="transition-colors hover:text-emerald-700">My Orders</Link>
+            <span aria-hidden="true">›</span>
+            <span className="text-slate-700">Track Order</span>
+          </div>
+          <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
+            <Link
+              href="/orders"
+              aria-label="Back to My Orders"
+              className="group inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md text-sm font-medium text-slate-600 transition-colors hover:text-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
+            >
+              <ArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-0.5" />
+              <span>Back</span>
+            </Link>
+            <div className="flex min-w-0 items-center gap-3">
               <Truck className="h-9 w-9 shrink-0 text-emerald-700" />
-              <div><h1 className="text-2xl font-extrabold tracking-tight text-slate-950">Track Order</h1><p className="text-sm text-slate-600">Follow your order from farm to your doorstep.</p></div>
+              <div className="min-w-0">
+                <h1 className="text-2xl font-extrabold tracking-tight text-slate-950">Track Order</h1>
+                <p className="text-sm text-slate-600">Follow your order from farm to your doorstep.</p>
+              </div>
             </div>
           </div>
         </div>
