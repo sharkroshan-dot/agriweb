@@ -1,358 +1,95 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
-import {
-  MapPin,
-  Building2,
-  Globe,
-  ShieldCheck,
-  IndianRupee,
-  Truck,
-  ArrowRight,
-  Star,
-  Loader2,
-  Search,
-  Factory,
-  ShoppingBasket,
-  Leaf,
-  Users,
-  Sparkles,
-  PackageCheck,
-} from "lucide-react";
-import { Card, CardContent } from "../../components/ui/card";
-import { Button } from "../../components/ui/button";
-import { Badge } from "../../components/ui/badge";
-import { formatPrice } from "../../lib/utils";
+import { Suspense, useMemo, useState } from "react";
+import { usePageParams } from "../../lib/hooks/use-page-params";
+import { usePersistentQuery } from "../../lib/hooks/use-persistent-query";
+import { useParamField } from "../../lib/hooks/use-param-field";
 import { api } from "../../lib/api/client";
+import { PlaceSelector, type PlaceSelection } from "../../components/customer/place-selector";
 import { HarvestSections } from "../../components/customer/harvest-sections";
+import { ProductCard } from "../../components/customer/product-card";
+import { Button } from "../../components/ui/button";
+import { Input } from "../../components/ui/input";
+import { MapPin, Globe2, Map, Search, SlidersHorizontal, Store, Navigation, Loader2 } from "lucide-react";
 
-const modes = [
-  {
-    icon: MapPin,
-    title: "Nearby Purchase",
-    description: "Discover fresh produce from farmers around your delivery location.",
-    features: ["Choose your delivery radius", "Compare local produce", "Pickup options where available"],
-    cta: "Shop nearby",
-    href: "/nearby",
-    tone: "nearby",
-  },
-  {
-    icon: Building2,
-    title: "State Marketplace",
-    description: "Explore produce from farms and suppliers across your state.",
-    features: ["Browse by district", "Discover more varieties", "Compare farmer listings"],
-    cta: "Explore state",
-    href: "/marketplace/state",
-    tone: "state",
-  },
-  {
-    icon: Globe,
-    title: "National Marketplace",
-    description: "Find regional produce and products from across India.",
-    features: ["Explore regional specialties", "Compare available listings", "Discover new suppliers"],
-    cta: "Shop nationwide",
-    href: "/marketplace/national",
-    tone: "national",
-  },
-  {
-    icon: Factory,
-    title: "B2B Procurement",
-    description: "Source larger quantities for restaurants, hotels and businesses.",
-    features: ["Request farmer quotes", "Compare supplier offers", "Arrange recurring supply"],
-    cta: "Explore procurement",
-    href: "/marketplace/b2b",
-    tone: "business",
-  },
-];
+type Scope = "nearby" | "state" | "national" | "all";
+const RADII = [2, 5, 10, 20, 50];
 
-const trust = [
-  {
-    icon: ShieldCheck,
-    title: "Know your source",
-    desc: "Explore farmer and product details before choosing what to buy.",
-  },
-  {
-    icon: IndianRupee,
-    title: "Transparent pricing",
-    desc: "Review listed prices and quantities before adding products to your cart.",
-  },
-  {
-    icon: Truck,
-    title: "Flexible fulfilment",
-    desc: "Review the delivery and pickup options available for each listing.",
-  },
-];
-
-export default function MarketplaceHubPage() {
-  const router = useRouter();
-  const [searchTerm, setSearchTerm] = useState("");
-  const { data: productsData, isLoading, isError, refetch } = useQuery({
-    queryKey: ["marketplaceProducts"],
-    queryFn: () =>
-      api.get("/products/search", {
-        params: { limit: 12, sortBy: "createdAt", sortOrder: "desc" },
-      }),
-  });
-
-  const latestProducts = useMemo(() => {
-    const list = productsData?.data?.products || productsData?.products || [];
-    return (Array.isArray(list) ? list : []).slice(0, 8).map((p: any) => ({
-      id: p._id || p.id,
-      name: p.name || "Fresh produce",
-      farmerName: p.farmerName || "Local Farmer",
-      category: p.category || "General",
-      price: p.price,
-      unit: p.unit || "kg",
-      image: p.images?.[0] || p.image || "/images/placeholder-product.jpg",
-      rating: Number(p.ratings?.average || p.rating || 0),
-      isOrganic: Boolean(p.isOrganic),
-    })).filter((p: any) => p.id);
-  }, [productsData]);
-
-  const categories = useMemo(
-    () => Array.from(new Set(latestProducts.map((product: any) => product.category))).slice(0, 8),
-    [latestProducts],
-  );
-
-  const submitSearch = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const query = searchTerm.trim();
-    router.push(query ? `/search?q=${encodeURIComponent(query)}` : "/search");
+function MarketplaceInner() {
+  const { params, update } = usePageParams();
+  const legacyScope = params.view === "state" ? "state" : params.view === "national" ? "national" : params.view === "all" ? "all" : "nearby";
+  const scope: Scope = (["nearby", "state", "national", "all"].includes(params.scope) ? params.scope : legacyScope) as Scope;
+  const place: PlaceSelection = { country: params.country || "", state: params.state || "", district: params.district || "", city: params.city || "" };
+  const radius = RADII.includes(Number(params.radius)) ? Number(params.radius) : 10;
+  const search = useParamField("search", 350);
+  const category = params.category || "";
+  const [coords, setCoords] = useState<{lat:number; lng:number} | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [showFilters, setShowFilters] = useState(true);
+  const setScope = (next: Scope) => update({ scope: next, page: "1" }, { push: true });
+  const locate = () => {
+    if (!navigator.geolocation) return;
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(p => { setCoords({lat:p.coords.latitude,lng:p.coords.longitude}); setLocating(false); }, () => setLocating(false), {enableHighAccuracy:true,timeout:10000,maximumAge:30000});
   };
 
-  return (
-    <div className="marketplace-hub-page space-y-10 px-1 pb-10 sm:space-y-12 sm:px-2">
-      <section className="marketplace-hero relative px-5 py-8 sm:px-8 sm:py-10 lg:px-10 lg:py-12">
-        <div className="relative z-10 max-w-3xl">
-          <Badge className="mb-4 border border-emerald-200 bg-white/80 text-emerald-800 hover:bg-white">
-            <Leaf className="mr-1.5 h-3.5 w-3.5" /> Farm-direct marketplace
-          </Badge>
-          <h1 className="max-w-2xl text-3xl font-extrabold leading-tight tracking-tight text-slate-950 sm:text-4xl lg:text-5xl">
-            Fresh choices, closer to the farm.
-          </h1>
-          <p className="mt-3 max-w-xl text-sm leading-6 text-slate-600 sm:text-base">
-            Discover produce from farmers, compare available listings and choose the way you want to shop.
-          </p>
+  const productsQuery = usePersistentQuery({
+    queryKey: ["unified-marketplace", scope, place, radius, coords, category, params.search || "", params.sortBy || "", params.minPrice || "", params.maxPrice || ""],
+    enabled: scope !== "state" || !!place.state,
+    queryFn: () => {
+      if (scope === "state") return api.get("/marketplace/state", {params:{country:place.country||undefined,state:place.state,district:place.district||undefined,city:place.city||undefined,category:category||undefined,search:params.search||undefined,sortBy:params.sortBy||undefined}});
+      if (scope === "national") return api.get("/marketplace/national", {params:{country:place.country||undefined,state:place.state||undefined,district:place.district||undefined,city:place.city||undefined,category:category||undefined,minPrice:params.minPrice||undefined,maxPrice:params.maxPrice||undefined,sortBy:params.sortBy||undefined}});
+      const queryParams:Record<string,any>={limit:100,sortBy:params.sortBy||"createdAt",sortOrder:"desc"};
+      if (scope==="nearby" && coords) Object.assign(queryParams,{lat:coords.lat,lng:coords.lng,radius});
+      if (scope==="nearby" || (scope==="all" && (place.country||place.state||place.district||place.city))) Object.assign(queryParams,{country:place.country||undefined,state:place.state||undefined,district:place.district||undefined,city:place.city||undefined});
+      if(params.search) queryParams.query=params.search;
+      if(category) queryParams.category=category;
+      return api.get("/products/search",{params:queryParams});
+    }
+  });
 
-          <form onSubmit={submitSearch} className="mt-6 flex max-w-2xl flex-col gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-lg shadow-emerald-900/5 sm:flex-row">
-            <label className="flex min-w-0 flex-1 items-center gap-3 px-3">
-              <Search className="h-5 w-5 shrink-0 text-emerald-700" />
-              <span className="sr-only">Search produce and products</span>
-              <input
-                value={searchTerm}
-                onChange={(event) => setSearchTerm(event.target.value)}
-                placeholder="Search vegetables, fruits, grains and more"
-                className="h-11 w-full min-w-0 border-0 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:ring-0"
-              />
-            </label>
-            <Button type="submit" className="h-11 rounded-xl px-6">
-              Search products <ArrowRight className="ml-2 h-4 w-4" />
-            </Button>
-          </form>
+  const raw=productsQuery.data?.data?.products||productsQuery.data?.products||[];
+  const products=useMemo(()=>{
+    let rows=raw.map((p:any)=>({...p,id:p._id||p.id,name:p.name||"Fresh Produce",price:Number(p.price)||0,unit:p.unit||"kg",images:p.images||(p.image?[p.image]:[]),farmerName:p.farmerName||p.farmName||p.farmer?.farmName||p.farmer?.name||"Local Farmer",rating:Number(p.ratings?.average||p.rating||0),category:p.category||"General",quantity:p.availableQuantity??p.quantity??p.stock??0,farmDistanceKm:p.farmDistanceKm??p.distanceKm}));
+    const term=(params.search||"").trim().toLowerCase();
+    if(term) rows=rows.filter((p:any)=>[p.name,p.category,p.farmerName].some(v=>String(v||"").toLowerCase().includes(term)));
+    if(category) rows=rows.filter((p:any)=>String(p.category).toLowerCase()===category.toLowerCase());
+    if(params.minPrice) rows=rows.filter((p:any)=>p.price>=Number(params.minPrice));
+    if(params.maxPrice) rows=rows.filter((p:any)=>p.price<=Number(params.maxPrice));
+    if(params.sortBy==="price-asc") rows.sort((a:any,b:any)=>a.price-b.price);
+    if(params.sortBy==="price-desc") rows.sort((a:any,b:any)=>b.price-a.price);
+    if(params.sortBy==="rating") rows.sort((a:any,b:any)=>b.rating-a.rating);
+    return rows;
+  },[raw,params.search,category,params.minPrice,params.maxPrice,params.sortBy]);
+  const categories=useMemo(()=>Array.from(new Set(raw.map((p:any)=>p.category).filter(Boolean))).sort() as string[],[raw]);
+  const title=scope==="nearby"?"Nearby Marketplace":scope==="state"?"State Marketplace":scope==="national"?"National Marketplace":"All Products";
+  const needsState=scope==="state"&&!place.state;
 
-          <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-slate-600">
-            <span className="font-semibold text-slate-700">Popular categories:</span>
-            {categories.length > 0 ? categories.map((category: string) => (
-              <Link
-                key={category}
-                href={`/search?category=${encodeURIComponent(category)}`}
-                className="rounded-full border border-emerald-100 bg-white/80 px-3 py-1.5 font-medium text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-50"
-              >
-                {category}
-              </Link>
-            )) : (
-              <span className="text-slate-500">Explore the marketplace to discover available products.</span>
-            )}
-          </div>
-        </div>
-        <div className="pointer-events-none absolute -right-12 -top-12 hidden h-72 w-72 rounded-full border-[34px] border-emerald-100/50 lg:block" />
-        <div className="pointer-events-none absolute bottom-5 right-12 hidden h-28 w-28 rounded-full bg-emerald-100/50 blur-2xl lg:block" />
-      </section>
-
-      <section className="space-y-5">
-        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-700">Choose your shopping journey</p>
-            <h2 className="mt-1 text-2xl font-bold tracking-tight text-slate-950">Shop the way that works for you</h2>
-            <p className="mt-1 text-sm text-slate-500">From neighborhood purchases to business procurement.</p>
-          </div>
-        </div>
-        <div className="marketplace-mode-grid">
-          {modes.map((mode) => {
-            const Icon = mode.icon;
-            return (
-              <Card key={mode.title} className="marketplace-mode-card group">
-                <CardContent className="flex h-full flex-col p-5">
-                  <div className={`mb-4 flex h-12 w-12 items-center justify-center rounded-2xl ${
-                    mode.tone === "business" ? "bg-indigo-50 text-indigo-700" :
-                    mode.tone === "national" ? "bg-sky-50 text-sky-700" :
-                    mode.tone === "state" ? "bg-amber-50 text-amber-700" :
-                    "bg-emerald-50 text-emerald-700"
-                  }`}>
-                    <Icon className="h-6 w-6" />
-                  </div>
-                  <h3 className="text-base font-bold text-slate-950">{mode.title}</h3>
-                  <p className="mt-2 min-h-12 text-sm leading-5 text-slate-600">{mode.description}</p>
-                  <ul className="mt-4 flex-1 space-y-2">
-                    {mode.features.map((feature) => (
-                      <li key={feature} className="flex items-start gap-2 text-xs leading-5 text-slate-500">
-                        <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
-                        {feature}
-                      </li>
-                    ))}
-                  </ul>
-                  <Button asChild variant="outline" className="mt-5 w-full justify-between rounded-xl border-slate-200 group-hover:border-emerald-300 group-hover:text-emerald-800">
-                    <Link href={mode.href}>{mode.cta}<ArrowRight className="h-4 w-4" /></Link>
-                  </Button>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      </section>
-
-      <section className="space-y-5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-700">Fresh listings</p>
-            <h2 className="mt-1 text-2xl font-bold tracking-tight text-slate-950">Recently added products</h2>
-            <p className="mt-1 text-sm text-slate-500">Explore the latest products listed by farmers.</p>
-          </div>
-          <Button asChild variant="outline" className="hidden rounded-xl sm:inline-flex">
-            <Link href="/search">Browse all products <ArrowRight className="ml-2 h-4 w-4" /></Link>
-          </Button>
-        </div>
-
-        {isLoading ? (
-          <div className="marketplace-product-grid">
-            {Array.from({ length: 4 }).map((_, index) => (
-              <div key={index} className="animate-pulse overflow-hidden rounded-2xl border border-slate-200 bg-white">
-                <div className="aspect-[4/3] bg-slate-100" />
-                <div className="space-y-2 p-4"><div className="h-3 w-1/3 rounded bg-slate-100" /><div className="h-4 w-3/4 rounded bg-slate-100" /><div className="h-4 w-1/2 rounded bg-slate-100" /></div>
-              </div>
-            ))}
-          </div>
-        ) : isError ? (
-          <Card className="rounded-2xl border-rose-200 bg-rose-50/50">
-            <CardContent className="flex flex-col items-center gap-3 px-5 py-10 text-center">
-              <PackageCheck className="h-9 w-9 text-rose-500" />
-              <h3 className="font-semibold text-slate-900">Products could not be loaded</h3>
-              <p className="max-w-md text-sm text-slate-600">Your marketplace is still available. Try loading the latest listings again.</p>
-              <Button variant="outline" onClick={() => refetch()}>Retry</Button>
-            </CardContent>
-          </Card>
-        ) : latestProducts.length === 0 ? (
-          <Card className="rounded-2xl border-dashed border-slate-300">
-            <CardContent className="flex flex-col items-center gap-3 px-5 py-12 text-center">
-              <ShoppingBasket className="h-10 w-10 text-slate-300" />
-              <h3 className="font-semibold text-slate-900">No products listed yet</h3>
-              <p className="max-w-md text-sm text-slate-500">New farmer listings will appear here when products become available.</p>
-              <Button asChild variant="outline"><Link href="/search">Explore search</Link></Button>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="marketplace-product-grid">
-            {latestProducts.map((product: any) => (
-              <Link key={product.id} href={`/product/${product.id}`} className="group block">
-                <Card className="marketplace-product-card">
-                  <div className="relative aspect-[4/3] overflow-hidden bg-slate-100">
-                    <img
-                      src={product.image}
-                      alt={product.name}
-                      loading="lazy"
-                      decoding="async"
-                      className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-                    />
-                    {product.isOrganic && <Badge className="absolute left-3 top-3 bg-emerald-700 text-white">Organic</Badge>}
-                  </div>
-                  <CardContent className="p-4">
-                    <p className="text-xs font-medium text-slate-500">{product.category}</p>
-                    <h3 className="mt-1 truncate text-sm font-semibold text-slate-950">{product.name}</h3>
-                    <p className="mt-1 truncate text-xs text-slate-500">Sold by {product.farmerName}</p>
-                    <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-                      <span className="font-bold text-emerald-800">
-                        {formatPrice(product.price)}
-                        <span className="ml-1 text-xs font-normal text-slate-500">/{product.unit}</span>
-                      </span>
-                      {product.rating > 0 && (
-                        <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-600">
-                          <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-500" /> {product.rating.toFixed(1)}
-                        </span>
-                      )}
-                    </div>
-                    <span className="mt-4 flex items-center justify-center gap-2 rounded-xl bg-emerald-700 px-3 py-2.5 text-xs font-semibold text-white transition group-hover:bg-emerald-800">
-                      View product <ArrowRight className="h-3.5 w-3.5" />
-                    </span>
-                  </CardContent>
-                </Card>
-              </Link>
-            ))}
-          </div>
-        )}
-        <div className="text-center sm:hidden">
-          <Button asChild variant="outline" className="rounded-xl">
-            <Link href="/search">Browse all products <ArrowRight className="ml-2 h-4 w-4" /></Link>
-          </Button>
-        </div>
-      </section>
-
-      <Card className="overflow-hidden rounded-2xl border border-violet-100 bg-gradient-to-r from-violet-50 via-white to-fuchsia-50 shadow-sm">
-        <CardContent className="flex flex-col gap-5 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-7">
-          <div className="max-w-2xl">
-            <Badge className="mb-3 bg-violet-100 text-violet-800 hover:bg-violet-100"><Sparkles className="mr-1.5 h-3.5 w-3.5" /> Bulk and event sourcing</Badge>
-            <h2 className="text-xl font-bold text-slate-950 sm:text-2xl">Planning an event or larger purchase?</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
-              Create one bulk request, receive offers from farmers and compare the options in one place.
-            </p>
-          </div>
-          <Button asChild className="shrink-0 rounded-xl bg-violet-700 hover:bg-violet-800">
-            <Link href="/bulk-orders/create">Create bulk request <ArrowRight className="ml-2 h-4 w-4" /></Link>
-          </Button>
-        </CardContent>
-      </Card>
-
-      <Card className="overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-r from-emerald-50 to-teal-50 shadow-sm">
-        <CardContent className="flex flex-col gap-5 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-7">
-          <div className="max-w-2xl">
-            <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-emerald-700 shadow-sm"><Users className="h-5 w-5" /></div>
-            <h2 className="text-xl font-bold text-slate-950 sm:text-2xl">Buy together with your community</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-600">Explore neighborhood group buying and shared purchase opportunities.</p>
-          </div>
-          <Button asChild variant="outline" className="shrink-0 rounded-xl border-emerald-200 bg-white">
-            <Link href="/marketplace/community">Explore group buying <ArrowRight className="ml-2 h-4 w-4" /></Link>
-          </Button>
-        </CardContent>
-      </Card>
-
-      <HarvestSections />
-
-      <section className="space-y-5 pb-4">
-        <div className="text-center">
-          <p className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-700">A more informed way to shop</p>
-          <h2 className="mt-1 text-2xl font-bold tracking-tight text-slate-950">Shop with confidence</h2>
-        </div>
-        <div className="grid gap-4 md:grid-cols-3">
-          {trust.map((item) => {
-            const Icon = item.icon;
-            return (
-              <Card key={item.title} className="rounded-2xl border-slate-200 shadow-sm">
-                <CardContent className="flex gap-4 p-5">
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700">
-                    <Icon className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-slate-950">{item.title}</h3>
-                    <p className="mt-1 text-sm leading-5 text-slate-500">{item.desc}</p>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      </section>
+  return <div className="space-y-5 p-4 md:p-6">
+    <header><h1 className="text-2xl font-bold text-slate-900 md:text-3xl">Marketplace</h1><p className="text-sm text-slate-600">Discover fresh products from local farmers near you, across your state and from all over India.</p></header>
+    <section className="relative overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-r from-lime-50 via-emerald-50 to-green-100 px-6 py-7 md:px-10">
+      <div className="relative z-10 max-w-2xl"><p className="mb-2 text-[10px] font-bold uppercase tracking-[0.22em] text-emerald-700">Fresh daily · Farm to home</p><h2 className="text-2xl font-extrabold leading-tight text-slate-900 md:text-3xl">Fresh from<br/>Local Farmers to Your Home</h2><p className="mt-2 text-sm font-medium text-slate-700">Fresh Produce <span className="mx-2 text-emerald-600">|</span> Verified Farmers <span className="mx-2 text-emerald-600">|</span> Safe &amp; Traceable</p><a href="/nearby" className="mt-4 inline-flex rounded-full bg-emerald-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-800">Shop Fresh Now →</a></div>
+      <div className="pointer-events-none absolute -right-2 bottom-0 hidden items-end gap-2 text-6xl md:flex" aria-hidden="true">🥬 🥕 🍅 🧺</div><div className="pointer-events-none absolute -right-10 -top-20 h-64 w-64 rounded-full bg-white/40 blur-3xl"/>
+    </section>
+    <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
+      {([{value:"nearby",label:"Nearby Marketplace",sub:"From farmers near you",Icon:MapPin},{value:"state",label:"State Marketplace",sub:"Across your state",Icon:Map},{value:"national",label:"National Marketplace",sub:"Across India",Icon:Globe2},{value:"all",label:"All Products",sub:"Search across all markets",Icon:Store}] as const).map(({value,label,sub,Icon})=><button key={value} onClick={()=>setScope(value)} className={`flex min-h-[68px] items-center gap-3 rounded-xl border px-3 py-3 text-left transition ${scope===value?"border-emerald-600 bg-emerald-50 shadow-sm":"border-slate-200 bg-white hover:border-emerald-200 hover:bg-emerald-50/50"}`}><span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${scope===value?"bg-emerald-100 text-emerald-700":"bg-slate-50 text-slate-600"}`}><Icon className="h-5 w-5"/></span><span><strong className="block text-sm text-slate-900">{label}</strong><small className="text-xs text-slate-500">{sub}</small></span></button>)}
     </div>
-  );
+    <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(220px,280px)_auto]">
+        <form className="relative" onSubmit={e=>{e.preventDefault();update({search:search.value.trim(),page:"1"});}}><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-emerald-700"/><Input value={search.value} onChange={e=>search.setValue(e.target.value)} placeholder="Search products, farmers or categories (e.g., Tomato, Onion, Organic...)" className="h-11 pl-10"/></form>
+        <PlaceSelector value={place} onChange={v=>update({country:v.country,state:v.state,district:v.district,city:v.city})} includeAll={scope==="national"||scope==="all"}/>
+        {scope==="nearby"&&<Button variant="outline" onClick={locate} disabled={locating} className="h-11">{locating?<Loader2 className="mr-2 h-4 w-4 animate-spin"/>:<Navigation className="mr-2 h-4 w-4"/>}Use My Location</Button>}
+      </div>
+      {scope==="nearby"&&<div className="flex flex-wrap items-center gap-2"><span className="mr-1 text-xs font-semibold text-slate-600">Search radius</span>{RADII.map(r=><button key={r} onClick={()=>update({radius:String(r)})} className={`rounded-full border px-4 py-1.5 text-xs font-semibold ${radius===r?"border-emerald-700 bg-emerald-700 text-white":"border-slate-200 bg-white text-slate-600 hover:border-emerald-300"}`}>{r} km</button>)}</div>}
+      {needsState&&<p className="text-xs text-amber-700">Select a country and state to browse state-level products.</p>}
+    </section>
+    <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex flex-wrap gap-1 rounded-xl bg-slate-100 p-1"><button onClick={()=>update({harvest:"all"})} className={`rounded-lg px-4 py-2 text-sm font-semibold ${(params.harvest||"all")==="all"?"bg-emerald-700 text-white":"text-slate-600"}`}>All Products</button><button onClick={()=>update({harvest:"harvested"})} className={`rounded-lg px-4 py-2 text-sm font-semibold ${params.harvest==="harvested"?"bg-emerald-700 text-white":"text-slate-600"}`}>Harvested</button><button onClick={()=>update({harvest:"preharvest"})} className={`rounded-lg px-4 py-2 text-sm font-semibold ${params.harvest==="preharvest"?"bg-emerald-700 text-white":"text-slate-600"}`}>Pre Harvest</button></div><div className="flex items-center gap-2"><Button variant="outline" size="sm" onClick={()=>setShowFilters(v=>!v)}><SlidersHorizontal className="mr-2 h-4 w-4"/>Filters</Button><select aria-label="Sort products" value={params.sortBy||"relevance"} onChange={e=>update({sortBy:e.target.value==="relevance"?"":e.target.value})} className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm"><option value="relevance">Sort: Relevance</option><option value="price-asc">Price: Low to High</option><option value="price-desc">Price: High to Low</option><option value="rating">Top Rated</option><option value="newest">Newest</option></select></div></div>
+    {showFilters&&<section className="grid gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:grid-cols-2 lg:grid-cols-4"><label className="text-xs font-semibold text-slate-600">Category<select value={category} onChange={e=>update({category:e.target.value})} className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm font-normal"><option value="">All categories</option>{categories.map(c=><option key={c} value={c}>{c}</option>)}</select></label><label className="text-xs font-semibold text-slate-600">Minimum price<input type="number" min="0" value={params.minPrice||""} onChange={e=>update({minPrice:e.target.value})} className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm font-normal" placeholder="₹ Min"/></label><label className="text-xs font-semibold text-slate-600">Maximum price<input type="number" min="0" value={params.maxPrice||""} onChange={e=>update({maxPrice:e.target.value})} className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm font-normal" placeholder="₹ Max"/></label><button onClick={()=>update({category:"",minPrice:"",maxPrice:"",sortBy:"",search:""})} className="self-end text-left text-sm font-semibold text-emerald-700 hover:underline">Clear all filters</button></section>}
+    <section className="space-y-3"><div className="flex items-center justify-between gap-2"><div><h3 className="font-bold text-slate-900">{title}</h3><p className="text-xs text-slate-500">{products.length} products {scope==="nearby"&&coords? `within ${radius} km`:""}</p></div><span className="text-xs text-slate-500">{productsQuery.isLoading?"Loading products…":`Showing ${products.length} products`}</span></div>
+      {needsState?<div className="rounded-xl border border-slate-200 bg-white py-14 text-center text-sm text-slate-500">Choose a state to see available products.</div>:productsQuery.isLoading?<div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-emerald-700"/></div>:products.length?<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">{products.slice(0,24).map((p:any)=><ProductCard key={p.id} product={p}/>)}</div>:<div className="rounded-xl border border-slate-200 bg-white py-14 text-center text-sm text-slate-500">No products found. Try another location or clear some filters.</div>}
+    </section>
+    <HarvestSections country={place.country} state={place.state} district={place.district} city={place.city} coords={coords?{lat:String(coords.lat),lng:String(coords.lng)}:null} radius={radius}/>
+  </div>;
 }
+
+export default function MarketplacePage(){return <Suspense fallback={<div className="p-8 text-center text-slate-500">Loading marketplace…</div>}><MarketplaceInner/></Suspense>;}
