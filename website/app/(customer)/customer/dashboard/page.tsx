@@ -133,9 +133,9 @@ export default function CustomerDashboardPage() {
         <div className="min-w-0 space-y-4">
           <section className="relative isolate min-h-[178px] overflow-hidden rounded-2xl border border-emerald-100 bg-[#f1f9df] p-5 shadow-sm sm:min-h-[190px] sm:p-6">
             <div className="absolute inset-0 -z-20 bg-[linear-gradient(90deg,#f2f9df_0%,rgba(242,249,223,.98)_30%,rgba(242,249,223,.88)_43%,rgba(242,249,223,.08)_68%,rgba(242,249,223,0)_100%)]" />
-            <div className="absolute inset-y-0 right-0 -z-30 w-[62%] bg-cover bg-[center_54%]" style={{backgroundImage:"url('https://lafermedeyoyo.com/_assets/media/0987b14bc5fbc68bbfe655b88e86bd90.jpg')"}} />
-            <div className="absolute inset-y-0 right-0 -z-10 w-[66%] bg-gradient-to-l from-transparent via-lime-100/5 to-[#f2f9df]" />
-            <div className="relative z-10 max-w-[68%]">
+            <div className="absolute inset-y-0 right-0 -z-30 w-[58%] bg-cover bg-[center_48%]" style={{backgroundImage:"url('https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=1400&q=90')"}} />
+            <div className="absolute inset-y-0 right-0 -z-10 w-[64%] bg-gradient-to-l from-transparent via-lime-100/0 to-[#f2f9df]" />
+            <div className="relative z-10 max-w-[72%]">
               <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-700">Fresh daily · Farm to home</p>
               <h2 className="max-w-lg text-2xl font-extrabold leading-tight text-slate-950 sm:text-3xl">Fresh from local farmers to your home</h2>
               <p className="mt-2 text-xs font-semibold text-slate-700 sm:text-sm">Fresh Produce <span className="mx-1.5 text-emerald-600">|</span> Verified Farmers <span className="mx-1.5 text-emerald-600">|</span> Safe & Traceable</p>
