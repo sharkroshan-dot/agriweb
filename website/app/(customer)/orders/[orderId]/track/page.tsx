@@ -808,11 +808,11 @@ export default function OrderDetailPage() {
                   return (
                     <div key={step.key} className="flex min-w-0 flex-col items-center">
                       <div className="flex h-10 w-full items-center">
-                        <div className={`h-1 flex-1 ${index > 0 && (isComplete || isCurrent) ? "bg-emerald-600" : "bg-slate-200"}`} />
+                        <div className={`h-1 flex-1 ${index === 0 ? "invisible" : isComplete || isCurrent ? "bg-emerald-600" : "bg-slate-200"}`} />
                         <div className={`z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-[2.5px] shadow-sm ${nodeClass}`}>
                           {isComplete ? <CheckCircle className="h-4 w-4" /> : <span className="text-xs font-bold">{index + 1}</span>}
                         </div>
-                        <div className={`h-1 flex-1 ${index < journeySteps.length - 1 && isComplete ? "bg-emerald-600" : "bg-slate-200"}`} />
+                        <div className={`h-1 flex-1 ${index === journeySteps.length - 1 ? "invisible" : isComplete ? "bg-emerald-600" : "bg-slate-200"}`} />
                       </div>
                       <p className={`mt-2 max-w-[112px] px-1 text-center text-[11px] font-semibold leading-snug ${labelClass}`}>{step.label}</p>
                       {isCurrent && <span className="mt-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-700">Current step</span>}
