@@ -682,13 +682,14 @@ export default function OrderDetailPage() {
   const statusFallbackIndex = (() => {
     const status = order.status;
     if (status === "delivered" || status === "completed") return journeySteps.length - 1;
-    if (["out_for_delivery", "in_transit", "shipped"].includes(status)) return journeySteps.findIndex((step: any) => step.key === "out_for_delivery");
-    if (["dispatched"].includes(status)) return journeySteps.findIndex((step: any) => step.key === (isWarehouseTransfer ? "transfer_dispatched" : "out_for_delivery"));
+    if (["out_for_delivery"].includes(status)) return journeySteps.findIndex((step: any) => step.key === "out_for_delivery");
+    if (["in_transit", "shipped"].includes(status)) return journeySteps.findIndex((step: any) => step.key === (isWarehouseTransfer ? "transfer_in_transit" : "out_for_delivery"));
+    if (["dispatched"].includes(status)) return journeySteps.findIndex((step: any) => step.key === (isWarehouseTransfer ? "transfer_dispatched" : (hasLocalHubStage ? "local_hub" : "delivery_partner_assigned")));
     if (["ready_for_pickup", "pickup_assigned", "collected_from_farm"].includes(status)) return journeySteps.findIndex((step: any) => step.key === (isWarehouseTransfer ? "farm_pickup" : "ready_for_delivery"));
     if (["ready_for_delivery", "packed"].includes(status)) return journeySteps.findIndex((step: any) => step.key === "ready_for_delivery");
     if (["processing", "preparing"].includes(status)) return journeySteps.findIndex((step: any) => step.key === "preparing");
-    if (["confirmed"].includes(status)) return journeySteps.findIndex((step: any) => step.key === "confirmed");
-    return 0;
+    if (["confirmed"].includes(status)) return journeySteps.findIndex((step: any) => step.key === "preparing");
+    return journeySteps.findIndex((step: any) => step.key === "confirmed");
   })();
 
   const latestMatchedIndex = matchedJourneyEvents.reduce(
@@ -1209,8 +1210,9 @@ export default function OrderDetailPage() {
               <div className="space-y-0">
                 {journeySteps.map((step: any, index: number) => {
                   const event = matchedJourneyEvents[index];
-                  const isComplete = !isTerminalOrder && (index < currentJourneyIndex || Boolean(event) || (index === currentJourneyIndex && ["delivered", "completed"].includes(order.status)));
-                  const isCurrent = !isTerminalOrder && index === currentJourneyIndex && order.status !== "delivered";
+                  const isDelivered = ["delivered", "completed"].includes(order.status);
+                  const isComplete = isDelivered || index < currentJourneyIndex;
+                  const isCurrent = !isTerminalOrder && index === currentJourneyIndex && !isDelivered;
                   const eventDate = event?.date;
                   const stageDescription = event?.description || step.description;
                   const timestampLabel = eventDate
