@@ -131,17 +131,15 @@ export default function CustomerDashboardPage() {
 
       <div className="grid gap-3 2xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="min-w-0 space-y-4">
-          <section className="relative min-h-[170px] overflow-hidden rounded-2xl border border-emerald-100 bg-[linear-gradient(105deg,#f4fce7_0%,#e9f8dc_52%,#cceebd_100%)] p-5 shadow-sm sm:min-h-[184px] sm:p-6">
-            <div className="pointer-events-none absolute inset-y-0 right-0 w-[52%] bg-gradient-to-l from-lime-200/50 via-emerald-100/20 to-transparent" />
-            <div className="pointer-events-none absolute -right-5 -bottom-12 h-36 w-[48%] rounded-tl-[100%] bg-gradient-to-tl from-emerald-400/35 via-lime-200/40 to-transparent" />
+          <section className="relative isolate min-h-[170px] overflow-hidden rounded-2xl border border-emerald-100 bg-[#edf8df] p-5 shadow-sm sm:min-h-[184px] sm:p-6">
+            <div className="absolute inset-0 -z-20 bg-[linear-gradient(90deg,#f4fce7_0%,rgba(244,252,231,.96)_36%,rgba(244,252,231,.62)_58%,rgba(244,252,231,.04)_100%)]" />
+            <div className="absolute inset-y-0 right-0 -z-30 w-[58%] bg-cover bg-center" style={{backgroundImage:"url('https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=1400&q=85')"}} />
+            <div className="absolute inset-y-0 right-0 -z-10 w-[62%] bg-gradient-to-l from-transparent via-lime-100/10 to-[#f4fce7]" />
             <div className="relative z-10 max-w-[72%]">
               <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-700">Fresh daily · Farm to home</p>
               <h2 className="max-w-lg text-2xl font-extrabold leading-tight text-slate-950 sm:text-3xl">Fresh from local farmers to your home</h2>
               <p className="mt-2 text-xs font-semibold text-slate-700 sm:text-sm">Fresh Produce <span className="mx-1.5 text-emerald-600">|</span> Verified Farmers <span className="mx-1.5 text-emerald-600">|</span> Safe & Traceable</p>
               <Button asChild size="sm" className="mt-3 rounded-full bg-emerald-700 px-5 font-semibold hover:bg-emerald-800"><Link href="/nearby">Shop Now <ArrowRight className="ml-1.5 h-3.5 w-3.5" /></Link></Button>
-            </div>
-            <div className="pointer-events-none absolute bottom-2 right-5 hidden items-end justify-center sm:flex">
-              <div className="rounded-full border border-white/70 bg-white/45 px-5 py-2 text-4xl shadow-sm backdrop-blur-sm">🧺 🥬 🥕 🍅</div>
             </div>
           </section>
 
