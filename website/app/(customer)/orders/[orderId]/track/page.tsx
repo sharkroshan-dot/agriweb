@@ -774,27 +774,53 @@ export default function OrderDetailPage() {
             </div>
           </div>
           <div className="min-w-0">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <div><span className="text-sm font-bold text-slate-900">Order progress</span><p className="mt-1 text-xs text-slate-500">{isTerminalOrder ? displayStatus : `Step ${Math.min(currentJourneyIndex + 1, journeySteps.length)} of ${journeySteps.length} · ${journeySteps[currentJourneyIndex]?.label || "Order Placed"}`}</p></div>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <span className="text-sm font-bold text-slate-900">Order progress</span>
+                <p className="mt-1 text-xs text-slate-500">
+                  {isTerminalOrder
+                    ? displayStatus
+                    : `Step ${Math.min(currentJourneyIndex + 1, journeySteps.length)} of ${journeySteps.length} · ${journeySteps[currentJourneyIndex]?.label || "Order Placed"}`}
+                </p>
+              </div>
               <Badge className={statusColors[order.status] || "border-gray-200 bg-gray-50 text-gray-700"}>{displayStatus}</Badge>
             </div>
-            <div className="overflow-x-auto pb-2">
-              <div className={`flex min-w-max items-start ${isWarehouseTransfer ? "min-w-[1120px]" : "min-w-[760px]"}`}>
+
+            {/* Point-to-point stepper: each milestone has its own numbered node,
+                connecting line, and label. Long transfer routes scroll horizontally. */}
+            <div className="w-full overflow-x-auto pb-3">
+              <div className={`flex items-start ${isWarehouseTransfer ? "min-w-[1180px]" : "min-w-[820px]"}`}>
                 {journeySteps.map((step: any, index: number) => {
                   const isDelivered = ["delivered", "completed"].includes(order.status);
                   const isComplete = !isTerminalOrder && (isDelivered || index < currentJourneyIndex);
                   const isCurrent = !isTerminalOrder && index === currentJourneyIndex && !isDelivered;
+                  const nodeClass = isComplete
+                    ? "border-emerald-700 bg-emerald-700 text-white"
+                    : isCurrent
+                      ? "border-emerald-700 bg-white text-emerald-700 ring-4 ring-emerald-100"
+                      : "border-slate-300 bg-white text-slate-400";
+                  const labelClass = isCurrent
+                    ? "text-emerald-800"
+                    : isComplete
+                      ? "text-slate-800"
+                      : "text-slate-500";
                   return (
                     <div key={step.key} className="flex min-w-0 flex-1 flex-col items-center">
                       <div className="flex w-full items-center">
-                        {index > 0 && <div className={`h-1 flex-1 ${isComplete || isCurrent ? "bg-emerald-600" : "bg-slate-200"}`} />}
-                        <div className={`relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 transition-colors ${isComplete ? "border-emerald-700 bg-emerald-700 text-white" : isCurrent ? "border-emerald-700 bg-white text-emerald-700 ring-4 ring-emerald-100" : "border-slate-300 bg-white text-slate-400"}`}>
-                          {isComplete ? <CheckCircle className="h-4 w-4" /> : <span className="text-xs font-semibold">{index + 1}</span>}
+                        <div className={`h-1 flex-1 ${index > 0 && (isComplete || isCurrent) ? "bg-emerald-600" : "bg-slate-200"}`} />
+                        <div className={`relative z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 shadow-sm transition-all ${nodeClass}`}>
+                          {isComplete
+                            ? <CheckCircle className="h-4 w-4" />
+                            : <span className="text-xs font-bold">{index + 1}</span>}
                         </div>
-                        {index < journeySteps.length - 1 && <div className={`h-1 flex-1 ${isComplete ? "bg-emerald-600" : "bg-slate-200"}`} />}
+                        <div className={`h-1 flex-1 ${index < journeySteps.length - 1 && isComplete ? "bg-emerald-600" : "bg-slate-200"}`} />
                       </div>
-                      <p className={`mt-2 max-w-[112px] px-1 text-center text-[11px] font-semibold leading-tight ${isCurrent ? "text-emerald-800" : isComplete ? "text-slate-800" : "text-slate-500"}`}>{step.label}</p>
-                      {isCurrent && <span className="mt-1 text-[9px] font-bold uppercase tracking-wide text-emerald-700">Current</span>}
+                      <p className={`mt-3 max-w-[125px] px-1 text-center text-[11px] font-semibold leading-snug ${labelClass}`}>{step.label}</p>
+                      {isCurrent && (
+                        <span className="mt-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-700">
+                          Current step
+                        </span>
+                      )}
                     </div>
                   );
                 })}
