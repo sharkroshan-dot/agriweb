@@ -626,17 +626,21 @@ export default function OrderDetailPage() {
   return (
     <div className="customer-retail-shell space-y-5 pb-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <div className="mb-1 flex items-center gap-2 text-xs font-medium text-slate-500"><Link href="/orders" className="hover:text-emerald-700">My Orders</Link><span>›</span><span className="text-slate-700">Track Order</span></div>
-          <div className="flex items-center gap-3">
-            <Truck className="h-9 w-9 text-emerald-700" />
-            <div><h1 className="text-2xl font-extrabold tracking-tight text-slate-950">Track Order</h1><p className="text-sm text-slate-600">Follow your order from farm to your doorstep.</p></div>
+        <div className="flex min-w-0 items-start gap-3">
+          <Button asChild variant="outline" size="sm" className="mt-1 shrink-0 rounded-xl border-slate-200 bg-white">
+            <Link href="/orders"><ArrowLeft className="mr-2 h-4 w-4" /> Back</Link>
+          </Button>
+          <div className="min-w-0">
+            <div className="mb-1 flex items-center gap-2 text-xs font-medium text-slate-500"><Link href="/orders" className="hover:text-emerald-700">My Orders</Link><span>›</span><span className="text-slate-700">Track Order</span></div>
+            <div className="flex items-center gap-3">
+              <Truck className="h-9 w-9 shrink-0 text-emerald-700" />
+              <div><h1 className="text-2xl font-extrabold tracking-tight text-slate-950">Track Order</h1><p className="text-sm text-slate-600">Follow your order from farm to your doorstep.</p></div>
+            </div>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" onClick={() => { refetchOrder(); refetchTracking(); }} className="rounded-xl"><RefreshCw className="mr-2 h-4 w-4" /> Refresh</Button>
           <Button asChild className="rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"><Link href={`/orders/${orderId}`}><Receipt className="mr-2 h-4 w-4" /> Order Details</Link></Button>
-          <Button asChild variant="ghost" className="rounded-xl"><Link href="/orders"><ArrowLeft className="mr-2 h-4 w-4" /> Back</Link></Button>
         </div>
       </div>
 
