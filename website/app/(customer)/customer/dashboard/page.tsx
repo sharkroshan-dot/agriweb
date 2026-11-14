@@ -55,7 +55,7 @@ export default function CustomerDashboardPage() {
   });
   const { data: productsData } = useQuery({
     queryKey: ["customerProducts", "featured"],
-    queryFn: () => api.get("/products/search", { params: { limit: 8, sortBy: "createdAt", sortOrder: "desc" } }),
+    queryFn: () => api.get("/products/search", { params: { limit: 12, sortBy: "createdAt", sortOrder: "desc" } }),
   });
   const { data: walletData } = useQuery({
     queryKey: ["customerWalletDashboard"],
@@ -116,7 +116,7 @@ export default function CustomerDashboardPage() {
         <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-sm"><CalendarDays className="h-4 w-4 text-emerald-700" />{dateLabel}</div>
       </div>
 
-      <div className="grid gap-3 2xl:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="min-w-0 space-y-4">
           <section className="relative isolate min-h-[178px] overflow-hidden rounded-2xl border border-emerald-100 bg-[#f1f9df] p-5 shadow-sm sm:min-h-[190px] sm:p-6">
             <div className="absolute inset-0 -z-20 bg-[linear-gradient(90deg,#f2f9df_0%,rgba(242,249,223,.98)_30%,rgba(242,249,223,.88)_43%,rgba(242,249,223,.08)_68%,rgba(242,249,223,0)_100%)]" />
@@ -183,11 +183,11 @@ export default function CustomerDashboardPage() {
           <Card className="border-slate-200 shadow-sm">
             <CardContent className="p-4">
               <div className="mb-3 flex items-center justify-between"><h2 className="flex items-center gap-2 text-lg font-bold text-slate-900"><Leaf className="h-5 w-5 text-emerald-700" />Recommended for You</h2><Button asChild variant="ghost" size="sm" className="text-emerald-700"><Link href="/nearby">View More <ArrowRight className="ml-1 h-4 w-4" /></Link></Button></div>
-              {products.length ? <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">{products.map((product: any) => {
+              {products.length ? <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6">{products.map((product: any) => {
                 const id = product._id || product.id;
                 const name = product.name || product.productName || "Fresh Produce";
                 const image = product.images?.[0] || product.image || "/images/placeholder-product.jpg";
-                return <div key={id} className="group overflow-hidden rounded-xl border border-slate-200 bg-white transition hover:-translate-y-0.5 hover:shadow-md"><Link href={`/product/${id}`}><div className="aspect-square overflow-hidden bg-emerald-50"><img src={image} alt={name} className="h-full w-full object-cover transition group-hover:scale-105" onError={(e) => { (e.target as HTMLImageElement).src = "/images/placeholder-product.jpg"; }} /></div><div className="p-2.5"><p className="line-clamp-1 text-sm font-semibold text-slate-900">{name}</p><p className="mt-1 text-xs text-slate-500">{product.farmerName || product.farmer?.name || "Local Farmer"}</p><p className="mt-1 font-bold text-emerald-700">{money(product.price)}<span className="font-normal text-slate-500">/{product.unit || "kg"}</span></p></div></Link><div className="px-2.5 pb-2.5"><Button size="sm" className="w-full rounded-full bg-emerald-700 hover:bg-emerald-800" onClick={() => handleAddToCart(product)}><Plus className="mr-1 h-3.5 w-3.5" /> Add</Button></div></div>;
+                return <div key={id} className="group overflow-hidden rounded-xl border border-slate-200 bg-white transition hover:-translate-y-0.5 hover:shadow-md"><Link href={`/product/${id}`}><div className="h-24 overflow-hidden bg-emerald-50 sm:h-28 2xl:h-24"><img src={image} alt={name} className="h-full w-full object-contain p-1 transition group-hover:scale-[1.03]" onError={(e) => { (e.target as HTMLImageElement).src = "/images/placeholder-product.jpg"; }} /></div><div className="p-2.5"><p className="line-clamp-1 text-sm font-semibold text-slate-900">{name}</p><p className="mt-1 text-xs text-slate-500">{product.farmerName || product.farmer?.name || "Local Farmer"}</p><p className="mt-1 font-bold text-emerald-700">{money(product.price)}<span className="font-normal text-slate-500">/{product.unit || "kg"}</span></p></div></Link><div className="px-2.5 pb-2.5"><Button size="sm" className="w-full rounded-full bg-emerald-700 hover:bg-emerald-800" onClick={() => handleAddToCart(product)}><Plus className="mr-1 h-3.5 w-3.5" /> Add</Button></div></div>;
               })}</div> : <div className="rounded-xl bg-slate-50 p-6 text-center text-sm text-slate-500">Fresh products will appear here when available.</div>}
             </CardContent>
           </Card>
