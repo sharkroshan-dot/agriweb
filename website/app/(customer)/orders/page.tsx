@@ -258,7 +258,7 @@ export default function CustomerOrdersPage() {
                         </div>
                       )}
                       <div className="flex flex-wrap gap-2">
-                        {canTrack && <Button asChild className="flex-1 rounded-xl bg-green-700 hover:bg-green-800"><Link href={`/orders/${order.id}`}><MapPin className="mr-2 h-4 w-4" /> Track Order</Link></Button>}
+                        {canTrack && <Button asChild className="flex-1 rounded-xl bg-green-700 hover:bg-green-800"><Link href={`/orders/${order.id}/track`}><MapPin className="mr-2 h-4 w-4" /> Track Order</Link></Button>}
                         <Button asChild variant="outline" className="flex-1 rounded-xl border-slate-300"><Link href={`/orders/${order.id}`}><FileText className="mr-2 h-4 w-4" /> Order Details</Link></Button>
                         {(isDelivered || isCancelled) && <Button onClick={() => handleBuyAgain(order)} variant="outline" className="rounded-xl border-green-300 text-green-800 hover:bg-green-50"><RefreshCw className="mr-2 h-4 w-4" /> Buy Again</Button>}
                         {isDelivered && (ratedOrderIds.has(String(order.id)) ? <Badge variant="success" className="gap-1 self-center"><CheckCircle2 className="h-3 w-3" /> Rated</Badge> : <Button asChild variant="outline" className="rounded-xl"><Link href={`/orders/${order.id}#rate-delivery`}><Star className="mr-2 h-4 w-4" /> Rate Delivery</Link></Button>)}
