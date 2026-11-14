@@ -136,22 +136,19 @@ export function Header() {
                 </Link>
               )}
               {role === "customer" && (
-                <Link href="/profile/addresses" className="agri-header-location" title="Change delivery location">
+                <Link href="/profile/addresses" className="agri-header-location" title="Manage delivery location">
                   <MapPin className="h-[19px] w-[19px]" aria-hidden="true" />
-                  <span>Tiruchirappalli</span>
+                  <span>Delivery location</span>
                 </Link>
               )}
 
               {role === "customer" && (
                 <>
-                  <Link href="/wishlist" aria-label={`Wishlist, ${wishlistItems.length} items`} title="Wishlist" className="agri-header-icon-link agri-header-count-link">
-                    <Heart className="h-[18px] w-[18px]" />
-                    {wishlistItems.length > 0 && <span className="agri-header-count agri-header-count--wishlist">{wishlistItems.length > 99 ? "99+" : wishlistItems.length}</span>}
-                  </Link>
                   <Link href="/cart" aria-label={`Cart, ${cartCount} items`} title="Cart" className="agri-header-icon-link agri-header-count-link">
                     <ShoppingCart className="h-[18px] w-[18px]" />
                     {cartCount > 0 && <span className="agri-header-count">{cartCount > 99 ? "99+" : cartCount}</span>}
                   </Link>
+
                 </>
               )}
 
