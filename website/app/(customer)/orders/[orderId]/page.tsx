@@ -1168,39 +1168,6 @@ export default function OrderDetailPage() {
               </Card>
             )}
 
-            <Card className="rounded-2xl border-emerald-100 shadow-sm">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <MapPin className="h-5 w-5 text-emerald-700" /> Delivery Address
-                </CardTitle>
-                <CardDescription>{order.address}</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-2 text-sm">
-                <div className="flex items-center gap-2">
-                  <Clock className="h-4 w-4 text-muted-foreground" />
-                  <span>Estimated delivery: {order.estimatedDelivery ? formatDate(order.estimatedDelivery) : "To be confirmed"}</span>
-                </div>
-                {order.requestedDeliveryDate && (
-                  <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-emerald-800">
-                    <p className="flex items-center gap-2 font-medium"><Truck className="h-4 w-4" /> Fresh delivery window</p>
-                    <p className="mt-1 text-xs">Preferred: {formatDate(order.requestedDeliveryDate)}{order.deliveryTimeSlot ? ` · ${order.deliveryTimeSlot.replace(/_/g, " ")}` : ""}</p>
-                    <p className="mt-1 text-xs">We prioritize fresh produce for this delivery window.</p>
-                  </div>
-                )}
-                <div className="flex items-center gap-2">
-                  <CreditCard className="h-4 w-4 text-muted-foreground" />
-                  <span className="capitalize">{order.paymentMethod.replace(/_/g, " ")}</span>
-                </div>
-                <Button variant="outline" size="sm" className="mt-2" onClick={() => setChatOpen(true)}>
-                  <MessageCircle className="mr-2 h-4 w-4" /> Chat with delivery partner
-                </Button>
-                {order.specialInstructions && (
-                  <div className="mt-2 rounded-md bg-gray-50 p-2 text-xs text-muted-foreground">
-                    <span className="font-medium">Instructions:</span> {order.specialInstructions}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
           {chatOpen && order && <LiveChatDialog orderId={orderId} customerName="Delivery partner" onClose={() => setChatOpen(false)} />}
 
           {order.tracking.length > 0 && (
@@ -1235,6 +1202,51 @@ export default function OrderDetailPage() {
               </CardContent>
             </Card>
           )}
+        </div>
+        <div className="space-y-5 xl:col-start-2 xl:row-start-2">
+          <Card className="rounded-2xl border-emerald-100 shadow-sm">
+            <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+                <MapPin className="h-5 w-5 text-emerald-700" /> Delivery Address
+              </CardTitle>
+            <CardDescription>{order.address}</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm">
+              <div className="flex items-center gap-2">
+                <Clock className="h-4 w-4 text-muted-foreground" />
+                <span>Estimated delivery: {order.estimatedDelivery ? formatDate(order.estimatedDelivery) : "To be confirmed"}</span>
+              </div>
+              {order.requestedDeliveryDate && (
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-emerald-800">
+                  <p className="flex items-center gap-2 font-medium"><Truck className="h-4 w-4" /> Fresh delivery window</p>
+                  <p className="mt-1 text-xs">Preferred: {formatDate(order.requestedDeliveryDate)}{order.deliveryTimeSlot ? ` · ${order.deliveryTimeSlot.replace(/_/g, " ")}` : ""}</p>
+                  <p className="mt-1 text-xs">We prioritize fresh produce for this delivery window.</p>
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <CreditCard className="h-4 w-4 text-muted-foreground" />
+                <span className="capitalize">{order.paymentMethod.replace(/_/g, " ")}</span>
+              </div>
+              <Button variant="outline" size="sm" className="mt-2" onClick={() => setChatOpen(true)}>
+                <MessageCircle className="mr-2 h-4 w-4" /> Chat with delivery partner
+              </Button>
+              {order.specialInstructions && (
+                <div className="mt-2 rounded-md bg-gray-50 p-2 text-xs text-muted-foreground">
+                  <span className="font-medium">Instructions:</span> {order.specialInstructions}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-2xl border-emerald-100 shadow-sm">
+            <CardContent className="p-5">
+              <div className="flex items-center gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50"><MessageCircle className="h-6 w-6 text-emerald-700" /></div><div><h3 className="font-bold text-slate-900">Need Help?</h3><p className="text-xs text-slate-500">We're here to help with your order.</p></div></div>
+              <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                <Button variant="outline" className="w-full" onClick={() => setChatOpen(true)}><MessageCircle className="mr-2 h-4 w-4" /> Contact Support</Button>
+                {canReportProblem && <Button variant="outline" className="w-full border-emerald-300 text-emerald-700 hover:bg-emerald-50" onClick={() => setShowProblemDialog(true)}><AlertTriangle className="mr-2 h-4 w-4" /> Report a Problem</Button>}
+              </div>
+            </CardContent>
+          </Card>
         </div>
       </div>
 
