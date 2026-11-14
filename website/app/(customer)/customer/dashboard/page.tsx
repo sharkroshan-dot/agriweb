@@ -131,27 +131,29 @@ export default function CustomerDashboardPage() {
 
       <div className="grid gap-3 2xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="min-w-0 space-y-4">
-          <section className="relative min-h-[150px] overflow-hidden rounded-2xl border border-emerald-100 bg-[linear-gradient(105deg,#f3fce5_0%,#e7f8d9_58%,#d5f1c5_100%)] p-5 shadow-sm sm:min-h-[156px] sm:p-6">
-            <div className="relative z-10 max-w-[68%]">
-              <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">Fresh daily · Farm to home</p>
-              <h2 className="max-w-md text-xl font-extrabold leading-tight text-slate-900 sm:text-2xl">Fresh from local farmers to your home</h2>
-              <p className="mt-2 text-xs font-medium text-slate-600 sm:text-sm">Fresh Produce <span className="mx-1.5 text-emerald-500">|</span> Verified Farmers <span className="mx-1.5 text-emerald-500">|</span> Safe & Traceable</p>
-              <Button asChild size="sm" className="mt-3 rounded-full bg-emerald-700 px-5 hover:bg-emerald-800"><Link href="/nearby">Shop Now <ArrowRight className="ml-1.5 h-3.5 w-3.5" /></Link></Button>
+          <section className="relative min-h-[170px] overflow-hidden rounded-2xl border border-emerald-100 bg-[linear-gradient(105deg,#f4fce7_0%,#e9f8dc_52%,#cceebd_100%)] p-5 shadow-sm sm:min-h-[184px] sm:p-6">
+            <div className="pointer-events-none absolute inset-y-0 right-0 w-[52%] bg-gradient-to-l from-lime-200/50 via-emerald-100/20 to-transparent" />
+            <div className="pointer-events-none absolute -right-5 -bottom-12 h-36 w-[48%] rounded-tl-[100%] bg-gradient-to-tl from-emerald-400/35 via-lime-200/40 to-transparent" />
+            <div className="relative z-10 max-w-[72%]">
+              <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-700">Fresh daily · Farm to home</p>
+              <h2 className="max-w-lg text-2xl font-extrabold leading-tight text-slate-950 sm:text-3xl">Fresh from local farmers to your home</h2>
+              <p className="mt-2 text-xs font-semibold text-slate-700 sm:text-sm">Fresh Produce <span className="mx-1.5 text-emerald-600">|</span> Verified Farmers <span className="mx-1.5 text-emerald-600">|</span> Safe & Traceable</p>
+              <Button asChild size="sm" className="mt-3 rounded-full bg-emerald-700 px-5 font-semibold hover:bg-emerald-800"><Link href="/nearby">Shop Now <ArrowRight className="ml-1.5 h-3.5 w-3.5" /></Link></Button>
             </div>
-            <div className="pointer-events-none absolute -right-5 -bottom-10 h-36 w-[34%] rounded-tl-[100%] bg-gradient-to-tl from-emerald-300/35 via-lime-200/35 to-transparent" />
-            <div className="pointer-events-none absolute right-5 top-2 hidden h-32 w-[28%] items-center justify-center sm:flex"><div className="relative flex h-20 w-32 items-center justify-center rounded-full border border-white/70 bg-white/45 text-4xl shadow-sm">🥬🥕🍅</div></div>
+            <div className="pointer-events-none absolute bottom-2 right-5 hidden items-end justify-center sm:flex">
+              <div className="rounded-full border border-white/70 bg-white/45 px-5 py-2 text-4xl shadow-sm backdrop-blur-sm">🧺 🥬 🥕 🍅</div>
+            </div>
           </section>
 
-          <section className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
+          <section className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {[
               { label: "Shop Products", href: "/nearby", icon: ShoppingBasket, tone: "bg-emerald-50 text-emerald-700" },
               { label: "My Orders", href: "/orders", icon: Package, tone: "bg-blue-50 text-blue-700" },
               { label: "Subscribe Farm Basket", href: "/subscriptions", icon: CalendarDays, tone: "bg-amber-50 text-amber-700" },
               { label: "Bulk & Event Orders", href: "/bulk-orders", icon: Gift, tone: "bg-violet-50 text-violet-700" },
-              { label: "Track a Lot", href: "/trace", icon: Search, tone: "bg-teal-50 text-teal-700" },
             ].map((action) => (
-              <Link key={action.label} href={action.href} className="flex min-h-[72px] items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-md">
-                <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${action.tone}`}><action.icon className="h-5 w-5" /></span>
+              <Link key={action.label} href={action.href} className="flex min-h-[76px] items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-md sm:min-h-[82px]">
+                <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${action.tone}`}><action.icon className="h-5 w-5" /></span>
                 <span className="text-sm font-semibold leading-tight text-slate-800">{action.label}</span>
               </Link>
             ))}
