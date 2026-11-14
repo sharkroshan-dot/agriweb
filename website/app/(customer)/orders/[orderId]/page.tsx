@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft, Box, CalendarDays, CheckCircle2, Clock3, CreditCard,
-  Download, FileText, Headphones, MapPin, Package, Phone, Receipt,
+  Download, FileText, Headphones, MapPin, Package, Phone,
   Truck, XCircle
 } from "lucide-react";
 import { Button } from "../../../../components/ui/button";
@@ -13,6 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "../../../../components
 import { Badge } from "../../../../components/ui/badge";
 import { api } from "../../../../lib/api/client";
 import { formatDate, formatPrice } from "../../../../lib/utils";
+import { LiveChatDialog } from "../../../../components/delivery/live-chat-dialog";
 
 const statusStyles: Record<string, string> = {
   pending: "border-amber-200 bg-amber-50 text-amber-700",
@@ -40,6 +42,7 @@ function titleCase(value: string) {
 }
 
 export default function OrderDetailPage() {
+  const [chatOpen, setChatOpen] = useState(false);
   const params = useParams();
   const orderId = params.orderId as string;
 
@@ -125,7 +128,7 @@ export default function OrderDetailPage() {
         <div className="flex flex-wrap items-center gap-2">
           <Button asChild variant="outline" className="rounded-xl border-slate-200 bg-white"><Link href={`/orders/${orderId}/track`}><Truck className="mr-2 h-4 w-4 text-emerald-700" /> Track Order</Link></Button>
           <Button asChild variant="outline" className="rounded-xl border-slate-200 bg-white"><Link href={`/orders/${orderId}/invoice`}><Download className="mr-2 h-4 w-4" /> Download Invoice</Link></Button>
-          <Button asChild variant="outline" className="rounded-xl border-slate-200 bg-white"><Link href="/support"><Headphones className="mr-2 h-4 w-4" /> Need Help?</Link></Button>
+          <Button variant="outline" className="rounded-xl border-slate-200 bg-white" onClick={() => setChatOpen(true)}><Headphones className="mr-2 h-4 w-4" /> Need Help?</Button>
         </div>
       </div>
 
@@ -208,6 +211,7 @@ export default function OrderDetailPage() {
           </CardContent>
         </Card>
       </div>
+      {chatOpen && <LiveChatDialog orderId={orderId} customerName="Customer" onClose={() => setChatOpen(false)} />}
     </div>
   );
 }
