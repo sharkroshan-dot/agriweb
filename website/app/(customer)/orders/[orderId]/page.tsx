@@ -9,12 +9,12 @@ import {
   Download, FileText, Headphones, MapPin, Package, Phone,
   Truck, XCircle
 } from "lucide-react";
-import { Button } from "../../../../components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "../../../../components/ui/card";
-import { Badge } from "../../../../components/ui/badge";
-import { api } from "../../../../lib/api/client";
-import { formatDate, formatPrice } from "../../../../lib/utils";
-import { LiveChatDialog } from "../../../../components/delivery/live-chat-dialog";
+import { Button } from "../../../components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card";
+import { Badge } from "../../../components/ui/badge";
+import { api } from "../../../lib/api/client";
+import { formatDate, formatPrice } from "../../../lib/utils";
+import { LiveChatDialog } from "../../../components/delivery/live-chat-dialog";
 
 const statusStyles: Record<string, string> = {
   pending: "border-amber-200 bg-amber-50 text-amber-700",
