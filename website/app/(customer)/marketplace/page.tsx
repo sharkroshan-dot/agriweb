@@ -92,62 +92,18 @@ function MarketplaceInner() {
   return <div className="space-y-4 px-4 py-5 md:px-5 md:py-6">
     <header className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700"><Store className="h-6 w-6"/></div><div><h1 className="text-2xl font-extrabold tracking-tight text-slate-950">Marketplace</h1><p className="text-sm text-slate-600">Discover fresh products from local farmers near you, across your state and from all over India.</p></div></header>
 
-    <section className="relative min-h-[150px] overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-r from-lime-100 via-emerald-50 to-teal-100 px-5 py-5 shadow-sm md:min-h-[165px] md:px-9">
-      <div className="absolute inset-0 opacity-25" style={{backgroundImage:"radial-gradient(circle at 12% 95%, #65a30d 0, transparent 34%), radial-gradient(circle at 82% 8%, #10b981 0, transparent 34%)"}}/>
-      <div className="relative z-10 max-w-3xl"><p className="mb-2 text-[10px] font-extrabold uppercase tracking-[0.22em] text-emerald-800">Fresh Daily · Farm to Home</p><h2 className="text-2xl font-black leading-tight tracking-tight text-slate-950 md:text-3xl">Freshness You Can Trust,<br className="hidden sm:block"/> Straight from Our Farms</h2><p className="mt-2 text-sm font-semibold text-slate-800">Farm Fresh Produce <span className="mx-2 text-emerald-700">|</span> Trusted Local Farmers <span className="mx-2 text-emerald-700">|</span> Quality Assured</p><a href="/nearby" className="mt-3 inline-flex items-center rounded-full bg-emerald-700 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2">Explore Fresh Products <span className="ml-2">→</span></a></div>
-      <div className="pointer-events-none absolute -bottom-1 right-0 hidden h-[154px] w-[390px] items-end md:flex lg:right-3 lg:h-[174px] lg:w-[440px]" aria-hidden="true">
-        <svg viewBox="0 0 440 190" className="h-full w-full drop-shadow-lg" role="img" aria-label="Fresh vegetables in a woven farm basket">
-          <defs>
-            <linearGradient id="basketBody" x1="0" y1="0" x2="1" y2="1"><stop stopColor="#d99a4d"/><stop offset=".48" stopColor="#b8732f"/><stop offset="1" stopColor="#75401f"/></linearGradient>
-            <linearGradient id="basketRim" x1="0" y1="0" x2="0" y2="1"><stop stopColor="#f5d08d"/><stop offset=".5" stopColor="#b97836"/><stop offset="1" stopColor="#8b4d25"/></linearGradient>
-            <linearGradient id="leafGreen" x1="0" y1="0" x2="1" y2="1"><stop stopColor="#b8e94b"/><stop offset=".55" stopColor="#55ad2b"/><stop offset="1" stopColor="#176b2b"/></linearGradient>
-            <linearGradient id="tomatoRed" x1="0" y1="0" x2="1" y2="1"><stop stopColor="#ff7650"/><stop offset=".45" stopColor="#ed3525"/><stop offset="1" stopColor="#a90d18"/></linearGradient>
-            <linearGradient id="carrotOrange" x1="0" y1="0" x2="1" y2="1"><stop stopColor="#ffd05b"/><stop offset=".45" stopColor="#ff8c20"/><stop offset="1" stopColor="#d94a13"/></linearGradient>
-            <radialGradient id="cauli" cx=".42" cy=".3"><stop stopColor="#fffef0"/><stop offset=".7" stopColor="#f1edcf"/><stop offset="1" stopColor="#c8c5a9"/></radialGradient>
-          </defs>
-          {/* leafy greens behind the produce */}
-          <g stroke="#398b2d" strokeWidth="2">
-            <path d="M104 112 C65 82 72 35 101 25 C123 45 130 76 119 112Z" fill="url(#leafGreen)"/>
-            <path d="M126 105 C94 60 117 15 149 10 C166 42 159 79 139 112Z" fill="#78c638"/>
-            <path d="M164 99 C143 52 165 14 199 8 C218 41 207 78 185 108Z" fill="url(#leafGreen)"/>
-            <path d="M219 100 C205 53 234 16 265 21 C277 57 256 86 238 111Z" fill="#69b735"/>
-            <path d="M270 108 C269 64 302 35 333 48 C337 82 309 106 286 119Z" fill="#4c9f30"/>
-            <path d="M309 111 C321 73 360 60 383 82 C373 112 343 126 321 125Z" fill="#8bc83d"/>
-            <path d="M103 103 Q94 66 101 32 M134 101 Q140 54 149 18 M181 100 Q185 50 198 16 M237 103 Q248 58 264 28 M285 111 Q302 76 329 54" fill="none" stroke="#d2f18a" strokeWidth="2"/>
-          </g>
-          {/* carrots and long green vegetables */}
-          <path d="M150 104 Q176 54 202 38 Q199 77 167 119 Q158 120 150 104Z" fill="url(#carrotOrange)"/>
-          <path d="M191 112 Q215 61 244 50 Q235 88 207 127Z" fill="url(#carrotOrange)"/>
-          <path d="M222 113 Q248 73 274 67 Q266 99 238 129Z" fill="#f28a20"/>
-          <g fill="none" stroke="#4e9e2e" strokeWidth="8" strokeLinecap="round"><path d="M250 105 Q294 48 340 43"/><path d="M263 114 Q311 67 358 65"/><path d="M282 119 Q327 88 372 91"/></g>
-          {/* cauliflower */}
-          <path d="M238 86 Q223 64 239 48 Q247 34 261 43 Q272 27 286 42 Q306 39 309 58 Q322 75 302 91 Q275 108 248 94Z" fill="url(#cauli)" stroke="#d7d2b5" strokeWidth="2"/>
-          <path d="M251 88 Q239 72 250 59 M273 91 Q264 66 279 48 M294 87 Q308 69 296 55" fill="none" stroke="#fff" strokeWidth="4" opacity=".8"/>
-          <path d="M248 92 Q234 104 240 115 L261 101 L274 117 L286 99 L304 110 L304 91Z" fill="#58a52e"/>
-          {/* eggplant and capsicum */}
-          <path d="M319 102 Q302 70 328 47 Q355 28 367 55 Q370 81 337 112 Q326 117 319 102Z" fill="#67348f"/>
-          <path d="M328 51 Q323 40 337 33 L350 42 L347 53" fill="#3d8d31"/>
-          <path d="M357 112 Q344 86 365 67 Q392 58 405 82 Q408 106 380 121 Q366 123 357 112Z" fill="#3a9e36"/>
-          <path d="M365 72 Q359 58 373 54 L383 64 L380 73" fill="#287d2d"/>
-          {/* tomatoes */}
-          <g>
-            <path d="M87 119 C75 98 90 78 111 80 C121 63 148 71 151 89 C172 91 177 116 161 130 C143 145 102 142 87 119Z" fill="url(#tomatoRed)"/>
-            <path d="M145 125 C132 105 148 84 168 86 C180 68 207 78 207 98 C225 104 225 128 206 141 C185 153 157 144 145 125Z" fill="url(#tomatoRed)"/>
-            <path d="M190 125 C182 105 196 91 213 92 C225 76 248 84 250 101 C267 110 258 133 241 142 C220 150 199 141 190 125Z" fill="url(#tomatoRed)"/>
-            <g fill="#27842d"><path d="M111 82 l-7 -12 13 7 9 -12 2 15 14 -4 -10 12 -15 2Z"/><path d="M169 88 l-5 -13 12 8 10 -10 0 15 13 -2 -10 11 -15 0Z"/><path d="M214 94 l-4 -12 12 7 9 -9 1 14 12 -1 -10 10 -14 1Z"/></g>
-            <g fill="#fff" opacity=".28"><ellipse cx="107" cy="99" rx="7" ry="12" transform="rotate(35 107 99)"/><ellipse cx="164" cy="105" rx="6" ry="10" transform="rotate(35 164 105)"/><ellipse cx="210" cy="108" rx="6" ry="9" transform="rotate(35 210 108)"/></g>
-          </g>
-          {/* woven basket */}
-          <path d="M65 119 Q222 91 400 119 L378 177 Q222 195 88 177Z" fill="url(#basketBody)" stroke="#8a4d24" strokeWidth="3"/>
-          <path d="M78 134 Q225 159 391 134 M83 150 Q226 174 386 150 M88 166 Q226 187 380 166" fill="none" stroke="#efc27d" strokeWidth="5" opacity=".95"/>
-          <path d="M112 119 L123 180 M151 112 L160 185 M192 108 L198 188 M235 108 L235 190 M278 110 L270 188 M320 113 L307 184 M359 117 L345 180" fill="none" stroke="#875021" strokeWidth="3" opacity=".75"/>
-          <path d="M65 120 Q222 91 400 120" fill="none" stroke="url(#basketRim)" strokeWidth="13" strokeLinecap="round"/>
-          <path d="M72 117 Q222 94 394 117" fill="none" stroke="#f6d69b" strokeWidth="3" strokeLinecap="round"/>
-          {/* arched wicker handle */}
-          <path d="M105 119 C93 9 353 -2 367 119" fill="none" stroke="#925321" strokeWidth="15" strokeLinecap="round"/>
-          <path d="M105 116 C101 19 347 8 367 116" fill="none" stroke="#e8b66e" strokeWidth="6" strokeLinecap="round"/>
-          <path d="M111 48 Q230 -4 351 49 M104 68 Q230 20 362 68" fill="none" stroke="#bd7d3d" strokeWidth="2" opacity=".8"/>
-        </svg>
+    <section className="relative isolate min-h-[165px] overflow-hidden rounded-2xl border border-emerald-100 bg-cover bg-center shadow-sm md:min-h-[185px]" style={{backgroundImage:"linear-gradient(90deg, rgba(248,252,222,.98) 0%, rgba(238,250,220,.94) 38%, rgba(231,247,224,.45) 62%, rgba(231,247,224,.08) 100%), url('https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=1800&q=85')"}}>
+      <div className="absolute inset-0 bg-gradient-to-r from-lime-100/35 via-transparent to-emerald-900/5" aria-hidden="true"/>
+      <div className="relative z-10 flex min-h-[165px] items-center px-5 py-5 md:min-h-[185px] md:px-9">
+        <div className="max-w-[58%] md:max-w-[62%]">
+          <p className="mb-2 text-[10px] font-extrabold uppercase tracking-[0.22em] text-emerald-800">Fresh Daily · Farm to Home</p>
+          <h2 className="text-2xl font-black leading-tight tracking-tight text-slate-950 md:text-3xl">Fresh from<br className="hidden sm:block"/> Local Farmers to Your Home</h2>
+          <p className="mt-2 text-xs font-bold text-slate-800 md:text-sm">Fresh Produce <span className="mx-2 text-emerald-700">|</span> Verified Farmers <span className="mx-2 text-emerald-700">|</span> Safe &amp; Traceable</p>
+          <a href="/nearby" className="mt-3 inline-flex items-center rounded-full bg-emerald-700 px-5 py-2.5 text-sm font-bold text-white shadow-md transition hover:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2">Shop Fresh Now <span className="ml-2">→</span></a>
+        </div>
+        <div className="pointer-events-none absolute inset-y-0 right-0 hidden w-[43%] items-end justify-end md:flex" aria-hidden="true">
+          <img src="https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=1100&q=90" alt="" className="h-full w-full object-cover object-center [mask-image:linear-gradient(to_right,transparent_0%,black_23%)]"/>
+        </div>
       </div>
     </section>
 
