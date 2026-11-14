@@ -1111,7 +1111,7 @@ export default function OrderDetailPage() {
           </Card>
         </div>
         <div className="space-y-5 xl:col-start-2 xl:row-start-1">
-        <Card className="xl:col-start-2 xl:row-start-1">
+        <Card className="overflow-hidden rounded-2xl border-slate-200 shadow-sm">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Package className="h-5 w-5" /> Order Items ({order.items.length})
