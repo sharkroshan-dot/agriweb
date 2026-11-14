@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  ArrowUpDown, CalendarDays, CheckCircle2, CircleX, ClipboardList,
+  ArrowUpDown, CalendarDays, CheckCircle2, XCircle,
   Copy, CreditCard, FileText, Layers, Loader2, MapPin, Package,
   RefreshCw, Search, ShoppingBag, Star, Truck, Wallet,
 } from "lucide-react";
@@ -175,7 +175,7 @@ export default function CustomerOrdersPage() {
           <div><p className="text-sm font-semibold text-slate-700">Delivered</p><p className="text-3xl font-extrabold text-slate-950">{counts.delivered}</p></div>
         </CardContent></Card>
         <Card className="border-rose-200 bg-gradient-to-br from-white to-rose-50 shadow-sm"><CardContent className="flex items-center gap-4 p-4">
-          <span className="flex h-14 w-14 items-center justify-center rounded-full bg-rose-100 text-rose-600"><CircleX className="h-8 w-8" /></span>
+          <span className="flex h-14 w-14 items-center justify-center rounded-full bg-rose-100 text-rose-600"><XCircle className="h-8 w-8" /></span>
           <div><p className="text-sm font-semibold text-slate-700">Cancelled</p><p className="text-3xl font-extrabold text-slate-950">{counts.cancelled}</p></div>
         </CardContent></Card>
       </div>
@@ -238,7 +238,7 @@ export default function CustomerOrdersPage() {
                     </div>
 
                     <div className="flex min-w-0 flex-col justify-center gap-3">
-                      <div><Badge variant="outline" className={`rounded-full px-4 py-1.5 text-sm font-bold ${meta.className}`}>{isDelivered ? <CheckCircle2 className="mr-2 h-4 w-4" /> : isCancelled ? <CircleX className="mr-2 h-4 w-4" /> : <Truck className="mr-2 h-4 w-4" />}{meta.label}</Badge></div>
+                      <div><Badge variant="outline" className={`rounded-full px-4 py-1.5 text-sm font-bold ${meta.className}`}>{isDelivered ? <CheckCircle2 className="mr-2 h-4 w-4" /> : isCancelled ? <XCircle className="mr-2 h-4 w-4" /> : <Truck className="mr-2 h-4 w-4" />}{meta.label}</Badge></div>
                       {isDelivered ? (
                         <div className="rounded-xl bg-green-50 px-4 py-3"><p className="font-bold text-slate-900">Your order has been delivered</p><p className="text-sm text-slate-600">Thank you for shopping with local farmers.</p></div>
                       ) : isCancelled ? (
