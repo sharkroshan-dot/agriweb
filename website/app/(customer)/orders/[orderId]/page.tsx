@@ -613,15 +613,57 @@ export default function OrderDetailPage() {
     router.push("/cart");
   };
 
-  return (
-    <div className="customer-retail-shell space-y-6">
-      <Button variant="ghost" asChild>
-        <Link href="/orders" className="flex items-center gap-2">
-          <ArrowLeft className="h-4 w-4" /> Back to orders
-        </Link>
-      </Button>
+  const displayStatus = order.status.replace(/_/g, " ").replace(/\\b\\w/g, (c: string) => c.toUpperCase());
+  const journeySteps = [
+    { key: "confirmed", label: "Order Confirmed", description: "Your order has been placed successfully." },
+    { key: "preparing", label: "Preparing", description: "Your products are being prepared." },
+    { key: "dispatched", label: "Dispatched", description: "Your order has left the dispatch point." },
+    { key: "in_transit", label: "In Transit", description: "Your order is on the way to your delivery address." },
+    { key: "delivered", label: "Delivered", description: "Your order has been delivered." },
+  ];
+  const currentJourneyIndex = order.status === "delivered" ? 4 : order.status === "in_transit" || order.status === "out_for_delivery" ? 3 : order.status === "dispatched" || order.status === "shipped" ? 2 : order.status === "preparing" || order.status === "processing" || order.status === "ready_for_delivery" ? 1 : 0;
 
-      <CustomerPageHeader eyebrow="Order tracking" title={`Order ${order.orderNumber.slice(-8)}`} description={`Placed on ${formatDate(order.date)} · Follow every handoff from farm to doorstep.`} />
+  return (
+    <div className="customer-retail-shell space-y-5 pb-8">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="mb-1 flex items-center gap-2 text-xs font-medium text-slate-500"><Link href="/orders" className="hover:text-emerald-700">My Orders</Link><span>›</span><span className="text-slate-700">Track Order</span></div>
+          <div className="flex items-center gap-3">
+            <Truck className="h-9 w-9 text-emerald-700" />
+            <div><h1 className="text-2xl font-extrabold tracking-tight text-slate-950">Track Order</h1><p className="text-sm text-slate-600">Follow your order from farm to your doorstep.</p></div>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" onClick={() => { refetchOrder(); refetchTracking(); }} className="rounded-xl"><RefreshCw className="mr-2 h-4 w-4" /> Refresh</Button>
+          <Button asChild className="rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"><Link href={`/orders/${orderId}`}><Receipt className="mr-2 h-4 w-4" /> Order Details</Link></Button>
+          <Button asChild variant="ghost" className="rounded-xl"><Link href="/orders"><ArrowLeft className="mr-2 h-4 w-4" /> Back</Link></Button>
+        </div>
+      </div>
+
+      <Card className="overflow-hidden rounded-2xl border-emerald-100 shadow-sm">
+        <CardContent className="grid gap-4 p-4 lg:grid-cols-[minmax(260px,0.9fr)_minmax(0,1.5fr)] lg:items-center">
+          <div className="flex min-w-0 items-center gap-4">
+            <div className="flex h-20 w-24 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-emerald-50">{order.items[0]?.productImage ? <img src={order.items[0].productImage} alt={order.items[0].name} className="h-full w-full object-contain" /> : <Package className="h-10 w-10 text-emerald-600" />}</div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2"><p className="truncate font-extrabold text-slate-950">Order #{order.orderNumber}</p><button type="button" aria-label="Copy order number" onClick={() => { void navigator.clipboard?.writeText(String(order.orderNumber)); toast.success("Order number copied"); }} className="text-emerald-700"><Receipt className="h-4 w-4" /></button></div>
+              <p className="mt-1 text-xs text-slate-500">Ordered on {formatDate(order.date)}</p>
+              <p className="mt-1 text-xs text-slate-600">Payment: <span className="font-semibold capitalize">{order.paymentMethod.replace(/_/g, " ")}</span></p>
+              <p className="text-sm font-extrabold text-slate-950">Total {formatPrice(order.total)}</p>
+            </div>
+          </div>
+          <div className="min-w-0">
+            <div className="mb-3 flex items-center justify-between gap-3"><span className="text-sm font-bold text-slate-900">Order progress</span><Badge className={statusColors[order.status] || "border-gray-200 bg-gray-50 text-gray-700"}>{displayStatus}</Badge></div>
+            <div className="flex items-center">
+              {journeySteps.map((step, index) => {
+                const done = index <= currentJourneyIndex && !["cancelled", "refunded"].includes(order.status);
+                return <div key={step.key} className="flex min-w-0 flex-1 items-center last:flex-none"><div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 ${done ? "border-emerald-700 bg-emerald-700 text-white" : "border-slate-300 bg-white text-slate-400"}`}>{done ? <CheckCircle className="h-4 w-4" /> : <span className="text-xs">{index + 1}</span>}</div>{index < journeySteps.length - 1 && <div className={`h-1 min-w-2 flex-1 ${index < currentJourneyIndex ? "bg-emerald-600" : "bg-slate-200"}`} />}</div>;
+              })}
+            </div>
+            <div className="mt-2 flex justify-between gap-1 text-[10px] font-semibold text-slate-600"><span>Confirmed</span><span>Preparing</span><span>Dispatched</span><span>In Transit</span><span>Delivered</span></div>
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="flex flex-wrap items-center justify-end gap-2">
         <div className="flex items-center gap-2">
           <Badge className={statusColors[order.status] || "border-gray-200 bg-gray-50 text-gray-700"}>
@@ -967,11 +1009,11 @@ export default function OrderDetailPage() {
         </Card>
       )}
 
-      <div className="grid gap-6 md:grid-cols-2">
-        <Card>
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_minmax(340px,0.85fr)]">
+        <Card className="xl:col-start-2 xl:row-start-1">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Package className="h-5 w-5" /> Items
+              <Package className="h-5 w-5" /> Order Items ({order.items.length})
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -1013,12 +1055,13 @@ export default function OrderDetailPage() {
           </CardContent>
         </Card>
 
-        <div className="space-y-6">
+        <div className="space-y-5 xl:col-start-1 xl:row-start-1">
           {isTrackable && (
-            <Card className="overflow-hidden">
+            <Card className="overflow-hidden rounded-2xl border-emerald-100 shadow-sm">
               <CardHeader className="flex flex-row items-start justify-between gap-2">
                 <div>
                   <CardTitle className="flex items-center gap-2">
+                    <MapPin className="h-5 w-5 text-emerald-700" />
                     <span className="relative flex h-3 w-3">
                       <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
                       <span className="relative inline-flex h-3 w-3 rounded-full bg-emerald-500" />
@@ -1086,7 +1129,7 @@ export default function OrderDetailPage() {
                       zoom={13}
                       markers={trackingMapMarkers}
                       route={trackingRoute}
-                      height={260}
+                      height={300}
                     />
                   </div>
                 ) : (
@@ -1125,10 +1168,10 @@ export default function OrderDetailPage() {
               </Card>
             )}
 
-            <Card>
+            <Card className="rounded-2xl border-emerald-100 shadow-sm">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <MapPin className="h-5 w-5" /> Delivery Details
+                  <MapPin className="h-5 w-5 text-emerald-700" /> Delivery Address
                 </CardTitle>
                 <CardDescription>{order.address}</CardDescription>
               </CardHeader>
