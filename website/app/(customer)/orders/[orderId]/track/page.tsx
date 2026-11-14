@@ -778,8 +778,27 @@ export default function OrderDetailPage() {
               <div><span className="text-sm font-bold text-slate-900">Order progress</span><p className="mt-1 text-xs text-slate-500">{isTerminalOrder ? displayStatus : `Step ${Math.min(currentJourneyIndex + 1, journeySteps.length)} of ${journeySteps.length} · ${journeySteps[currentJourneyIndex]?.label || "Order Placed"}`}</p></div>
               <Badge className={statusColors[order.status] || "border-gray-200 bg-gray-50 text-gray-700"}>{displayStatus}</Badge>
             </div>
-            <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-              <div className={`h-full rounded-full transition-all ${isTerminalOrder ? "bg-slate-300" : "bg-emerald-600"}`} style={{ width: `${isTerminalOrder ? 0 : progressPercent}%` }} />
+            <div className="overflow-x-auto pb-2">
+              <div className={`flex min-w-max items-start ${isWarehouseTransfer ? "min-w-[1120px]" : "min-w-[760px]"}`}>
+                {journeySteps.map((step: any, index: number) => {
+                  const isDelivered = ["delivered", "completed"].includes(order.status);
+                  const isComplete = !isTerminalOrder && (isDelivered || index < currentJourneyIndex);
+                  const isCurrent = !isTerminalOrder && index === currentJourneyIndex && !isDelivered;
+                  return (
+                    <div key={step.key} className="flex min-w-0 flex-1 flex-col items-center">
+                      <div className="flex w-full items-center">
+                        {index > 0 && <div className={`h-1 flex-1 ${isComplete || isCurrent ? "bg-emerald-600" : "bg-slate-200"}`} />}
+                        <div className={`relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 transition-colors ${isComplete ? "border-emerald-700 bg-emerald-700 text-white" : isCurrent ? "border-emerald-700 bg-white text-emerald-700 ring-4 ring-emerald-100" : "border-slate-300 bg-white text-slate-400"}`}>
+                          {isComplete ? <CheckCircle className="h-4 w-4" /> : <span className="text-xs font-semibold">{index + 1}</span>}
+                        </div>
+                        {index < journeySteps.length - 1 && <div className={`h-1 flex-1 ${isComplete ? "bg-emerald-600" : "bg-slate-200"}`} />}
+                      </div>
+                      <p className={`mt-2 max-w-[112px] px-1 text-center text-[11px] font-semibold leading-tight ${isCurrent ? "text-emerald-800" : isComplete ? "text-slate-800" : "text-slate-500"}`}>{step.label}</p>
+                      {isCurrent && <span className="mt-1 text-[9px] font-bold uppercase tracking-wide text-emerald-700">Current</span>}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
         </CardContent>
