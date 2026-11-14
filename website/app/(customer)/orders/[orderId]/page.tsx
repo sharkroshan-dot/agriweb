@@ -1058,85 +1058,40 @@ export default function OrderDetailPage() {
         <div className="space-y-5 xl:col-start-1 xl:row-start-1">
           {isTrackable && (
             <Card className="overflow-hidden rounded-2xl border-emerald-100 shadow-sm">
-              <CardHeader className="flex flex-row items-start justify-between gap-2">
-                <div>
+              <CardHeader className="pb-3">
+                <div className="flex flex-wrap items-center gap-3">
                   <CardTitle className="flex items-center gap-2">
-                    <MapPin className="h-5 w-5 text-emerald-700" />
-                    <span className="relative flex h-3 w-3">
-                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                      <span className="relative inline-flex h-3 w-3 rounded-full bg-emerald-500" />
-                    </span>
-                    Live Tracking
+                    <MapPin className="h-5 w-5 text-slate-800" /> Current Status
                   </CardTitle>
-                  <CardDescription>
-                    {liveTracking?.locationUpdatedAt
-                      ? `Updated ${timeAgo(liveTracking.locationUpdatedAt)}`
-                      : "Waiting for the delivery partner to update their location"}
-                  </CardDescription>
+                  <Badge className={statusColors[order.status] || "border-slate-200 bg-slate-50 text-slate-700"}>{displayStatus}</Badge>
                 </div>
-                <Button variant="outline" size="sm" onClick={() => refetchTracking()}>
-                  <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Refresh
-                </Button>
+                <CardDescription className="pl-7">
+                  {order.status === "delivered" ? "Your order has been delivered." : order.status === "cancelled" ? "This order has been cancelled." : "Your order is progressing towards your delivery address."}
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-xl border bg-slate-50 p-3 text-center">
-                    <p className="text-xs text-muted-foreground">Status</p>
-                    <p className="mt-1 text-sm font-semibold capitalize text-emerald-700">
-                      {order.status.replace(/_/g, " ")}
-                    </p>
+                <div className="grid gap-3 rounded-xl bg-emerald-50/80 p-3 sm:grid-cols-[1fr_auto_1fr] sm:items-center">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100"><Truck className="h-5 w-5 text-emerald-700" /></div>
+                    <div><p className="text-xs text-slate-600">Estimated Delivery</p><p className="text-sm font-semibold text-slate-900">{order.estimatedDelivery ? formatDate(order.estimatedDelivery) : liveTracking?.eta || "To be confirmed"}</p></div>
                   </div>
-                  <div className="rounded-xl border bg-slate-50 p-3 text-center">
-                    <p className="text-xs text-muted-foreground">Estimated Arrival</p>
-                    <p className="mt-1 text-sm font-semibold">{liveTracking?.eta || "Calculating..."}</p>
-                  </div>
-                  <div className="rounded-xl border bg-slate-50 p-3 text-center">
-                    <p className="text-xs text-muted-foreground">Distance Remaining</p>
-                    <p className="mt-1 text-sm font-semibold">
-                      {liveTracking?.distanceRemaining != null ? `${liveTracking.distanceRemaining} km` : "—"}
-                    </p>
+                  <div className="hidden h-10 w-px bg-emerald-200 sm:block" />
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100"><Truck className="h-5 w-5 text-emerald-700" /></div>
+                    <div className="min-w-0 flex-1"><p className="text-xs text-slate-600">Delivery Partner</p><p className="truncate text-sm font-semibold text-slate-900">{liveTracking?.deliveryPartner?.name || "Not assigned yet"}</p>{liveTracking?.deliveryPartner?.vehicleType && <p className="text-xs text-slate-500">{liveTracking.deliveryPartner.vehicleType}{liveTracking.deliveryPartner.vehicleNumber ? ` · ${liveTracking.deliveryPartner.vehicleNumber}` : ""}</p>}</div>
+                    {liveTracking?.deliveryPartner?.phone && <Button variant="outline" size="icon" className="h-9 w-9 border-emerald-300 text-emerald-700" asChild><a href={`tel:${liveTracking.deliveryPartner.phone}`} aria-label="Call delivery partner"><Phone className="h-4 w-4" /></a></Button>}
                   </div>
                 </div>
-
-                {liveTracking?.deliveryPartner && (
-                  <div className="flex items-center gap-3 rounded-xl border p-3">
-                    <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-emerald-100">
-                      <Truck className="h-5 w-5 text-emerald-700" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold">{liveTracking.deliveryPartner.name}</p>
-                      <p className="truncate text-xs text-muted-foreground">
-                        {liveTracking.deliveryPartner.vehicleType}
-                        {liveTracking.deliveryPartner.vehicleNumber
-                          ? ` · ${liveTracking.deliveryPartner.vehicleNumber}`
-                          : ""}
-                      </p>
-                    </div>
-                    {liveTracking.deliveryPartner.phone && (
-                      <Button variant="outline" size="sm" asChild>
-                        <a href={`tel:${liveTracking.deliveryPartner.phone}`}>
-                          <Phone className="mr-1.5 h-3.5 w-3.5" /> Call
-                        </a>
-                      </Button>
-                    )}
-                  </div>
-                )}
-
                 {liveTracking?.currentLocation || deliveryDestination ? (
                   <div className="overflow-hidden rounded-xl border">
-                    <LiveMap
-                      center={trackingMapCenter}
-                      zoom={13}
-                      markers={trackingMapMarkers}
-                      route={trackingRoute}
-                      height={300}
-                    />
+                    <LiveMap center={trackingMapCenter} zoom={13} markers={trackingMapMarkers} route={trackingRoute} height={190} />
                   </div>
                 ) : (
-                  <p className="rounded-lg bg-slate-50 p-4 text-center text-sm text-muted-foreground">
-                    The map will appear here once the order is out for delivery.
-                  </p>
+                  <div className="flex min-h-[190px] items-center justify-center rounded-xl border border-dashed bg-slate-50 px-5 text-center text-sm text-slate-500">
+                    Live map will appear when location sharing is available.
+                  </div>
                 )}
+                {liveTracking?.locationUpdatedAt && <p className="text-right text-xs text-slate-500">Location updated {timeAgo(liveTracking.locationUpdatedAt)}{liveTracking?.distanceRemaining != null ? ` · ${liveTracking.distanceRemaining} km remaining` : ""}</p>}
               </CardContent>
             </Card>
           )}
@@ -1170,38 +1125,35 @@ export default function OrderDetailPage() {
 
           {chatOpen && order && <LiveChatDialog orderId={orderId} customerName="Delivery partner" onClose={() => setChatOpen(false)} />}
 
-          {order.tracking.length > 0 && (
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <div><CardTitle className="flex items-center gap-2">
-                  <Package className="h-5 w-5" /> Tracking
-                </CardTitle><CardDescription>Live fulfillment and delivery updates from farmer, warehouse, and delivery operations.</CardDescription></div>
-                {order.tracking.length > 2 && (
-                  <Button variant="ghost" size="sm" onClick={() => setShowAllTracking(!showAllTracking)}>
-                    {showAllTracking ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                  </Button>
-                )}
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-0">
-                  {tracking.map((step: any, i: number) => (
-                    <div key={i} className="relative flex gap-4 pb-4 last:pb-0">
-                      {i < tracking.length - 1 && (
-                        <div className="absolute left-[11px] top-5 h-full w-px bg-slate-200" />
-                      )}
-                      <div className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-emerald-500 bg-emerald-50">
-                        <div className="h-2 w-2 rounded-full bg-emerald-500" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-slate-900">{step.description}</p>
-                        <p className="text-xs text-muted-foreground">{formatDate(step.date)}</p>
-                      </div>
+          <Card className="rounded-2xl border-slate-200 shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2"><Package className="h-5 w-5 text-slate-700" /> Order Journey</CardTitle>
+              <CardDescription>Updates as your order moves from confirmation to delivery.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-0">
+                {journeySteps.map((step, index) => {
+                  const aliases: Record<string, string[]> = {
+                    confirmed: ["confirmed", "pending", "order_confirmed"],
+                    preparing: ["preparing", "processing", "ready_for_delivery", "packed"],
+                    dispatched: ["dispatched", "shipped"],
+                    in_transit: ["in_transit", "out_for_delivery"],
+                    delivered: ["delivered", "completed"],
+                  };
+                  const event = order.tracking.find((entry: any) => aliases[step.key]?.includes(entry.status));
+                  const isComplete = index <= currentJourneyIndex && !["cancelled", "refunded"].includes(order.status);
+                  const isCurrent = index === currentJourneyIndex && !["delivered", "cancelled", "refunded"].includes(order.status);
+                  return (
+                    <div key={step.key} className={`relative flex gap-3 pb-4 last:pb-0 ${isCurrent ? "rounded-xl bg-emerald-50 px-3 py-2" : "px-3 py-2"}`}>
+                      {index < journeySteps.length - 1 && <div className={`absolute left-[23px] top-9 h-[calc(100%-12px)] w-0.5 ${isComplete ? "bg-emerald-500" : "bg-slate-200"}`} />}
+                      <div className={`relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 ${isComplete ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-300 bg-white text-slate-400"}`}>{isComplete ? <CheckCircle className="h-4 w-4" /> : <span className="h-2 w-2 rounded-full bg-slate-300" />}</div>
+                      <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-semibold text-slate-900">{step.label}</p><p className="text-xs text-slate-500">{event?.date ? formatDate(event.date) : step.key === "delivered" && order.status !== "delivered" && order.estimatedDelivery ? `Expected by ${formatDate(order.estimatedDelivery)}` : "Update pending"}</p></div><p className="text-xs text-slate-600">{step.description}</p></div>
                     </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
         </div>
         <div className="space-y-5 xl:col-start-2 xl:row-start-2">
           <Card className="rounded-2xl border-emerald-100 shadow-sm">
