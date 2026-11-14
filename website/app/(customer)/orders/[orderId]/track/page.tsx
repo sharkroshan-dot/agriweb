@@ -763,7 +763,7 @@ export default function OrderDetailPage() {
       </div>
 
       <Card className="overflow-hidden rounded-2xl border-emerald-100 shadow-sm">
-        <CardContent className="grid gap-4 p-4 lg:grid-cols-[minmax(260px,0.9fr)_minmax(0,1.5fr)] lg:items-center">
+        <CardContent className="flex flex-col gap-5 p-5">
           <div className="flex min-w-0 items-center gap-4">
             <div className="flex h-20 w-24 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-emerald-50">{order.items[0]?.productImage ? <img src={order.items[0].productImage} alt={order.items[0].name} className="h-full w-full object-contain" /> : <Package className="h-10 w-10 text-emerald-600" />}</div>
             <div className="min-w-0">
@@ -773,7 +773,7 @@ export default function OrderDetailPage() {
               <p className="text-sm font-extrabold text-slate-950">Total {formatPrice(order.total)}</p>
             </div>
           </div>
-          <div className="min-w-0">
+          <div className="min-w-0 border-t border-slate-100 pt-4">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
               <div>
                 <span className="text-sm font-bold text-slate-900">Order progress</span>
@@ -789,7 +789,7 @@ export default function OrderDetailPage() {
             {/* Point-to-point stepper: each milestone has its own numbered node,
                 connecting line, and label. Long transfer routes scroll horizontally. */}
             <div className="w-full overflow-x-auto pb-3">
-              <div className={`flex items-start ${isWarehouseTransfer ? "min-w-[1180px]" : "min-w-[820px]"}`}>
+              <div className={`flex w-full items-start ${isWarehouseTransfer ? "min-w-[1180px]" : "min-w-[760px]"}`}>
                 {journeySteps.map((step: any, index: number) => {
                   const isDelivered = ["delivered", "completed"].includes(order.status);
                   const isComplete = !isTerminalOrder && (isDelivered || index < currentJourneyIndex);
