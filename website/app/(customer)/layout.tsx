@@ -19,6 +19,7 @@ export default function CustomerLayout({ children }: { children: React.ReactNode
   // Product search is a public discovery page. Account, order and checkout
   // routes remain protected by the existing customer authentication redirect.
   const isPublicSearchPage = pathname === "/search";
+  const isMarketplacePage = pathname === "/marketplace" || pathname?.startsWith("/marketplace/");
   const isSignedInCustomer = session?.user?.role === "customer";
 
   useEffect(() => {
@@ -46,7 +47,7 @@ export default function CustomerLayout({ children }: { children: React.ReactNode
         {isSignedInCustomer && <CustomerSidebar />}
         <main className="site-main min-w-0 flex-1 overflow-x-hidden px-3 py-5 sm:px-5 sm:py-6 lg:px-8">
           <div className="site-content role-workspace role-customer mx-auto w-full max-w-[1440px]">
-            {isSignedInCustomer && <WorkflowGuide role="customer" compact />}
+            {isSignedInCustomer && !isMarketplacePage && <WorkflowGuide role="customer" compact />}
             <RolePageFrame role="customer">{children}</RolePageFrame>
           </div>
         </main>
