@@ -132,12 +132,12 @@ export default function CustomerDashboardPage() {
 
           <section className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {[
-              { label: "Shop Products", href: "/nearby", icon: ShoppingBasket, tone: "bg-emerald-50 text-emerald-700" },
-              { label: "My Orders", href: "/orders", icon: Package, tone: "bg-blue-50 text-blue-700" },
-              { label: "Subscribe Farm Basket", href: "/subscriptions", icon: CalendarDays, tone: "bg-amber-50 text-amber-700" },
-              { label: "Bulk & Event Orders", href: "/bulk-orders", icon: Gift, tone: "bg-violet-50 text-violet-700" },
+              { label: "Shop Products", href: "/nearby", icon: ShoppingBasket, tone: "bg-emerald-50 text-emerald-700", cardTone: "border-emerald-100 bg-emerald-50/80 hover:bg-emerald-100/80" },
+              { label: "My Orders", href: "/orders", icon: Package, tone: "bg-blue-50 text-blue-700", cardTone: "border-blue-100 bg-blue-50/80 hover:bg-blue-100/80" },
+              { label: "Subscribe Farm Basket", href: "/subscriptions", icon: CalendarDays, tone: "bg-amber-50 text-amber-700", cardTone: "border-amber-100 bg-amber-50/80 hover:bg-amber-100/80" },
+              { label: "Bulk & Event Orders", href: "/bulk-orders", icon: Gift, tone: "bg-violet-50 text-violet-700", cardTone: "border-violet-100 bg-violet-50/80 hover:bg-violet-100/80" },
             ].map((action) => (
-              <Link key={action.label} href={action.href} className="flex min-h-[76px] items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-md sm:min-h-[82px]">
+              <Link key={action.label} href={action.href} className={`flex min-h-[76px] items-center gap-3 rounded-xl border p-3 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md sm:min-h-[82px] ${action.cardTone}`}>
                 <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${action.tone}`}><action.icon className="h-5 w-5" /></span>
                 <span className="text-sm font-semibold leading-tight text-slate-800">{action.label}</span>
               </Link>
