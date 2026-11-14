@@ -129,31 +129,27 @@ export function Header() {
             <Link href="/login" className="agri-header-sign-in">Sign in</Link>
           ) : (
             <>
-              {roleLabel && role !== "customer" && (
+              {roleLabel && (
                 <Link href={dashboardHref} className="agri-header-workspace" title={`Open ${roleLabel} dashboard`}>
                   <LayoutDashboard className="h-4 w-4" aria-hidden="true" />
                   <span>{roleLabel} workspace</span>
                 </Link>
               )}
               {role === "customer" && (
-                <Link href="/profile/addresses" className="agri-header-location" title="Manage delivery location">
-                  <MapPin className="h-[19px] w-[19px]" aria-hidden="true" />
-                  <span>Delivery location</span>
-                </Link>
-              )}
-
-              {role === "customer" && (
                 <>
                   <Link href="/cart" aria-label={`Cart, ${cartCount} items`} title="Cart" className="agri-header-icon-link agri-header-count-link">
                     <ShoppingCart className="h-[18px] w-[18px]" />
                     {cartCount > 0 && <span className="agri-header-count">{cartCount > 99 ? "99+" : cartCount}</span>}
                   </Link>
-
+                  <Link href="/wishlist" aria-label={`Wishlist, ${wishlistItems.length} items`} title="Wishlist" className="agri-header-icon-link agri-header-count-link">
+                    <Heart className="h-[18px] w-[18px]" />
+                    {wishlistItems.length > 0 && <span className="agri-header-count agri-header-count--wishlist">{wishlistItems.length > 99 ? "99+" : wishlistItems.length}</span>}
+                  </Link>
                 </>
               )}
 
               <span className="agri-header-action-divider" aria-hidden="true" />
-              {role !== "customer" && <div className="agri-header-utility"><AICopilot /></div>}
+              <div className="agri-header-utility"><AICopilot /></div>
               <div className="agri-header-utility"><NotificationBell /></div>
 
               <DropdownMenu>
