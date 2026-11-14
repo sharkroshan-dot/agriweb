@@ -763,8 +763,8 @@ export default function OrderDetailPage() {
       </div>
 
       <Card className="overflow-hidden rounded-2xl border-emerald-100 shadow-sm">
-        <CardContent className="flex flex-col gap-5 p-5">
-          <div className="flex min-w-0 items-center gap-4">
+        <CardContent className="grid grid-cols-1 items-center gap-5 p-5 md:grid-cols-[minmax(240px,0.85fr)_minmax(0,2fr)] md:gap-6">
+          <div className="flex min-w-0 items-center gap-4 md:pr-5">
             <div className="flex h-20 w-24 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-emerald-50">{order.items[0]?.productImage ? <img src={order.items[0].productImage} alt={order.items[0].name} className="h-full w-full object-contain" /> : <Package className="h-10 w-10 text-emerald-600" />}</div>
             <div className="min-w-0">
               <div className="flex items-center gap-2"><p className="truncate font-extrabold text-slate-950">Order #{order.orderNumber}</p><button type="button" aria-label="Copy order number" onClick={() => { void navigator.clipboard?.writeText(String(order.orderNumber)); toast.success("Order number copied"); }} className="text-emerald-700"><Receipt className="h-4 w-4" /></button></div>
@@ -773,7 +773,7 @@ export default function OrderDetailPage() {
               <p className="text-sm font-extrabold text-slate-950">Total {formatPrice(order.total)}</p>
             </div>
           </div>
-          <div className="min-w-0 border-t border-slate-100 pt-4">
+          <div className="min-w-0 border-t border-slate-100 pt-4 md:border-l md:border-t-0 md:pl-6 md:pt-0">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
               <div>
                 <span className="text-sm font-bold text-slate-900">Order progress</span>
