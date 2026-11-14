@@ -1199,7 +1199,6 @@ export default function OrderDetailPage() {
             </CardContent>
           </Card>
         </div>
-        </div>
       </div>
 
       {order.status === "delivered" && (
