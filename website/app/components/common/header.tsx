@@ -93,13 +93,16 @@ export function Header() {
           </Link>
         </div>
 
-        <nav className="agri-header-navigation" aria-label="Main navigation">
+        <nav
+          className={`agri-header-navigation${role === "customer" ? " flex items-center gap-1 rounded-xl border border-emerald-100 bg-slate-50/90 p-1" : ""}`}
+          aria-label="Main navigation"
+        >
           {primaryLinks.map((item) => (
             <Link
               key={item.href}
               href={item.href}
               aria-current={isActive(item.href) ? "page" : undefined}
-              className={`agri-header-nav-link${isActive(item.href) ? " is-active" : ""}`}
+              className={`agri-header-nav-link${isActive(item.href) ? " is-active" : ""}${role === "customer" ? " rounded-lg px-3 py-2 text-xs font-semibold text-slate-600 transition-colors hover:bg-white hover:text-emerald-800" : ""}${role === "customer" && isActive(item.href) ? " bg-white text-emerald-800 shadow-sm" : ""}`}
             >
               {item.label}
             </Link>
