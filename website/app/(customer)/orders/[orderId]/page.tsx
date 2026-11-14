@@ -1009,52 +1009,7 @@ export default function OrderDetailPage() {
         </Card>
       )}
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_minmax(340px,0.85fr)]">
-        <Card className="xl:col-start-2 xl:row-start-1">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Package className="h-5 w-5" /> Order Items ({order.items.length})
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {order.items.map((item: any, i: number) => (
-              <div key={i} className="flex items-center justify-between rounded-lg border p-3">
-                <div>
-                  <p className="font-medium text-slate-900">{item.name}</p>
-                  <p className="text-sm text-muted-foreground">Qty: {item.quantity} × {formatPrice(item.unitPrice)}</p>
-                </div>
-                <span className="font-semibold">{formatPrice(item.price)}</span>
-              </div>
-            ))}
-            <div className="border-t pt-3 space-y-1.5">
-              <div className="flex justify-between text-sm">
-                <span>Subtotal</span>
-                <span>{formatPrice(order.subtotal)}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span>Delivery</span>
-                <span>{formatPrice(order.delivery)}</span>
-              </div>
-              {order.platformFee > 0 && (
-                <div className="flex justify-between text-sm">
-                  <span>Platform fee</span>
-                  <span>{formatPrice(order.platformFee)}</span>
-                </div>
-              )}
-              {order.discount > 0 && (
-                <div className="flex justify-between text-sm text-emerald-600">
-                  <span>Discount</span>
-                  <span>-{formatPrice(order.discount)}</span>
-                </div>
-              )}
-              <div className="mt-2 flex justify-between font-semibold">
-                <span>Total</span>
-                <span>{formatPrice(order.total)}</span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.45fr)_minmax(340px,0.85fr)]">
         <div className="space-y-5 xl:col-start-1 xl:row-start-1">
           {isTrackable && (
             <Card className="overflow-hidden rounded-2xl border-emerald-100 shadow-sm">
@@ -1155,7 +1110,51 @@ export default function OrderDetailPage() {
             </CardContent>
           </Card>
         </div>
-        <div className="space-y-5 xl:col-start-2 xl:row-start-2">
+        <div className="space-y-5 xl:col-start-2 xl:row-start-1">
+        <Card className="xl:col-start-2 xl:row-start-1">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Package className="h-5 w-5" /> Order Items ({order.items.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {order.items.map((item: any, i: number) => (
+              <div key={i} className="flex items-center justify-between rounded-lg border p-3">
+                <div>
+                  <p className="font-medium text-slate-900">{item.name}</p>
+                  <p className="text-sm text-muted-foreground">Qty: {item.quantity} × {formatPrice(item.unitPrice)}</p>
+                </div>
+                <span className="font-semibold">{formatPrice(item.price)}</span>
+              </div>
+            ))}
+            <div className="border-t pt-3 space-y-1.5">
+              <div className="flex justify-between text-sm">
+                <span>Subtotal</span>
+                <span>{formatPrice(order.subtotal)}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span>Delivery</span>
+                <span>{formatPrice(order.delivery)}</span>
+              </div>
+              {order.platformFee > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span>Platform fee</span>
+                  <span>{formatPrice(order.platformFee)}</span>
+                </div>
+              )}
+              {order.discount > 0 && (
+                <div className="flex justify-between text-sm text-emerald-600">
+                  <span>Discount</span>
+                  <span>-{formatPrice(order.discount)}</span>
+                </div>
+              )}
+              <div className="mt-2 flex justify-between font-semibold">
+                <span>Total</span>
+                <span>{formatPrice(order.total)}</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
           <Card className="rounded-2xl border-emerald-100 shadow-sm">
             <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -1199,6 +1198,7 @@ export default function OrderDetailPage() {
               </div>
             </CardContent>
           </Card>
+        </div>
         </div>
       </div>
 
