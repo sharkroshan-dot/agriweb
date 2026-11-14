@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CheckCircle, XCircle, Truck, Package, Eye, MoreVertical, RefreshCw, Store, ShoppingBag, Clock, UserCheck, Navigation, X, User, Star, Phone, Map as MapIcon, MapPin } from "lucide-react";
+import { CheckCircle, XCircle, Truck, Package, Eye, MoreVertical, RefreshCw, Store, ShoppingBag, Clock, UserCheck, Navigation, X, User, Star, Phone, Map as MapIcon, MapPin, Search } from "lucide-react";
 import { Card, CardContent } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
 import { Badge } from "../../../components/ui/badge";
@@ -95,6 +95,7 @@ function MapWithMarkers({ markers }: { markers: { id: string; lat: number; lng: 
 export default function FarmerOrdersPage() {
   const router = useRouter();
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState("");
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
   const [showBulkSummary, setShowBulkSummary] = useState(false);
   const [showDeliveryRoutes, setShowDeliveryRoutes] = useState(false);
@@ -105,8 +106,8 @@ export default function FarmerOrdersPage() {
   const geocodingRef = useRef<Record<string, any>>({});
 
   const { data: orders, isLoading, refetch } = useQuery({
-    queryKey: ["farmerOrders", statusFilter],
-    queryFn: () => api.get("/farmers/me/orders", { params: { status: statusFilter !== "all" ? statusFilter : undefined, limit: 500 } }),
+    queryKey: ["farmerOrders"],
+    queryFn: () => api.get("/farmers/me/orders", { params: { limit: 500 } }),
     refetchInterval: 15000,
     refetchOnWindowFocus: true,
   });
@@ -292,7 +293,41 @@ export default function FarmerOrdersPage() {
     });
   }, [orders]);
 
-  const filteredOrderList = orderList;
+  const normalizedSearch = searchQuery.trim().toLocaleLowerCase();
+  const filteredOrderList = useMemo(() => orderList.filter((order: any) => {
+    const status = getStatus(order);
+    const matchesStatus = statusFilter === "all"
+      || status === statusFilter
+      || (statusFilter === "ready_for_pickup" && String(order.fulfillmentStage || "").toLowerCase() === "ready_for_pickup");
+    if (!matchesStatus) return false;
+    if (!normalizedSearch) return true;
+    const searchableValues = [
+      order.orderNumber,
+      order.id,
+      order._id,
+      order.customerName,
+      order.customer?.name,
+      order.customerPhone,
+      order.deliveryAddress?.city,
+      ...(Array.isArray(order.items) ? order.items.flatMap((item: any) => [item.productName, item.name, item.productId]) : []),
+    ];
+    return searchableValues.some((value) => String(value || "").toLocaleLowerCase().includes(normalizedSearch));
+  }), [orderList, statusFilter, normalizedSearch]);
+
+  const orderStats = useMemo(() => {
+    const count = (predicate: (order: any, status: string) => boolean) =>
+      orderList.filter((order: any) => predicate(order, getStatus(order))).length;
+    return {
+      total: orderList.length,
+      pending: count((_order, status) => status === "pending"),
+      processing: count((_order, status) => status === "processing"),
+      readyForPickup: count((order, status) => status === "ready_for_pickup" || String(order.fulfillmentStage || "").toLowerCase() === "ready_for_pickup"),
+      inTransit: count((_order, status) => status === "dispatched" || status === "in_transit"),
+      delivered: count((_order, status) => status === "delivered" || status === "picked_up"),
+      confirmed: count((_order, status) => status === "confirmed"),
+      cancelled: count((_order, status) => status === "cancelled"),
+    };
+  }, [orderList]);
 
   const packedFarmerOrders = useMemo(
     () => orderList.filter((order: any) => {
@@ -318,316 +353,190 @@ export default function FarmerOrdersPage() {
     );
   }
 
-  const workflowStages = [
-    ["Farm Setup", "NOT STARTED"],
-    ["Crop Planning", "NOT STARTED"],
-    ["Growing", "NOT STARTED"],
-    ["Pre-orders", "NOT STARTED"],
-    ["Harvest", "NOT STARTED"],
-    ["Batch", "NOT STARTED"],
-    ["Quality", "NOT STARTED"],
-    ["Product", "NOT STARTED"],
-    ["Inventory", "NOT STARTED"],
-    ["Orders", "NOT STARTED"],
-    ["Delivery", "NOT STARTED"],
-    ["Earnings", "NOT STARTED"],
-  ];
-
   return (
-    <div className="space-y-5">
-      {/* Legacy farmer workspace status strip */}
-      <Card className="overflow-hidden border-slate-200 shadow-sm">
-        <CardContent className="p-3 sm:p-4">
-          <div className="mb-2 flex items-center justify-between">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Farmer workflow</p>
-              <p className="text-xs text-slate-500">Your next action is based on the current backend state.</p>
-            </div>
+    <div className="farmer-orders-page w-full min-w-0 space-y-5 pb-8">
+      <section className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-6">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700">
+            <ShoppingBag className="h-6 w-6" />
+          </span>
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700">Farmer workspace</p>
+            <h1 className="mt-0.5 text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">Orders</h1>
+            <p className="mt-1 text-sm text-slate-500">Manage customer orders, fulfillment and delivery from one place.</p>
           </div>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-12">
-            {workflowStages.map(([title, state]) => (
-              <div key={title} className="min-h-[58px] rounded-lg border border-slate-200 bg-slate-50 px-2 py-2">
-                <div className="flex items-start gap-2">
-                  <span className="mt-0.5 h-3 w-3 shrink-0 rounded-full border border-slate-400 bg-white" />
-                  <div className="min-w-0">
-                    <p className="truncate text-[11px] font-medium text-slate-800">{title}</p>
-                    <p className="mt-0.5 text-[8px] font-semibold tracking-wide text-slate-400">{state}</p>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <p className="text-xs font-medium text-emerald-600">Farmer workspace</p>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Orders</h1>
-          <p className="mt-1 text-sm text-slate-500">Review customer demand, confirm available stock, and manage fulfillment.</p>
         </div>
-
         <div className="flex flex-wrap items-center gap-2">
-          <Card className="border-emerald-100 bg-emerald-50/60 shadow-none">
-            <CardContent className="flex items-center gap-3 px-3 py-2.5">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-emerald-700 shadow-sm">
-                <Package className="h-4 w-4" />
-              </div>
-              <div>
-                <p className="text-xs font-semibold text-slate-900">Packing & Checking</p>
-                <p className="text-[10px] text-slate-600">Check all Farmer Fulfillment orders, record packed quantities, and prepare delivery labels.</p>
-              </div>
-              <Button asChild size="sm" className="bg-emerald-600 hover:bg-emerald-700">
-                <Link href="/farmer/packing">Open Packing</Link>
-              </Button>
-            </CardContent>
-          </Card>
-          <Badge variant="outline" className="h-9 bg-white px-3 text-xs">
-            {orderList.length} orders · newest first
+          <Badge variant="outline" className="h-9 bg-slate-50 px-3 text-sm font-semibold text-slate-700">
+            {orderList.length} total orders
           </Badge>
-          <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => { refetch(); availabilityQuery.refetch(); }} aria-label="Refresh orders">
-            <RefreshCw className="h-4 w-4"/>
+          <Button variant="outline" className="h-9" onClick={() => { refetch(); availabilityQuery.refetch(); }} aria-label="Refresh orders">
+            <RefreshCw className="mr-2 h-4 w-4" />Refresh
+          </Button>
+          <Button asChild className="h-9 bg-emerald-700 hover:bg-emerald-800">
+            <Link href="/farmer/order-map"><Navigation className="mr-2 h-4 w-4" />Order Map</Link>
           </Button>
         </div>
-      </div>
+      </section>
+
+      <section className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+        {[
+          { label: "Total orders", value: orderStats.total, icon: ShoppingBag, tone: "bg-emerald-50 text-emerald-700" },
+          { label: "Pending", value: orderStats.pending, icon: Clock, tone: "bg-amber-50 text-amber-700" },
+          { label: "Processing", value: orderStats.processing, icon: Package, tone: "bg-blue-50 text-blue-700" },
+          { label: "Ready for pickup", value: orderStats.readyForPickup, icon: Package, tone: "bg-green-50 text-green-700" },
+          { label: "In transit", value: orderStats.inTransit, icon: Truck, tone: "bg-indigo-50 text-indigo-700" },
+          { label: "Delivered", value: orderStats.delivered, icon: CheckCircle, tone: "bg-emerald-50 text-emerald-700" },
+        ].map((stat) => (
+          <Card key={stat.label} className="border-slate-200 shadow-sm">
+            <CardContent className="flex items-center justify-between gap-2 p-4">
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-slate-500">{stat.label}</p>
+                <p className="mt-1 text-2xl font-bold tracking-tight text-slate-950">{stat.value}</p>
+              </div>
+              <span className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-xl", stat.tone)}>
+                <stat.icon className="h-5 w-5" />
+              </span>
+            </CardContent>
+          </Card>
+        ))}
+      </section>
 
       <Card className="overflow-hidden border-slate-200 shadow-sm">
-        <CardContent className="p-4 sm:p-5">
-          <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-center">
+        <CardContent className="space-y-4 p-4 sm:p-5">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div>
-              <p className="text-base font-semibold text-slate-900">Order Workflow</p>
-              <p className="mt-1 max-w-2xl text-xs text-slate-500">
-                Complete one stage first; the next action appears automatically. Bulk actions advance only eligible orders by stage.
-              </p>
+              <h2 className="text-base font-semibold text-slate-900">Order Workflow</h2>
+              <p className="mt-1 text-xs text-slate-500">Run actions for every order eligible at that stage. Each order is validated independently.</p>
             </div>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("confirm")}>
-                <CheckCircle className="mr-1.5 h-3.5 w-3.5" /> Confirm All
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("process")}>
-                <Package className="mr-1.5 h-3.5 w-3.5" /> Process All
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("farmer_fulfillment")}>
-                <UserCheck className="mr-1.5 h-3.5 w-3.5" /> Farmer Fulfillment All
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("warehouse_fulfillment")}>
-                <Store className="mr-1.5 h-3.5 w-3.5" /> Warehouse Fulfillment All
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("warehouse_ready_for_pickup")}>
-                <Truck className="mr-1.5 h-3.5 w-3.5" /> Warehouse Ready for Pickup All
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => setShowBulkSummary(true)}>
-                <ShoppingBag className="mr-1.5 h-3.5 w-3.5" /> Bulk Summary
-              </Button>
-              <Button size="sm" variant="outline" asChild>
-                <Link href="/farmer/packing"><Package className="mr-1.5 h-3.5 w-3.5" /> Open Packing</Link>
-              </Button>
-              <Button size="sm" variant="outline" asChild>
-                <Link href="/farmer/order-map?delivery=required"><Navigation className="mr-1.5 h-3.5 w-3.5" /> Open Farmer Order Map</Link>
-              </Button>
-            </div>
+            <Button
+              size="sm"
+              className="h-9 w-full bg-emerald-700 hover:bg-emerald-800 sm:w-auto"
+              onClick={() => setRunAllConfirmOpen(true)}
+              disabled={bulkRunning || orderList.length === 0}
+            >
+              <CheckCircle className="mr-2 h-4 w-4" />
+              {bulkRunning ? "Processing…" : "Run All Eligible"}
+            </Button>
           </div>
-
-          <div className="mt-4 flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
-            {["Pending → Confirmed", "Processing", "Choose Fulfillment"].map((step, index) => (
-              <div key={step} className="flex items-center gap-2">
-                <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1">{step}</span>
-                {index < 2 && <span className="text-slate-300">→</span>}
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-3 rounded-lg border border-emerald-100 bg-emerald-50/60 p-3">
-            <p className="text-[11px] font-semibold text-emerald-900">Farmer Fulfillment branch</p>
-            <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px]">
-              {["Farmer Packs Each Order", "Shortage Check", "Packed", "Farmer Order Map"].map((step, index) => (
-                <div key={step} className="flex items-center gap-1.5">
-                  <span className="rounded-full border border-emerald-200 bg-white px-2 py-1 text-emerald-900">{step}</span>
-                  {index < 3 && <span className="text-emerald-300">→</span>}
-                </div>
-              ))}
-            </div>
-            <p className="mt-2 text-[10px] text-emerald-800">
-              After packing, open the Farmer Order Map. Self-delivery follows Dispatch → Farmer → Customer; delivery-partner routes use the nearby/long-distance routing workflow.
-            </p>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
+            <Button size="sm" variant="outline" className="h-10 justify-start whitespace-normal text-left" onClick={() => handleBulkWorkflowAction("confirm")}>
+              <CheckCircle className="mr-2 h-4 w-4 shrink-0 text-emerald-700" />Confirm All
+            </Button>
+            <Button size="sm" variant="outline" className="h-10 justify-start whitespace-normal text-left" onClick={() => handleBulkWorkflowAction("process")}>
+              <Package className="mr-2 h-4 w-4 shrink-0 text-blue-700" />Process All
+            </Button>
+            <Button size="sm" variant="outline" className="h-10 justify-start whitespace-normal text-left" onClick={() => handleBulkWorkflowAction("farmer_fulfillment")}>
+              <UserCheck className="mr-2 h-4 w-4 shrink-0 text-emerald-700" />Farmer Fulfillment All
+            </Button>
+            <Button size="sm" variant="outline" className="h-10 justify-start whitespace-normal text-left" onClick={() => handleBulkWorkflowAction("warehouse_fulfillment")}>
+              <Store className="mr-2 h-4 w-4 shrink-0 text-blue-700" />Warehouse Fulfillment All
+            </Button>
+            <Button size="sm" variant="outline" className="h-10 justify-start whitespace-normal text-left" onClick={() => handleBulkWorkflowAction("warehouse_ready_for_pickup")}>
+              <Truck className="mr-2 h-4 w-4 shrink-0 text-amber-700" />Warehouse Ready for Pickup All
+            </Button>
+            <Button size="sm" variant="outline" className="h-10 justify-start whitespace-normal text-left" onClick={() => setShowBulkSummary((current) => !current)}>
+              <ShoppingBag className="mr-2 h-4 w-4 shrink-0 text-slate-600" />Bulk Summary
+            </Button>
+            <Button size="sm" variant="outline" className="h-10 justify-start whitespace-normal text-left" asChild>
+              <Link href="/farmer/packing"><Package className="mr-2 h-4 w-4 shrink-0" />Open Packing</Link>
+            </Button>
+            <Button size="sm" variant="outline" className="h-10 justify-start whitespace-normal text-left" asChild>
+              <Link href="/farmer/order-map?delivery=required"><Navigation className="mr-2 h-4 w-4 shrink-0" />Open Farmer Order Map</Link>
+            </Button>
           </div>
         </CardContent>
       </Card>
 
-      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 pb-2">
-        <Button
-          variant={showBulkSummary ? "default" : "outline"}
-          size="sm"
-          onClick={() => setShowBulkSummary(!showBulkSummary)}
-        >
-          <ShoppingBag className="mr-1.5 h-3.5 w-3.5" /> Bulk Summary
-        </Button>
-        <Button
-          variant={showMapView ? "default" : "outline"}
-          size="sm"
-          onClick={() => setShowMapView(!showMapView)}
-        >
-          <Navigation className="mr-1.5 h-3.5 w-3.5" /> Split by Location
-        </Button>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-[180px] bg-white"><SelectValue placeholder="Filter by status"/></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Orders</SelectItem>
-            <SelectItem value="pending">Pending</SelectItem>
-            <SelectItem value="confirmed">Confirmed</SelectItem>
-            <SelectItem value="processing">Processing</SelectItem>
-            <SelectItem value="ready_for_delivery">Ready for Delivery</SelectItem>
-            <SelectItem value="ready_for_pickup">Ready for Pickup</SelectItem>
-            <SelectItem value="dispatched">Dispatched</SelectItem>
-            <SelectItem value="in_transit">In Transit</SelectItem>
-            <SelectItem value="delivered">Delivered</SelectItem>
-            <SelectItem value="picked_up">Picked Up</SelectItem>
-            <SelectItem value="cancelled">Cancelled</SelectItem>
-            <SelectItem value="refunded">Refunded</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
+      <Card className="overflow-hidden border-slate-200 shadow-sm">
+        <CardContent className="space-y-4 p-4 sm:p-5">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
+            <div className="relative min-w-0 flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Search order number, customer or product..."
+                aria-label="Search orders"
+                className="h-11 w-full rounded-lg border border-slate-200 bg-white pl-10 pr-4 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+              />
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                variant={showDeliveryRoutes ? "default" : "outline"}
+                className="h-10"
+                onClick={() => setShowDeliveryRoutes((current) => !current)}
+              >
+                <Navigation className="mr-2 h-4 w-4" />Delivery Routes
+              </Button>
+              <Button
+                size="sm"
+                variant={showMapView ? "default" : "outline"}
+                className="h-10"
+                onClick={() => setShowMapView((current) => !current)}
+              >
+                <MapIcon className="mr-2 h-4 w-4" />Split by Location
+              </Button>
+            </div>
+          </div>
+          <div className="flex w-full flex-wrap items-stretch gap-2">
+            {[
+              { value: "all", label: "All orders", count: orderStats.total },
+              { value: "pending", label: "Pending", count: orderStats.pending },
+              { value: "confirmed", label: "Confirmed", count: orderStats.confirmed },
+              { value: "processing", label: "Processing", count: orderStats.processing },
+              { value: "ready_for_pickup", label: "Ready for pickup", count: orderStats.readyForPickup },
+              { value: "dispatched", label: "Dispatched", count: orderList.filter((order: any) => getStatus(order) === "dispatched").length },
+              { value: "in_transit", label: "In transit", count: orderStats.inTransit },
+              { value: "delivered", label: "Delivered", count: orderStats.delivered },
+              { value: "cancelled", label: "Cancelled", count: orderStats.cancelled },
+            ].map((tab) => (
+              <button
+                key={tab.value}
+                type="button"
+                onClick={() => setStatusFilter(tab.value)}
+                title={`${tab.label}: ${tab.count}`}
+                className={cn(
+                  "inline-flex h-10 min-w-[112px] flex-1 items-center justify-between gap-2 rounded-lg border px-3 text-xs font-semibold transition-colors",
+                  statusFilter === tab.value
+                    ? "border-emerald-700 bg-emerald-700 text-white shadow-sm"
+                    : "border-slate-200 bg-white text-slate-600 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800"
+                )}
+              >
+                <span className="min-w-0 truncate">{tab.label}</span>
+                <span className={cn("shrink-0 rounded-full px-1.5 py-0.5 text-[10px] tabular-nums", statusFilter === tab.value ? "bg-white/20 text-white" : "bg-slate-100 text-slate-600")}>{tab.count}</span>
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3 text-xs text-slate-500">
+            <span>Showing {filteredOrderList.length} of {orderList.length} orders</span>
+            <span>Orders refresh automatically every 15 seconds</span>
+          </div>
+        </CardContent>
+      </Card>
 
       <Dialog open={runAllConfirmOpen} onOpenChange={setRunAllConfirmOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Run all eligible orders?</DialogTitle>
             <DialogDescription>
-              This will process every farmer order that can safely advance. Each order is checked independently; orders needing a fulfillment choice, warehouse action, or delivery decision will stop there.
+              This processes every farmer order that can safely advance. Each order is checked independently; orders requiring a fulfillment choice, warehouse action or delivery decision will stop at that stage.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 rounded-xl bg-slate-50 p-4 text-sm">
-            <div className="flex justify-between"><span>Total visible orders</span><strong>{orderList.length}</strong></div>
-            <p className="text-xs text-muted-foreground">Farmer Fulfillment stops at Packed here. Open the Farmer Order Map for distance calculation and delivery decision; Dispatch happens only on the delivery-partner branch.</p>
+            <div className="flex justify-between"><span>Total orders</span><strong>{orderList.length}</strong></div>
+            <p className="text-xs text-muted-foreground">Farmer Fulfillment stops at Packed here. Open Farmer Order Map for distance calculation and delivery decisions.</p>
           </div>
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setRunAllConfirmOpen(false)} disabled={bulkRunning}>Cancel</Button>
-            <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={() => { setRunAllConfirmOpen(false); handleRunAllEligible(); }} disabled={bulkRunning}>
+            <Button className="bg-emerald-700 hover:bg-emerald-800" onClick={() => { setRunAllConfirmOpen(false); handleRunAllEligible(); }} disabled={bulkRunning}>
               {bulkRunning ? "Processing..." : "Run All Eligible"}
             </Button>
           </div>
         </DialogContent>
       </Dialog>
-
-      <Card className="overflow-hidden border shadow-sm">
-        <CardContent className="p-5 sm:p-6">
-          <div className="flex flex-col gap-2">
-            <h2 className="font-semibold text-slate-900">Farmer Order Processing Workflow</h2>
-            <p className="text-xs text-muted-foreground">
-              The order page controls the order lifecycle. Farmer Fulfillment orders cannot skip Packing & Checking or the Farmer Order Map delivery decision.
-            </p>
-          </div>
-
-          <div className="mt-5 overflow-x-auto pb-2">
-            <div className="flex min-w-[980px] items-center gap-2 text-xs">
-              {[
-                ["1", "Farmer Fulfillment", "Select Farmer Fulfillment after Processing"],
-                ["2", "Packing & Checking", "Check every order"],
-                ["3", "Actual Packed Qty", "Enter physical packed quantity"],
-                ["4", "Shortage Check", "Adjust quantity, final amount, release missing stock"],
-                ["5", "Confirm Packed", "Finalize packing"],
-                ["6", "Delivery Label", "Print the parcel label"],
-                ["7", "Packing Complete", "Order becomes eligible for Order Map"],
-                ["8", "Farmer Order Map", "All packed Farmer Fulfillment orders"],
-              ].map(([step, title, description], index, items) => (
-                <div key={step} className="flex items-center gap-2">
-                  <div className="w-[145px] rounded-xl border border-emerald-200 bg-emerald-50/70 p-3">
-                    <div className="flex items-center gap-2">
-                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-600 text-[11px] font-bold text-white">{step}</span>
-                      <span className="font-semibold text-emerald-950">{title}</span>
-                    </div>
-                    <p className="mt-2 leading-4 text-emerald-800">{description}</p>
-                  </div>
-                  {index < items.length - 1 && <span className="text-lg text-slate-300">→</span>}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="mt-4 grid gap-3 lg:grid-cols-3">
-            <div className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-4">
-              <p className="text-xs font-bold uppercase tracking-wide text-indigo-700">Order Map</p>
-              <p className="mt-1 text-sm font-semibold text-indigo-950">Select Radius OR Route</p>
-              <p className="mt-1 text-xs leading-5 text-indigo-800">The farmer selects only the packed orders they personally want to deliver.</p>
-            </div>
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
-              <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">Selected Orders</p>
-              <p className="mt-1 text-sm font-semibold text-emerald-950">Self Delivery → Farmer → Customer</p>
-              <p className="mt-1 text-xs leading-5 text-emerald-800">Confirm Selection creates the farmer self-delivery dispatch path.</p>
-            </div>
-            <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4">
-              <p className="text-xs font-bold uppercase tracking-wide text-amber-700">Remaining Orders</p>
-              <p className="mt-1 text-sm font-semibold text-amber-950">Automatic Partner Assignment + Distance Decision</p>
-              <p className="mt-1 text-xs leading-5 text-amber-800">Nearby → Dispatch → Local Hub → Delivery Partner → Customer. Long Distance → Dispatch → Warehouse → Local Hub → Delivery Partner → Customer.</p>
-            </div>
-          </div>
-
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <div>
-              <p className="text-sm font-semibold text-slate-900">{packedFarmerOrders.length} packed Farmer Fulfillment order{packedFarmerOrders.length === 1 ? "" : "s"} ready for the Order Map</p>
-              <p className="text-xs text-slate-600">Only orders with fulfillmentStage=packed and packingComplete=true are eligible.</p>
-            </div>
-            <div className="flex gap-2">
-              <Button asChild size="sm" variant="outline">
-                <Link href="/farmer/packing"><Package className="mr-2 h-4 w-4" />Packing & Checking</Link>
-              </Button>
-              <Button asChild size="sm" className="bg-indigo-600 hover:bg-indigo-700">
-                <Link href="/farmer/order-map?delivery=required"><Navigation className="mr-2 h-4 w-4" />Farmer Order Map</Link>
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="flex items-center gap-2">
-          <Button
-            variant={showDeliveryRoutes ? "default" : "outline"}
-            size="sm"
-            onClick={() => setShowDeliveryRoutes(!showDeliveryRoutes)}
-            className="flex items-center gap-2"
-          >
-            <Navigation className="h-4 w-4" />
-            Delivery Routes
-          </Button>
-          <Button
-            variant={showBulkSummary ? "default" : "outline"}
-            size="sm"
-            onClick={() => setShowBulkSummary(!showBulkSummary)}
-            className="flex items-center gap-2"
-          >
-            <ShoppingBag className="h-4 w-4" />
-            Bulk Summary
-          </Button>
-          <Button
-            variant={showMapView ? "default" : "outline"}
-            size="sm"
-            onClick={() => setShowMapView(!showMapView)}
-            className="flex items-center gap-2"
-          >
-            <Navigation className="h-4 w-4" />
-            Split by Location
-          </Button>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-full bg-white sm:w-[180px]"><SelectValue placeholder="Filter by status"/></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Orders</SelectItem>
-              <SelectItem value="pending">Pending</SelectItem>
-              <SelectItem value="confirmed">Confirmed</SelectItem>
-              <SelectItem value="processing">Processing</SelectItem>
-              <SelectItem value="ready_for_delivery">Ready for Delivery</SelectItem>
-              <SelectItem value="ready_for_pickup">Ready for Pickup</SelectItem>
-              <SelectItem value="dispatched">Dispatched</SelectItem>
-              <SelectItem value="in_transit">In Transit</SelectItem>
-              <SelectItem value="delivered">Delivered</SelectItem>
-              <SelectItem value="picked_up">Picked Up</SelectItem>
-              <SelectItem value="cancelled">Cancelled</SelectItem>
-              <SelectItem value="refunded">Refunded</SelectItem>
-            </SelectContent>
-          </Select>
-           
-        </div>
-
-
 
       {showBulkSummary && (
         <Card>
@@ -682,7 +591,7 @@ export default function FarmerOrdersPage() {
 
       {(() => {
         const groups: Record<string, any[]> = {};
-        orderList.forEach((o: any) => {
+        filteredOrderList.forEach((o: any) => {
           const city = (o.deliveryAddress?.city || "Unknown").toLowerCase();
           if (!groups[city]) groups[city] = [];
           groups[city].push(o);
@@ -711,7 +620,7 @@ export default function FarmerOrdersPage() {
         if (showMapView && geoCache._started === undefined) {
           geoCache._started = true;
           let delay = 0;
-          orderList.forEach((o: any) => {
+          filteredOrderList.forEach((o: any) => {
             if (o.deliveryAddress?.location?.coordinates) return;
             const addrText = [o.deliveryAddress?.addressLine1, o.deliveryAddress?.addressLine2, o.deliveryAddress?.city, o.deliveryAddress?.state, o.deliveryAddress?.zipCode].filter(Boolean).join(", ");
             if (!addrText) return;
@@ -736,7 +645,7 @@ export default function FarmerOrdersPage() {
           });
         }
 
-        const allMapMarkers = orderList
+        const allMapMarkers = filteredOrderList
           .filter((o: any) => o.deliveryAddress?.city)
           .filter((o: any) => !activeCity || o.deliveryAddress.city.toLowerCase() === activeCity)
           .map((o: any) => {
@@ -757,7 +666,19 @@ export default function FarmerOrdersPage() {
           });
         return (
           <div className="space-y-4">
-            {showMapView && (
+            {filteredOrderList.length === 0 ? (
+              <Card className="border-dashed border-slate-300 shadow-none">
+                <CardContent className="flex flex-col items-center px-4 py-14 text-center">
+                  <span className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-400"><Search className="h-5 w-5" /></span>
+                  <p className="mt-3 text-base font-semibold text-slate-900">No orders found</p>
+                  <p className="mt-1 max-w-md text-sm text-slate-500">Try another search term or choose a different order status.</p>
+                  {(searchQuery || statusFilter !== "all") ? (
+                    <Button variant="outline" size="sm" className="mt-4" onClick={() => { setSearchQuery(""); setStatusFilter("all"); }}>Clear filters</Button>
+                  ) : null}
+                </CardContent>
+              </Card>
+            ) : null}
+            {showMapView && filteredOrderList.length > 0 && (
               <>
                 <MapWithMarkers markers={allMapMarkers} />
                 <div className="flex flex-wrap gap-2">
@@ -776,7 +697,7 @@ export default function FarmerOrdersPage() {
                   "rounded-full px-2 py-0.5 text-xs",
                   activeCity === null ? "bg-emerald-500 text-white" : "bg-emerald-200 text-emerald-800"
                 )}>
-                  {orderList.length}
+                  {filteredOrderList.length}
                 </span>
               </button>
               {groupEntries.map(([city, orders]) => (
@@ -804,138 +725,172 @@ export default function FarmerOrdersPage() {
               </>
             )}
             {(activeCity === null
-              ? orderList
-              : orderList.filter((order: any) => (order.deliveryAddress?.city || "Unknown").toLowerCase() === activeCity)
+              ? filteredOrderList
+              : filteredOrderList.filter((order: any) => (order.deliveryAddress?.city || "Unknown").toLowerCase() === activeCity)
             ).map((order: any) => {
                   const orderId = String(order.id || order._id || "");
                   const status = getStatus(order);
+                  const primaryItem = Array.isArray(order.items) ? order.items[0] || {} : {};
+                  const itemCount = Array.isArray(order.items) ? order.items.length : 0;
+                  const productName = primaryItem.productName || primaryItem.name || (itemCount > 1 ? `${itemCount} products` : "Order items");
+                  const productGrade = primaryItem.qualityGrade || primaryItem.grade || primaryItem.quality || "";
+                  const productQuantity = primaryItem.quantity ?? primaryItem.quantityKg ?? primaryItem.orderedQuantity ?? "—";
+                  const productUnit = primaryItem.unit || primaryItem.unitName || "kg";
+                  const productUnitPrice = primaryItem.unitPrice ?? primaryItem.pricePerUnit ?? primaryItem.price;
+                  const rawProductImage = [
+                    primaryItem.productImageUrl,
+                    primaryItem.imageUrl,
+                    primaryItem.productImage,
+                    primaryItem.image,
+                    primaryItem.product?.imageUrl,
+                    primaryItem.product?.image,
+                  ].find((value) => typeof value === "string" && (value.startsWith("https://") || value.startsWith("http://") || value.startsWith("/")));
+                  const isReadyForPickup = status === "ready_for_pickup" || String(order.fulfillmentStage || "").toLowerCase() === "ready_for_pickup";
+                  const progressStages = [
+                    { key: "confirmed", label: "Confirmed" },
+                    { key: "processing", label: "Processing" },
+                    { key: "ready", label: status === "dispatched" ? "Dispatched" : isReadyForPickup ? "Ready for pickup" : "Ready" },
+                    { key: "transit", label: "In transit" },
+                    { key: "delivered", label: "Delivered" },
+                  ];
+                  const progressIndex = status === "pending" ? -1
+                    : status === "confirmed" ? 0
+                    : status === "processing" ? (isReadyForPickup ? 2 : 1)
+                    : ["ready_for_delivery", "ready_for_pickup", "dispatched"].includes(status) ? 2
+                    : status === "in_transit" ? 3
+                    : ["delivered", "picked_up"].includes(status) ? 4
+                    : -1;
                   return (
-                  <Card key={orderId} className="overflow-hidden border-slate-200 bg-white shadow-sm transition-shadow hover:shadow-md">
+                  <Card key={orderId} className="overflow-hidden rounded-2xl border-slate-200 bg-white shadow-sm transition-all duration-200 hover:border-emerald-200 hover:shadow-md">
                     <CardContent className="p-0">
-                      <div className="flex flex-col lg:flex-row">
-                        <div className="min-w-0 flex-1 p-4 sm:p-5">
-                          <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <Link href={`/farmer/orders/${orderId}`} className="text-sm font-semibold text-slate-900 hover:text-emerald-700">
-                                  #{order.orderNumber || String(orderId).slice(-8)}
-                                </Link>
-                                <Badge variant="outline" className={cn("rounded-full px-2.5 py-0.5 text-xs", statusColors[status] || "bg-slate-50 text-slate-600 border-slate-200")}>
-                                  {statusLabels[status] || status}
-                                </Badge>
-                                {order.paymentStatus === "paid" && <Badge variant="success" className="rounded-full px-2.5 py-0.5 text-xs">Paid</Badge>}
-                                {order.isBulkOrder && (
-                                  <Badge variant="outline" className="rounded-full border-blue-200 bg-blue-50 text-blue-700">
-                                    <ShoppingBag className="mr-1 h-3 w-3" />Bulk
-                                  </Badge>
-                                )}
-                                {order.selfDelivery && (
-                                  <Badge variant="outline" className="rounded-full border-purple-200 bg-purple-50 text-purple-700">
-                                    <UserCheck className="mr-1 h-3 w-3" />Self Delivery
-                                  </Badge>
-                                )}
-                                {(order.deliveryPartnerId || order.partnerRequested) && (
-                                  <Badge variant="outline" className="rounded-full border-indigo-200 bg-indigo-50 text-indigo-700">
-                                    <Truck className="mr-1 h-3 w-3" />Delivery Partner
-                                  </Badge>
-                                )}
+                      <div className="grid min-w-0 grid-cols-1 xl:grid-cols-[minmax(170px,0.85fr)_minmax(210px,1fr)_minmax(270px,1.25fr)_minmax(245px,1fr)]">
+                        <div className="min-w-0 border-b border-slate-100 p-4 sm:p-5 xl:border-b-0 xl:border-r">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Link href={`/farmer/orders/${orderId}`} className="text-sm font-bold tracking-tight text-slate-950 hover:text-emerald-700">
+                              #{order.orderNumber || String(orderId).slice(-8)}
+                            </Link>
+                            {order.isBulkOrder ? <Badge variant="outline" className="border-blue-200 bg-blue-50 text-blue-700">Bulk</Badge> : <Badge variant="secondary">Individual order</Badge>}
+                          </div>
+                          <p className="mt-2 text-xs text-slate-500">Placed: {formatDate(order.orderDate)}</p>
+                          <div className="mt-4 space-y-3 border-t border-slate-100 pt-3">
+                            <div className="flex items-start gap-2.5">
+                              <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600"><User className="h-3.5 w-3.5" /></span>
+                              <div className="min-w-0">
+                                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Customer</p>
+                                <p className="mt-0.5 truncate text-sm font-semibold text-slate-800">{order.customerName || order.customer?.name || "Customer"}</p>
+                                {order.customerPhone ? <p className="mt-0.5 text-xs text-slate-500">{order.customerPhone}</p> : null}
                               </div>
-                              <p className="mt-1 text-sm text-muted-foreground">{formatDate(order.orderDate)}</p>
                             </div>
-
-                            <div className="text-left sm:text-right">
-                              <p className="text-lg font-bold tracking-tight text-slate-900">{formatPrice(order.totalAmount)}</p>
-                              {paymentBadge(order.paymentMethod).label && (
-                                <span className={cn(
-                                  "mt-1 inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold",
-                                  paymentBadge(order.paymentMethod).cod
-                                    ? "border-amber-200 bg-amber-50 text-amber-700"
-                                    : "border-blue-200 bg-blue-50 text-blue-700"
-                                )}>
-                                  {paymentBadge(order.paymentMethod).label}
-                                </span>
-                              )}
+                            <div className="flex items-start gap-2.5">
+                              <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600"><MapPin className="h-3.5 w-3.5" /></span>
+                              <div className="min-w-0">
+                                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Delivery</p>
+                                <p className="mt-0.5 truncate text-sm font-semibold text-slate-800">{order.deliveryType === "pickup" ? "Customer pickup" : order.deliveryAddress?.city || "Home delivery"}</p>
+                              </div>
                             </div>
-                          </div>
-
-                          <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                            <div className="rounded-lg bg-slate-50 p-3">
-                              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Customer</p>
-                              <p className="mt-1 truncate text-sm font-medium text-slate-900">{order.customerName || "Customer"}</p>
-                            </div>
-                            <div className="rounded-lg bg-slate-50 p-3">
-                              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Items</p>
-                              <p className="mt-1 text-sm font-medium text-slate-900">{(order.items || []).length} item{(order.items || []).length === 1 ? "" : "s"}</p>
-                            </div>
-                            <div className="rounded-lg bg-slate-50 p-3">
-                              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Delivery</p>
-                              <p className="mt-1 truncate text-sm font-medium text-slate-900">
-                                {order.deliveryType === "pickup" ? "Customer Pickup" : (order.deliveryAddress?.city || "Home delivery")}
-                              </p>
-                            </div>
-                          </div>
-
-                          <div className="mt-4 flex flex-wrap gap-2">
-                            {(order.items || []).slice(0, 2).map((item: any, idx: number) => (
-                              <span key={idx} className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700">
-                                {item.productName} · {item.quantity}
-                              </span>
-                            ))}
-                            {(order.items || []).length > 2 && (
-                              <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
-                                +{(order.items || []).length - 2} more
-                              </span>
-                            )}
-                          </div>
-
-                          <div className="mt-4 flex flex-wrap gap-2">
-                            {order.fulfillmentMethod === "farmer" && (
-                              <Badge variant="outline" className="rounded-full border-emerald-200 bg-emerald-50 text-emerald-700">
-                                <UserCheck className="mr-1 h-3 w-3" />Farmer Fulfillment
-                              </Badge>
-                            )}
-                            {order.fulfillmentMethod === "warehouse" && (
-                              <>
-                                <Badge variant="outline" className="rounded-full border-blue-200 bg-blue-50 text-blue-700">
-                                  <Store className="mr-1 h-3 w-3" />Warehouse Fulfillment
-                                </Badge>
-                                {order.warehouse?.name && (
-                                  <Badge variant="outline" className="rounded-full border-indigo-200 bg-indigo-50 text-indigo-700">
-                                    <MapPin className="mr-1 h-3 w-3" />
-                                    {order.warehouse.name}
-                                    {Number.isFinite(Number(order.warehouse.distanceKm)) ? " · " + Number(order.warehouse.distanceKm).toFixed(1) + " km" : ""}
-                                  </Badge>
-                                )}
-                              </>
-                            )}
-                            {status === "processing" && order.fulfillmentRouteSelected !== true && (
-                              <Badge variant="outline" className="rounded-full border-amber-200 bg-amber-50 text-amber-700">
-                                Fulfillment Selection Required
-                              </Badge>
-                            )}
-                            {order.deliveryPartnerRoute === "long_distance" && (
-                              <Badge variant="outline" className="rounded-full border-amber-200 bg-amber-50 text-amber-700">
-                                <Truck className="mr-1 h-3 w-3" />Long-Distance · Warehouse Transfer
-                              </Badge>
-                            )}
-                            {order.deliveryPartnerRoute === "nearby" && (
-                              <Badge variant="outline" className="rounded-full border-green-200 bg-green-50 text-green-700">
-                                <Navigation className="mr-1 h-3 w-3" />Nearby Delivery
-                              </Badge>
-                            )}
-                            {order.deliveryPartnerName && (
-                              <Badge variant="outline" className="rounded-full border-indigo-200 bg-indigo-50 text-indigo-700">
-                                Partner: {order.deliveryPartnerName}
-                              </Badge>
-                            )}
-                            {order.pickedBy && (
-                              <Badge variant="outline" className="rounded-full border-slate-200 bg-white text-slate-600">
-                                Picked by: {order.pickedBy}
-                              </Badge>
-                            )}
                           </div>
                         </div>
-                        <div className="border-t bg-slate-50/70 p-4 sm:p-5 lg:w-[300px] lg:border-l lg:border-t-0">
+
+                        <div className="min-w-0 border-b border-slate-100 p-4 sm:p-5 xl:border-b-0 xl:border-r">
+                          <div className="flex min-w-0 items-center gap-3">
+                            <div
+                              className="flex h-[68px] w-[68px] shrink-0 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50 text-emerald-700"
+                              style={rawProductImage ? { backgroundImage: `url("${rawProductImage}")`, backgroundPosition: "center", backgroundSize: "cover" } : undefined}
+                              aria-label={rawProductImage ? `${productName} image` : "Product image unavailable"}
+                            >
+                              {!rawProductImage ? <Package className="h-7 w-7" /> : null}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-bold text-slate-950">{productName}</p>
+                              {productGrade ? <p className="mt-0.5 text-xs text-slate-500">Grade {productGrade}</p> : <p className="mt-0.5 text-xs text-slate-500">{itemCount} item{itemCount === 1 ? "" : "s"} in order</p>}
+                              {itemCount > 1 ? <p className="mt-1 text-[11px] font-medium text-emerald-700">+{itemCount - 1} more product{itemCount === 2 ? "" : "s"}</p> : null}
+                            </div>
+                          </div>
+                          <div className="mt-4 grid grid-cols-2 gap-2">
+                            <div className="rounded-lg bg-slate-50 px-2.5 py-2">
+                              <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">Quantity</p>
+                              <p className="mt-1 text-sm font-bold text-slate-900">{productQuantity} {productUnit}</p>
+                            </div>
+                            <div className="rounded-lg bg-slate-50 px-2.5 py-2">
+                              <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">Unit price</p>
+                              <p className="mt-1 text-sm font-bold text-emerald-700">{productUnitPrice != null ? formatPrice(productUnitPrice) : "—"}{productUnitPrice != null ? `/${productUnit}` : ""}</p>
+                            </div>
+                          </div>
+                          <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-100 pt-3">
+                            <span className="text-xs font-medium text-slate-500">Order total</span>
+                            <div className="text-right">
+                              <p className="text-lg font-bold tracking-tight text-slate-950">{formatPrice(order.totalAmount)}</p>
+                              {paymentBadge(order.paymentMethod).label ? <span className={cn("text-[10px] font-semibold", paymentBadge(order.paymentMethod).cod ? "text-amber-700" : "text-blue-700")}>{paymentBadge(order.paymentMethod).label}{order.paymentStatus === "paid" ? " · Paid" : ""}</span> : null}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="min-w-0 p-4 sm:p-5">
+                          <div className="mb-3 flex items-center justify-between gap-2">
+                            <p className="text-xs font-semibold text-slate-800">Fulfillment progress</p>
+                            <span className="text-[11px] font-semibold text-emerald-700">{statusLabels[status] || status}</span>
+                          </div>
+                          {progressIndex >= 0 ? (
+                            <div className="flex items-start">
+                              {progressStages.map((step, index) => {
+                                const complete = index <= progressIndex;
+                                const current = index === progressIndex;
+                                return (
+                                  <div key={step.key} className="flex min-w-0 flex-1 flex-col items-center">
+                                    <div className="flex w-full items-center">
+                                      {index > 0 ? <span className={cn("h-0.5 flex-1", index <= progressIndex ? "bg-emerald-500" : "bg-slate-200")} /> : <span className="h-0.5 flex-1 bg-transparent" />}
+                                      <span className={cn("flex h-3 w-3 shrink-0 rounded-full border-2", complete ? "border-emerald-600 bg-emerald-600" : "border-slate-300 bg-white", current && "ring-4 ring-emerald-100")} />
+                                      {index < progressStages.length - 1 ? <span className={cn("h-0.5 flex-1", index < progressIndex ? "bg-emerald-500" : "bg-slate-200")} /> : <span className="h-0.5 flex-1 bg-transparent" />}
+                                    </div>
+                                    <span className={cn("mt-2 max-w-full text-center text-[9px] leading-3 sm:text-[10px]", current ? "font-bold text-emerald-800" : complete ? "font-medium text-slate-700" : "text-slate-400")}>{step.label}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">Awaiting order confirmation</div>
+                          )}
+
+                          <div className="mt-4 flex flex-wrap gap-1.5">
+                            {order.fulfillmentMethod === "farmer" ? <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700"><UserCheck className="mr-1 h-3 w-3" />Farmer fulfillment</Badge> : null}
+                            {order.fulfillmentMethod === "warehouse" ? <Badge variant="outline" className="border-blue-200 bg-blue-50 text-blue-700"><Store className="mr-1 h-3 w-3" />Warehouse fulfillment</Badge> : null}
+                            {order.deliveryPartnerRoute === "long_distance" ? <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">Long distance transfer</Badge> : null}
+                            {order.deliveryPartnerRoute === "nearby" ? <Badge variant="outline" className="border-green-200 bg-green-50 text-green-700">Nearby delivery</Badge> : null}
+                          </div>
+                          {order.deliveryPartnerName || order.warehouse?.name || order.warehouseCollectionStatus ? (
+                            <div className="mt-3 rounded-lg border border-emerald-100 bg-emerald-50/60 px-3 py-2">
+                              <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-800">Delivery update</p>
+                              <p className="mt-0.5 text-xs leading-5 text-emerald-900">
+                                {order.deliveryPartnerName ? `Partner: ${order.deliveryPartnerName}` : order.warehouse?.name ? `Warehouse: ${order.warehouse.name}` : String(order.warehouseCollectionStatus || "").replace(/_/g, " ")}
+                              </p>
+                              {order.warehouseCollectionStatus ? <p className="mt-0.5 text-[10px] text-emerald-800">Farm collection: {String(order.warehouseCollectionStatus).replace(/_/g, " ")}</p> : null}
+                            </div>
+                          ) : null}
+                        </div>
+                        <div className="min-w-0 border-t border-slate-100 bg-slate-50/60 p-4 sm:p-5 xl:border-l xl:border-t-0">
+                          <div className="mb-3 flex items-center justify-between gap-2">
+                            <Badge variant="outline" className={cn("rounded-full px-2.5 py-1 text-xs font-semibold", statusColors[status] || "border-slate-200 bg-white text-slate-700")}>{statusLabels[status] || status}</Badge>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" aria-label={`More actions for order ${order.orderNumber || orderId}`}>
+                                  <MoreVertical className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="min-w-[200px] w-max whitespace-nowrap">
+                                <DropdownMenuItem asChild className="whitespace-nowrap">
+                                  <Link href={`/farmer/orders/${orderId}`} className="flex w-full items-center whitespace-nowrap">
+                                    <Eye className="mr-2 h-4 w-4 shrink-0" />View full order
+                                  </Link>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  className="whitespace-nowrap"
+                                  onClick={() => router.push(`/farmer/order-map?delivery=required&orderId=${encodeURIComponent(orderId)}`)}
+                                >
+                                  <Navigation className="mr-2 h-4 w-4 shrink-0" />Open in order map
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
                           <div className="mb-3 rounded-lg border border-slate-200 bg-white p-3">
                             <div className="flex items-start justify-between gap-2">
                               <div>
@@ -958,7 +913,7 @@ export default function FarmerOrdersPage() {
                             </div>
                           </div>
                           <div className="space-y-2">
-                            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Manual processing</p>
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Available actions</p>
                             {getStatus(order) === "pending" && (
                               <>
                                 <Button size="sm" className="w-full" onClick={() => setConfirmAction({ order, action: 'confirmed' })}>
@@ -996,9 +951,6 @@ export default function FarmerOrdersPage() {
                                         </span>
                                         <span className="min-w-0 flex-1">
                                           <span className="block text-xs font-semibold text-slate-900">Farmer Fulfillment</span>
-                                          <span className="mt-0.5 block text-[11px] font-normal leading-4 text-slate-500">
-                                            You pack the order and continue to the Farmer Order Map.
-                                          </span>
                                         </span>
                                       </Button>
                                       <Button
@@ -1013,9 +965,6 @@ export default function FarmerOrdersPage() {
                                         </span>
                                         <span className="min-w-0 flex-1">
                                           <span className="block text-xs font-semibold text-slate-900">Warehouse Fulfillment</span>
-                                          <span className="mt-0.5 block text-[11px] font-normal leading-4 text-slate-500">
-                                            Send stock to the warehouse for order allocation and packing.
-                                          </span>
                                         </span>
                                       </Button>
                                     </div>
@@ -1029,7 +978,6 @@ export default function FarmerOrdersPage() {
                                             <Package className="mr-2 h-4 w-4" />Open Packing & Checking
                                           </Link>
                                         </Button>
-                                        <p className="text-[11px] text-muted-foreground">Check the order, enter actual quantities, resolve shortages, and prepare the delivery label in the packing workspace.</p>
                                       </div>
                                     )}
                                     {order.fulfillmentStage === "packed" && (
@@ -1041,7 +989,6 @@ export default function FarmerOrdersPage() {
                                         >
                                           <Navigation className="mr-2 h-4 w-4" />Open Farmer Order Map
                                         </Button>
-                                        <p className="text-[11px] text-muted-foreground">Packing is complete. Choose self delivery or let distance decide the delivery-partner route.</p>
                                       </div>
                                     )}
                                     {order.deliveryPartnerRoute === "long_distance" && order.warehouseCollectionStatus && (
@@ -1055,20 +1002,14 @@ export default function FarmerOrdersPage() {
                                             return <div key={key} className={"rounded-md px-2 py-1.5 " + (complete ? "bg-white font-medium" : "text-amber-600")}>{complete ? "✓ " : "○ "}{label}</div>;
                                           })}
                                         </div>
-                                        <p className="mt-2 border-t border-amber-200 pt-2">These customer orders were already packed by you. The warehouse is a transfer point only and will not repack them.</p>
                                       </div>
                                     )}
                                   </div>
                                 ) : (
-                                  <div className="space-y-3 rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs leading-5 text-blue-800">
-                                    <div>
-                                      <strong>Warehouse fulfillment</strong>
-                                      <p className="mt-1">Bulk harvest/product is sent to the assigned warehouse. The warehouse handles receiving, quality checks, allocation, and customer-order packing.</p>
-                                    </div>
-
-                                    <div className="rounded-lg border border-blue-200 bg-white p-3">
-                                      <p className="text-[10px] font-semibold uppercase tracking-wide text-blue-600">Current Status</p>
-                                      <p className="mt-1 font-semibold text-blue-950">
+                                  <div className="space-y-3">
+                                    <div className="rounded-lg border border-slate-200 bg-white p-3">
+                                      <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Current status</p>
+                                      <p className="mt-1 font-semibold text-slate-900">
                                         {(() => {
                                           const stage = String(order.warehouseFulfillmentStage || "incoming").toLowerCase();
                                           const labels: Record<string, string> = {
@@ -1100,11 +1041,6 @@ export default function FarmerOrdersPage() {
                                       </Button>
                                     )}
 
-                                    {order.warehouseCollectionStatus && (
-                                      <p className="text-[11px] text-blue-700">
-                                        The warehouse collection team will handle pickup and the remaining warehouse operations.
-                                      </p>
-                                    )}
                                   </div>
                                 )}
                               </div>

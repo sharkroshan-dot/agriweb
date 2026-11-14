@@ -18,13 +18,11 @@ const emptyForm = {
   productName: "",
   category: "",
   recurring: false,
-  quantityKg: 500,
-  quantityPerWeekKg: 50,
   recurrenceFrequency: "weekly",
   recurrenceInterval: 1,
   scheduleStartDate: "",
   scheduleEndDate: "",
-  paymentTerms: "net_7",
+  paymentTerms: "",
   cancellationTerms: "",
   qualityGrade: "Grade A",
   requiredDate: "",
@@ -68,6 +66,11 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
   const [locationLoading, setLocationLoading] = useState(false);
 
   const set = (k: string, v: any) => setForm((f) => ({ ...f, [k]: v }));
+
+  // The RFQ form now stores product names in productLines, not form.productName.
+  // Use the first entered product for the shared AI price/budget recommendation.
+  const priceCheckProductName =
+    productLines.find((line) => line.productName.trim())?.productName.trim() || "";
 
   const geocodeManualAddress = async () => {
     const query = form.deliveryAddress.trim();
@@ -207,7 +210,7 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-medium text-slate-600">Category *</label>
-                <select value={line.category} onChange={(e) => setProductLines((rows) => rows.map((row, i) => i === index ? { ...row, category: e.target.value } : row))} className="h-9 w-full rounded-md border border-gray-200 bg-white px-2 text-sm">
+                <select value={line.category} onChange={(e) => setProductLines((rows) => rows.map((row, i) => i === index ? { ...row, category: e.target.value } : row))} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 pr-10 text-sm text-slate-900 shadow-sm outline-none transition hover:border-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10">
                   <option value="">Select category</option>
                   {PRODUCT_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}
                 </select>
@@ -232,7 +235,10 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
                 key={String(o.key)}
                 type="button"
                 aria-pressed={form.recurring === o.key}
-                onClick={() => set("recurring", o.key)}
+                onClick={() => setForm((current) => ({
+                  ...current,
+                  recurring: o.key,
+                }))}
                 className={`flex flex-1 items-center justify-center rounded-lg px-4 py-2.5 text-sm font-medium transition-colors ${
                   form.recurring === o.key
                     ? "bg-emerald-600 text-white shadow-sm"
@@ -245,34 +251,62 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
           </div>
         </div>
 
-        {form.recurring ? (
+        {form.recurring && (
           <>
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-gray-500">Quantity (kg/week) *</label>
-            <Input type="number" min="1" value={form.quantityPerWeekKg} onChange={(e) => set("quantityPerWeekKg", Number(e.target.value))} />
-          </div>
-          <div className="space-y-1"><label className="text-xs font-medium text-gray-500">Delivery frequency *</label><select value={form.recurrenceFrequency} onChange={(e) => set("recurrenceFrequency", e.target.value)} className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm"><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select></div>
-          <div className="space-y-1"><label className="text-xs font-medium text-gray-500">Repeat every *</label><Input type="number" min="1" max="12" value={form.recurrenceInterval} onChange={(e) => set("recurrenceInterval", Number(e.target.value))} /></div>
-          <div className="space-y-1"><label className="text-xs font-medium text-gray-500">Schedule start date *</label><Input type="date" value={form.scheduleStartDate} onChange={(e) => set("scheduleStartDate", e.target.value)} /></div>
-          <div className="space-y-1"><label className="text-xs font-medium text-gray-500">Schedule end date *</label><Input type="date" min={form.scheduleStartDate || undefined} value={form.scheduleEndDate} onChange={(e) => set("scheduleEndDate", e.target.value)} /></div>
-          <div className="space-y-1"><label className="text-xs font-medium text-gray-500">Payment terms</label><select value={form.paymentTerms} onChange={(e) => set("paymentTerms", e.target.value)} className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm"><option value="advance">Advance</option><option value="cod">Cash on delivery</option><option value="net_7">Net 7 days</option><option value="net_15">Net 15 days</option><option value="net_30">Net 30 days</option></select></div>
-          <div className="space-y-1 sm:col-span-2"><label className="text-xs font-medium text-gray-500">Cancellation / quality terms</label><Input value={form.cancellationTerms} onChange={(e) => set("cancellationTerms", e.target.value)} placeholder="Quality checks, notice period, cancellation rules" /></div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-gray-500">Delivery frequency *</label>
+              <select value={form.recurrenceFrequency} onChange={(e) => set("recurrenceFrequency", e.target.value)} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 pr-10 text-sm text-slate-900 shadow-sm outline-none transition hover:border-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10">
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-gray-500">Repeat every *</label>
+              <Input type="number" min="1" max="12" value={form.recurrenceInterval} onChange={(e) => set("recurrenceInterval", Number(e.target.value))} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-gray-500">Schedule start date *</label>
+              <Input type="date" value={form.scheduleStartDate} onChange={(e) => set("scheduleStartDate", e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-gray-500">Schedule end date *</label>
+              <Input type="date" min={form.scheduleStartDate || undefined} value={form.scheduleEndDate} onChange={(e) => set("scheduleEndDate", e.target.value)} />
+            </div>
+            <div className="space-y-1 sm:col-span-2">
+              <label className="text-xs font-medium text-gray-500">Cancellation / quality terms</label>
+              <Input value={form.cancellationTerms} onChange={(e) => set("cancellationTerms", e.target.value)} placeholder="Quality checks, notice period, cancellation rules" />
+            </div>
           </>
-        ) : (
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-gray-500">Quantity (kg) *</label>
-            <Input type="number" min="1" value={form.quantityKg} onChange={(e) => set("quantityKg", Number(e.target.value))} />
-          </div>
         )}
         <div className="space-y-1">
           <label className="text-xs font-medium text-gray-500">Quality grade</label>
           <select
             value={form.qualityGrade}
             onChange={(e) => set("qualityGrade", e.target.value)}
-            className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm"
+            className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 pr-10 text-sm text-slate-900 shadow-sm outline-none transition hover:border-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
           >
             {QUALITY_GRADES.map((q) => <option key={q} value={q}>{q}</option>)}
           </select>
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-gray-500">Payment terms *</label>
+          <select
+            value={form.paymentTerms}
+            onChange={(e) => set("paymentTerms", e.target.value)}
+            required
+            className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 pr-10 text-sm text-slate-900 shadow-sm outline-none transition hover:border-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+          >
+            <option value="" disabled>Select a payment method</option>
+            <option value="advance">Advance payment</option>
+            <option value="cod">Cash on delivery</option>
+            <option value="net_7">Payment within 7 days</option>
+            <option value="net_15">Payment within 15 days</option>
+            <option value="net_30">Payment within 30 days</option>
+          </select>
+          <p className="text-xs text-slate-500">
+            These agreed payment terms are published with the RFQ so farmers can review them before quoting. The actual payment channel (Razorpay, UPI, card or COD collection) is selected when the quote is accepted or the order is paid.
+          </p>
         </div>
 
         {!form.recurring && (
@@ -322,7 +356,7 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
           <select
             value={form.visibility}
             onChange={(e) => set("visibility", e.target.value)}
-            className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm"
+            className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 pr-10 text-sm text-slate-900 shadow-sm outline-none transition hover:border-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
           >
             {VISIBILITY.map((v) => <option key={v} value={v}>{v[0].toUpperCase() + v.slice(1)}</option>)}
           </select>
@@ -362,14 +396,21 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
           <Input value={form.notes} onChange={(e) => set("notes", e.target.value)} placeholder="Quality requirements, packaging, etc." />
         </div>
 
-        {form.productName.trim() && (
+        {priceCheckProductName && (
           <div className="sm:col-span-2">
             <Button
               type="button"
               variant="outline"
               size="sm"
               disabled={aiMutation.isPending}
-              onClick={() => aiMutation.mutate({ productName: form.productName.trim(), city: form.deliveryCity.trim() || undefined, qualityGrade: form.qualityGrade || undefined })}
+              onClick={() => {
+                setAiRec(null);
+                aiMutation.mutate({
+                  productName: priceCheckProductName,
+                  city: form.deliveryCity.trim() || form.deliveryDistrict.trim() || undefined,
+                  qualityGrade: form.qualityGrade || undefined,
+                });
+              }}
             >
               {aiMutation.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Bot className="mr-1.5 h-4 w-4" />}
               AI price check
@@ -451,7 +492,7 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
 
         <div className="sm:col-span-2">
           <Button
-            disabled={productLines.some((line) => !line.productName.trim() || !line.category || (form.recurring ? line.quantityPerDeliveryKg <= 0 : line.quantityKg <= 0)) || new Set(productLines.map((line) => line.productName.trim().toLowerCase())).size !== productLines.length || createMutation.isPending || (form.recurring && (!form.scheduleStartDate || !form.scheduleEndDate || form.scheduleEndDate < form.scheduleStartDate || !form.recurrenceFrequency || form.recurrenceInterval < 1)) || !form.deliveryCity.trim() || !form.deliveryAddress.trim()}
+            disabled={productLines.some((line) => !line.productName.trim() || !line.category || (form.recurring ? line.quantityPerDeliveryKg <= 0 : line.quantityKg <= 0)) || new Set(productLines.map((line) => line.productName.trim().toLowerCase())).size !== productLines.length || createMutation.isPending || (form.recurring && (!form.scheduleStartDate || !form.scheduleEndDate || form.scheduleEndDate < form.scheduleStartDate || !form.recurrenceFrequency || form.recurrenceInterval < 1)) || !form.deliveryCity.trim() || !form.deliveryAddress.trim() || !form.paymentTerms}
             onClick={() =>
               createMutation.mutate({
                 ...form,
@@ -474,14 +515,12 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
                 budgetMinPerKg: form.budgetMinPerKg ? Number(form.budgetMinPerKg) : null,
                 budgetMaxPerKg: form.budgetMaxPerKg ? Number(form.budgetMaxPerKg) : null,
                 deadline: form.deadline ? new Date(form.deadline).toISOString() : null,
-                quantityKg: form.recurring ? null : form.quantityKg,
-                quantityPerWeekKg: form.recurring ? form.quantityPerWeekKg : null,
                 recurrenceFrequency: form.recurring ? form.recurrenceFrequency : null,
                 recurrenceInterval: form.recurring ? form.recurrenceInterval : null,
                 scheduleStartDate: form.recurring && form.scheduleStartDate ? new Date(form.scheduleStartDate).toISOString() : null,
                 scheduleEndDate: form.recurring && form.scheduleEndDate ? new Date(form.scheduleEndDate).toISOString() : null,
                 contractRequired: form.recurring,
-                paymentTerms: form.recurring ? form.paymentTerms : null,
+                paymentTerms: form.paymentTerms,
                 cancellationTerms: form.recurring ? form.cancellationTerms : null,
               })
             }

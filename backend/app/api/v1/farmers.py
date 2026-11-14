@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import StreamingResponse
 from typing import Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 import asyncio
 
 from pydantic import BaseModel, Field
@@ -67,7 +68,10 @@ class UpdateFarmerProfileRequest(BaseModel):
     city: Optional[str] = None
     weeklyPickupWindow: Optional[str] = None
     farmAddress: Optional[str] = None
+    farmVillage: Optional[str] = Field(None, max_length=120)
+    farmTaluk: Optional[str] = Field(None, max_length=120)
     pickupInstructions: Optional[str] = None
+    profileImage: Optional[str] = None
 
 router = APIRouter()
 
@@ -574,11 +578,50 @@ async def get_my_products(
 
 @router.get("/me/customers")
 async def get_my_customers(
+    period: str = Query("all", pattern="^(today|week|month|year|all)$"),
     current_user: dict = Depends(get_current_user),
 ):
+    """Return lifetime customer cards and date-filtered customer KPIs."""
     _ensure_farmer(current_user)
     farmer_id = str(current_user["_id"])
     orders = await order_repository.get_by_farmer(farmer_id, 0, 1000)
+
+    now = datetime.now(ZoneInfo("Asia/Kolkata"))
+    if period == "today":
+        local_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    elif period == "week":
+        local_start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    elif period == "month":
+        local_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    elif period == "year":
+        local_start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+    else:
+        local_start = None
+    period_start = local_start.astimezone(timezone.utc).replace(tzinfo=None) if local_start else None
+
+    def parse_order_date(value):
+        if isinstance(value, datetime):
+            return value.replace(tzinfo=None) if value.tzinfo else value
+        if isinstance(value, str):
+            try:
+                return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
+            except ValueError:
+                return None
+        return None
+
+    period_orders = []
+    for order in orders:
+        order_date = parse_order_date(order.get("orderDate") or order.get("createdAt"))
+        if period_start is None or (order_date is not None and order_date >= period_start):
+            period_orders.append(order)
+
+    period_customer_counts = Counter(str(order.get("customerId")) for order in period_orders if order.get("customerId"))
+    period_stats = {
+        "ordersReceived": len(period_orders),
+        "repeatCustomers": sum(1 for count in period_customer_counts.values() if count > 1),
+        "totalCustomerSpend": round(sum(float(order.get("totalAmount") or 0) for order in period_orders), 2),
+    }
+
     customer_map = {}
     for order in orders:
         cid = str(order["customerId"])
@@ -605,7 +648,7 @@ async def get_my_customers(
             customers.append(info)
 
     customers.sort(key=lambda c: c["orderCount"], reverse=True)
-    return {"success": True, "data": {"customers": customers}}
+    return {"success": True, "data": {"customers": customers, "stats": period_stats, "period": period}}
 
 
 @router.get("/me/reviews")
@@ -802,25 +845,54 @@ async def get_delivery_calendar(
     orderIds: Optional[str] = Query(None),
     current_user: dict = Depends(get_current_user),
 ):
-    """Get farmer's delivery calendar with weekly slots.
-
-    Slots are aggregated by (delivery day, time slot) so the calendar can
-    show the number of deliveries per cell plus the list of orders in it.
-    Partner-handled orders are included and flagged so each cell can show a
-    self/partner split, estimated workload and an overload warning when the
-    farmer's own share exceeds their delivery capacity for one run.
-    """
+    """Return date-specific current and historical farmer delivery calendar entries."""
     _ensure_farmer(current_user)
     farmer_id = str(current_user["_id"])
     capacity = await _get_delivery_capacity(farmer_id)
-    active_statuses = ["pending", "confirmed", "processing", "ready_for_delivery", "ready_for_pickup"]
+    calendar_statuses = [
+        "pending", "confirmed", "processing", "ready_for_delivery",
+        "ready_for_pickup", "dispatched", "in_transit",
+        "delivered", "completed", "picked_up",
+    ]
     workflow_ids = _parse_workflow_order_ids(orderIds)
-    calendar_query = {"farmerId": ObjectId(farmer_id), "orderStatus": {"$in": active_statuses}, "deletedAt": None, "deliveryType": DeliveryType.DELIVERY.value, "fulfillmentMethod": "farmer", "fulfillmentStage": {"$in": ["packed", "dispatched"]}, "deliveryResponsibility": "farmer", "selfDelivery": True}
-    if workflow_ids: calendar_query["_id"] = {"$in": workflow_ids}
-    orders = await order_repository.find_many(calendar_query)
-    orders = orders or []
+    calendar_query = {
+        "farmerId": ObjectId(farmer_id),
+        "orderStatus": {"$in": calendar_statuses},
+        "deletedAt": None,
+        # Older order documents may not have deliveryType or fulfillmentMethod.
+        # Resolve those legacy defaults in Python after fetching by farmer.
+    }
+    if workflow_ids:
+        calendar_query["_id"] = {"$in": workflow_ids}
+    orders = await order_repository.find_many(calendar_query) or []
+    # Legacy orders can omit deliveryType/fulfillmentMethod. Treat a missing
+    # deliveryType as normal delivery, and keep only farmer-direct fulfilment.
+    orders = [
+        order for order in orders
+        if str(order.get("deliveryType") or DeliveryType.DELIVERY.value) != DeliveryType.PICKUP.value
+        and str(order.get("fulfillmentMethod") or "farmer") == "farmer"
+    ]
     farm = await _get_farm_origin(farmer_id)
 
+    def _calendar_date_value(value):
+        if isinstance(value, datetime):
+            return value.date()
+        if hasattr(value, "year") and hasattr(value, "month") and hasattr(value, "day"):
+            try:
+                return value
+            except Exception:
+                return None
+        if isinstance(value, str) and value.strip():
+            try:
+                return datetime.fromisoformat(value.strip().replace("Z", "+00:00")).date()
+            except (TypeError, ValueError):
+                try:
+                    return datetime.strptime(value.strip()[:10], "%Y-%m-%d").date()
+                except (TypeError, ValueError):
+                    return None
+        return None
+
+    today = datetime.utcnow().date()
     groups: dict[tuple[str, str], list] = {}
     total_distance = 0.0
     total_revenue = 0.0
@@ -828,16 +900,57 @@ async def get_delivery_calendar(
     partner_total = 0
     for order in orders:
         oid = str(order["_id"])
+        status_value = str(order.get("orderStatus") or "").lower()
+        is_partnered = bool(order.get("deliveryPartnerId")) or order.get("deliveryResponsibility") == "delivery_partner"
+
+        # Prefer the scheduled date, then the actual completion timestamp for
+        # historical orders. Older active orders only stored a weekday, so
+        # map those to the next matching calendar date as a compatibility fallback.
+        scheduled_date = _calendar_date_value(order.get("deliveryDate"))
+        if scheduled_date is None:
+            for field in ("deliveredAt", "completedAt", "pickedUpAt", "actualDeliveryDate"):
+                scheduled_date = _calendar_date_value(order.get(field))
+                if scheduled_date is not None:
+                    break
+        if scheduled_date is None and status_value in ("delivered", "completed", "picked_up"):
+            # Older status transitions may have only been recorded in history.
+            history = order.get("statusHistory") or []
+            completion_events = [
+                event for event in history
+                if str(event.get("status") or "").lower() in ("delivered", "completed", "picked_up")
+            ]
+            if completion_events:
+                completion_events.sort(
+                    key=lambda event: _calendar_date_value(event.get("timestamp")) or datetime.min.date()
+                )
+                scheduled_date = _calendar_date_value(completion_events[-1].get("timestamp"))
+            if scheduled_date is None:
+                for field in ("updatedAt", "createdAt"):
+                    scheduled_date = _calendar_date_value(order.get(field))
+                    if scheduled_date is not None:
+                        break
+        if scheduled_date is None:
+            legacy_day = order.get("deliveryDay")
+            if legacy_day in _CALENDAR_DAYS:
+                target_weekday = _CALENDAR_DAYS.index(legacy_day)
+                scheduled_date = today + timedelta(days=(target_weekday - today.weekday()) % 7)
+            else:
+                scheduled_date = _calendar_date_value(order.get("createdAt")) or today
+
+        day = scheduled_date.strftime("%A")
+        date_key = scheduled_date.isoformat()
+        time_slot = order.get("deliveryTimeSlot") or "Morning"
+        if time_slot not in _CALENDAR_SLOT_ORDER:
+            time_slot = "Morning"
+
         try:
             await calculate_order_delivery_priority(order, persist=True)
         except Exception:
             logger.warning("Could not refresh calendar freshness priority for order %s", oid, exc_info=True)
-        is_partnered = bool(order.get("deliveryPartnerId"))
-        day = order.get("deliveryDay") or order.get("createdAt", datetime.utcnow()).strftime("%A")
-        time_slot = order.get("deliveryTimeSlot") or "Morning"
+
         addr = order.get("deliveryAddress", {}) or {}
         dist = 0.0
-        if order.get("deliveryType", "delivery") != DeliveryType.PICKUP.value and farm.get("lat") is not None:
+        if farm.get("lat") is not None:
             lat, lng = await _stop_coords(addr, oid)
             if lat is not None:
                 dist = _haversine_km(farm["lat"], farm["lng"], lat, lng)
@@ -847,37 +960,39 @@ async def get_delivery_calendar(
             partner_total += 1
         else:
             self_total += 1
-        if day in _CALENDAR_DAYS:
-            delivery = {
-                "id": oid,
-                "orderId": oid,
-                "customerName": order.get("customerName", "Customer"),
-                "address": addr.get("address") or addr.get("addressLine1") or "Pickup at farm",
-                "items": len(order.get("items", []) or []),
-                "total": float(order.get("totalAmount", 0) or 0),
-                "status": order.get("orderStatus", "pending"),
-                "distance": round(dist, 2),
-                "deliveryType": order.get("deliveryType", "delivery"),
-                "assignment": "partner" if is_partnered else "self",
-                "isCOD": str(order.get("paymentMethod", "") or "").lower() == "cash",
-                "priority": int(order.get("priority", 1) or 1),
-                "priorityLabel": order.get("priorityLabel") or "normal",
-                "priorityReason": order.get("priorityReason") or "",
-                "deliveryDeadline": order.get("deliveryDeadline"),
-                "deliveryHoursRemaining": order.get("deliveryHoursRemaining"),
-                "freshnessDeadline": order.get("freshnessDeadline"),
-                "shelfLifeDays": order.get("shelfLifeDays"),
-            }
-            groups.setdefault((day, time_slot), []).append(delivery)
+
+        delivery = {
+            "id": oid,
+            "orderId": oid,
+            "customerName": order.get("customerName", "Customer"),
+            "address": addr.get("address") or addr.get("addressLine1") or "Delivery address",
+            "items": len(order.get("items", []) or []),
+            "total": float(order.get("totalAmount", 0) or 0),
+            "status": order.get("orderStatus", "pending"),
+            "distance": round(dist, 2),
+            "deliveryType": order.get("deliveryType", "delivery"),
+            "assignment": "partner" if is_partnered else "self",
+            "isCOD": str(order.get("paymentMethod", "") or "").lower() == "cash",
+            "priority": int(order.get("priority", 1) or 1),
+            "priorityLabel": order.get("priorityLabel") or "normal",
+            "priorityReason": order.get("priorityReason") or "",
+            "deliveryDeadline": order.get("deliveryDeadline"),
+            "deliveryHoursRemaining": order.get("deliveryHoursRemaining"),
+            "freshnessDeadline": order.get("freshnessDeadline"),
+            "shelfLifeDays": order.get("shelfLifeDays"),
+        }
+        groups.setdefault((date_key, time_slot), []).append(delivery)
 
     slots = []
-    for (day, time_slot), items in groups.items():
+    for (date_key, time_slot), items in groups.items():
         cell_distance = round(sum(float(d["distance"] or 0) for d in items), 2)
         cell_self = sum(1 for d in items if d["assignment"] == "self")
         cell_partner = len(items) - cell_self
         cell_minutes = round(cell_distance / 25 * 60 + max(0, cell_self - 1) * 10 + cell_partner * 5)
         slots.append({
-            "day": day,
+            "date": date_key,
+            "dateKey": date_key,
+            "day": datetime.strptime(date_key, "%Y-%m-%d").strftime("%A"),
             "timeSlot": time_slot,
             "count": len(items),
             "selfCount": cell_self,
@@ -885,12 +1000,10 @@ async def get_delivery_calendar(
             "distanceKm": cell_distance,
             "estimatedMinutes": cell_minutes,
             "income": round(sum(float(d.get("total") or 0) for d in items), 2),
-            # A slot is overloaded when the farmer's own share alone exceeds
-            # the orders they can handle in one delivery run.
             "overloaded": cell_self > int(capacity.get("maxOrders") or 20),
             "deliveries": items,
         })
-    slots.sort(key=lambda s: (_CALENDAR_DAYS.index(s["day"]) if s["day"] in _CALENDAR_DAYS else 99, _CALENDAR_SLOT_ORDER.get(s["timeSlot"], 99)))
+    slots.sort(key=lambda s: (s["dateKey"], _CALENDAR_SLOT_ORDER.get(s["timeSlot"], 99)))
 
     fuel_cost_per_km = float(capacity.get("fuelCostPerKm") or 4.5)
     fuel_cost = round(total_distance * fuel_cost_per_km, 2)
@@ -918,15 +1031,29 @@ async def get_smart_route(
     orderIds: Optional[str] = Query(None),
     current_user: dict = Depends(get_current_user),
 ):
-    """Get farmer's AI-optimized route with cost & savings analysis."""
+    """Return a road-distance-aware route for confirmed farmer self-delivery orders."""
     _ensure_farmer(current_user)
     farmer_id = str(current_user["_id"])
     origin = await _get_farm_origin(farmer_id)
+    if not _valid_coord(origin.get("lat"), origin.get("lng")) and origin.get("address"):
+        coords = await _geocode(origin["address"])
+        if coords:
+            origin["lat"], origin["lng"] = coords
+
     workflow_ids = _parse_workflow_order_ids(orderIds)
-    smart_route_query = {"farmerId": ObjectId(farmer_id), "orderStatus": {"$in": _ACTIVE_DELIVERY_STATUSES}, "deletedAt": None, "deliveryType": DeliveryType.DELIVERY.value, "fulfillmentMethod": "farmer", "fulfillmentStage": {"$in": ["packed", "dispatched"]}, "deliveryResponsibility": "farmer", "selfDelivery": True}
-    if workflow_ids: smart_route_query["_id"] = {"$in": workflow_ids}
-    orders = await order_repository.find_many(smart_route_query)
-    orders = orders or []
+    smart_route_query = {
+        "farmerId": ObjectId(farmer_id),
+        "orderStatus": {"$in": _ACTIVE_DELIVERY_STATUSES},
+        "deletedAt": None,
+        "deliveryType": DeliveryType.DELIVERY.value,
+        "fulfillmentMethod": "farmer",
+        "fulfillmentStage": {"$in": ["packed", "dispatched"]},
+        "deliveryResponsibility": "farmer",
+        "selfDelivery": True,
+    }
+    if workflow_ids:
+        smart_route_query["_id"] = {"$in": workflow_ids}
+    orders = await order_repository.find_many(smart_route_query) or []
 
     raw_stops = []
     for order in orders:
@@ -938,20 +1065,23 @@ async def get_smart_route(
             logger.warning("Could not refresh smart-route freshness priority for order %s", order.get("_id"), exc_info=True)
         oid = str(order["_id"])
         addr = order.get("deliveryAddress", {}) or {}
-        order_items = order.get("items", []) or []
         lat, lng = await _stop_coords(addr, oid)
         raw_stops.append({
             "orderId": oid,
             "orderNumber": order.get("orderNumber", ""),
             "customerName": order.get("customerName", "Customer"),
-            "address": addr.get("address") or addr.get("addressLine1") or "Pickup at farm",
+            "address": addr.get("address") or addr.get("addressLine1") or "Delivery address",
+            "landmark": addr.get("landmark") or addr.get("nearbyLandmark") or addr.get("landmarkName") or "",
             "city": addr.get("city", ""),
             "lat": lat,
             "lng": lng,
             "deliveryType": order.get("deliveryType", "delivery"),
             "timeSlot": order.get("deliveryTimeSlot", "Morning"),
             "status": order.get("orderStatus", "ready_for_delivery"),
-            "items": [{"name": i.get("productName", i.get("name", "Item")), "quantity": i.get("quantity", 1)} for i in order_items],
+            "items": [
+                {"name": item.get("productName", item.get("name", "Item")), "quantity": item.get("quantity", 1)}
+                for item in (order.get("items", []) or [])
+            ],
             "total": float(order.get("totalAmount", 0) or 0),
             "deliveryCharge": float(order.get("deliveryCharge", 0) or 0),
             "deliveryWindow": f"{order.get('deliveryTimeSlot', 'Morning')} ({order.get('deliveryDay', 'Today')})",
@@ -965,31 +1095,83 @@ async def get_smart_route(
             "shelfLifeDays": order.get("shelfLifeDays"),
         })
 
-    # Compare naive (as recorded) ordering vs optimized ordering
-    naive_distance = _route_total_distance(origin, raw_stops)
-    optimized_stops, algorithm_label = _optimize_stops_ai(origin, raw_stops)
-    _assign_stop_distances(origin, optimized_stops)
-    optimized_distance = _route_total_distance(origin, optimized_stops)
+    located = [s for s in raw_stops if _valid_coord(s.get("lat"), s.get("lng"))]
+    unlocated = [s for s in raw_stops if not _valid_coord(s.get("lat"), s.get("lng"))]
+    road_matrix = None
+    road_durations = None
+    optimized_located = []
+    distance_method = "straight_line_estimate"
+    algorithm_label = "Straight-line estimate; route order by nearest neighbour + 2-opt"
+    total_distance = 0.0
+    estimated_drive_minutes = 0.0
+
+    if _valid_coord(origin.get("lat"), origin.get("lng")) and located:
+        points = [origin] + located
+        matrix_result = await _get_osrm_route_matrix(points)
+        if matrix_result:
+            road_matrix, road_durations = matrix_result
+            optimized_located = _optimize_stop_indices(road_matrix, located)
+            distance_method = "road_network"
+            algorithm_label = "Road-network route optimization (OSRM driving distance + 2-opt)"
+            route_indices = [0] + [located.index(stop) + 1 for stop in optimized_located] + [0]
+            total_distance = sum(road_matrix[a][b] for a, b in zip(route_indices, route_indices[1:])) / 1000.0
+            estimated_drive_minutes = sum(road_durations[a][b] for a, b in zip(route_indices, route_indices[1:])) / 60.0
+            previous_index = 0
+            for stop in optimized_located:
+                current_index = located.index(stop) + 1
+                stop["distance"] = round(road_matrix[previous_index][current_index] / 1000.0, 2)
+                stop["legDurationMinutes"] = round(road_durations[previous_index][current_index] / 60.0)
+                previous_index = current_index
+        else:
+            optimized_located = _optimize_stops(origin, located)
+            _assign_stop_distances(origin, optimized_located)
+            total_distance = _route_total_distance(origin, optimized_located)
+            algorithm_label = "Straight-line estimate; road routing service unavailable"
+    else:
+        optimized_located = _optimize_stops(origin, located)
+        _assign_stop_distances(origin, optimized_located)
+        total_distance = _route_total_distance(origin, optimized_located)
+        if not located:
+            algorithm_label = "No geocoded delivery stops; distances unavailable"
+
+    optimized_stops = optimized_located + unlocated
+    for stop in unlocated:
+        stop["distance"] = None
+        stop["legDurationMinutes"] = None
+
+    # Keep urgency/deadline order ahead of normal orders, while optimizing
+    # geography within each urgency tier. The optimizer preserves this ordering.
+    if len(optimized_stops) > 1:
+        def urgency_key(stop):
+            deadline = stop.get("deliveryDeadline")
+            deadline_value = deadline.timestamp() if isinstance(deadline, datetime) else float("inf")
+            return (-int(stop.get("priority", 1) or 1), deadline_value)
+        optimized_stops = sorted(optimized_stops, key=urgency_key) if not road_matrix else optimized_stops
 
     capacity = await _get_delivery_capacity(farmer_id)
     fuel_cost_per_km = float(capacity.get("fuelCostPerKm") or 4.5)
-    total_distance = optimized_distance
     fuel_cost = round(total_distance * fuel_cost_per_km, 2)
     expected_income = round(sum(s["total"] for s in optimized_stops), 2)
-    est_time_min = round(total_distance / 25 * 60 + len(optimized_stops) * 10, 0)
-    savings_distance = round(max(0.0, naive_distance - optimized_distance), 2)
+    if distance_method == "road_network":
+        est_time_min = round(estimated_drive_minutes + len(optimized_stops) * 10)
+    else:
+        est_time_min = round(total_distance / 25 * 60 + len(optimized_stops) * 10) if total_distance else 0
+
+    # Compare against the original database order, using the same road matrix
+    # when all stops are geocoded; otherwise retain the explicitly labelled estimate.
+    naive_distance = _route_total_distance(origin, raw_stops)
+    if road_matrix and len(located) == len(raw_stops):
+        naive_indices = [0] + [located.index(stop) + 1 for stop in raw_stops] + [0]
+        naive_distance = sum(road_matrix[a][b] for a, b in zip(naive_indices, naive_indices[1:])) / 1000.0
+
+    savings_distance = round(max(0.0, naive_distance - total_distance), 2)
     savings = {
         "distance": savings_distance,
-        "time": round(savings_distance / 25 * 60, 0),
+        "time": round(savings_distance / 25 * 60),
         "fuel": round(savings_distance * fuel_cost_per_km, 2),
     }
-
-    # Self-delivery vs handing every stop to a delivery partner: partner cost
-    # uses the same earnings model as marketplace jobs (delivery charge when
-    # present, otherwise distance-based estimate).
     partner_handoff_cost = round(
-        sum(job_earnings({"deliveryCharge": s.get("deliveryCharge", 0)}, s.get("distance") or 0) for s in optimized_stops),
-        2,
+        sum(job_earnings({"deliveryCharge": s.get("deliveryCharge", 0)}, s.get("distance") or 0) for s in optimized_stops), 2
     )
     self_net = round(expected_income - fuel_cost, 2)
     partner_net = round(expected_income - partner_handoff_cost, 2)
@@ -1011,6 +1193,8 @@ async def get_smart_route(
         "netIncome": round(expected_income - fuel_cost, 2),
         "customersCount": len(set(s["customerName"] for s in optimized_stops)),
         "savings": savings,
+        "distanceMethod": distance_method,
+        "unlocatedStops": len(unlocated),
         "profitability": {
             "revenue": expected_income,
             "fuelCost": fuel_cost,
@@ -1073,7 +1257,7 @@ async def update_order_delivery_slot(
             requested_date = datetime.fromisoformat(body.deliveryDate.replace("Z", "+00:00")).replace(tzinfo=None)
         except ValueError:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="deliveryDate must be ISO format YYYY-MM-DD")
-    elif deadline:
+    else:
         weekday_index = _CALENDAR_DAYS.index(day)
         today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
         days_ahead = (weekday_index - today.weekday()) % 7
@@ -1089,6 +1273,8 @@ async def update_order_delivery_slot(
 
     ok = await order_repository.update_order_field(order_id, "deliveryDay", day)
     ok = await order_repository.update_order_field(order_id, "deliveryTimeSlot", time_slot) and ok
+    if requested_date:
+        ok = await order_repository.update_order_field(order_id, "deliveryDate", requested_date.date().isoformat()) and ok
     if not ok:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Failed to update delivery slot")
     return {"success": True, "message": "Delivery slot updated"}
@@ -1190,6 +1376,72 @@ async def _get_farm_origin(farmer_id: str) -> dict:
         if coords:
             farm["lat"], farm["lng"] = coords
     return farm
+
+
+async def _get_osrm_route_matrix(points: list):
+    """Fetch a road distance/duration matrix from the public OSRM driving service.
+
+    Coordinates are sent in OSRM's required longitude,latitude order. Returns
+    (distance_matrix_metres, duration_matrix_seconds), or None on any failure.
+    """
+    if len(points) < 2 or len(points) > 51:
+        return None
+    if any(not _valid_coord(p.get("lat"), p.get("lng")) for p in points):
+        return None
+    coordinates = ";".join(f"{float(p['lng'])},{float(p['lat'])}" for p in points)
+    url = f"https://router.project-osrm.org/table/v1/driving/{coordinates}"
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.get(url, params={"annotations": "distance,duration"})
+            response.raise_for_status()
+            payload = response.json()
+        distances = payload.get("distances")
+        durations = payload.get("durations")
+        if payload.get("code") != "Ok" or not distances or not durations:
+            return None
+        size = len(points)
+        if len(distances) != size or len(durations) != size:
+            return None
+        if any(len(row) != size for row in distances) or any(len(row) != size for row in durations):
+            return None
+        if any(value is None for row in distances for value in row):
+            return None
+        if any(value is None for row in durations for value in row):
+            return None
+        return distances, durations
+    except Exception:
+        logger.warning("OSRM road matrix request failed; using labelled straight-line estimates", exc_info=True)
+        return None
+
+
+def _optimize_stop_indices(distance_matrix: list, stops: list) -> list:
+    """Nearest-neighbour + 2-opt using road-network distances, starting at farm.
+
+    Matrix index 0 is the farm; stop i is matrix index i+1. Return stop objects.
+    """
+    remaining = list(range(1, len(stops) + 1))
+    route = [0]
+    while remaining:
+        current = route[-1]
+        next_index = min(remaining, key=lambda idx: distance_matrix[current][idx])
+        route.append(next_index)
+        remaining.remove(next_index)
+    route.append(0)
+
+    # 2-opt: reverse a segment whenever it shortens the full round trip.
+    improved = True
+    while improved:
+        improved = False
+        for i in range(1, len(route) - 2):
+            for j in range(i + 1, len(route) - 1):
+                a, b = route[i - 1], route[i]
+                c, d = route[j], route[j + 1]
+                old_cost = distance_matrix[a][b] + distance_matrix[c][d]
+                new_cost = distance_matrix[a][c] + distance_matrix[b][d]
+                if new_cost + 1.0 < old_cost:
+                    route[i:j + 1] = reversed(route[i:j + 1])
+                    improved = True
+    return [stops[idx - 1] for idx in route[1:-1]]
 
 
 def _route_total_distance(origin: dict, stops: list) -> float:
@@ -1748,7 +2000,12 @@ async def get_my_route(
             float(stop.get("distance") or 0),
         )
 
-    stops.sort(key=_route_execution_key)
+    if workflow_ids:
+        # Preserve the optimized Smart Route order during execution.
+        route_position = {str(order_id): index for index, order_id in enumerate(workflow_ids)}
+        stops.sort(key=lambda stop: route_position.get(str(stop.get("orderId")), len(route_position)))
+    else:
+        stops.sort(key=_route_execution_key)
     total_duration = round(total_distance / 25 * 60 + len(stops) * 10, 0)
     summary = {
         "totalDistance": round(total_distance, 2),

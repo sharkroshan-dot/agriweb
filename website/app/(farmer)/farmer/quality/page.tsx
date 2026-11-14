@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -14,6 +14,8 @@ import {
   PackageSearch,
   Star,
   Bot,
+  Trash2,
+  Film,
 } from "lucide-react";
 import { api } from "../../../lib/api/client";
 import { formatDate, cn } from "../../../lib/utils";
@@ -44,13 +46,15 @@ interface InspectionRecord {
   damagedPct: number;
   weightKg: number;
   photos: string[];
+  videos?: string[];
+  inspectionStatus?: string;
   status: string;
   inspectedAt: string;
   requirement?: { grade: string; minAcceptablePct: number };
   inspectorNotes?: string;
 }
 
-export default function FarmerQualityPage() {
+export function FarmerQualityPanel() {
   const queryClient = useQueryClient();
   const router = useRouter();
   const [filter, setFilter] = useState<string>("all");
@@ -68,6 +72,20 @@ export default function FarmerQualityPage() {
   const [photos, setPhotos] = useState<string[]>([]);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [evidenceFiles, setEvidenceFiles] = useState<Record<string, File[]>>({});
+  const [evidencePreviews, setEvidencePreviews] = useState<Record<string, string[]>>({});
+
+  useEffect(() => {
+    const previews: Record<string, string[]> = {};
+    Object.entries(evidenceFiles).forEach(([inspectionId, files]) => {
+      previews[inspectionId] = files.map(file => URL.createObjectURL(file));
+    });
+    setEvidencePreviews(previews);
+    return () => {
+      Object.values(previews).flat().forEach(url => URL.revokeObjectURL(url));
+    };
+  }, [evidenceFiles]);
+  const [evidenceNotes, setEvidenceNotes] = useState<Record<string, string>>({});
 
   const { data: recordsData, isLoading } = useQuery({
     queryKey: ["farmerQuality"],
@@ -118,6 +136,30 @@ export default function FarmerQualityPage() {
     onError: (err: any) => toast.error(err?.message || "Could not request quality inspection"),
   });
 
+  const evidenceMutation = useMutation({
+    mutationFn: async ({ id, files, notes }: { id: string; files: File[]; notes: string }) => {
+      if (!files.length) throw new Error("Choose at least one photo or video");
+      const photos: string[] = [];
+      const videos: string[] = [];
+      for (const file of files) {
+        const response = await api.upload("/products/upload", file);
+        const url = response?.data?.url;
+        if (!url) throw new Error("An evidence file could not be uploaded");
+        if (file.type.startsWith("video/")) videos.push(url);
+        else if (file.type.startsWith("image/")) photos.push(url);
+        else throw new Error("Only image and video files are supported");
+      }
+      return api.post("/quality/inspections/" + id + "/evidence", { photos, videos, notes });
+    },
+    onSuccess: async (_result, variables) => {
+      setEvidenceFiles(current => ({ ...current, [variables.id]: [] }));
+      await queryClient.invalidateQueries({ queryKey: ["farmerQuality"] });
+      await queryClient.invalidateQueries({ queryKey: ["farmerBatchesForQuality"] });
+      toast.success("Evidence sent to the warehouse quality team.");
+    },
+    onError: (err: any) => toast.error(err?.message || "Could not submit evidence"),
+  });
+
   const records = filter === "all" ? apiRecords : apiRecords.filter((r) => r.status === filter);
 
   const meetsRequirement = (r: InspectionRecord) => {
@@ -152,9 +194,9 @@ export default function FarmerQualityPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Quality Inspection</h1>
+          <h2 className="text-xl font-semibold text-slate-900">Quality inspection & evidence</h2>
           <p className="text-gray-500">
-            Record grades, size, freshness and damage %, with photo proof. Essential for B2B &amp; bulk orders.
+            Submit batch evidence, follow warehouse review and view the final quality decision.
           </p>
         </div>
         <div className="rounded-lg border bg-amber-50 px-3 py-2 text-xs text-amber-800">
@@ -182,10 +224,8 @@ export default function FarmerQualityPage() {
                       <FlaskConical className="mr-1.5 h-4 w-4" /> Request Inspection
                     </Button>
                   )}
-                  {inspection && inspection.verificationStatus === "farmer_declared" && (
-                    <Button size="sm" variant="outline" onClick={() => aiMutation.mutate(inspection.id)} disabled={aiMutation.isPending}>
-                      <Bot className="mr-1.5 h-4 w-4" /> AI Screening
-                    </Button>
+                  {inspection && !["approved", "rejected"].includes(inspection.inspectionStatus || "") && (
+                    <span className="text-xs font-medium text-amber-700">{["evidence_submitted", "in_progress"].includes(inspection.inspectionStatus || "") ? "Sent to warehouse · Awaiting decision" : "Inspection requested · Evidence required"}</span>
                   )}
                 </div>
               </div>
@@ -196,6 +236,132 @@ export default function FarmerQualityPage() {
           )}
         </CardContent>
       </Card>
+
+      {(() => {
+        const evidenceQueue = apiRecords.filter((r: any) => !["approved", "rejected"].includes(r.inspectionStatus || ""));
+        const awaitingReview = evidenceQueue.filter((r: any) => ["evidence_submitted", "in_progress"].includes(r.inspectionStatus || "")).length;
+        const needsEvidence = evidenceQueue.length - awaitingReview;
+        return (
+          <Card className="overflow-hidden border-slate-200 shadow-sm">
+            <CardHeader className="border-b border-slate-100 bg-slate-50/70 pb-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <CardTitle className="text-base">Evidence submission</CardTitle>
+                  <CardDescription className="mt-1">Share clear photos or a short video so the warehouse team can assess your harvest.</CardDescription>
+                </div>
+                <Badge variant="outline" className="border-slate-200 bg-white">{evidenceQueue.length} active {evidenceQueue.length === 1 ? "inspection" : "inspections"}</Badge>
+              </div>
+              <div className="grid w-full grid-cols-2 gap-3 pt-2">
+                <div className="rounded-lg border border-amber-100 bg-amber-50/70 px-3 py-2">
+                  <p className="text-xl font-semibold tabular-nums text-amber-800">{needsEvidence}</p>
+                  <p className="text-xs font-medium text-amber-800">Evidence required</p>
+                </div>
+                <div className="rounded-lg border border-emerald-100 bg-emerald-50/70 px-3 py-2">
+                  <p className="text-xl font-semibold tabular-nums text-emerald-800">{awaitingReview}</p>
+                  <p className="text-xs font-medium text-emerald-800">Awaiting warehouse</p>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3 p-4">
+              {evidenceQueue.map((r: any) => {
+                const submitted = ["evidence_submitted", "in_progress"].includes(r.inspectionStatus || "");
+                const selectedFiles = evidenceFiles[r.id] || [];
+                const isUploadingThis = evidenceMutation.isPending && evidenceMutation.variables?.id === r.id;
+                return (
+                  <div key={r.id} className="rounded-xl border border-slate-200 bg-white p-4 transition-colors hover:border-slate-300">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-semibold text-slate-900">{r.cropName || "Harvest batch"}</p>
+                          <span className="rounded-md bg-slate-100 px-2 py-0.5 font-mono text-[11px] text-slate-600">{r.lotNumber || "Lot pending"}</span>
+                        </div>
+                        <p className="mt-1 text-xs text-slate-500">{r.photos?.length || 0} photos · {r.videos?.length || 0} videos attached</p>
+                      </div>
+                      <Badge variant={submitted ? "success" : "warning"}>{submitted ? "Awaiting warehouse review" : "Evidence required"}</Badge>
+                    </div>
+                    {submitted ? (
+                      <div className="mt-3 flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                        <CheckCircle2 className="h-4 w-4 shrink-0" />
+                        Evidence submitted. The warehouse quality team will review this inspection.
+                      </div>
+                    ) : (
+                      <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(240px,0.8fr)]">
+                        <div>
+                          <label htmlFor={`evidence-${r.id}`} className="flex min-h-[112px] cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50/70 px-4 py-4 text-center transition-colors hover:border-emerald-400 hover:bg-emerald-50/40">
+                            <Camera className="mb-2 h-5 w-5 text-emerald-700" />
+                            <span className="text-sm font-semibold text-slate-700">Choose photos or video</span>
+                            <span className="mt-1 text-xs text-slate-500">JPG, PNG, MP4, WEBM or MOV · Select multiple files</span>
+                          </label>
+                          <input
+                            id={`evidence-${r.id}`}
+                            type="file"
+                            accept="image/*,video/mp4,video/webm,video/quicktime"
+                            multiple
+                            onChange={e => {
+                              const chosen = Array.from(e.target.files || []);
+                              if (chosen.length) {
+                                setEvidenceFiles(current => ({ ...current, [r.id]: [...(current[r.id] || []), ...chosen] }));
+                              }
+                              e.currentTarget.value = "";
+                            }}
+                            className="sr-only"
+                          />
+                          {selectedFiles.length > 0 && (
+                            <div className="mt-3">
+                              <div className="mb-2 flex items-center justify-between gap-2">
+                                <p className="text-xs font-semibold text-slate-700">Preview selected evidence</p>
+                                <span className="text-[11px] text-slate-500">{selectedFiles.length} file{selectedFiles.length === 1 ? "" : "s"} · Remove anything incorrect before submitting</span>
+                              </div>
+                              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
+                                {selectedFiles.map((file, index) => {
+                                  const previewUrl = evidencePreviews[r.id]?.[index];
+                                  const isVideo = file.type.startsWith("video/");
+                                  return (
+                                    <div key={`${file.name}-${file.lastModified}-${index}`} className="group relative min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                                      <div className="relative flex h-28 items-center justify-center overflow-hidden bg-slate-100">
+                                        {previewUrl && (isVideo ? (
+                                          <video src={previewUrl} controls preload="metadata" className="h-full w-full object-contain" />
+                                        ) : (
+                                          <img src={previewUrl} alt={`Selected evidence ${index + 1}: ${file.name}`} className="h-full w-full object-cover" />
+                                        ))}
+                                        {isVideo && <span className="pointer-events-none absolute left-2 top-2 rounded bg-slate-900/75 px-1.5 py-0.5 text-[10px] font-semibold text-white"><Film className="mr-1 inline h-3 w-3" />Video</span>}
+                                      </div>
+                                      <div className="flex items-center justify-between gap-2 p-2">
+                                        <span title={file.name} className="min-w-0 truncate text-[11px] text-slate-600">{file.name}</span>
+                                        <button type="button" aria-label={`Remove ${file.name}`} title="Remove this file" onClick={() => setEvidenceFiles(current => ({ ...current, [r.id]: (current[r.id] || []).filter((_, fileIndex) => fileIndex !== index) }))} className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-rose-100 bg-white text-rose-600 transition hover:bg-rose-50 focus:outline-none focus:ring-2 focus:ring-rose-200">
+                                          <Trash2 className="h-3.5 w-3.5" />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex flex-col gap-2">
+                          <label htmlFor={`evidence-notes-${r.id}`} className="text-xs font-semibold text-slate-600">Note for warehouse (optional)</label>
+                          <textarea id={`evidence-notes-${r.id}`} value={evidenceNotes[r.id] || ""} onChange={e => setEvidenceNotes(current => ({ ...current, [r.id]: e.target.value }))} placeholder="Mention visible defects, harvest time or handling details…" rows={3} className="min-h-[88px] w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100" />
+                          <Button size="sm" className="mt-auto w-full sm:w-auto sm:self-end" onClick={() => evidenceMutation.mutate({ id: r.id, files: selectedFiles, notes: evidenceNotes[r.id] || "" })} disabled={evidenceMutation.isPending || selectedFiles.length === 0}>
+                            {isUploadingThis ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Uploading evidence…</> : "Submit for warehouse review"}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {evidenceQueue.length === 0 && (
+                <div className="flex flex-col items-center rounded-xl border border-dashed border-slate-200 px-4 py-9 text-center">
+                  <CheckCircle2 className="mb-2 h-8 w-8 text-emerald-600" />
+                  <p className="text-sm font-semibold text-slate-800">No evidence submissions pending</p>
+                  <p className="mt-1 text-xs text-slate-500">Request an inspection for a harvest batch when it is ready.</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       <div className="flex flex-wrap gap-2">
         {["all", "passed", "review", "failed"].map((f) => (
@@ -347,4 +513,13 @@ export default function FarmerQualityPage() {
       />
     </div>
   );
+}
+
+
+export default function FarmerQualityPage() {
+  const router = useRouter();
+  useEffect(() => {
+    router.replace("/farmer/batches");
+  }, [router]);
+  return <div className="p-6 text-sm text-slate-500">Opening combined Batches &amp; Quality workspace…</div>;
 }

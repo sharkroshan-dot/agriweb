@@ -66,7 +66,7 @@ export default function AdminPaymentsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
+      <div className="admin-page-header">
         <p className="text-sm font-medium text-primary">Finance</p>
         <h1 className="text-3xl font-semibold tracking-tight">Payments</h1>
         <p className="mt-1 text-sm text-muted-foreground">Review settlements, withdrawals, pending invoices, and failed transactions.</p>

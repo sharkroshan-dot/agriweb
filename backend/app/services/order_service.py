@@ -20,6 +20,8 @@ from app.core.config import settings
 from app.repositories.reservation_repository import reservation_repository
 from app.repositories.base_repository import BaseRepository
 from app.services.delivery_availability_service import get_delivery_service_availability, estimate_fastest_eligibility
+delivery_slot_repository = BaseRepository("delivery_slots")
+delivery_slot_booking_repository = BaseRepository("delivery_slot_bookings")
 import httpx
 import secrets
 import logging
@@ -440,6 +442,7 @@ class OrderService:
                 "productId": ObjectId(item.productId),
                 "variantId": ObjectId(item.variantId) if item.variantId else None,
                 "productName": product["name"],
+                "productImage": next((url for url in (product.get("images") or []) if isinstance(url, str) and url.strip()), None) or product.get("image") or product.get("imageUrl"),
                 "quantity": item.quantity,
                 "unitPrice": effective_unit_price,
                 "batchId": str(product.get("batchId")) if product.get("batchId") else None,
@@ -465,6 +468,37 @@ class OrderService:
         if not farmer_id:
             raise OrderCreationError("No farmer associated with the products in this order")
         
+        selected_delivery_slot = None
+        if data.deliverySlotId:
+            if not ObjectId.is_valid(str(data.deliverySlotId)):
+                raise OrderCreationError("Invalid delivery slot selection.")
+            selected_delivery_slot = await delivery_slot_repository.get_by_id(str(data.deliverySlotId))
+            if not selected_delivery_slot or str(selected_delivery_slot.get("farmerId")) != str(farmer_id):
+                raise OrderCreationError("Selected delivery slot is not available for this farmer.")
+            if selected_delivery_slot.get("status") != "open":
+                raise OrderCreationError("Selected delivery slot is no longer open.")
+            cutoff = selected_delivery_slot.get("cutoffTime")
+            if cutoff and cutoff < datetime.utcnow():
+                raise OrderCreationError("The booking cutoff for this delivery slot has passed.")
+            requested_capacity_kg = round(sum(float(item.quantity or 0) for item in data.items), 3)
+            if requested_capacity_kg <= 0:
+                raise OrderCreationError("Order quantity must be greater than zero to reserve a delivery slot.")
+            active_slot_bookings = await delivery_slot_booking_repository.find_many({
+                "slotId": ObjectId(data.deliverySlotId),
+                "status": {"$in": ["joined", "order_linked"]},
+                "deletedAt": None,
+            }, limit=10000)
+            booked_capacity_kg = sum(float(booking.get("capacityKg", 0) or 0) for booking in active_slot_bookings)
+            max_capacity_kg = float(selected_delivery_slot.get("maxCapacityKg", 0) or 0)
+            if max_capacity_kg <= 0 or booked_capacity_kg + requested_capacity_kg > max_capacity_kg + 1e-9:
+                remaining_kg = max(0.0, max_capacity_kg - booked_capacity_kg)
+                raise OrderCreationError(
+                    f"DELIVERY_SLOT_CAPACITY|{remaining_kg:g}|{requested_capacity_kg:g}"
+                )
+            slot_date = selected_delivery_slot.get("date")
+            if slot_date and data.requestedDeliveryDate and slot_date.date() != data.requestedDeliveryDate.date():
+                raise OrderCreationError("Selected delivery slot date does not match the requested delivery date.")
+
         delivery_address = None
         if data.deliveryType == DeliveryType.DELIVERY:
             if not data.deliveryAddressId:
@@ -608,6 +642,12 @@ class OrderService:
             effective_requested_delivery_date = next_available
             effective_delivery_time_slot = "next_available"
 
+        if selected_delivery_slot:
+            # A farmer-published slot is an explicit delivery commitment and
+            # takes precedence over generic partner next-service suggestions.
+            effective_requested_delivery_date = selected_delivery_slot.get("date")
+            effective_delivery_time_slot = selected_delivery_slot.get("startTime")
+
         order_data = {
             "customerId": ObjectId(customer_id),
             "idempotencyKey": data.idempotencyKey,
@@ -639,7 +679,9 @@ class OrderService:
             "pickupDate": data.pickupDate,
             "pickupTimeSlot": data.pickupTimeSlot,
             "requestedDeliveryDate": effective_requested_delivery_date,
-            "deliveryTimeSlot": effective_delivery_time_slot,
+            "deliveryTimeSlot": (selected_delivery_slot.get("startTime") if selected_delivery_slot else effective_delivery_time_slot),
+            "deliverySlotId": ObjectId(data.deliverySlotId) if data.deliverySlotId else None,
+            "deliverySlotArea": selected_delivery_slot.get("area") if selected_delivery_slot else None,
             "deliverySpeed": delivery_speed,
             "deliveryAvailabilityStatus": (delivery_availability or {}).get("status"),
             "deliveryAvailabilityMessage": (delivery_availability or {}).get("message"),
@@ -702,6 +744,36 @@ class OrderService:
                 except Exception:
                     logger.exception("Failed to release checkout reservation for %s", product_id)
             raise OrderCreationError("Failed to save order to database")
+
+        if selected_delivery_slot:
+            # Link the confirmed checkout record to the published delivery batch.
+            # Booking rows are tied to the order, so repeated checkout retries do not
+            # create an unrelated customer-only slot reservation.
+            existing_booking = await delivery_slot_booking_repository.find_one({
+                "slotId": ObjectId(data.deliverySlotId),
+                "customerId": ObjectId(customer_id),
+                "status": {"$in": ["joined", "order_linked"]},
+                "deletedAt": None,
+            })
+            if existing_booking:
+                await delivery_slot_booking_repository.update(
+                    {"_id": existing_booking["_id"]},
+                    {"orderId": ObjectId(order_id), "status": "order_linked", "capacityKg": requested_capacity_kg},
+                )
+            else:
+                await delivery_slot_booking_repository.create({
+                    "slotId": ObjectId(data.deliverySlotId),
+                    "orderId": ObjectId(order_id),
+                    "farmerId": ObjectId(farmer_id),
+                    "customerId": ObjectId(customer_id),
+                    "status": "order_linked",
+                    "capacityKg": requested_capacity_kg,
+                    "deliveryFee": selected_delivery_slot.get("deliveryFee", 0),
+                })
+            await delivery_slot_repository.update(
+                {"_id": ObjectId(data.deliverySlotId)},
+                {"lastBookingAt": datetime.utcnow()},
+            )
 
         if data.couponCode and discount > 0:
             try:
@@ -840,9 +912,22 @@ class OrderService:
                     "phone": partner.get("phone")
                 }
         
-        # Convert ObjectId fields to strings for response serialization
+        # Convert ObjectId fields to strings and hydrate product images for
+        # legacy orders whose item snapshot predates productImage support.
         order["id"] = str(order["_id"])
         for item in order.get("items", []):
+            product_id = str(item.get("productId")) if item.get("productId") else None
+            if product_id and not (item.get("productImage") or item.get("image") or item.get("imageUrl")):
+                try:
+                    product = await product_repository.get_by_id(product_id)
+                    if product:
+                        images = product.get("images") or []
+                        item["productImage"] = next(
+                            (url for url in images if isinstance(url, str) and url.strip()),
+                            None,
+                        ) or product.get("image") or product.get("imageUrl")
+                except Exception:
+                    logger.warning("Could not resolve product image for order item %s", product_id)
             if isinstance(item.get("productId"), ObjectId):
                 item["productId"] = str(item["productId"])
             if item.get("variantId") and isinstance(item["variantId"], ObjectId):
@@ -892,8 +977,8 @@ class OrderService:
             )
             and not order.get("deliveryVerificationCode")
         ):
-            from app.core.security import SecurityService
-            code = SecurityService.generate_otp(6)
+            from app.core.security import Security
+            code = Security.generate_otp(6)
             token = secrets.token_urlsafe(32)
             issued_at = datetime.utcnow()
             try:
@@ -1274,8 +1359,8 @@ class OrderService:
                 logger.warning(f"Failed to send ready notification: {e}")
         elif new_status == OrderStatus.READY_FOR_PICKUP and is_pickup:
             try:
-                from app.core.security import SecurityService
-                code = SecurityService.generate_otp(6)
+                from app.core.security import Security
+                code = Security.generate_otp(6)
                 await order_repository.update_order_field(order_id, "pickupCode", code)
             except Exception as e:
                 logger.warning(f"Failed to generate pickup code: {e}")

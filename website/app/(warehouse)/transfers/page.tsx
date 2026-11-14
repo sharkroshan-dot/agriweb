@@ -236,7 +236,7 @@ export default function WarehouseTransfersPage() {
   const pending = transfers.filter((t: any) => t.status === "pending").length;
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="warehouse-transfers-page space-y-6 p-6">
       <div className="flex items-center justify-between gap-3">
         <div><h1 className="text-2xl font-semibold">Transfers</h1><p className="text-sm text-muted-foreground">Live stock movement between facilities</p></div>
         <Button onClick={() => setDialogOpen(true)}><Plus className="mr-2 h-4 w-4" /> New Transfer</Button>

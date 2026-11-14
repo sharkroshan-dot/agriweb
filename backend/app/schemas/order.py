@@ -85,6 +85,7 @@ class OrderBase(BaseModel):
     pickupTimeSlot: Optional[str] = None
     requestedDeliveryDate: Optional[datetime] = None
     deliveryTimeSlot: Optional[str] = None
+    deliverySlotId: Optional[str] = None
     deliverySpeed: Optional[str] = None  # fastest_30m or standard
 
 class OrderCreate(OrderBase):

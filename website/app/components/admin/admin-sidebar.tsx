@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 import { usePathname } from "next/navigation";
 import { PrefetchLink as Link } from "../shared/prefetch-link";
 import { useQuery } from "@tanstack/react-query";
@@ -14,6 +16,7 @@ import {
   Warehouse,
   BarChart,
   Brain,
+  GraduationCap,
   Settings,
   Shield,
   ShieldAlert,
@@ -26,6 +29,8 @@ import {
   Landmark,
   Star,
   ShoppingBasket,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Badge } from "../ui/badge";
@@ -40,6 +45,7 @@ const compact = (v: number) => {
 
 export function AdminSidebar() {
   const pathname = usePathname();
+  const [collapsedGroups, setCollapsedGroups] = useState<string[]>([]);
   const { data: session } = useSession();
   const accessToken = (session as any)?.accessToken as string | undefined;
 
@@ -96,6 +102,7 @@ export function AdminSidebar() {
       items: [
         { name: "Analytics", href: "/admin/analytics", icon: BarChart },
         { name: "AI Dashboard", href: "/admin/ai", icon: Brain },
+        { name: "Education Center", href: "/admin/education", icon: GraduationCap },
       ],
     },
     {
@@ -115,7 +122,7 @@ export function AdminSidebar() {
   ];
 
   return (
-    <aside className="hidden w-64 shrink-0 border-r border-slate-200/80 bg-white md:block">
+    <aside className="role-sidebar hidden w-64 shrink-0 border-r border-slate-200/80 bg-white md:block">
       <div className="sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto p-4 lg:p-5">
         <div className="mb-6 overflow-hidden rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 shadow-sm">
           <div className="flex min-w-0 items-start gap-3">
@@ -137,16 +144,31 @@ export function AdminSidebar() {
         </div>
 
         <nav className="space-y-4">
-          {navGroups.map((group) => (
-            <div key={group.label}>
-              <p className="mb-1 px-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{group.label}</p>
-              <div className="space-y-1">
+          {navGroups.map((group) => {
+            const hasActiveItem = group.items.some((item) =>
+              pathname === item.href || pathname?.startsWith(item.href + "/")
+            );
+            const isCollapsed = collapsedGroups.includes(group.label) && !hasActiveItem;
+            return (
+              <section key={group.label} aria-label={group.label} className="space-y-1">
+                <button
+                  type="button"
+                  aria-expanded={!isCollapsed}
+                  onClick={() => setCollapsedGroups((current) => current.includes(group.label) ? current.filter((label) => label !== group.label) : [...current, group.label])}
+                  className="group flex w-full items-center justify-between rounded-lg px-3 py-2 text-left transition-colors hover:bg-slate-50"
+                >
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 group-hover:text-slate-600">{group.label}</span>
+                  {isCollapsed ? <ChevronRight className="h-3.5 w-3.5 text-slate-400" /> : <ChevronDown className="h-3.5 w-3.5 text-slate-400" />}
+                </button>
+                {!isCollapsed && (
+                  <div className="ml-2 space-y-1 border-l border-slate-200 pl-2">
                 {group.items.map((item) => {
                   const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
                   return (
                     <Link
                       key={item.name}
                       href={item.href}
+                      aria-current={isActive ? "page" : undefined}
                       className={cn(
                         "flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium transition-colors duration-150",
                         isActive ? "bg-emerald-700 text-white shadow-sm shadow-emerald-900/10" : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
@@ -175,8 +197,10 @@ export function AdminSidebar() {
                   );
                 })}
               </div>
-            </div>
-          ))}
+                )}
+              </section>
+            );
+          })}
         </nav>
 
         <div className="mt-6 rounded-lg border border-primary/20 bg-gradient-to-br from-primary/10 to-primary/5 p-4">

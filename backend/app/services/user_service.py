@@ -4,6 +4,7 @@ from datetime import datetime
 from app.repositories.user_repository import user_repository
 from app.repositories.address_repository import address_repository
 from app.core.security import Security
+from app.utils.totp import encrypt_secret
 from app.schemas.user import UserUpdate, AddressCreate, AddressUpdate
 import logging
 
@@ -79,7 +80,7 @@ class UserService:
         """Set (or clear) a user's TOTP secret and enablement state."""
         return await user_repository.update_user(
             user_id,
-            {"totpSecret": secret, "totpEnabled": bool(enabled)},
+            {"totpSecret": encrypt_secret(secret), "totpEnabled": bool(enabled)},
         )
     
     @staticmethod

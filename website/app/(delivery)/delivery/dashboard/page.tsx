@@ -1,1105 +1,328 @@
 "use client";
 
-import React, { useState, useMemo, useEffect, useRef } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useQuery } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import {
-  Truck,
-  MapPin,
-  Clock,
-  DollarSign,
-  Star,
-  CheckCircle,
-  AlertCircle,
-  Navigation,
-  Phone,
-  MessageSquare,
-  Play,
-  Pause,
-  Route,
-  Map,
-  Globe,
-  Package,
-  Wallet,
-  ArrowUpRight,
-  TrendingUp,
-  Landmark,
-  Loader2,
+  ArrowRight, CheckCircle2, Clock3, Headphones,
+  MapPin, MapPinned, PackageCheck, RefreshCw, Route, Truck,
+  Wallet, Warehouse, AlertCircle,
 } from "lucide-react";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "../../../components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
 import { Badge } from "../../../components/ui/badge";
 import { Progress } from "../../../components/ui/progress";
-import { PodPicker } from "../../../components/delivery/pod-picker";
-import { cn } from "../../../lib/utils";
 import { api } from "../../../lib/api/client";
-import { formatPrice, formatTime } from "../../../lib/utils";
+import { formatPrice } from "../../../lib/utils";
 import toast from "react-hot-toast";
-import { Map as LiveRouteMap } from "../../../components/shared/map";
-import { DeliveryPriorityBadge, sortByDeliveryPriority } from "../../../components/delivery/delivery-priority";
 
-const MapUnavailable = ({ deliveries }: { deliveries: any[] }) => (
-  <div className="flex h-[400px] w-full items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6">
-    <div className="max-w-sm text-center">
-      <MapPin className="mx-auto h-10 w-10 text-slate-400" />
-      <p className="mt-3 font-semibold text-slate-800">Live location is unavailable</p>
-      <p className="mt-1 text-sm leading-6 text-slate-500">
-        Enable location access or wait for delivery coordinates before starting live route tracking.
-        {deliveries.length > 0 ? ` ${deliveries.length} delivery record(s) are loaded.` : ""}
-      </p>
-    </div>
-  </div>
-);
+const completedPickupStatuses = new Set([
+  "received", "warehouse_received", "received_at_warehouse",
+  "arrived_warehouse", "returned_to_warehouse", "stored",
+]);
+const activePickupStatuses = new Set([
+  "assigned", "started", "arrived_at_farm", "collected",
+  "departed_farm", "en_route", "team_assigned",
+]);
 
-const contactCustomer = (phone: string | undefined, type: "call" | "message") => {
-  if (!phone) {
-    toast.error("Customer phone number is not available");
-    return;
-  }
-  const number = phone.replace(/[^\d+]/g, "");
-  window.location.href = type === "call" ? `tel:${number}` : `sms:${number}`;
-};
+const getStatus = (item: any) =>
+  String(item?.status || item?.orderStatus || item?.collectionStatus || "")
+    .trim().toLowerCase().replace(/[ -]+/g, "_");
 
-const customerPhone = (delivery: any) =>
-  delivery?.customerPhone || delivery?.customer?.phone || delivery?.customer?.phoneNumber
-  || delivery?.order?.customerPhone || delivery?.order?.customer?.phone || delivery?.order?.phone
-  || delivery?.phone || delivery?.phoneNumber;
+const getPickupDestination = (item: any) =>
+  item?.warehouseName || item?.destinationWarehouseName ||
+  item?.warehouse?.name || item?.destinationWarehouse?.name || "Destination warehouse";
 
-type DeliveryMode = "nearby" | "state" | "national";
+const getPickupOrigin = (item: any) =>
+  item?.farmerName || item?.farmName || item?.pickupAddress ||
+  item?.stops?.[0]?.farmerName || item?.stops?.[0]?.farmName || "Assigned farm collection";
+
+const formatDate = () => new Intl.DateTimeFormat("en-IN", {
+  weekday: "long", day: "numeric", month: "long", year: "numeric",
+}).format(new Date());
 
 export default function DeliveryDashboardPage() {
-  const [isAvailable, setIsAvailable] = useState<boolean | null>(null);
-  const [isToggling, setIsToggling] = useState(false);
-  const [activeMode, setActiveMode] = useState<DeliveryMode>("nearby");
-  const [riskLoadingId, setRiskLoadingId] = useState<string | null>(null);
-  const [deliveryRisk, setDeliveryRisk] = useState<any>(null);
-  const [liveOrigin, setLiveOrigin] = useState<{ lat: number; lng: number } | null>(null);
   const { data: session } = useSession();
   const accessToken = (session as any)?.accessToken as string | undefined;
+  const [isAvailable, setIsAvailable] = useState<boolean | null>(null);
+  const [isToggling, setIsToggling] = useState(false);
 
-  useEffect(() => {
-    if (!navigator.geolocation) return;
-    const watchId = navigator.geolocation.watchPosition(
-      (position) => setLiveOrigin({ lat: position.coords.latitude, lng: position.coords.longitude }),
-      () => undefined,
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 }
-    );
-    return () => navigator.geolocation.clearWatch(watchId);
-  }, []);
-
-  const { data: deliveries, isLoading, refetch } = useQuery({
-    queryKey: ["deliveryToday"],
-    queryFn: () => api.get("/delivery/me/today"),
-    enabled: Boolean(accessToken),
-    retry: 1,
-  });
-
-  const { data: stats, refetch: refetchStats } = useQuery({
+  const statsQuery = useQuery({
     queryKey: ["deliveryStats"],
     queryFn: () => api.get("/delivery/me/stats"),
     enabled: Boolean(accessToken),
     retry: 1,
   });
-
-  const { data: routeData, isLoading: isRouteLoading } = useQuery({
-    queryKey: ["deliveryRoute"],
-    queryFn: () => api.get("/delivery/me/route"),
+  const customerQuery = useQuery({
+    queryKey: ["deliveryToday"],
+    queryFn: () => api.get("/delivery/me/today"),
     enabled: Boolean(accessToken),
     retry: 1,
   });
+  const pickupQuery = useQuery({
+    queryKey: ["myPickupRoutes"],
+    queryFn: () => api.get("/delivery/me/pickup-routes"),
+    enabled: Boolean(accessToken),
+    retry: 1,
+    refetchInterval: 30000,
+  });
 
-  React.useEffect(() => {
-    if (stats?.data?.isAvailable !== undefined) {
-      setIsAvailable(stats.data.isAvailable);
-    } else {
-      setIsAvailable(true);
-    }
-  }, [stats?.data]);
+  const stats = statsQuery.data?.data || {};
+  const customerDeliveries = customerQuery.data?.data?.deliveries || [];
+  const pickupRoutes = pickupQuery.data?.data?.routes || [];
 
-  const deliveryList = useMemo(() => sortByDeliveryPriority(deliveries?.data?.deliveries || []), [deliveries?.data?.deliveries]);
-  const completedCount = deliveryList.filter((d: any) => d.status === "delivered").length;
-  const totalEarnings = stats?.data?.totalEarnings || 0;
-  const averageRating = stats?.data?.averageRating || 0;
-  const totalDeliveries = stats?.data?.totalDeliveries || 0;
-  const ratingCount = stats?.data?.ratingCount || 0;
-  const ratingSummary = stats?.data?.ratingSummary || {};
+  useEffect(() => {
+    if (stats.isAvailable !== undefined) setIsAvailable(Boolean(stats.isAvailable));
+    else if (statsQuery.isSuccess || statsQuery.isError) setIsAvailable(true);
+  }, [stats.isAvailable, statsQuery.isSuccess, statsQuery.isError]);
 
-  const updateOrderStatus = async (orderId: string, status: string, label: string) => {
-    try {
-      const res = await api.put(`/orders/${orderId}/status`, { status });
-      if (res?.success) {
-        toast.success(`Order ${label} successfully!`);
-        refetch();
-      } else {
-        toast.error(res?.detail || `Failed to ${label.toLowerCase()} order`);
-      }
-    } catch (err: any) {
-      toast.error(err?.message || `Failed to ${label.toLowerCase()} order`);
-    }
-  };
+  const customerCompleted = customerDeliveries.filter((item: any) => item.status === "delivered").length;
+  const customerActive = customerDeliveries.filter((item: any) =>
+    ["in_transit", "dispatched", "picked_up", "accepted", "processing"].includes(String(item.status || "").toLowerCase())
+  ).length;
+  const customerPending = customerDeliveries.filter((item: any) =>
+    !["delivered", "cancelled"].includes(String(item.status || "").toLowerCase())
+  ).length;
+  const pickupCompleted = pickupRoutes.filter((item: any) => completedPickupStatuses.has(getStatus(item))).length;
+  const pickupActive = pickupRoutes.filter((item: any) => activePickupStatuses.has(getStatus(item))).length;
+  const pickupPending = pickupRoutes.filter((item: any) =>
+    !completedPickupStatuses.has(getStatus(item)) &&
+    !["cancelled", "rejected"].includes(getStatus(item))
+  ).length;
+  const allTasks = pickupRoutes.length + customerDeliveries.length;
+  const completedTasks = pickupCompleted + customerCompleted;
+  const progress = allTasks ? Math.round((completedTasks / allTasks) * 100) : 0;
 
-  const podTargetRef = useRef<{ assignmentId: string; orderId: string } | null>(null);
-  const [podPickerOpen, setPodPickerOpen] = useState(false);
-  const [uploadingPod, setUploadingPod] = useState(false);
-
-  const completeWithoutPod = async (orderId: string) => {
-    try {
-      await api.put(`/orders/${orderId}/status`, { status: "delivered" });
-      toast.success("Delivery completed");
-      refetch();
-      refetchStats();
-    } catch (err: any) {
-      toast.error(err?.message || "Failed to complete delivery");
-    }
-  };
-
-  const handleMarkDelivered = (delivery: any) => {
-    const assignmentId = delivery?.assignmentId
-      || (delivery.id && delivery.orderId && String(delivery.id) !== String(delivery.orderId) ? String(delivery.id) : "");
-    const orderId = String(delivery.orderId || delivery.id || delivery._id || "");
-    podTargetRef.current = { assignmentId, orderId };
-    if (!assignmentId) {
-      void completeWithoutPod(orderId);
-      return;
-    }
-    setPodPickerOpen(true);
-  };
-
-  const handlePodFileChange = async (file: File) => {
-    const target = podTargetRef.current;
-    if (!file || !target) return;
-    setUploadingPod(true);
-    try {
-      const form = new FormData();
-      form.append("photo", file);
-      form.append("recipientName", "Customer");
-      form.append("signature", window.prompt("Enter recipient signature/name") || "");
-      const res = await fetch(`/api/v1/delivery/assignments/${target.assignmentId}/pod`, {
-        method: "POST",
-        credentials: "include",
-        headers: { Authorization: `Bearer ${accessToken}` },
-        body: form,
-      });
-      if (!res.ok) throw new Error("Upload failed");
-      toast.success("Delivery completed with proof of delivery");
-      podTargetRef.current = null;
-      refetch();
-    } catch (err: any) {
-      podTargetRef.current = null;
-      toast.error(err?.message || "Upload failed");
-    } finally {
-      setUploadingPod(false);
-    }
-  };
-
-  const statusLabel = (status: string) => {
-    const labels: Record<string, string> = {
-      pending: "Pending",
-      confirmed: "Confirmed",
-      processing: "Processing",
-      ready_for_delivery: "Ready for Delivery",
-      dispatched: "Out for Delivery",
-      in_transit: "In Transit",
-      delivered: "Delivered",
-      cancelled: "Cancelled",
-    };
-    return labels[status] || status;
-  };
-
-  const paymentBadge = (method?: string) => {
-    const m = (method || "").toLowerCase();
-    const cod = m === "cash" || m === "cod" || m === "cash_on_delivery";
-    return m || cod ? { label: cod ? "COD" : "Online", cod } : null;
-  };
-
-  const formatAddress = (addr: any) => {
-    if (!addr) return "";
-    if (typeof addr === "string") return addr;
-    return [addr.addressLine1, addr.addressLine2, addr.city, addr.state]
-      .filter(Boolean)
-      .join(", ") || addr.address || "";
-  };
-
-  const nearbyDeliveries = useMemo(
-    () =>
-      deliveryList
-        .filter((d: any) => d.type === "nearby")
-        .map((d: any) => ({
-          id: d._id,
-          customerName: d.customerName,
-          distance: typeof d.distance === "number" ? `${d.distance} km` : d.distance || "—",
-          address: formatAddress(d.address),
-          deliveryWindow: d.deliveryWindow,
-          status: d.status,
-        })),
-    [deliveryList]
+  const nextPickup = pickupRoutes.find((item: any) =>
+    activePickupStatuses.has(getStatus(item)) || ["offered", "assigned"].includes(getStatus(item))
   );
-
-  const stateDeliveries = useMemo(
-    () =>
-      deliveryList
-        .filter((d: any) => d.type === "state")
-        .map((d: any) => ({
-          id: d._id,
-          destination: d.customerName || formatAddress(d.address).split(",")[0]?.trim() || "Unknown",
-          products:
-            (d.items || []).map((i: any) => i.name).join(", ") || "Various items",
-          weight: `${(d.items || []).reduce((s: number, i: any) => s + (i.quantity || 0), 0)} units`,
-          status: d.status,
-          trackingId: d._id ? `ST-${d._id.slice(-6).toUpperCase()}` : "NA",
-        })),
-    [deliveryList]
+  const nextCustomerDelivery = customerDeliveries.find((item: any) =>
+    !["delivered", "cancelled"].includes(String(item.status || "").toLowerCase())
   );
+  const showPickupNext = Boolean(nextPickup);
+  const nextTask = showPickupNext ? nextPickup : nextCustomerDelivery;
+  const nextTaskType = showPickupNext ? "Warehouse pickup" : "Customer delivery";
+  const nextTaskTitle = showPickupNext ? getPickupOrigin(nextPickup) : (nextCustomerDelivery?.customerName || "Customer delivery");
+  const nextTaskAddress = showPickupNext
+    ? getPickupDestination(nextPickup)
+    : (typeof nextCustomerDelivery?.deliveryAddress === "string"
+      ? nextCustomerDelivery.deliveryAddress
+      : [
+          nextCustomerDelivery?.deliveryAddress?.addressLine1,
+          nextCustomerDelivery?.deliveryAddress?.area,
+          nextCustomerDelivery?.deliveryAddress?.city,
+        ].filter(Boolean).join(", "));
+  const totalEarnings = stats.totalEarnings ?? 0;
+  const weeklyEarnings = stats.weeklyEarnings;
+  const availableBalance = stats.availableBalance;
 
-  const nationalDeliveries = useMemo(
-    () =>
-      deliveryList
-        .filter((d: any) => d.type === "national")
-        .map((d: any) => ({
-          id: d._id,
-          destination:
-            formatAddress(d.address).split(",").pop()?.trim() || d.customerName || "Other State",
-          products:
-            (d.items || []).map((i: any) => i.name).join(", ") || "Various items",
-          courier: "Standard Courier",
-          tracking: d._id ? d._id.slice(-8).toUpperCase() : "NA",
-          status: d.status,
-        })),
-    [deliveryList]
-  );
-
-  const routeStops = useMemo(() => {
-    const waypoints = routeData?.data?.waypoints || [];
-    if (waypoints.length > 0) {
-      return waypoints.map((wp: any, index: number) => ({
-        id: wp._id || index,
-        address: formatAddress(wp.address),
-        status:
-          index < completedCount
-            ? "completed"
-            : index === completedCount
-              ? "current"
-              : "pending",
-      }));
-    }
-    return deliveryList.map((d: any, index: number) => ({
-      id: d._id || index,
-      address: formatAddress(d.address) + (d.customerName ? ` (${d.customerName})` : ""),
-      status:
-        d.status === "delivered"
-          ? "completed"
-          : d.status === "in_transit"
-            ? "current"
-            : "pending",
-    }));
-  }, [routeData, deliveryList, completedCount]);
-
-  const totalDistance = routeData?.data?.totalDistance || 0;
-  const estimatedTime = routeData?.data?.estimatedTime || 0;
-  const fuelCost = totalDistance ? Math.round(totalDistance * 7.5) : 0;
-  const weeklyEarnings = stats?.data?.weeklyEarnings || 0;
-  const pendingPayout = stats?.data?.pendingPayout || 0;
-  const availableBalance = stats?.data?.availableBalance || totalEarnings || 0;
-
-  const mapMarkers = useMemo(
-    () =>
-      deliveryList
-        .filter((d: any) => d.status !== "cancelled")
-        .map((d: any) => {
-          const coords = d.deliveryAddress?.location?.coordinates;
-          return {
-            id: String(d.id || d._id || d.orderId || `delivery-${d.customerName || "stop"}-${formatAddress(d.deliveryAddress)}`),
-            lat: coords?.[1],
-            lng: coords?.[0],
-            title: d.customerName || "Delivery stop",
-            info: formatAddress(d.deliveryAddress),
-            address: formatAddress(d.deliveryAddress),
-          };
-        }),
-    [deliveryList]
-  );
-
-  const mapRoute = useMemo(() => {
-    const waypointCoords = (routeData?.data?.waypoints || [])
-      .map((w: any) => w.location?.coordinates)
-      .filter(Boolean);
-    const destinationPoints = waypointCoords.length
-      ? waypointCoords.map((c: number[]) => ({ lat: c[1], lng: c[0] }))
-      : mapMarkers.filter((m: any) => m.lat != null && m.lng != null);
-    return liveOrigin ? [liveOrigin, ...destinationPoints] : [];
-  }, [routeData, mapMarkers, liveOrigin]);
-
-  const firstMappedPoint = mapMarkers.find((m: any) => m.lat != null && m.lng != null);
-
-  const liveMapMarkers = useMemo(
-    () => {
-      const validMarkers = mapMarkers.filter((m: any) => m.lat != null && m.lng != null);
-      return liveOrigin
-        ? [{ id: "live-origin", ...liveOrigin, title: "Current location", info: "Route starting point" }, ...validMarkers]
-        : validMarkers;
-    },
-    [liveOrigin, mapMarkers]
-  );
-
-
-  const formatEstimatedTime = (minutes: number) => {
-    if (!minutes) return "—";
-    const h = Math.floor(minutes / 60);
-    const m = minutes % 60;
-    return `${h}h ${m}m`;
+  const refreshAll = async () => {
+    await Promise.all([statsQuery.refetch(), customerQuery.refetch(), pickupQuery.refetch()]);
   };
 
-  const handleDeliveryRisk = async (delivery: any) => {
-    const orderId = String(delivery?.orderId || delivery?.id || delivery?._id || "");
-    if (!orderId) return;
-    setRiskLoadingId(orderId);
-    try {
-      const res = await api.post("/ai/delivery-risk", {
-        orderId,
-        distanceKm: Number(delivery?.distanceKm || delivery?.distance || 0) || undefined,
-        timeWindowMinutes: Number(delivery?.timeWindowMinutes || 120),
-        deliverySlot: delivery?.deliveryWindow || undefined,
-      });
-      setDeliveryRisk(res?.data || res);
-    } catch (err: any) {
-      toast.error(err?.message || "Delivery risk is unavailable");
-    } finally {
-      setRiskLoadingId(null);
-    }
-  };
-
-  const handleToggleAvailability = async () => {
+  const toggleAvailability = async () => {
     if (isAvailable === null || isToggling) return;
-    const nextAvailable = !isAvailable;
+    const next = !isAvailable;
     setIsToggling(true);
     try {
-      await api.put("/delivery/me/availability", { isAvailable: nextAvailable });
-      setIsAvailable(nextAvailable);
-      toast.success(nextAvailable ? "You are now Online" : "You are now Offline");
-      refetch();
-      refetchStats();
-    } catch (error) {
-      toast.error("Failed to update status");
+      await api.put("/delivery/me/availability", { isAvailable: next });
+      setIsAvailable(next);
+      toast.success(next ? "You are now online" : "You are now offline");
+      await statsQuery.refetch();
+    } catch (error: any) {
+      toast.error(error?.message || "Could not update availability");
     } finally {
       setIsToggling(false);
     }
   };
 
-  const handleWithdraw = async () => {
-    try {
-      await api.post("/delivery/me/earnings/withdraw");
-      toast.success("Withdrawal request submitted!");
-    } catch (err: any) {
-      toast.error(err?.message || "Failed to withdraw");
-    }
-  };
-
-  if (isLoading || isAvailable === null) {
+  if (statsQuery.isLoading || customerQuery.isLoading || pickupQuery.isLoading || isAvailable === null) {
     return (
-      <div className="space-y-6">
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="h-32 animate-pulse rounded-lg bg-muted" />
-          ))}
-        </div>
-        <div className="h-96 animate-pulse rounded-lg bg-muted" />
+      <div className="space-y-5">
+        <div className="h-36 animate-pulse rounded-2xl bg-muted" />
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{[1, 2, 3, 4].map((item) => <div key={item} className="h-28 animate-pulse rounded-2xl bg-muted" />)}</div>
+        <div className="h-64 animate-pulse rounded-2xl bg-muted" />
       </div>
     );
   }
 
-  return (
-    <div className="space-y-8">
-      {deliveryRisk && (
-        <Card className="border-emerald-200 bg-emerald-50/50">
-          <CardContent className="p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold">AI Delivery Risk</p>
-                <p className="text-xs text-muted-foreground">Based on route, time window and delivery-partner factors.</p>
-              </div>
-              <Badge variant={deliveryRisk.risk_level === "HIGH" ? "destructive" : deliveryRisk.risk_level === "MEDIUM" ? "warning" : "success"}>
-                {deliveryRisk.risk_level || "UNKNOWN"} · {deliveryRisk.risk_score ?? "—"}%
-              </Badge>
-            </div>
-            {deliveryRisk.factors?.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-2">
-                {deliveryRisk.factors.map((f: any, i: number) => (
-                  <span key={i} className="rounded-full bg-white px-3 py-1 text-xs text-slate-700">{f.detail || f.factor}</span>
-                ))}
-              </div>
-            )}
-            {deliveryRisk.recommendation && <p className="mt-3 text-sm font-medium text-emerald-800">{deliveryRisk.recommendation}</p>}
-          </CardContent>
-        </Card>
-      )}
+  const displayName = session?.user?.name?.trim().split(/\s+/)[0] || "there";
 
+  return (
+    <div className="w-full space-y-6 pb-10 text-[15px] leading-relaxed">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Delivery Dashboard</h1>
-          <p className="text-muted-foreground">
-            {isAvailable ? "Online - Ready for deliveries" : "Offline - Not accepting deliveries"}
-          </p>
+          <p className="text-[15px] font-medium text-emerald-700">Delivery Partner Workspace</p>
+          <h1 className="text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">Dashboard</h1>
+          <p className="mt-2 text-[16px] text-slate-600">Your delivery overview and today's priorities.</p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant={isAvailable ? "destructive" : "default"}
-            onClick={handleToggleAvailability}
-            disabled={isToggling}
-          >
-            {isAvailable ? <Pause className="mr-2 h-4 w-4" /> : <Play className="mr-2 h-4 w-4" />}
-            {isToggling ? (isAvailable ? "Going Offline..." : "Going Online...") : (isAvailable ? "Go Offline" : "Go Online")}
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Badge variant={isAvailable ? "success" : "secondary"} className="min-h-12 rounded-xl px-5 py-3 text-base font-bold shadow-sm">
+            <span className={`mr-2 inline-block h-3 w-3 rounded-full ${isAvailable ? "bg-emerald-500" : "bg-slate-400"}`} />
+            {isAvailable ? "Online" : "Offline"}
+          </Badge>
+          <Button variant="outline" size="lg" className="h-12 min-w-[132px] rounded-xl px-6 text-base font-semibold shadow-sm" onClick={refreshAll} disabled={statsQuery.isFetching || customerQuery.isFetching || pickupQuery.isFetching}>
+            <RefreshCw className={`mr-2 h-5 w-5 ${statsQuery.isFetching || customerQuery.isFetching || pickupQuery.isFetching ? "animate-spin" : ""}`} />
+            {statsQuery.isFetching || customerQuery.isFetching || pickupQuery.isFetching ? "Refreshing..." : "Refresh"}
           </Button>
-          <Button variant="outline" size="sm" onClick={() => refetch()}>
-            Refresh
+          <Button size="lg" className="h-12 min-w-[142px] rounded-xl px-6 text-base font-semibold shadow-sm" variant={isAvailable ? "outline" : "default"} onClick={toggleAvailability} disabled={isToggling}>
+            {isToggling ? "Updating..." : isAvailable ? "Go offline" : "Go online"}
           </Button>
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">Today's Deliveries</p>
-                <p className="text-2xl font-bold">{deliveryList.length}</p>
-              </div>
-              <div className="rounded-full p-2 bg-muted text-blue-600">
-                <Truck className="h-5 w-5" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">Completed</p>
-                <p className="text-2xl font-bold">{completedCount}</p>
-              </div>
-              <div className="rounded-full p-2 bg-muted text-green-600">
-                <CheckCircle className="h-5 w-5" />
-              </div>
-            </div>
-            <div className="mt-2 text-sm text-muted-foreground">{completedCount}/{deliveryList.length}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">Today's Earnings</p>
-                <p className="text-2xl font-bold">{formatPrice(totalEarnings)}</p>
-              </div>
-              <div className="rounded-full p-2 bg-muted text-green-600">
-                <DollarSign className="h-5 w-5" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">Rating</p>
-                <p className="text-2xl font-bold">{averageRating}</p>
-              </div>
-              <div className="rounded-full p-2 bg-muted text-yellow-600">
-                <Star className="h-5 w-5" />
-              </div>
-            </div>
-            <div className="mt-2 text-sm text-muted-foreground">
-              {ratingCount} rating{ratingCount === 1 ? "" : "s"} • {totalDeliveries} total deliveries
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Performance & ratings */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Star className="h-5 w-5 text-yellow-500" /> Performance &amp; Ratings
-          </CardTitle>
-          <CardDescription>Customer feedback breakdown across your deliveries</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {ratingCount === 0 ? (
-            <p className="rounded-lg bg-muted/50 p-6 text-center text-sm text-muted-foreground">
-              No customer ratings yet. Once customers rate your deliveries, your feedback will appear here.
+      <section className="relative overflow-hidden rounded-2xl border border-emerald-900 bg-gradient-to-r from-emerald-950 via-emerald-800 to-green-700 px-5 py-7 text-white shadow-md sm:px-8 sm:py-8">
+        <div className="pointer-events-none absolute -right-10 -top-20 h-64 w-64 rounded-full border-[32px] border-white/5" />
+        <div className="pointer-events-none absolute bottom-0 right-28 h-40 w-40 rounded-full bg-lime-300/10 blur-2xl" />
+        <div className="relative">
+          <div className="max-w-2xl">
+            <p className="text-[15px] font-medium text-emerald-100">{formatDate()}</p>
+            <h2 className="mt-3 text-3xl font-bold tracking-tight !text-white sm:text-4xl">Good day, {displayName}!</h2>
+            <p className="mt-3 max-w-2xl text-base leading-7 !text-emerald-50">
+              Your work is split into two independent operations. Check your farm pickups and customer deliveries separately, then focus on your next assigned task.
             </p>
-          ) : (
-            <>
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-                {[
-                  { label: "Overall", value: ratingSummary.overallAvg },
-                  { label: "On-time", value: ratingSummary.onTimeAvg },
-                  { label: "Professionalism", value: ratingSummary.professionalismAvg },
-                  { label: "Product handling", value: ratingSummary.handlingAvg },
-                  { label: "Communication", value: ratingSummary.communicationAvg },
-                ].map((item) => (
-                  <div key={item.label} className="rounded-lg border p-3 text-center">
-                    <p className="text-2xl font-bold text-yellow-600">{item.value || 0}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">{item.label}</p>
-                    <div className="mt-2 flex items-center justify-center gap-0.5">
-                      {[1, 2, 3, 4, 5].map((s) => (
-                        <Star
-                          key={s}
-                          className={`h-3 w-3 ${s <= Math.round(item.value || 0) ? "fill-yellow-400 text-yellow-400" : "text-slate-300"}`}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="flex flex-wrap items-center gap-4 rounded-lg bg-muted/40 p-4">
-                <div className="flex-1">
-                  <p className="text-sm font-medium">On-time percentage</p>
-                  <p className="text-xs text-muted-foreground">Share of ratings marking on-time delivery as 4+ stars</p>
-                </div>
-                <Badge variant="success">{ratingSummary.onTimePercentage ?? 0}%</Badge>
-              </div>
+            <div className="mt-5 flex flex-wrap gap-2">
+              <Badge className="border border-white/30 bg-white/15 px-3 py-1.5 text-sm font-semibold !text-white hover:bg-white/20"><Warehouse className="mr-1.5 h-3.5 w-3.5" /> Warehouse pickup</Badge>
+              <Badge className="border border-white/20 bg-white/10 px-3 py-1.5 text-sm font-semibold !text-white hover:bg-white/10"><Truck className="mr-1.5 h-3.5 w-3.5" /> Customer delivery</Badge>
+            </div>
+          </div>
+
+       </div>
+      </section>
+
+      <section aria-label="Workflow overview" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <Link href="/delivery/pickup-team" className="group">
+          <Card className="h-full border-emerald-200 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md">
+            <CardContent className="flex items-center justify-between gap-3 p-5">
               <div>
-                <h4 className="mb-2 text-sm font-semibold">Star distribution</h4>
-                <div className="space-y-1.5">
-                  {[5, 4, 3, 2, 1].map((star) => {
-                    const count = ratingSummary.distribution?.[String(star)] || 0;
-                    const pct = ratingCount ? Math.round((count / ratingCount) * 100) : 0;
-                    return (
-                      <div key={star} className="flex items-center gap-2 text-sm">
-                        <span className="w-3 font-medium">{star}</span>
-                        <Star className="h-3.5 w-3.5 fill-yellow-400 text-yellow-400" />
-                        <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
-                          <div className="h-full rounded-full bg-yellow-400" style={{ width: `${pct}%` }} />
-                        </div>
-                        <span className="w-8 text-right text-xs text-muted-foreground">{count}</span>
-                      </div>
-                    );
-                  })}
-                </div>
+                <p className="text-[15px] font-medium text-muted-foreground">Pickup assignments</p>
+                <p className="mt-2 text-3xl font-bold text-slate-900">{pickupPending}</p>
+                <p className="mt-1 text-[15px] text-muted-foreground">Farm collection jobs</p>
               </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Delivery Mode Tabs */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Delivery Mode</CardTitle>
-          <CardDescription>Switch between nearby, state, and national delivery modes</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="selection-control mb-6 flex w-fit gap-2 rounded-full border">
-            {[
-              { key: "nearby", label: "Nearby Delivery", icon: Map },
-              { key: "state", label: "State Delivery", icon: Route },
-              { key: "national", label: "National Delivery", icon: Globe },
-            ].map((tab) => {
-              const Icon = tab.icon;
-              const isActive = activeMode === tab.key;
-              return (
-                <button
-                  key={tab.key}
-                  onClick={() => setActiveMode(tab.key as DeliveryMode)}
-                  className={cn(
-                    "selection-item inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium",
-                    isActive ? "selection-item-active" : "selection-item-inactive"
-                  )}
-                >
-                  <Icon className="h-4 w-4" />
-                  {tab.label}
-                </button>
-              );
-            })}
-          </div>
-
-          {activeMode === "nearby" && (
-            <div className="space-y-6">
-              <div className="rounded-lg border bg-card p-4">
-                <div className="mb-3 flex items-center gap-2">
-                  <Route className="h-5 w-5 text-primary" />
-                  <span className="font-semibold">Route Info</span>
-                </div>
-                <div className="grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
-                  <div>
-                    <p className="text-muted-foreground">Start Time</p>
-                    <p className="font-medium">08:30 AM</p>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground">Est. Finish</p>
-                    <p className="font-medium">03:15 PM</p>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground">Total Distance</p>
-                    <p className="font-medium">{totalDistance ? `${totalDistance} km` : "—"}</p>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground">Customers</p>
-                    <p className="font-medium">{deliveryList.length}</p>
-                  </div>
-                </div>
-                <div className="mt-3">
-                  <Button size="sm">
-                    <Navigation className="mr-2 h-4 w-4" />
-                    Start Nearby Route
-                  </Button>
-                </div>
+              <div className="rounded-xl bg-emerald-50 p-3 text-emerald-700"><Warehouse className="h-6 w-6" /></div>
+            </CardContent>
+          </Card>
+        </Link>
+        <Link href="/delivery/deliveries" className="group">
+          <Card className="h-full border-blue-100 transition-shadow hover:shadow-md">
+            <CardContent className="flex items-center justify-between gap-3 p-5">
+              <div>
+                <p className="text-[15px] font-medium text-muted-foreground">My deliveries</p>
+                <p className="mt-2 text-3xl font-bold text-slate-900">{customerPending}</p>
+                <p className="mt-1 text-[15px] text-muted-foreground">Customer orders awaiting delivery</p>
               </div>
+              <div className="rounded-xl bg-blue-50 p-3 text-blue-700"><PackageCheck className="h-6 w-6" /></div>
+            </CardContent>
+          </Card>
+        </Link>
+        <Card className="border-violet-200 shadow-sm">
+          <CardContent className="flex items-center justify-between gap-3 p-5">
+            <div>
+              <p className="text-[15px] font-medium text-muted-foreground">In progress</p>
+              <p className="mt-2 text-3xl font-bold text-slate-900">{pickupActive + customerActive}</p>
+              <p className="mt-1 text-[15px] text-muted-foreground">Pickup and delivery tasks</p>
+            </div>
+            <div className="rounded-xl bg-violet-50 p-3 text-violet-700"><Truck className="h-6 w-6" /></div>
+          </CardContent>
+        </Card>
+        <Card className="border-teal-200 shadow-sm">
+          <CardContent className="flex items-center justify-between gap-3 p-5">
+            <div>
+              <p className="text-[15px] font-medium text-muted-foreground">Completed today</p>
+              <p className="mt-2 text-3xl font-bold text-slate-900">{completedTasks}</p>
+              <p className="mt-1 text-[15px] text-muted-foreground">Warehouse handovers + deliveries</p>
+            </div>
+            <div className="rounded-xl bg-teal-50 p-3 text-teal-700"><CheckCircle2 className="h-6 w-6" /></div>
+          </CardContent>
+        </Card>
+      </section>
 
-              {isLoading ? (
-                <div className="flex justify-center py-8">
-                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                </div>
-              ) : nearbyDeliveries.length === 0 ? (
-                <div className="flex justify-center py-8 text-sm text-muted-foreground">
-                  No nearby deliveries
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {nearbyDeliveries.map((d: any) => (
-                    <div key={d.id} className="flex items-center gap-4 rounded-lg border p-3">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10">
-                        <MapPin className="h-4 w-4 text-primary" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="font-medium text-sm">{d.customerName}</p>
-                          <Badge variant={d.status === "delivered" ? "success" : d.status === "in_transit" ? "warning" : "secondary"} className="text-[10px] px-1.5 py-0">
-                            {d.status === "in_transit" ? "In Transit" : d.status}
-                          </Badge>
-                        </div>
-                        <p className="text-xs text-muted-foreground truncate">{d.address}</p>
-                        <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
-                          <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{d.distance}</span>
-                          <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{d.deliveryWindow}</span>
-                        </div>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleDeliveryRisk(deliveryList.find((x: any) => String(x._id || x.id || x.orderId) === String(d.id)))}
-                          disabled={riskLoadingId === String(d.id)}
-                        >
-                          {riskLoadingId === String(d.id) ? "Checking…" : "AI Risk"}
-                        </Button>
-                        <Button variant="outline" size="icon" className="h-8 w-8">
-                          <Navigation className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {activeMode === "state" && (
-            <>
-              {isLoading ? (
-                <div className="flex justify-center py-8">
-                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                </div>
-              ) : stateDeliveries.length === 0 ? (
-                <div className="flex justify-center py-8 text-sm text-muted-foreground">
-                  No state deliveries
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {stateDeliveries.map((d: any) => (
-                    <div key={d.id} className="flex items-center gap-4 rounded-lg border p-4">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-orange-100">
-                        <Route className="h-5 w-5 text-orange-600" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="font-medium">{d.destination}</p>
-                          <Badge variant={d.status === "delivered" ? "success" : d.status === "in_transit" ? "warning" : "secondary"}>
-                            {d.status.replace("_", " ")}
-                          </Badge>
-                        </div>
-                        <p className="text-sm text-muted-foreground">{d.products}</p>
-                        <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
-                          <span className="flex items-center gap-1"><Package className="h-3 w-3" />{d.weight}</span>
-                          <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />ID: {d.trackingId}</span>
-                        </div>
-                      </div>
-                      <Button size="sm" variant="outline">
-                        Update Tracking
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-
-          {activeMode === "national" && (
-            <>
-              {isLoading ? (
-                <div className="flex justify-center py-8">
-                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                </div>
-              ) : nationalDeliveries.length === 0 ? (
-                <div className="flex justify-center py-8 text-sm text-muted-foreground">
-                  No national deliveries
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {nationalDeliveries.map((d: any) => (
-                    <div key={d.id} className="flex items-center gap-4 rounded-lg border p-4">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-purple-100">
-                        <Globe className="h-5 w-5 text-purple-600" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="font-medium">{d.destination}</p>
-                          <Badge variant={d.status === "delivered" ? "success" : d.status === "in_transit" ? "warning" : "secondary"}>
-                            {d.status.replace("_", " ")}
-                          </Badge>
-                        </div>
-                        <p className="text-sm text-muted-foreground">{d.products}</p>
-                        <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
-                          <span className="flex items-center gap-1"><Truck className="h-3 w-3" />{d.courier}</span>
-                          <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{d.tracking}</span>
-                        </div>
-                      </div>
-                      <Button size="sm" variant="outline">
-                        <Package className="mr-2 h-4 w-4" />
-                        Book Courier
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Today's Route Overview */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Route className="h-5 w-5 text-primary" />
-            Today's Route Overview
-          </CardTitle>
-          <CardDescription>Summary of your delivery route for today</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-            <div className="rounded-lg border p-3">
-              <p className="text-xs text-muted-foreground">Total Distance</p>
-              <p className="mt-1 text-lg font-bold">{totalDistance ? `${totalDistance} km` : "—"}</p>
-            </div>
-            <div className="rounded-lg border p-3">
-              <p className="text-xs text-muted-foreground">Total Orders</p>
-              <p className="mt-1 text-lg font-bold">{deliveryList.length}</p>
-            </div>
-            <div className="rounded-lg border p-3">
-              <p className="text-xs text-muted-foreground">Fuel Cost</p>
-              <p className="mt-1 text-lg font-bold">{fuelCost ? formatPrice(fuelCost) : "—"}</p>
-            </div>
-            <div className="rounded-lg border p-3">
-              <p className="text-xs text-muted-foreground">Expected Income</p>
-              <p className="mt-1 text-lg font-bold">{formatPrice(totalEarnings)}</p>
-            </div>
-            <div className="rounded-lg border p-3">
-              <p className="text-xs text-muted-foreground">Est. Time</p>
-              <p className="mt-1 text-lg font-bold">{formatEstimatedTime(estimatedTime)}</p>
-            </div>
-          </div>
-
-          <div className="mt-4">
-            <div className="flex items-center justify-between text-sm mb-2">
-              <span className="text-muted-foreground">Deliveries Progress</span>
-              <span className="font-medium">{completedCount}/{deliveryList.length} completed</span>
-            </div>
-            <Progress value={deliveryList.length ? (completedCount / deliveryList.length) * 100 : 0} className="h-2.5" />
-          </div>
-
-          {isRouteLoading ? (
-            <div className="mt-6 flex justify-center py-8">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-            </div>
-          ) : routeStops.length > 0 ? (
-            <div className="mt-6">
-              <h4 className="mb-3 text-sm font-semibold">Route Stops</h4>
-              <div className="space-y-1">
-                {routeStops.map((stop: any, index: number) => (
-                  <div key={stop.id} className="flex items-start gap-3">
-                    <div className="flex flex-col items-center">
-                      <div
-                        className={cn(
-                          "flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold",
-                          stop.status === "completed" && "bg-green-100 text-green-700",
-                          stop.status === "current" && "bg-primary text-primary-foreground",
-                          stop.status === "pending" && "bg-muted text-muted-foreground"
-                        )}
-                      >
-                        {stop.status === "completed" ? <CheckCircle className="h-3.5 w-3.5" /> : index + 1}
-                      </div>
-                      {index < routeStops.length - 1 && <div className="h-6 w-0.5 bg-border" />}
-                    </div>
-                    <div className="flex-1 pb-4">
-                      <p className={cn("text-sm", stop.status === "current" && "font-medium text-primary")}>
-                        {stop.address}
-                      </p>
-                      <p className="text-xs text-muted-foreground capitalize">{stop.status.replace("_", " ")}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="mt-6 flex justify-center py-4 text-sm text-muted-foreground">
-              No route data available
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <div className="grid gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
+      <section className="grid gap-5 xl:grid-cols-[1.5fr_1fr]">
+        <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Navigation className="h-5 w-5 text-primary" />
-              Live Route
-            </CardTitle>
-            <CardDescription>Real-time tracking of your deliveries</CardDescription>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div><CardTitle>Today's progress</CardTitle><CardDescription>Pickup and customer delivery progress are tracked separately.</CardDescription></div>
+              <span className="text-[15px] font-semibold text-emerald-700">{completedTasks} / {allTasks} completed</span>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div>
+              <div className="mb-2 flex justify-between text-[15px]"><span className="font-medium">Overall tasks</span><span className="text-muted-foreground">{progress}%</span></div>
+              <Progress value={progress} className="h-3" />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-4">
+                <div className="flex items-center justify-between gap-2"><span className="flex items-center gap-2 text-[15px] font-semibold"><Warehouse className="h-4 w-4 text-emerald-700" /> Warehouse pickup</span><span className="text-[15px] font-bold">{pickupCompleted}/{pickupRoutes.length}</span></div>
+                <Progress value={pickupRoutes.length ? pickupCompleted / pickupRoutes.length * 100 : 0} className="mt-3 h-2" />
+                <p className="mt-2 text-[15px] text-muted-foreground">{pickupPending} remaining · {pickupActive} active</p>
+              </div>
+              <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-4">
+                <div className="flex items-center justify-between gap-2"><span className="flex items-center gap-2 text-[15px] font-semibold"><Truck className="h-4 w-4 text-blue-700" /> Customer delivery</span><span className="text-[15px] font-bold">{customerCompleted}/{customerDeliveries.length}</span></div>
+                <Progress value={customerDeliveries.length ? customerCompleted / customerDeliveries.length * 100 : 0} className="mt-3 h-2" />
+                <p className="mt-2 text-[15px] text-muted-foreground">{customerPending} remaining · {customerActive} active</p>
+              </div>
+            </div>
+            {!allTasks && <p className="rounded-lg bg-muted/50 p-3 text-[15px] text-muted-foreground">No pickup or customer delivery tasks are currently available. Stay online for new assignments.</p>}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader><CardTitle className="flex items-center gap-2"><Wallet className="h-5 w-5 text-emerald-700" /> Earnings overview</CardTitle><CardDescription>Based on your recorded earnings data.</CardDescription></CardHeader>
+          <CardContent className="space-y-4">
+            <div><p className="text-[15px] text-muted-foreground">Total earnings</p><p className="mt-1 text-3xl font-bold">{formatPrice(totalEarnings)}</p></div>
+            {weeklyEarnings !== undefined && <div className="rounded-xl bg-emerald-50 p-3"><p className="text-[15px] text-emerald-800">This week</p><p className="mt-1 text-xl font-semibold text-emerald-900">{formatPrice(weeklyEarnings)}</p></div>}
+            {availableBalance !== undefined && <div className="flex items-center justify-between border-t pt-3"><span className="text-[15px] text-muted-foreground">Available balance</span><span className="font-semibold">{formatPrice(availableBalance)}</span></div>}
+            <Link href="/delivery/earnings" className="inline-flex items-center text-[15px] font-semibold text-emerald-700 hover:text-emerald-800">View earnings <ArrowRight className="ml-1 h-4 w-4" /></Link>
+          </CardContent>
+        </Card>
+      </section>
+
+      <section className="grid gap-5 xl:grid-cols-[1.4fr_1fr]">
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between gap-3">
+              <div><CardTitle className="flex items-center gap-2"><MapPin className="h-5 w-5 text-emerald-700" /> Next task</CardTitle><CardDescription>Your next available assignment, not the full order list.</CardDescription></div>
+              {nextTask && <Badge variant="outline">{nextTaskType}</Badge>}
+            </div>
           </CardHeader>
           <CardContent>
-            {deliveryList.length === 0 || (!liveOrigin && !firstMappedPoint) ? (
-              <MapUnavailable deliveries={deliveryList} />
-            ) : (
-              <LiveRouteMap
-                center={liveOrigin || { lat: firstMappedPoint!.lat, lng: firstMappedPoint!.lng }}
-                trackUserLocation
-                userLocation={liveOrigin}
-                markers={liveMapMarkers}
-                route={mapRoute}
-                height="400px"
-              />
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Today's Summary</CardTitle>
-            <CardDescription>Your performance</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Pending</span>
-                <span className="font-medium">{deliveryList.filter((d: any) => d.status !== "delivered" && d.status !== "cancelled").length}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Completed</span>
-                <span className="font-medium">{completedCount}</span>
-              </div>
-            </div>
-            {stats?.data?.onTimeDelivery !== undefined && (
-              <div className="rounded-lg bg-muted/50 p-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">On-Time Rate</span>
-                  <Badge variant="success">{stats.data.onTimeDelivery}%</Badge>
-                </div>
-                <div className="mt-2 h-2 w-full rounded-full bg-muted">
-                  <div className="h-2 rounded-full bg-green-600" style={{ width: `${stats.data.onTimeDelivery}%` }} />
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <div>
-            <CardTitle className="flex items-center gap-2">
-              <Truck className="h-5 w-5 text-primary" />
-              My Deliveries
-            </CardTitle>
-            <CardDescription>
-              {deliveryList.length} total • {completedCount} completed
-            </CardDescription>
-          </div>
-          <Link href="/delivery/deliveries">
-            <Button variant="ghost" size="sm">View All</Button>
-          </Link>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {deliveryList.length === 0 ? (
-              <div className="text-center py-8">
-                <CheckCircle className="mx-auto h-12 w-12 text-green-500" />
-                <p className="mt-2 text-muted-foreground">No orders available for delivery.</p>
+            {!nextTask ? (
+              <div className="rounded-xl border border-dashed p-7 text-center">
+                <CheckCircle2 className="mx-auto h-9 w-9 text-emerald-600" />
+                <p className="mt-2 font-semibold">You're all caught up</p>
+                <p className="mt-1 text-[15px] text-muted-foreground">There are no pending pickup or customer delivery tasks right now.</p>
               </div>
             ) : (
-              deliveryList.map((delivery: any, index: number) => (
-                <div key={delivery.id} className="flex items-center gap-4 rounded-lg border p-4 transition-all hover:shadow-md">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">{index + 1}</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="font-medium">{delivery.customerName}</p>
-                      <Badge
-                        variant={
-                          delivery.status === "delivered"
-                            ? "success"
-                            : delivery.status === "in_transit"
-                            ? "warning"
-                            : delivery.status === "ready_for_delivery"
-                            ? "secondary"
-                            : "destructive"
-                        }
-                      >
-                        {statusLabel(delivery.status)}
-                      </Badge>
-                      <DeliveryPriorityBadge delivery={delivery} compact />
-                      {paymentBadge(delivery.paymentMethod) && (
-                        <Badge variant="outline" className={paymentBadge(delivery.paymentMethod)?.cod ? "bg-amber-500/10 text-amber-600 border-amber-500/20" : "border-blue-200 text-blue-700"}>
-                          {paymentBadge(delivery.paymentMethod)?.label}
-                        </Badge>
-                      )}
-                      {delivery.pickedBy && (
-                        <span className="text-xs text-muted-foreground">Picked by {delivery.pickedBy}</span>
-                      )}
-                    </div>
-                    <p className="text-sm text-muted-foreground">{formatAddress(delivery.deliveryAddress)}</p>
-                    <div className="mt-1 flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
-                      <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{formatAddress(delivery.deliveryAddress)}</span>
-                      {delivery.totalAmount && (
-                        <span className="flex items-center gap-1"><span className="font-medium text-primary">{formatPrice(delivery.totalAmount)}</span></span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {customerPhone(delivery) && (
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => contactCustomer(customerPhone(delivery), "call")} aria-label="Call customer"><Phone className="h-4 w-4" /></Button>
-                    )}
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => contactCustomer(delivery.customerPhone, "message")} aria-label="Message customer"><MessageSquare className="h-4 w-4" /></Button>
-                    {delivery.status === "ready_for_delivery" && (
-                      <Button size="sm" onClick={() => updateOrderStatus(delivery.orderId || delivery.id, "in_transit", "Accepted")}>
-                        <CheckCircle className="mr-2 h-4 w-4" />Accept
-                      </Button>
-                    )}
-                    {delivery.status === "in_transit" && (
-                      <Button size="sm" onClick={() => handleMarkDelivered(delivery)} disabled={uploadingPod}>
-                        {uploadingPod ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}Mark Delivered
-                      </Button>
-                    )}
-                    {delivery.status !== "delivered" && delivery.status !== "ready_for_delivery" && delivery.status !== "in_transit" && (
-                      <Button size="sm"><Navigation className="mr-2 h-4 w-4" />Navigate</Button>
-                    )}
-                  </div>
+              <div className="rounded-xl border bg-slate-50/70 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div><p className="text-[15px] font-semibold uppercase tracking-wide text-emerald-700">{nextTaskType}</p><p className="mt-1 text-lg font-semibold">{nextTaskTitle}</p><p className="mt-1 text-[15px] text-muted-foreground">{nextTaskAddress || "Location details are not available yet."}</p></div>
+                  <Badge variant="warning">{getStatus(nextTask).replace(/_/g, " ") || "Assigned"}</Badge>
                 </div>
-              ))
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <Button asChild><Link href={showPickupNext ? "/delivery/pickup-routes" : "/delivery/deliveries"}>Open assignment <ArrowRight className="ml-2 h-4 w-4" /></Link></Button>
+                  <Button asChild variant="outline"><Link href={showPickupNext ? "/delivery/pickup-routes" : "/delivery/order-map"}><MapPinned className="mr-2 h-4 w-4" /> Open map</Link></Button>
+                </div>
+              </div>
             )}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Earnings Summary */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Wallet className="h-5 w-5 text-primary" />
-            Earnings Summary
-          </CardTitle>
-          <CardDescription>Your earnings overview and withdrawals</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="rounded-lg border bg-gradient-to-br from-emerald-50 to-emerald-100/50 p-4">
-              <div className="flex items-center gap-2">
-                <DollarSign className="h-5 w-5 text-emerald-600" />
-                <p className="text-sm text-muted-foreground">Today</p>
-              </div>
-              <p className="mt-2 text-2xl font-bold text-emerald-700">{formatPrice(totalEarnings)}</p>
-              <div className="mt-1 flex items-center gap-1 text-xs text-emerald-600">
-                <TrendingUp className="h-3 w-3" />
-                <span>+12% vs yesterday</span>
-              </div>
-            </div>
-
-            <div className="rounded-lg border bg-gradient-to-br from-blue-50 to-blue-100/50 p-4">
-              <div className="flex items-center gap-2">
-                <Wallet className="h-5 w-5 text-blue-600" />
-                <p className="text-sm text-muted-foreground">This Week</p>
-              </div>
-              <p className="mt-2 text-2xl font-bold text-blue-700">{formatPrice(weeklyEarnings)}</p>
-              <div className="mt-1 flex items-center gap-1 text-xs text-blue-600">
-                <TrendingUp className="h-3 w-3" />
-                <span>+8% vs last week</span>
-              </div>
-            </div>
-
-            <div className="rounded-lg border bg-gradient-to-br from-amber-50 to-amber-100/50 p-4">
-              <div className="flex items-center gap-2">
-                <Clock className="h-5 w-5 text-amber-600" />
-                <p className="text-sm text-muted-foreground">Pending Payments</p>
-              </div>
-              <p className="mt-2 text-2xl font-bold text-amber-700">{formatPrice(pendingPayout)}</p>
-              <p className="mt-1 text-xs text-amber-600">{deliveryList.filter((d: any) => d.status !== "delivered").length} deliveries pending</p>
-            </div>
-
-            <div className="rounded-lg border bg-gradient-to-br from-primary/5 to-primary/10 p-4 flex flex-col justify-between">
-              <div className="flex items-center gap-2">
-                <Landmark className="h-5 w-5 text-primary" />
-                <p className="text-sm text-muted-foreground">Available Balance</p>
-              </div>
-              <p className="mt-2 text-2xl font-bold text-primary">{formatPrice(availableBalance)}</p>
-              <Button className="mt-3 w-full" size="sm" onClick={handleWithdraw}>
-                <ArrowUpRight className="mr-2 h-4 w-4" />
-                Withdraw
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center gap-4">
-              <div className="rounded-full bg-blue-100 p-3"><Navigation className="h-6 w-6 text-blue-600" /></div>
-              <div><p className="font-medium">Optimize Route</p><p className="text-sm text-muted-foreground">Smart route planning</p></div>
-            </div>
           </CardContent>
         </Card>
+
         <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center gap-4">
-              <div className="rounded-full bg-green-100 p-3"><CheckCircle className="h-6 w-6 text-green-600" /></div>
-              <div><p className="font-medium">Complete Delivery</p><p className="text-sm text-muted-foreground">Mark as delivered</p></div>
-            </div>
+          <CardHeader><CardTitle>Quick actions</CardTitle><CardDescription>Shortcuts to your daily tools.</CardDescription></CardHeader>
+          <CardContent className="grid grid-cols-2 gap-3">
+            <Link href="/delivery/pickup-routes" className="rounded-xl border p-4 text-center transition-colors hover:border-emerald-300 hover:bg-emerald-50/50"><Route className="mx-auto h-6 w-6 text-emerald-700" /><span className="mt-2 block text-[15px] font-medium">Pickup routes</span></Link>
+            <Link href="/delivery/order-map" className="rounded-xl border p-4 text-center transition-colors hover:border-emerald-300 hover:bg-emerald-50/50"><MapPinned className="mx-auto h-6 w-6 text-emerald-700" /><span className="mt-2 block text-[15px] font-medium">Open order map</span></Link>
+            <Link href="/delivery/messages" className="rounded-xl border p-4 text-center transition-colors hover:border-emerald-300 hover:bg-emerald-50/50"><Headphones className="mx-auto h-6 w-6 text-emerald-700" /><span className="mt-2 block text-[15px] font-medium">Contact support</span></Link>
+            <Link href="/delivery/support" className="rounded-xl border p-4 text-center transition-colors hover:border-emerald-300 hover:bg-emerald-50/50"><AlertCircle className="mx-auto h-6 w-6 text-emerald-700" /><span className="mt-2 block text-[15px] font-medium">Report an issue</span></Link>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center gap-4">
-              <div className="rounded-full bg-yellow-100 p-3"><AlertCircle className="h-6 w-6 text-yellow-600" /></div>
-              <div><p className="font-medium">Report Issue</p><p className="text-sm text-muted-foreground">Delivery problems</p></div>
-            </div>
-          </CardContent>
-        </Card>
+      </section>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-white p-4">
+        <div className="flex items-center gap-3"><div className="rounded-lg bg-slate-100 p-2"><Clock3 className="h-5 w-5 text-slate-600" /></div><div><p className="text-[15px] font-semibold">Need the full assignment list?</p><p className="text-[15px] text-muted-foreground">Open the dedicated page to manage, accept and update individual jobs.</p></div></div>
+        <div className="flex flex-wrap gap-2"><Button asChild variant="outline" size="sm"><Link href="/delivery/pickup-team">Pickup assignments</Link></Button><Button asChild size="sm"><Link href="/delivery/deliveries">My deliveries</Link></Button></div>
       </div>
-
-      <PodPicker
-        open={podPickerOpen}
-        onOpenChange={setPodPickerOpen}
-        uploading={uploadingPod}
-        onFile={handlePodFileChange}
-      />
     </div>
   );
 }

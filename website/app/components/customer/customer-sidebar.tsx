@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 import { useMemo } from "react";
 import { usePathname } from "next/navigation";
 import { PrefetchLink as Link } from "../shared/prefetch-link";
@@ -7,6 +9,9 @@ import { useSession } from "next-auth/react";
 import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard,
+  Search,
+  Bell,
+  Star,
   MapPin,
   Landmark,
   Globe,
@@ -24,6 +29,8 @@ import {
   ShieldCheck,
   CalendarClock,
   Wallet,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { useWishlist } from "../../lib/hooks/use-wishlist";
@@ -32,47 +39,66 @@ import { api } from "../../lib/api/client";
 
 const navGroups = [
   {
-    label: "Home",
-    items: [{ name: "My Workflow", href: "/workflow", icon: Sparkles }, { name: "Home", href: "/customer/dashboard", icon: LayoutDashboard }],
+    label: "Overview",
+    items: [
+      { name: "Dashboard", href: "/customer/dashboard", icon: LayoutDashboard },
+    ],
   },
   {
-    label: "Marketplace",
+    label: "Discover & Shop",
     items: [
-      { name: "Nearby Marketplace", href: "/nearby", icon: MapPin },
-      { name: "State Marketplace", href: "/marketplace/state", icon: Landmark },
-      { name: "National Marketplace", href: "/marketplace/national", icon: Globe },
+      { name: "Marketplace", href: "/marketplace", icon: ShoppingCart },
+      { name: "Search Products", href: "/search", icon: Search },
       { name: "Trace a Lot", href: "/trace", icon: ShieldCheck },
     ],
   },
   {
-    label: "Shopping",
+    label: "Orders & Delivery",
+    items: [
+      { name: "My Orders", href: "/orders", icon: Package },
+      { name: "Delivery Slots", href: "/delivery-slots", icon: Truck },
+      { name: "Bulk & Event Orders", href: "/bulk-orders", icon: Sparkles },
+    ],
+  },
+  {
+    label: "Shopping & Benefits",
     items: [
       { name: "Cart", href: "/cart", icon: ShoppingCart },
-      { name: "Orders", href: "/orders", icon: Package },
-      { name: "Delivery Slots", href: "/delivery-slots", icon: Truck },
       { name: "Wishlist", href: "/wishlist", icon: Heart },
-      { name: "Bulk & Event Orders", href: "/bulk-orders", icon: Sparkles },
-      { name: "Farm Baskets", href: "/subscriptions", icon: CalendarClock },
+      { name: "Farm Basket Subscriptions", href: "/subscriptions", icon: CalendarClock },
       { name: "AgriPoints", href: "/agripoints", icon: Leaf },
+      { name: "Coupons", href: "/coupons", icon: Ticket },
+    ],
+  },
+  {
+    label: "Payments & Refunds",
+    items: [
+      { name: "Wallet", href: "/wallet", icon: Wallet },
+      { name: "Payments", href: "/payments", icon: CreditCard },
+      { name: "Refunds & Returns", href: "/refunds", icon: ArrowUpLeft },
+    ],
+  },
+  {
+    label: "Community & Support",
+    items: [
+      { name: "Messages", href: "/customer/messages", icon: MessageSquare },
+      { name: "Reviews", href: "/reviews", icon: Star },
+      { name: "Notifications", href: "/notifications", icon: Bell },
+      { name: "My Impact", href: "/impact", icon: Leaf },
     ],
   },
   {
     label: "Account",
     items: [
-      { name: "Wallet", href: "/wallet", icon: Wallet },
-      { name: "Payments", href: "/payments", icon: CreditCard },
-      { name: "Refunds & Returns", href: "/refunds", icon: ArrowUpLeft },
-      { name: "Coupons", href: "/coupons", icon: Ticket },
-      { name: "Reviews", href: "/reviews", icon: MessageSquare },
-      { name: "Messages", href: "/customer/messages", icon: MessageSquare },
-      { name: "My Impact", href: "/impact", icon: Leaf },
       { name: "Profile", href: "/profile", icon: User },
+      { name: "Saved Addresses", href: "/profile/addresses", icon: MapPin },
     ],
   },
 ];
 
 export function CustomerSidebar() {
   const pathname = usePathname();
+  const [collapsedGroups, setCollapsedGroups] = useState<string[]>([]);
   const { data: session } = useSession();
   const userName = (session?.user as any)?.name || (session?.user as any)?.email || "Customer";
   const userEmail = (session?.user as any)?.email || "";
@@ -126,7 +152,7 @@ export function CustomerSidebar() {
   const walletBalance = Number((walletData as any)?.data?.balance || 0);
 
   return (
-    <aside className="hidden w-64 shrink-0 border-r border-slate-200/80 bg-white md:block">
+    <aside className="role-sidebar hidden w-64 shrink-0 border-r border-slate-200/80 bg-white md:block">
       <div className="sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto p-4 lg:p-5">
         <div className="mb-6 flex min-w-0 items-start gap-3 overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-500 to-teal-600 p-4 text-white shadow-sm">
           {userImage ? (
@@ -154,17 +180,33 @@ export function CustomerSidebar() {
         </div>
 
         <nav className="space-y-4">
-          {navGroups.map((group) => (
-            <div key={group.label}>
-              <p className="mb-1 px-3 text-[11px] font-semibold uppercase tracking-wider text-gray-400">{group.label}</p>
-              <div className="space-y-1">
+          {navGroups.map((group) => {
+            const hasActiveItem = group.items.some((item) =>
+              pathname === item.href || pathname?.startsWith(item.href + "/")
+            );
+            const isCollapsed = collapsedGroups.includes(group.label) && !hasActiveItem;
+            return (
+              <section key={group.label} aria-label={group.label} className="space-y-1">
+                <button
+                  type="button"
+                  aria-expanded={!isCollapsed}
+                  onClick={() => setCollapsedGroups((current) => current.includes(group.label) ? current.filter((label) => label !== group.label) : [...current, group.label])}
+                  className="group flex w-full items-center justify-between rounded-lg px-3 py-2 text-left transition-colors hover:bg-slate-50"
+                >
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 group-hover:text-slate-600">{group.label}</span>
+                  {isCollapsed ? <ChevronRight className="h-3.5 w-3.5 text-slate-400" /> : <ChevronDown className="h-3.5 w-3.5 text-slate-400" />}
+                </button>
+                {!isCollapsed && (
+                  <div className="ml-2 space-y-1 border-l border-slate-200 pl-2">
                 {group.items.map((item) => {
-                  const isActive = pathname === item.href || pathname?.startsWith(item.href + "/");
+                  const isMarketplaceRoute = item.href === "/marketplace" && (pathname === "/marketplace" || pathname?.startsWith("/marketplace/") || pathname === "/nearby");
+                  const isActive = isMarketplaceRoute || pathname === item.href || pathname?.startsWith(item.href + "/");
                   const badge = item.name === "Cart" ? cartCount : item.name === "Wishlist" ? wishlistItems.length : item.name === "Farm Pickup" ? pickupCount : item.name === "Deliveries" ? deliveryCount : item.name === "Wallet" && walletBalance > 0 ? "₹" + walletBalance : 0;
                   return (
                     <Link
                       key={item.name}
                       href={item.href}
+                      aria-current={isActive ? "page" : undefined}
                       className={cn(
                         "flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium transition-colors duration-150",
                         isActive ? "bg-emerald-700 text-white shadow-sm shadow-emerald-900/10" : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
@@ -188,8 +230,10 @@ export function CustomerSidebar() {
                   );
                 })}
               </div>
-            </div>
-          ))}
+                )}
+              </section>
+            );
+          })}
         </nav>
       </div>
     </aside>

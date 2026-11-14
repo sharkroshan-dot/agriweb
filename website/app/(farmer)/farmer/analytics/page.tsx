@@ -10,6 +10,13 @@ import {
   Sparkles,
   TrendingDown,
   TrendingUp,
+  Download,
+  Printer,
+  Users,
+  RefreshCw,
+  AlertCircle,
+  PackageCheck,
+  CircleDollarSign,
 } from "lucide-react";
 import {
   Card,
@@ -21,6 +28,7 @@ import {
 import { Button } from "../../../components/ui/button";
 import { cn } from "../../../lib/utils";
 import { api } from "../../../lib/api/client";
+import { FarmerPageHeader } from "../../../components/farmer/farmer-page-header";
 import { formatPrice } from "../../../lib/utils";
 import {
   LineChart,
@@ -51,17 +59,44 @@ const STATUS_COLORS: Record<string, string> = {
   cancelled: "#ef4444",
 };
 
-const SUMMARY_CARDS = [
-  { key: "totalRevenue", label: "Total earned", emoji: "💰", color: "text-emerald-600", format: (v: any) => formatPrice(v ?? 0) },
-  { key: "totalOrders", label: "Orders placed", emoji: "🧺", color: "text-blue-600", format: (v: any) => `${v ?? 0}` },
-  { key: "averageOrderValue", label: "Average order size", emoji: "🛒", color: "text-purple-600", format: (v: any) => formatPrice(v ?? 0) },
-  { key: "deliveredOrders", label: "Delivered to customers", emoji: "✅", color: "text-amber-600", format: (v: any) => `${v ?? 0}` },
-];
+
+
+
+function exportAnalyticsCsv(data: any, range: string) {
+  const rows: any[][] = [
+    ["Metric", "Value"],
+    ["Total revenue", data.totalRevenue ?? 0],
+    ["Total orders", data.totalOrders ?? 0],
+    ["Average order value", data.averageOrderValue ?? 0],
+    ["Delivered orders", data.deliveredOrders ?? 0],
+    ["Wallet balance", data.walletBalance ?? 0],
+    ["Pending earnings", data.pendingEarnings ?? 0],
+    [],
+    ["Revenue trend", "Revenue", "Orders"],
+    ...(data.revenueTrend ?? []).map((x: any) => [x.name ?? x.label ?? "", x.revenue ?? 0, x.orders ?? 0]),
+    [],
+    ["Top products", "Revenue", "Quantity", "Orders"],
+    ...(data.topProducts ?? []).map((x: any) => [x.name ?? "", x.revenue ?? 0, x.quantity ?? x.unitsSold ?? 0, x.orders ?? x.orderCount ?? 0]),
+    [],
+    ["Stock", "Remaining", "Reserved"],
+    ...(data.productStock ?? []).map((x: any) => [x.name ?? "", x.remaining ?? 0, x.reserved ?? 0]),
+    [],
+    ["Customer trend", "Customers", "Revenue"],
+    ...(data.customerInsights?.monthlyTrend ?? []).map((x: any) => [x.month ?? "", x.customers ?? 0, x.revenue ?? 0]),
+  ];
+  const csv = rows.map((row) => row.map((cell) => '"' + String(cell ?? "").replace(/"/g, '""') + '"').join(",")).join("\r\n");
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = "agriconnect-analytics-" + range + ".csv";
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
 
 export default function FarmerAnalyticsPage() {
   const [range, setRange] = useState<"7d" | "30d" | "90d">("30d");
 
-  const { data: metrics, isLoading } = useQuery({
+  const { data: metrics, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ["farmerAnalytics", range],
     queryFn: () => api.get(`/farmers/me/analytics?range=${range}`),
   });
@@ -86,39 +121,56 @@ export default function FarmerAnalyticsPage() {
   const aiInsights = (aiInsightsData as any)?.data ?? {};
   const aiDemand = aiInsights.demand ?? [];
   const aiPricing = aiInsights.pricing ?? [];
+  const customerInsights = data.customerInsights ?? {};
+  const customerTrend = customerInsights.monthlyTrend ?? [];
+  const lowStock = productStock.filter((p: any) => Number(p.remaining ?? 0) <= 5);
+  const hasSalesData = Number(data.totalOrders ?? 0) > 0 || Number(data.totalRevenue ?? 0) > 0;
 
   if (isLoading) {
-    return <div className="space-y-4"><div className="h-12 w-48 animate-pulse rounded bg-gray-200" /><div className="h-80 animate-pulse rounded bg-gray-200" /></div>;
+    return <div className="w-full min-w-0 space-y-6 animate-pulse"><div className="h-20 rounded-2xl bg-slate-100" /><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-28 rounded-2xl bg-slate-100" />)}</div><div className="grid gap-4 xl:grid-cols-2">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-64 rounded-2xl bg-slate-100" />)}</div></div>;
+  }
+
+  if (isError) {
+    return <div className="w-full min-w-0 space-y-4"><FarmerPageHeader title="Farm analytics" description="Understand your sales, customers, stock and farm performance." /><Card className="rounded-2xl border-red-200 bg-red-50/50 shadow-none"><CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-start gap-3"><AlertCircle className="mt-0.5 h-5 w-5 text-red-600" /><div><p className="font-semibold text-slate-900">Analytics could not be loaded</p><p className="mt-1 text-sm text-slate-600">Check your connection and try again. Your farm data has not been changed.</p></div></div><Button onClick={() => refetch()} disabled={isFetching}><RefreshCw className={cn("mr-2 h-4 w-4", isFetching && "animate-spin")} /> Try again</Button></CardContent></Card></div>;
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Analytics</h1>
-          <p className="text-gray-500">Data-driven insights to optimize your farm.</p>
+    <div className="w-full min-w-0 space-y-6 pb-8">
+      <FarmerPageHeader title="Farm analytics" description="Use demand, sales and fulfilment trends to decide what to grow, stock and deliver next.">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex rounded-xl border border-slate-200 bg-slate-50 p-1">
+            {[("7d" as const), ("30d" as const), ("90d" as const)].map((r) => (
+              <Button key={r} variant={range === r ? "default" : "ghost"} size="sm" className={cn("h-8 rounded-lg px-3 text-xs", range === r ? "bg-emerald-700 text-white hover:bg-emerald-800" : "text-slate-600")} onClick={() => setRange(r)}>{r === "7d" ? "7 days" : r === "30d" ? "30 days" : "90 days"}</Button>
+            ))}
+          </div>
+          <Button onClick={() => exportAnalyticsCsv(data, range)} variant="outline" size="sm"><Download className="mr-2 h-4 w-4" /> Export CSV</Button>
+          <Button onClick={() => window.print()} variant="outline" size="sm"><Printer className="mr-2 h-4 w-4" /> Print / PDF</Button>
+          <Button onClick={() => refetch()} disabled={isFetching} variant="outline" size="sm"><RefreshCw className={cn("mr-2 h-4 w-4", isFetching && "animate-spin")} /> Refresh</Button>
         </div>
-        <div className="flex items-center gap-2">
-          {[("7d" as const), ("30d" as const), ("90d" as const)].map((r) => (
-            <Button key={r} variant={range === r ? "default" : "outline"} size="sm" onClick={() => setRange(r)}>{r}</Button>
-          ))}
-        </div>
-      </div>
+      </FarmerPageHeader>
+
+      {!hasSalesData && (
+        <Card className="rounded-2xl border-dashed border-emerald-200 bg-emerald-50/40 shadow-none">
+          <CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
+            <div><p className="font-semibold text-slate-900">Your analytics journey starts with your first order</p><p className="mt-1 text-sm text-slate-600">Add products, keep stock updated and share your listings. Sales, customer trends and forecasts will appear here as data becomes available.</p></div>
+            <a href="/farmer/products" className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-emerald-700 px-4 text-sm font-semibold text-white hover:bg-emerald-800">Manage products</a>
+          </CardContent>
+        </Card>
+      )}
 
       {insights.length > 0 && (
-        <Card className="border-emerald-200 bg-gradient-to-br from-emerald-50/70 to-green-50/40">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Lightbulb className="h-5 w-5 text-emerald-600" />
-              💡 Your farm at a glance
+        <Card className="rounded-2xl border-slate-200/80 bg-white shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base font-semibold text-slate-900">
+              <Lightbulb className="h-5 w-5 text-emerald-700" />
+              Farm insights and recommended actions
             </CardTitle>
-            <CardDescription>Simple tips to help your farm grow.</CardDescription>
+            <CardDescription>Practical next steps based on your sales, inventory and harvest activity.</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-2 md:grid-cols-2">
+            <div className="grid gap-3 md:grid-cols-2">
               {insights.map((i: any, idx: number) => (
-                <div key={idx} className="flex items-start gap-3 rounded-lg border bg-white p-3">
-                  <span className="text-xl">{i.emoji}</span>
+                <div key={idx} className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50/60 p-4">
                   <div>
                     <p className="font-medium">{i.title}</p>
                     <p className="text-sm text-gray-500">{i.message}</p>
@@ -130,77 +182,66 @@ export default function FarmerAnalyticsPage() {
         </Card>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {SUMMARY_CARDS.map(({ key, label, emoji, color, format }) => (
-          <Card key={key}>
-            <CardContent className="p-6">
-              <div className="flex items-start justify-between">
-                <div className="space-y-1">
-                  <p className="text-3xl">{emoji}</p>
-                  <p className="mt-1 text-3xl font-extrabold text-slate-900">{format(data[key])}</p>
-                  <p className="text-sm text-gray-500">{label}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Card className="rounded-2xl border-slate-200/80 shadow-sm"><CardContent className="flex items-center justify-between p-4"><div><p className="text-xs font-medium text-slate-500">Total revenue</p><p className="mt-1 text-2xl font-bold tracking-tight text-slate-900">{formatPrice(data.totalRevenue ?? 0)}</p></div><span className="rounded-xl bg-emerald-50 p-3 text-emerald-700"><Banknote className="h-5 w-5" /></span></CardContent></Card>
+        <Card className="rounded-2xl border-slate-200/80 shadow-sm"><CardContent className="flex items-center justify-between p-4"><div><p className="text-xs font-medium text-slate-500">Orders received</p><p className="mt-1 text-2xl font-bold tracking-tight text-slate-900">{data.totalOrders ?? 0}</p></div><span className="rounded-xl bg-sky-50 p-3 text-sky-700"><TrendingUp className="h-5 w-5" /></span></CardContent></Card>
+        <Card className="rounded-2xl border-slate-200/80 shadow-sm"><CardContent className="flex items-center justify-between p-4"><div><p className="text-xs font-medium text-slate-500">Average order value</p><p className="mt-1 text-2xl font-bold tracking-tight text-slate-900">{formatPrice(data.averageOrderValue ?? 0)}</p></div><span className="rounded-xl bg-violet-50 p-3 text-violet-700"><Wallet className="h-5 w-5" /></span></CardContent></Card>
+        <Card className="rounded-2xl border-slate-200/80 shadow-sm"><CardContent className="flex items-center justify-between p-4"><div><p className="text-xs font-medium text-slate-500">Delivered orders</p><p className="mt-1 text-2xl font-bold tracking-tight text-slate-900">{data.deliveredOrders ?? 0}</p></div><span className="rounded-xl bg-amber-50 p-3 text-amber-700"><Star className="h-5 w-5" /></span></CardContent></Card>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card className="border-emerald-200 bg-gradient-to-br from-emerald-50/60 to-white">
-          <CardContent className="p-6">
-            <div className="flex items-center gap-2 text-emerald-600">
-              <Wallet className="h-5 w-5" />
-              <p className="text-sm text-gray-500">💰 Money in your wallet</p>
-            </div>
-            <p className="mt-2 text-3xl font-extrabold text-emerald-700">{formatPrice(data.walletBalance ?? 0)}</p>
-            <p className="mt-1 text-xs text-gray-400">Ready to spend or withdraw</p>
-          </CardContent>
-        </Card>
-        <Card className="border-amber-200 bg-gradient-to-br from-amber-50/60 to-white">
-          <CardContent className="p-6">
-            <div className="flex items-center gap-2 text-amber-600">
-              <Banknote className="h-5 w-5" />
-              <p className="text-sm text-gray-500">⏳ Coming to you</p>
-            </div>
-            <p className="mt-2 text-3xl font-extrabold text-amber-700">{formatPrice(data.pendingEarnings ?? 0)}</p>
-            <p className="mt-1 text-xs text-gray-400">Earned but not paid out yet</p>
-          </CardContent>
-        </Card>
-        <Card className="border-violet-200 bg-gradient-to-br from-violet-50/60 to-white">
-          <CardContent className="p-6">
-            <div className="flex items-center gap-2 text-violet-600">
-              <Star className="h-5 w-5" />
-              <p className="text-sm text-gray-500">⭐ Customer rating</p>
-            </div>
-            <p className="mt-2 text-3xl font-extrabold text-violet-700">
-              {Number(data.avgRating ?? 0) > 0 ? `${Number(data.avgRating).toFixed(1)} / 5` : "—"}
-              <span className="ml-2 text-sm font-normal text-gray-400">({data.reviewCount ?? 0} reviews)</span>
-            </p>
-          </CardContent>
-        </Card>
-      </div>
+      <Card className="rounded-2xl border-slate-200/80 shadow-sm">
+        <CardContent className="grid grid-cols-2 gap-4 p-4 sm:grid-cols-4">
+          <div><p className="text-xs text-slate-500">Harvest plans</p><p className="mt-1 text-xl font-bold text-slate-900">{harvest.harvestPlans ?? data.harvestPlans ?? 0}</p></div>
+          <div><p className="text-xs text-slate-500">Upcoming harvests</p><p className="mt-1 text-xl font-bold text-slate-900">{harvest.upcomingHarvests ?? data.upcomingHarvests ?? 0}</p></div>
+          <div><p className="text-xs text-slate-500">Pre-orders booked</p><p className="mt-1 text-xl font-bold text-slate-900">{harvest.preOrders ?? data.preOrders ?? 0}</p></div>
+          <div><p className="text-xs text-slate-500">Customers interested</p><p className="mt-1 text-xl font-bold text-slate-900">{harvest.notifyMe ?? data.notifyMe ?? 0}</p></div>
+        </CardContent>
+      </Card>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {[
-          { label: "Harvest plans", value: harvest.harvestPlans ?? data.harvestPlans ?? 0, emoji: "🌱" },
-          { label: "Upcoming harvests", value: harvest.upcomingHarvests ?? data.upcomingHarvests ?? 0, emoji: "📅" },
-          { label: "Pre-orders booked", value: harvest.preOrders ?? data.preOrders ?? 0, emoji: "🛒" },
-          { label: "Customers interested", value: harvest.notifyMe ?? data.notifyMe ?? 0, emoji: "🔔" },
-        ].map((s) => (
-          <Card key={s.label}>
-            <CardContent className="p-6">
-              <p className="text-3xl">{s.emoji}</p>
-              <p className="mt-1 text-3xl font-extrabold text-slate-900">{s.value}</p>
-              <p className="text-sm text-gray-500">{s.label}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      <section className="grid gap-4 xl:grid-cols-2">
+        <Card className="rounded-2xl border-slate-200/80 shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base font-semibold text-slate-900"><Users className="h-5 w-5 text-sky-700" /> Customer trends</CardTitle>
+            <CardDescription>Understand how many customers buy from your farm and how many return.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-3 gap-2">
+              <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Customers</p><p className="mt-1 text-xl font-bold text-slate-900">{customerInsights.uniqueCustomers ?? "—"}</p></div>
+              <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Repeat buyers</p><p className="mt-1 text-xl font-bold text-slate-900">{customerInsights.repeatCustomers ?? "—"}</p></div>
+              <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Repeat rate</p><p className="mt-1 text-xl font-bold text-slate-900">{customerInsights.repeatRate != null ? customerInsights.repeatRate + "%" : "—"}</p></div>
+            </div>
+            {customerTrend.length > 0 ? <div className="h-52"><ResponsiveContainer width="100%" height="100%"><LineChart data={customerTrend}><CartesianGrid stroke="#e2e8f0" strokeDasharray="4 4" vertical={false} /><XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#64748b" }} /><YAxis allowDecimals={false} axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#64748b" }} /><Tooltip /><Line type="monotone" dataKey="customers" name="Customers" stroke="#0284c7" strokeWidth={3} dot={false} /></LineChart></ResponsiveContainer></div> : <div className="rounded-xl border border-dashed border-slate-200 py-8 text-center text-sm text-slate-500">Customer trends will appear when customer order history is available.</div>}
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-2xl border-slate-200/80 shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base font-semibold text-slate-900"><PackageCheck className="h-5 w-5 text-amber-600" /> Stock alerts</CardTitle>
+            <CardDescription>Products that may need replenishment before the next orders arrive.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {lowStock.length > 0 ? <div className="space-y-2">{lowStock.slice(0, 6).map((p: any) => <div key={p.id || p.name} className="flex items-center justify-between gap-3 rounded-xl border border-amber-100 bg-amber-50/50 p-3"><div className="min-w-0"><p className="truncate text-sm font-semibold text-slate-800">{p.name}</p><p className="text-xs text-slate-500">{p.reserved ?? 0} reserved</p></div><span className="shrink-0 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">{p.remaining ?? 0} remaining</span></div>)}</div> : <div className="rounded-xl border border-dashed border-slate-200 py-8 text-center text-sm text-slate-500">{productStock.length ? "No low-stock products right now." : "Stock alerts will appear when product stock is available."}</div>}
+          </CardContent>
+        </Card>
+      </section>
+
+      <Card className="rounded-2xl border-slate-200/80 shadow-sm">
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-base"><CircleDollarSign className="h-5 w-5 text-emerald-700" /> Payout overview</CardTitle>
+          <CardDescription>Track money available to withdraw and payments still being processed. Total sales are shown above.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-xl border border-sky-100 bg-sky-50/70 p-4"><p className="text-xs font-medium text-sky-800">Wallet balance</p><p className="mt-1 text-xl font-bold text-sky-900">{formatPrice(data.walletBalance ?? 0)}</p></div>
+            <div className="rounded-xl border border-amber-100 bg-amber-50/70 p-4"><p className="text-xs font-medium text-amber-800">Pending payout</p><p className="mt-1 text-xl font-bold text-amber-900">{formatPrice(data.pendingEarnings ?? 0)}</p></div>
+          </div>
+          <p className="mt-3 text-xs text-slate-500">Net profit is not calculated because farm input costs, labour, packaging and transport expenses are not currently included in this analytics data. Revenue is not the same as profit.</p>
+        </CardContent>
+      </Card>
 
       {(aiDemand.length > 0 || aiPricing.length > 0) && (
-        <div className="grid gap-6 lg:grid-cols-2">
-          <Card className="border-emerald-200 bg-gradient-to-br from-emerald-50/60 to-violet-50/40">
+        <div className="grid gap-4 xl:grid-cols-2">
+          <Card className="rounded-2xl border-slate-200/80 bg-white shadow-sm">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Sparkles className="h-5 w-5 text-emerald-600" />
@@ -304,77 +345,77 @@ export default function FarmerAnalyticsPage() {
       )}
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>📈 Your earnings over time</CardTitle>
+        <Card className="rounded-2xl border-slate-200/80 shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base font-semibold text-slate-900">Revenue trend</CardTitle>
             <CardDescription>How much you earned in this period</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="h-[300px]">
+            {revenueTrend.length > 0 ? <div className="h-[260px] w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={revenueTrend.length > 0 ? revenueTrend : [{ name: "No data", revenue: 0, orders: 0 }]}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="name" />
-                  <YAxis />
-                  <Tooltip />
-                  <Line type="monotone" dataKey="revenue" stroke="#22c55e" strokeWidth={2} />
-                  <Line type="monotone" dataKey="orders" stroke="#3b82f6" strokeWidth={2} />
+                <LineChart data={revenueTrend}>
+                  <CartesianGrid stroke="#e2e8f0" strokeDasharray="4 4" vertical={false} />
+                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: "#64748b", fontSize: 12 }} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fill: "#64748b", fontSize: 12 }} />
+                  <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e2e8f0", boxShadow: "0 8px 24px rgba(15,23,42,0.08)" }} />
+                  <Line type="monotone" dataKey="revenue" name="Revenue" stroke="#059669" strokeWidth={3} dot={false} activeDot={{ r: 5 }} />
+                  
                 </LineChart>
               </ResponsiveContainer>
-            </div>
+            </div> : <div className="flex h-[260px] items-center justify-center rounded-xl border border-dashed border-slate-200 px-6 text-center text-sm text-slate-500">Revenue trend will appear here when orders are recorded for this period.</div>}
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>🍎 Where your sales come from</CardTitle>
+        <Card className="rounded-2xl border-slate-200/80 shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base font-semibold text-slate-900">Sales by product category</CardTitle>
             <CardDescription>Which crops customers buy the most</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="h-[300px]">
+            {categoryData.length > 0 ? <div className="h-[260px] w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie data={categoryData.length > 0 ? categoryData : [{ name: "No data", value: 1 }]} dataKey="value" cx="50%" cy="50%" outerRadius={80} label>
-                    {(categoryData.length > 0 ? categoryData : [{ name: "No data", value: 1 }]).map((entry: any, index: number) => (
+                  <Pie data={categoryData} dataKey="value" cx="50%" cy="50%" outerRadius={80} label>
+                    {categoryData.map((entry: any, index: number) => (
                       <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                     ))}
                   </Pie>
-                  <Tooltip />
+                  <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e2e8f0", boxShadow: "0 8px 24px rgba(15,23,42,0.08)" }} />
                 </PieChart>
               </ResponsiveContainer>
-            </div>
+            </div> : <div className="flex h-[260px] items-center justify-center rounded-xl border border-dashed border-slate-200 px-6 text-center text-sm text-slate-500">Category breakdown will appear after your products receive sales.</div>}
           </CardContent>
         </Card>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>🚚 Where your orders stand</CardTitle>
+        <Card className="rounded-2xl border-slate-200/80 shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base font-semibold text-slate-900">Order status breakdown</CardTitle>
             <CardDescription>Pending, shipped or delivered</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="h-[300px]">
+            {orderStatus.length > 0 ? <div className="h-[260px] w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={orderStatus.length > 0 ? orderStatus : [{ name: "No data", count: 1 }]}>
-                  <CartesianGrid strokeDasharray="3 3" />
+                <BarChart data={orderStatus}>
+                  <CartesianGrid stroke="#e2e8f0" strokeDasharray="4 4" vertical={false} />
                   <XAxis dataKey="name" tickFormatter={(v: string) => v.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())} />
-                  <YAxis allowDecimals={false} />
-                  <Tooltip />
-                  <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                  <YAxis allowDecimals={false} axisLine={false} tickLine={false} tick={{ fill: "#64748b", fontSize: 12 }} />
+                  <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e2e8f0", boxShadow: "0 8px 24px rgba(15,23,42,0.08)" }} />
+                  <Bar dataKey="count" name="Orders" fill="#0f9f6e" radius={[6, 6, 0, 0]}>
                     {orderStatus.map((entry: any) => (
                       <Cell key={entry.name} fill={STATUS_COLORS[entry.name] ?? "#94a3b8"} />
                     ))}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
-            </div>
+            </div> : <div className="flex h-[260px] items-center justify-center rounded-xl border border-dashed border-slate-200 px-6 text-center text-sm text-slate-500">Order status data will appear after you receive orders.</div>}
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>🥇 Your best sellers</CardTitle>
+        <Card className="rounded-2xl border-slate-200/80 shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base font-semibold text-slate-900">Top-selling products</CardTitle>
             <CardDescription>Products that earned you the most</CardDescription>
           </CardHeader>
           <CardContent>
@@ -383,10 +424,10 @@ export default function FarmerAnalyticsPage() {
                 <p className="py-6 text-center text-sm text-gray-500">No product sales data yet.</p>
               ) : (
                 topProducts.map((p: any) => (
-                  <div key={p.id} className="flex items-center justify-between rounded-lg border p-3">
+                  <div key={p.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-3">
                     <div className="flex items-center gap-3">
-                      <div className="relative h-10 w-10 rounded bg-gray-100 flex items-center justify-center text-xl">
-                        🍅
+                      <div className="relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-slate-100 text-slate-400">
+                        <PackageCheck className="h-5 w-5" />
                         {p.image && (
                           <img
                             src={p.image}
@@ -398,12 +439,12 @@ export default function FarmerAnalyticsPage() {
                       </div>
                       <div>
                         <p className="font-medium">{p.name}</p>
-                        <p className="text-sm text-gray-500">{(p.unitsSold ?? p.quantity ?? 0)} units • {p.orders ?? 0} orders</p>
+                        <p className="text-sm text-gray-500">{(p.unitsSold ?? p.quantity ?? 0)} units sold • {p.orders ?? p.orderCount ?? 0} orders</p>
                       </div>
                     </div>
                     <div className="text-right">
                       <p className="font-bold text-emerald-600">{formatPrice(p.revenue ?? 0)}</p>
-                      <p className={cn("text-sm", (p.growth ?? 0) > 0 ? "text-green-600" : "text-red-600")}>{(p.growth ?? 0) > 0 ? '+' : ''}{(p.growth ?? 0)}%</p>
+                      {Number(p.growth ?? 0) !== 0 && <p className={cn("text-sm", (p.growth ?? 0) > 0 ? "text-green-600" : "text-red-600")}>{(p.growth ?? 0) > 0 ? "+" : ""}{(p.growth ?? 0)}%</p>}
                     </div>
                   </div>
                 ))
@@ -413,9 +454,9 @@ export default function FarmerAnalyticsPage() {
         </Card>
       </div>
 
-      <Card>
-        <CardHeader>
-<CardTitle>📦 Stock left to sell</CardTitle>
+      <Card className="rounded-2xl border-slate-200/80 shadow-sm">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base font-semibold text-slate-900">Current product stock</CardTitle>
             <CardDescription>What you still have on hand</CardDescription>
         </CardHeader>
         <CardContent>
@@ -428,7 +469,7 @@ export default function FarmerAnalyticsPage() {
                 const hasTotal = (p.totalStock ?? 0) > 0;
                 const pct = hasTotal ? Math.min(100, Math.round((p.remaining / p.totalStock) * 100)) : null;
                 return (
-                  <div key={p.id} className="flex flex-col gap-3 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div key={p.id} className="flex flex-col gap-3 rounded-xl border border-slate-200 p-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex items-center gap-3 min-w-0">
                       <div className="relative h-10 w-10 rounded bg-gray-100 flex items-center justify-center text-xl">
                         🍅

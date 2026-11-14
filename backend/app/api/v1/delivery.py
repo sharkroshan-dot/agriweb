@@ -725,19 +725,7 @@ async def get_my_today_deliveries(current_user: dict = Depends(get_current_user)
     if not enriched:
         enriched = await _fetch_and_enrich(user_id)
 
-    seen_ids = {item.get("id") or str(item.get("_id")) for item in enriched if item.get("id") or item.get("_id")}
-    unassigned = await order_repository.find_many({
-        "deliveryPartnerId": None,
-        "orderStatus": "ready_for_delivery",
-        "deletedAt": None
-    })
-    for o in unassigned:
-        oid = str(o["_id"])
-        if oid in seen_ids:
-            continue
-        seen_ids.add(oid)
-        o["orderId"] = oid
-        enriched.append(await _enrich_assignment(o))
+
 
     return _serialize_delivery_data({
         "success": True,
@@ -751,74 +739,128 @@ async def get_my_today_deliveries(current_user: dict = Depends(get_current_user)
 async def get_my_delivery_history(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    status_filter: str = Query("all", alias="status"),
     current_user: dict = Depends(get_current_user)
 ):
+    """Return terminal delivery records for the authenticated partner."""
     if current_user.get("role") != "delivery":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only delivery partners can access this endpoint"
-        )
+        raise HTTPException(status_code=403, detail="Only delivery partners can access this endpoint")
+
+    allowed_filters = {"all", "delivered", "failed", "returned", "cancelled"}
+    requested_status = (status_filter or "all").lower()
+    if requested_status not in allowed_filters:
+        raise HTTPException(status_code=400, detail="Invalid delivery history status")
 
     profile = await _get_or_create_partner(str(current_user["_id"]))
-    partner_id = str(profile["_id"])
-    user_id = str(current_user["_id"])
+    partner_ids = [str(profile["_id"]), str(current_user["_id"])]
 
-    skip = (page - 1) * limit
+    async def _fetch_history(partner_id: str) -> list:
+        # Keep the original delivered query path intact; it is the established
+        # path that populated the previous history screen.
+        status_map = {
+            "delivered": DeliveryStatus.DELIVERED,
+            "failed": DeliveryStatus.FAILED,
+            "cancelled": DeliveryStatus.CANCELLED,
+        }
+        records_by_order = {}
+        for label, enum_status in status_map.items():
+            assignments = await DeliveryService.get_partner_deliveries(
+                partner_id, status=enum_status, skip=0, limit=1000
+            )
+            for assignment in assignments:
+                oid = str(assignment.get("orderId") or "")
+                if oid:
+                    records_by_order[oid] = (assignment, label)
 
-    async def _fetch_history(key: str) -> list:
-        seen = set()
-        result = []
+        # Also include matching order documents for legacy records where the
+        # assignment row is missing or status was only written to the order.
+        for label in ("delivered", "failed", "cancelled", "returned"):
+            try:
+                orders = await order_repository.get_by_delivery_partner(
+                    partner_id, skip=0, limit=1000, status=label
+                )
+            except Exception:
+                orders = []
+            for order in orders:
+                oid = str(order.get("_id") or "")
+                if oid and oid not in records_by_order:
+                    records_by_order[oid] = (None, label)
 
-        assignments = await DeliveryService.get_partner_deliveries(key, status=DeliveryStatus.DELIVERED, skip=skip, limit=limit)
-        for a in assignments:
-            a["id"] = str(a["_id"])
-            oid = str(a["orderId"])
-            seen.add(oid)
+        # Return records are stored under differing workflow labels in older
+        # orders; include only explicitly return-labelled order statuses.
+        for label in ("return_requested", "returning", "returned"):
+            try:
+                orders = await order_repository.get_by_delivery_partner(
+                    partner_id, skip=0, limit=1000, status=label
+                )
+            except Exception:
+                orders = []
+            for order in orders:
+                oid = str(order.get("_id") or "")
+                if oid:
+                    records_by_order[oid] = (None, "returned")
+
+        enriched = []
+        for oid, (assignment, label) in records_by_order.items():
             order = await order_repository.get_by_id(oid)
+            item = dict(assignment or order or {})
+            item["id"] = str((assignment or {}).get("_id") or oid)
+            item["orderId"] = oid
+            item["historyStatus"] = label
             if order:
-                a["orderNumber"] = order.get("orderNumber")
-                a["totalAmount"] = order.get("totalAmount")
-                a["deliveryAddress"] = order.get("deliveryAddress")
-                a["items"] = order.get("items", [])
-                customer = await UserService.get_user_by_id(str(order["customerId"]))
-                if customer:
-                    a["customerName"] = f"{customer.get('firstName', '')} {customer.get('lastName', '')}".strip()
-                    a["customerPhone"] = customer.get("phone")
-            result.append(a)
+                item["orderNumber"] = order.get("orderNumber")
+                item["totalAmount"] = order.get("totalAmount")
+                item["deliveryAddress"] = order.get("deliveryAddress")
+                item["items"] = order.get("items", [])
+                item["paymentMethod"] = order.get("paymentMethod")
+                item["deliveredAt"] = order.get("deliveredAt") or (assignment or {}).get("completedAt")
+                customer_id = order.get("customerId")
+                if customer_id:
+                    customer = await UserService.get_user_by_id(str(customer_id))
+                    if customer:
+                        item["customerName"] = f"{customer.get('firstName', '')} {customer.get('lastName', '')}".strip()
+                        item["customerPhone"] = customer.get("phone")
+            enriched.append(item)
+        return enriched
 
-        orders = await order_repository.get_by_delivery_partner(key, status="delivered")
-        for o in orders:
-            oid = str(o["_id"])
-            if oid in seen:
-                continue
-            seen.add(oid)
-            o["id"] = oid
-            o["orderId"] = oid
-            o["orderNumber"] = o.get("orderNumber")
-            o["totalAmount"] = o.get("totalAmount")
-            o["deliveryAddress"] = o.get("deliveryAddress")
-            o["items"] = o.get("items", [])
-            customer = await UserService.get_user_by_id(str(o["customerId"]))
-            if customer:
-                o["customerName"] = f"{customer.get('firstName', '')} {customer.get('lastName', '')}".strip()
-                o["customerPhone"] = customer.get("phone")
-            result.append(o)
+    records = await _fetch_history(partner_ids[0])
+    if not records:
+        records = await _fetch_history(partner_ids[1])
 
-        return result
+    counts = {
+        "all": len(records),
+        "delivered": sum(1 for item in records if item.get("historyStatus") == "delivered"),
+        "failed": sum(1 for item in records if item.get("historyStatus") == "failed"),
+        "returned": sum(1 for item in records if item.get("historyStatus") == "returned"),
+        "cancelled": sum(1 for item in records if item.get("historyStatus") == "cancelled"),
+    }
+    filtered = records if requested_status == "all" else [
+        item for item in records if item.get("historyStatus") == requested_status
+    ]
 
-    enriched = await _fetch_history(partner_id)
-    if not enriched:
-        enriched = await _fetch_history(user_id)
+    def _history_sort_value(item):
+        value = item.get("deliveredAt") or item.get("completedAt") or item.get("updatedAt") or item.get("createdAt")
+        if isinstance(value, datetime):
+            return value.timestamp()
+        if isinstance(value, str):
+            try:
+                return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+            except (ValueError, TypeError):
+                return 0
+        return 0
 
-    return {
+    filtered.sort(key=_history_sort_value, reverse=True)
+    skip = (page - 1) * limit
+    return _serialize_delivery_data({
         "success": True,
         "data": {
-            "deliveries": enriched,
-            "count": len(enriched),
+            "deliveries": filtered[skip:skip + limit],
+            "count": len(filtered),
+            "counts": counts,
             "page": page,
             "limit": limit
         }
-    }
+    })
 
 @router.get("/me/profile")
 async def get_my_profile(current_user: dict = Depends(get_current_user)):
@@ -1110,80 +1152,37 @@ async def get_nearby_orders(
     limit: int = Query(100, ge=1, le=100),
     current_user: dict = Depends(get_current_user),
 ):
-    """List this driver's assigned orders and available ready orders nearby.
-
-    Pass radius=0 to disable the distance filter and return every active
-    order (the "All" view on the delivery order map).
-    """
+    """Return only unassigned ready orders; assigned jobs are private to their partner."""
     if current_user.get("role") != "delivery":
         raise HTTPException(status_code=403, detail="Only delivery partners can access this endpoint")
     if radius != 0 and radius not in (5, 10, 20, 25, 50):
         raise HTTPException(status_code=400, detail="Radius must be 0 (all), 5, 10, 20, 25, or 50 km")
 
-    profile = await _get_or_create_partner(str(current_user["_id"]))
-    partner_id = str(profile["_id"])
-    user_id = str(current_user["_id"])
-    candidates = []
-    seen_order_ids = set()
-
-    # Include assignment documents, including legacy records keyed by either
-    # the delivery profile id or the login user id.
-    for key in dict.fromkeys((partner_id, user_id)):
-        for assignment in await delivery_assignment_repository.get_by_delivery_partner(key, limit=limit):
-            order_id = str(assignment.get("orderId"))
-            if order_id and order_id not in seen_order_ids:
-                seen_order_ids.add(order_id)
-                candidates.append(assignment)
-
-    # Include orders assigned directly without a delivery_assignments record.
-    for key in dict.fromkeys((partner_id, user_id)):
-        for order in await order_repository.get_by_delivery_partner(key, limit=limit):
-            order_id = str(order["_id"])
-            if order_id not in seen_order_ids:
-                seen_order_ids.add(order_id)
-                candidates.append(order)
-
-    # Also include farmer-available orders that have not been assigned yet.
-    for order in await order_repository.get_ready_for_delivery(limit=limit):
-        order_id = str(order["_id"])
-        if order_id not in seen_order_ids:
-            seen_order_ids.add(order_id)
-            candidates.append(order)
-
     origin = {"type": "Point", "coordinates": [lng, lat]}
     results = []
-    for candidate in candidates:
-        candidate["id"] = str(candidate["_id"])
-        candidate["orderId"] = str(candidate.get("orderId") or candidate["_id"])
-        candidate["status"] = candidate.get("status") or candidate.get("orderStatus") or "ready_for_delivery"
-        if str(candidate["status"]).lower() in ("delivered", "completed", "cancelled", "failed"):
-            continue
-        enriched = await _enrich_assignment(candidate)
-        pickup_loc = (enriched.get("pickup") or {}).get("location")
+    # This query is deliberately limited to unassigned ready orders. Never
+    # merge other partners assignments into the nearby marketplace.
+    for order in await order_repository.get_ready_for_delivery(limit=limit):
+        order_id = str(order["_id"])
+        order["id"] = order_id
+        order["orderId"] = order_id
+        order["status"] = order.get("orderStatus") or "ready_for_delivery"
+        enriched = await _enrich_assignment(order)
         delivery_loc = (enriched.get("address") or {}).get("location")
-        # pickupDistance = current location (partner's home) -> farm.
-        # deliveryDistance = farm -> customer delivery address.
-        if pickup_loc:
-            enriched["pickupDistance"] = round(
-                await delivery_repository.calculate_distance(origin, pickup_loc), 1
-            )
-            if delivery_loc:
-                enriched["deliveryDistance"] = round(
-                    await delivery_repository.calculate_distance(pickup_loc, delivery_loc), 1
-                )
         if radius == 0:
+            if delivery_loc:
+                enriched["distance"] = round(await delivery_repository.calculate_distance(origin, delivery_loc), 1)
             results.append(enriched)
             continue
-        if delivery_loc:
-            distance = await delivery_repository.calculate_distance(origin, delivery_loc)
-            if distance <= radius:
-                enriched["distance"] = round(distance, 1)
-                results.append(enriched)
+        if not delivery_loc:
+            continue
+        distance = await delivery_repository.calculate_distance(origin, delivery_loc)
+        if distance <= radius:
+            enriched["distance"] = round(distance, 1)
+            results.append(enriched)
 
     results.sort(key=lambda item: item.get("distance", float("inf")))
-
     return _serialize_delivery_data({"success": True, "data": results[:limit], "radius": radius})
-
 
 @router.put("/assignments/{assignment_id}/complete")
 async def complete_assignment(
@@ -2061,12 +2060,8 @@ async def accept_available_order(
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
 
-    existing_partner = order.get("deliveryPartnerId")
-    if existing_partner and str(existing_partner) != partner_id:
-        raise HTTPException(status_code=400, detail="Order is already assigned to another partner")
-
-    if order.get("orderStatus") not in ("ready_for_delivery", "dispatched", "assigned", "accepted"):
-        raise HTTPException(status_code=400, detail="Order is not ready for delivery")
+    if order.get("orderStatus") != "ready_for_delivery":
+        raise HTTPException(status_code=409, detail="This order is no longer available. Another delivery partner may have accepted it.")
 
     is_cod = (
         str(order.get("paymentMethod", "")).lower() == "cash"
@@ -2076,14 +2071,17 @@ async def accept_available_order(
     if is_cod:
         eligibility = await _cod_eligibility(str(current_user["_id"]))
         if eligibility["codBlocked"]:
-            raise HTTPException(
-                status_code=400,
-                detail=eligibility["reason"] or "COD deliveries currently blocked",
-            )
+            raise HTTPException(status_code=400, detail=eligibility["reason"] or "COD deliveries currently blocked")
+
+    # Atomic compare-and-set: only one partner can claim a ready order.
+    claimed = await order_repository.claim_for_delivery_partner(order_id, partner_id)
+    if not claimed:
+        raise HTTPException(status_code=409, detail="This order has already been claimed by another delivery partner. Refresh nearby orders.")
 
     assignment = await delivery_assignment_repository.get_by_order_id(order_id)
     if assignment and str(assignment.get("deliveryPartnerId")) != partner_id:
-        raise HTTPException(status_code=400, detail="Order is already assigned to another partner")
+        await order_repository.release_delivery_partner_claim(order_id, partner_id)
+        raise HTTPException(status_code=409, detail="This order is already assigned to another delivery partner.")
 
     if not assignment:
         assignment_id = await delivery_assignment_repository.create_assignment({
@@ -2092,24 +2090,23 @@ async def accept_available_order(
             "status": DeliveryStatus.ASSIGNED,
         })
         if not assignment_id:
-            raise HTTPException(status_code=400, detail="Failed to create delivery assignment")
+            await order_repository.release_delivery_partner_claim(order_id, partner_id)
+            raise HTTPException(status_code=500, detail="Could not create the delivery assignment. The order has been released.")
     else:
         assignment_id = str(assignment["_id"])
 
     success = await delivery_assignment_repository.update_status(assignment_id, DeliveryStatus.ACCEPTED)
     if not success:
-        raise HTTPException(status_code=400, detail="Failed to accept order")
+        await order_repository.release_delivery_partner_claim(order_id, partner_id)
+        raise HTTPException(status_code=500, detail="Could not accept the delivery assignment.")
 
-    await order_repository.update(
-        {"_id": ObjectId(order_id)},
-        {
-            "deliveryPartnerId": ObjectId(partner_id),
-            "orderStatus": "accepted",
-            "assignedAt": order.get("assignedAt") or datetime.utcnow(),
-            "acceptedAt": datetime.utcnow(),
-            "updatedAt": datetime.utcnow(),
-        }
+    accepted_update = await order_repository.update(
+        {"_id": ObjectId(order_id), "deliveryPartnerId": ObjectId(partner_id)},
+        {"orderStatus": "accepted", "acceptedAt": datetime.utcnow(), "updatedAt": datetime.utcnow()},
     )
+    if not accepted_update:
+        raise HTTPException(status_code=500, detail="The order was claimed but its status could not be finalized. Contact support.")
+
     await delivery_repository.update_status(partner_id, DeliveryPartnerStatus.BUSY, is_available=False)
     accepted = await delivery_assignment_repository.get_by_id(assignment_id)
 
@@ -3106,11 +3103,30 @@ async def update_my_pickup_route_status(
                 "deliveryDispatchStatus": "in_transit_to_warehouse",
                 "deliveryDispatchAt": datetime.utcnow(),
             })
+        ignore_terminal_b2b_update = False
         if is_b2b_collection and ObjectId.is_valid(b2b_order_id):
-            # This is the exact collection read by /b2b/warehouse/fulfillment.
-            updated_b2b = await b2b_order_repository.update({"_id": ObjectId(b2b_order_id)}, order_update)
-            if not updated_b2b:
-                logger.warning("Pickup route %s: B2B order %s was not updated for stage %s", route_id, b2b_order_id, collection_status)
+            # Pickup routes can be replayed or updated late. Never let an old
+            # collection message reopen a delivered/completed/cancelled B2B order.
+            current_b2b = await b2b_order_repository.get_by_id(b2b_order_id)
+            ignore_terminal_b2b_update = bool(
+                current_b2b
+                and (
+                    str(current_b2b.get("status") or "").lower() in {"delivered", "completed", "cancelled"}
+                    or current_b2b.get("deliveredAt")
+                    or current_b2b.get("completedAt")
+                    or current_b2b.get("cancelledAt")
+                )
+            )
+            if ignore_terminal_b2b_update:
+                logger.warning(
+                    "Ignoring stale pickup progress for terminal B2B order %s (status=%s, route=%s, collection=%s)",
+                    b2b_order_id, current_b2b.get("status"), route_id, collection_status,
+                )
+            else:
+                # This is the exact collection read by /b2b/warehouse/fulfillment.
+                updated_b2b = await b2b_order_repository.update({"_id": ObjectId(b2b_order_id)}, order_update)
+                if not updated_b2b:
+                    logger.warning("Pickup route %s: B2B order %s was not updated for stage %s", route_id, b2b_order_id, collection_status)
             # A separate customer order may be linked; keep it synchronized only
             # when it is a distinct, valid ID.
             if ObjectId.is_valid(linked_order_id) and linked_order_id != b2b_order_id:
@@ -3118,6 +3134,8 @@ async def update_my_pickup_route_status(
         else:
             for candidate_order_id in order_ids:
                 await order_repository.update({"_id": ObjectId(candidate_order_id)}, order_update)
+        if ignore_terminal_b2b_update:
+            return
         titles = {
             "en_route": ("Collection partner en route", "The assigned pickup partner has started travelling to collect the shipment."),
             "arrived_at_farm": ("Pickup partner arrived at farm", "The pickup partner has arrived at the farm and is checking the shipment."),
@@ -4894,20 +4912,29 @@ async def update_my_farmer_fulfillment_warehouse_transfer_status(
     # same existing Pickup Routes actions without requiring a separate transfer
     # leg to exist for this order.
     if not leg:
-        b2b_orders = MongoDB.get_collection("orders")
+        # B2B logistics orders are persisted in b2b_orders, not the retail
+        # orders collection. Match the same assignment fields as the transfer
+        # list endpoint so Start Transfer works for both user and partner IDs.
+        b2b_orders = MongoDB.get_collection("b2b_orders")
         user_id = str(current_user["_id"])
+        user_oid = ObjectId(user_id)
         profile = await MongoDB.get_collection("delivery_partners").find_one({
-            "$or": [{"userId": ObjectId(user_id)}, {"userId": user_id}, {"user_id": ObjectId(user_id)}, {"user_id": user_id}],
+            "$or": [{"userId": user_oid}, {"userId": user_id}, {"user_id": user_oid}, {"user_id": user_id}],
             "deletedAt": {"$in": [None, False, ""]},
         })
-        assigned_values = [user_id, ObjectId(user_id)]
+        assigned_values = [user_id, user_oid]
         if profile and ObjectId.is_valid(str(profile.get("_id") or "")):
-            assigned_values.extend([str(profile["_id"]), profile["_id"]])
+            profile_id = ObjectId(str(profile["_id"]))
+            assigned_values.extend([str(profile_id), profile_id])
         b2b = await b2b_orders.find_one({
             "_id": ObjectId(transfer_id),
             "status": "transfer_in_transit",
-            "transferTeam": {"$in": assigned_values},
-            "$or": [{"deletedAt": None}, {"deletedAt": {"$exists": False}}, {"deletedAt": ""}],
+            "$or": [
+                {"transferTeam": {"$in": assigned_values}},
+                {"transferPartnerUserId": {"$in": assigned_values}},
+                {"assignedTransferPartnerId": {"$in": assigned_values}},
+            ],
+            "$and": [{"$or": [{"deletedAt": None}, {"deletedAt": {"$exists": False}}, {"deletedAt": ""}]}],
         })
         if not b2b:
             raise HTTPException(status_code=404, detail="Assigned warehouse transfer not found")
@@ -4935,7 +4962,12 @@ async def update_my_farmer_fulfillment_warehouse_transfer_status(
         )
         result = await b2b_orders.update_one(
             {"$and": [
-                {"_id": b2b["_id"], "status": "transfer_in_transit", "transferTeam": {"$in": assigned_values}},
+                {"_id": b2b["_id"], "status": "transfer_in_transit"},
+                {"$or": [
+                    {"transferTeam": {"$in": assigned_values}},
+                    {"transferPartnerUserId": {"$in": assigned_values}},
+                    {"assignedTransferPartnerId": {"$in": assigned_values}},
+                ]},
                 status_guard,
             ]},
             {"$set": {"transferPartnerStatus": next_status, time_field: now, "updatedAt": now}},

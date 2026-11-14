@@ -264,7 +264,8 @@ export function Map({
       const inst = mapInstanceRef.current;
       const l = libsRef.current;
       if (!inst || !l) return;
-      const stops = stopsRef.current.filter(Boolean);
+      const markerStops = stopsRef.current.filter(Boolean);
+      const stops = route.length >= 2 ? route.filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng)) : markerStops;
       if (stops.length === 0) return;
       const user = userPosRef.current;
 
@@ -378,15 +379,20 @@ export function Map({
           anchor: new core.Point(width / 2, height),
         };
       } else if (marker.color || marker.label) {
-        // Colored pin with an optional glyph (letter/number).
-        const pin = new markerLib.PinElement({
-          background: marker.color || "#EF4444",
-          borderColor: marker.color || "#EF4444",
-          glyphColor: "#FFFFFF",
-          scale: 1.2,
-          glyph: marker.label || "",
-        });
-        markerOptions.icon = pin.element;
+        // Use a high-contrast, opaque badge for stop numbers. PinElement glyphs
+        // can appear as white text directly over map tiles on some Maps builds.
+        const label = String(marker.label || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+        const width = Math.max(34, Math.min(116, label.length * 9 + 20));
+        const height = 38;
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+          <rect x="2" y="2" width="${width - 4}" height="34" rx="17" fill="#047857" stroke="#ffffff" stroke-width="3"/>
+          <text x="${width / 2}" y="24" text-anchor="middle" fill="#ffffff" stroke="#064e3b" stroke-width="1.2" paint-order="stroke" font-family="Arial,sans-serif" font-size="14" font-weight="700">${label}</text>
+        </svg>`;
+        markerOptions.icon = {
+          url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
+          scaledSize: new core.Size(width, height),
+          anchor: new core.Point(width / 2, height / 2),
+        };
       } else if (marker.icon) {
         markerOptions.icon = {
           url: marker.icon,
@@ -652,7 +658,7 @@ export function Map({
     const fallbackCenter = { lat: Number(center.lat), lng: Number(center.lng) };
     const fallbackCircle = circle ? { lat: Number(circle.center.lat), lng: Number(circle.center.lng), radiusKm: Number(circle.radiusKm || 0) } : null;
     const fallbackUser = userLocation ? { lat: Number(userLocation.lat), lng: Number(userLocation.lng) } : null;
-    const leafletDocument = String.raw`<!doctype html>\n<html><head><meta charset=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"/>\n<link rel=\"stylesheet\" href=\"https://unpkg.com/leaflet@1.9.4/dist/leaflet.css\"/>\n<style>html,body,#map{height:100%;margin:0}body{font-family:Arial,sans-serif}.leaflet-control-attribution{font-size:9px}.pin{width:28px;height:28px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);display:flex;align-items:center;justify-content:center;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.3)}.pin span{transform:rotate(45deg);color:#fff;font-weight:700;font-size:11px}</style></head>\n<body><div id=\"map\"></div><script src=\"https://unpkg.com/leaflet@1.9.4/dist/leaflet.js\"><\/script><script>\nconst center=__CENTER__;const markers=__MARKERS__;const route=__ROUTE__;const circle=__CIRCLE__;const user=__USER__;\nconst map=L.map('map',{zoomControl:true}).setView([center.lat,center.lng],12);\nL.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);\nconst bounds=[];\nfunction addPoint(m){const text=String(m.displayLabel||m.title||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');const pinColor=m.color||'#2563EB';const parts=String(text).split(' · ');const line1=parts.shift()||String(text);const line2=parts.join(' · ');const short1=line1.length>28?line1.slice(0,26)+'…':line1;const short2=line2.length>32?line2.slice(0,30)+'…':line2;const html=m.displayLabel?'<div style="display:flex;flex-direction:column;align-items:center;transform:translateY(-2px)"><div style="max-width:260px;padding:5px 9px;border:1.5px solid #cbd5e1;border-radius:8px;background:rgba(255,255,255,.97);box-shadow:0 2px 7px rgba(15,23,42,.18);font:700 12px Arial,sans-serif;line-height:16px;white-space:nowrap;color:#0f172a;overflow:hidden;text-overflow:ellipsis;text-align:center">'+short1+(line2?'<div style="font-size:11px;font-weight:600;color:#475569">'+short2+'</div>':'')+'</div><div style="font-size:25px;line-height:30px;margin-top:2px">📍</div></div>':'<div class="pin" style="background:'+pinColor+'"><span>'+String(m.label||'').replace(/</g,'&lt;')+'</span></div>';const icon=L.divIcon({className:'',html,iconSize:m.displayLabel?[300,68]:[28,28],iconAnchor:m.displayLabel?[150,67]:[14,27],popupAnchor:[0,-60]});const marker=L.marker([m.lat,m.lng],{icon}).addTo(map);marker.bindPopup('<strong>'+m.title.replace(/</g,'&lt;')+'</strong><br><small>'+m.info.replace(/</g,'&lt;')+'</small>');marker.on('click',()=>parent.postMessage({type:'agri-map-marker',id:m.id},'*'));bounds.push([m.lat,m.lng]);}markers.forEach(addPoint);\nif(user){L.circleMarker([user.lat,user.lng],{radius:9,color:'#fff',weight:3,fillColor:'#2563eb',fillOpacity:1}).addTo(map).bindTooltip('Your location');bounds.push([user.lat,user.lng]);}\nif(circle&&circle.radiusKm>0){L.circle([circle.lat,circle.lng],{radius:circle.radiusKm*1000,color:'#6366f1',weight:2,fillOpacity:.08}).addTo(map);bounds.push([circle.lat,circle.lng]);}\nif(route.length>1)L.polyline(route.map(p=>[p.lat,p.lng]),{color:'#2563eb',weight:5}).addTo(map);\nif(bounds.length>1)map.fitBounds(bounds,{padding:[30,30]});\nmap.on('click',e=>parent.postMessage({type:'agri-map-click',lat:e.latlng.lat,lng:e.latlng.lng},'*'));\n<\/script></body></html>`
+    const leafletDocument = String.raw`<!doctype html>\n<html><head><meta charset=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"/>\n<link rel=\"stylesheet\" href=\"https://unpkg.com/leaflet@1.9.4/dist/leaflet.css\"/>\n<style>html,body,#map{height:100%;margin:0}body{font-family:Arial,sans-serif}.leaflet-control-attribution{font-size:9px}.pin{min-width:34px;height:34px;padding:0 8px;border-radius:18px;display:flex;align-items:center;justify-content:center;border:3px solid #fff;background:#047857;box-shadow:0 2px 7px rgba(0,0,0,.55)}.pin span{color:#fff;font-weight:800;font-size:13px;text-shadow:0 1px 2px #064e3b}</style></head>\n<body><div id=\"map\"></div><script src=\"https://unpkg.com/leaflet@1.9.4/dist/leaflet.js\"><\/script><script>\nconst center=__CENTER__;const markers=__MARKERS__;const route=__ROUTE__;const circle=__CIRCLE__;const user=__USER__;\nconst map=L.map('map',{zoomControl:true}).setView([center.lat,center.lng],12);\nL.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);\nconst bounds=[];\nfunction addPoint(m){const text=String(m.displayLabel||m.title||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');const pinColor=m.color||'#2563EB';const parts=String(text).split(' · ');const line1=parts.shift()||String(text);const line2=parts.join(' · ');const short1=line1.length>28?line1.slice(0,26)+'…':line1;const short2=line2.length>32?line2.slice(0,30)+'…':line2;const html=m.displayLabel?'<div style="display:flex;flex-direction:column;align-items:center;transform:translateY(-2px)"><div style="max-width:260px;padding:5px 9px;border:1.5px solid #cbd5e1;border-radius:8px;background:rgba(255,255,255,.97);box-shadow:0 2px 7px rgba(15,23,42,.18);font:700 12px Arial,sans-serif;line-height:16px;white-space:nowrap;color:#0f172a;overflow:hidden;text-overflow:ellipsis;text-align:center">'+short1+(line2?'<div style="font-size:11px;font-weight:600;color:#475569">'+short2+'</div>':'')+'</div><div style="font-size:25px;line-height:30px;margin-top:2px">📍</div></div>':'<div class="pin" style="background:'+pinColor+'"><span>'+String(m.label||'').replace(/</g,'&lt;')+'</span></div>';const icon=L.divIcon({className:'',html,iconSize:m.displayLabel?[300,68]:[Math.max(34,String(m.label||'').length*9+20),34],iconAnchor:m.displayLabel?[150,67]:[Math.max(17,(String(m.label||'').length*9+20)/2),17],popupAnchor:[0,-40]});const marker=L.marker([m.lat,m.lng],{icon}).addTo(map);marker.bindPopup('<strong>'+m.title.replace(/</g,'&lt;')+'</strong><br><small>'+m.info.replace(/</g,'&lt;')+'</small>');marker.on('click',()=>parent.postMessage({type:'agri-map-marker',id:m.id},'*'));bounds.push([m.lat,m.lng]);}markers.forEach(addPoint);\nif(user){L.circleMarker([user.lat,user.lng],{radius:9,color:'#fff',weight:3,fillColor:'#2563eb',fillOpacity:1}).addTo(map).bindTooltip('Your location');bounds.push([user.lat,user.lng]);}\nif(circle&&circle.radiusKm>0){L.circle([circle.lat,circle.lng],{radius:circle.radiusKm*1000,color:'#6366f1',weight:2,fillOpacity:.08}).addTo(map);bounds.push([circle.lat,circle.lng]);}\nif(route.length>1)L.polyline(route.map(p=>[p.lat,p.lng]),{color:'#2563eb',weight:5}).addTo(map);\nif(bounds.length>1)map.fitBounds(bounds,{padding:[30,30]});\nmap.on('click',e=>parent.postMessage({type:'agri-map-click',lat:e.latlng.lat,lng:e.latlng.lng},'*'));\n<\/script></body></html>`
 
       .replace("__CENTER__", JSON.stringify(fallbackCenter))
       .replace("__MARKERS__", JSON.stringify(fallbackMarkers))

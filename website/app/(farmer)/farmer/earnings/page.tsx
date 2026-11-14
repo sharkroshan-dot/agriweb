@@ -32,6 +32,7 @@ import {
 import { Badge } from "../../../components/ui/badge";
 import { cn, formatPrice, formatDate } from "../../../lib/utils";
 import { api } from "../../../lib/api/client";
+import { FarmerPageHeader } from "../../../components/farmer/farmer-page-header";
 
 const SUMMARY_CARDS = [
   {
@@ -166,11 +167,7 @@ export default function FarmerEarningsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Earnings</h1>
-          <p className="text-gray-500">Your sale earnings, balance and withdrawals.</p>
-        </div>
+      <FarmerPageHeader title="Earnings & payouts" description="Track sale earnings, pickup commissions and the balance available for withdrawal.">
         <Button
           onClick={() => setWithdrawOpen(true)}
           disabled={available <= 0}
@@ -179,7 +176,7 @@ export default function FarmerEarningsPage() {
           <ArrowDownToLine className="mr-2 h-4 w-4" />
           Withdraw to Bank
         </Button>
-      </div>
+      </FarmerPageHeader>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {SUMMARY_CARDS.map(({ key, label, icon: Icon, color, format }) => (

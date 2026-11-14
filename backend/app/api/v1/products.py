@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
 from typing import List, Optional
 from datetime import datetime, timedelta
 from app.api.v1.auth import get_current_user
+from app.core.upload_storage import get_upload_directory
 from app.schemas.product import (
     ProductResponse, ProductCreate, ProductUpdate,
     CategoryResponse, CategoryCreate, CategoryUpdate,
@@ -278,7 +279,9 @@ async def create_product(
                 detail="Could not reserve the harvested quantity for existing pre-orders.",
             )
         try:
-            from datetime import datetime
+            # Use the module-level datetime import. An import inside this
+            # function shadows the name for the whole function and breaks
+            # the earlier timestamp used during product creation.
             now = datetime.utcnow()
             await harvest_preorder_repo.collection.update_many(
                 {
@@ -785,8 +788,7 @@ async def upload_file(
     """Upload a file (product image, avatar, etc.)."""
     from app.utils.file_security import validate_upload, UploadValidationError
 
-    upload_dir = settings.UPLOAD_DIR
-    os.makedirs(upload_dir, exist_ok=True)
+    upload_dir = get_upload_directory()
 
     content = await file.read()
     try:
@@ -805,5 +807,5 @@ async def upload_file(
     with open(filepath, "wb") as f:
         f.write(content)
 
-    url = f"/uploads/{filename}"
+    url = f"{settings.PUBLIC_BASE_URL.rstrip('/')}/uploads/{filename}"
     return {"success": True, "data": {"url": url, "filename": filename}}

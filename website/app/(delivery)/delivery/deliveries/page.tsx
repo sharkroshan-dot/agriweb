@@ -12,6 +12,7 @@ import { api } from "../../../lib/api/client";
 import toast from "react-hot-toast";
 import { useState, useRef, useMemo, useEffect } from "react";
 import { DeliveryPriorityBadge, sortByDeliveryPriority } from "../../../components/delivery/delivery-priority";
+import { DeliveryPageHeader } from "../../../components/delivery/delivery-page-header";
 
 const distanceBetweenKm = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
   const radians = Math.PI / 180;
@@ -86,7 +87,7 @@ const isAcceptedDelivery = (delivery: any) => ACCEPTED_STATUSES.includes(getDeli
 const isReadyDelivery = (delivery: any) => READY_STATUSES.includes(getDeliveryStatus(delivery));
 const isDeliveredDelivery = (delivery: any) => DELIVERED_STATUSES.includes(getDeliveryStatus(delivery));
 
-export default function DeliveryDeliveriesPage() {
+export default function DeliveryDeliveriesPage({ compact = false }: { compact?: boolean }) {
   const router = useRouter();
   const { data: session } = useSession();
   const accessToken = (session as any)?.accessToken;
@@ -619,12 +620,9 @@ export default function DeliveryDeliveriesPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <p className="text-sm font-medium text-primary">Delivery workbench</p>
-        <h1 className="text-3xl font-semibold tracking-tight">My Deliveries</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Orders to deliver — assigned and available.</p>
-      </div>
+      {!compact && <DeliveryPageHeader title="My delivery queue" description="Assigned jobs stay first. Nearby available orders can be accepted only through the existing permission and distance rules." actionHref="/delivery/route" actionLabel="Open live route" />}
 
+      {!compact && (
       <Card className="border-emerald-200 bg-emerald-50/30">
         <CardHeader>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -706,6 +704,8 @@ export default function DeliveryDeliveriesPage() {
           )}
         </CardContent>
       </Card>
+
+      )}
 
       <Card className="border-blue-200 bg-blue-50/30">
         <CardHeader>

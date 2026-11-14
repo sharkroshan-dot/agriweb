@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../../../lib/api/client";
@@ -8,11 +8,57 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../..
 import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
 import { Select, SelectContent, SelectItem } from "../../../components/ui/select";
-import { Switch } from "../../../components/ui/switch";
 import { Badge } from "../../../components/ui/badge";
-import { Bot, CreditCard, Loader2, Package, Save, Shield, ShoppingBag, Store, Truck } from "lucide-react";
+import { Bot, CreditCard, Loader2, Package, Save, Shield, ShoppingBag, Store, Truck, Settings2, CheckCircle2, Camera, UploadCloud } from "lucide-react";
 import { VerificationStatusCard } from "../../../components/security/verification-status";
 import toast from "react-hot-toast";
+
+function SettingsToggle({ checked, onChange, label }: { checked: boolean; onChange: (value: boolean) => void; label: string }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={() => onChange(!checked)}
+      className="settings-modern-switch focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: checked ? "flex-end" : "flex-start",
+        width: 44,
+        minWidth: 44,
+        maxWidth: 44,
+        height: 24,
+        minHeight: 24,
+        maxHeight: 24,
+        flexShrink: 0,
+        padding: 2,
+        boxSizing: "border-box",
+        border: 0,
+        borderRadius: 9999,
+        backgroundColor: checked ? "#059669" : "#cbd5e1",
+        cursor: "pointer",
+        transition: "background-color 180ms ease",
+        verticalAlign: "middle",
+      }}
+    >
+      <span
+        aria-hidden="true"
+        style={{
+          display: "block",
+          width: 20,
+          minWidth: 20,
+          height: 20,
+          borderRadius: "50%",
+          backgroundColor: "#ffffff",
+          boxShadow: "0 1px 3px rgba(15, 23, 42, 0.25)",
+          transition: "transform 180ms ease",
+        }}
+      />
+    </button>
+  );
+}
 
 type ToggleKeys =
   | "newOrderAlert"
@@ -42,9 +88,19 @@ export default function FarmerSettingsPage() {
     city: "",
     weeklyPickupWindow: "Mon - Thu, 6 AM - 11 AM",
     farmAddress: "",
+    farmVillage: "",
+    farmTaluk: "",
     pickupInstructions: "",
+    profileImage: "",
   });
   const [savingProfile, setSavingProfile] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const profilePhotoUrl = profile.profileImage
+    ? (profile.profileImage.startsWith("/uploads/")
+        ? `${(process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/api\/v1\/?$/, "").replace(/\/$/, "")}${profile.profileImage}`
+        : profile.profileImage)
+    : "";
 
   const [prefs, setPrefs] = useState<Record<string, any>>({
     product: { lowStockAlert: 10, criticalStock: 5, notificationMethod: "email" },
@@ -80,13 +136,13 @@ export default function FarmerSettingsPage() {
   const [savingPrefs, setSavingPrefs] = useState(false);
   const [lastSaved, setLastSaved] = useState<string | null>(null);
 
-  const { data: profileData } = useQuery({
+  const { data: profileData, isLoading: profileLoading, isError: profileError } = useQuery({
     queryKey: ["farmerProfile"],
     queryFn: () => api.get("/farmers/me/profile"),
     enabled: Boolean(accessToken),
   });
 
-  const { data: settingsData } = useQuery({
+  const { data: settingsData, isLoading: settingsLoading, isError: settingsError } = useQuery({
     queryKey: ["farmerSettings"],
     queryFn: () => api.get("/settings/mine"),
     enabled: Boolean(accessToken),
@@ -103,7 +159,10 @@ export default function FarmerSettingsPage() {
         city: p.city || "",
         weeklyPickupWindow: p.weeklyPickupWindow || "Mon - Thu, 6 AM - 11 AM",
         farmAddress: p.farmAddress || "",
+        farmVillage: p.farmVillage || p.farmAreaName || p.village || "",
+        farmTaluk: p.farmTaluk || p.taluk || p.subDistrict || "",
         pickupInstructions: p.pickupInstructions || "",
+        profileImage: p.profileImage || "",
       });
     }
   }, [profileData?.data, userName, userEmail]);
@@ -125,13 +184,44 @@ export default function FarmerSettingsPage() {
     setPrefs((current) => ({ ...current, [section]: { ...current[section], [field]: value } }));
   };
 
-  const toggle = (field: ToggleKeys) => {
+  const toggle = (field: ToggleKeys, nextValue?: boolean) => {
     const section = (["pricePrediction", "demandForecast", "weatherIntegration", "smartRecommendations", "dailyReport", "weeklyReport", "monthlyReport"].includes(field))
       ? "ai"
       : (["newOrderAlert", "orderCancelled", "paymentReceived", "autoAcceptSmallOrders", "lowStockAlerts"].includes(field))
         ? "alerts"
         : "payouts";
-    setPrefs((current) => ({ ...current, [section]: { ...current[section], [field]: !current[section][field] } }));
+    setPrefs((current) => ({
+      ...current,
+      [section]: {
+        ...current[section],
+        [field]: typeof nextValue === "boolean" ? nextValue : !current[section][field],
+      },
+    }));
+  };
+
+  const handleProfilePhoto = async (file?: File) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please choose an image file");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Profile photo must be 5 MB or smaller");
+      return;
+    }
+    setUploadingPhoto(true);
+    try {
+      const response: any = await api.upload("/kyc/upload", file);
+      const uploadedUrl = response?.data?.url;
+      if (!uploadedUrl) throw new Error("The upload did not return an image URL");
+      setProfile((current) => ({ ...current, profileImage: uploadedUrl }));
+      toast.success("Photo uploaded. Save Profile to apply it.");
+    } catch (error: any) {
+      toast.error(error?.message || "Unable to upload profile photo");
+    } finally {
+      setUploadingPhoto(false);
+      if (photoInputRef.current) photoInputRef.current.value = "";
+    }
   };
 
   const saveProfile = async () => {
@@ -143,8 +233,8 @@ export default function FarmerSettingsPage() {
       } else {
         toast.error(json.detail || "Failed to save");
       }
-    } catch {
-      toast.error("Network error");
+    } catch (err: any) {
+      toast.error(err?.message || "Unable to save farm profile");
     } finally {
       setSavingProfile(false);
     }
@@ -166,244 +256,93 @@ export default function FarmerSettingsPage() {
   const toggleRow = (label: string, key: ToggleKeys) => (
     <div key={key} className="flex items-center justify-between rounded-lg border p-3 text-sm font-medium">
       {label}
-      <Switch checked={Boolean(prefs.alerts[key] ?? prefs.ai[key] ?? prefs.payouts[key])} onCheckedChange={() => toggle(key)} aria-label={`Toggle ${label}`} />
+      <SettingsToggle checked={Boolean(prefs.alerts[key] ?? prefs.ai[key] ?? prefs.payouts[key])} onChange={(nextValue) => toggle(key, nextValue)} label={`Toggle ${label}`} />
     </div>
   );
 
   return (
-    <div className="space-y-8">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-sm font-medium text-primary">Farmer preferences</p>
-          <h1 className="text-3xl font-semibold tracking-tight">Settings</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Manage farm profile, orders, payouts and AI tools.</p>
+    <div className="!mx-0 w-full max-w-none space-y-5 pb-8">
+      <div className="flex flex-col gap-4 rounded-2xl border border-emerald-100 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700"><Settings2 className="h-6 w-6" /></div>
+          <div><h1 className="text-2xl font-bold tracking-tight text-slate-900">Farmer Settings</h1><p className="mt-1 text-sm text-slate-600">Manage your profile, preferences and platform settings.</p></div>
         </div>
-        <div className="flex items-center gap-2">
-          {lastSaved && <span className="text-xs text-muted-foreground">Saved at {lastSaved}</span>}
-          <Button size="sm" onClick={savePrefs} disabled={savingPrefs}>
-            {savingPrefs ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Save className="mr-1.5 h-4 w-4" />}
-            Save all settings
-          </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={saveProfile} disabled={savingProfile || profileLoading} className="h-10 rounded-xl bg-emerald-700 px-5 hover:bg-emerald-800">{savingProfile ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}Save Profile</Button>
+          <Button variant="outline" onClick={savePrefs} disabled={savingPrefs || settingsLoading} className="h-10 rounded-xl border-emerald-200 px-5 text-emerald-800 hover:bg-emerald-50">{savingPrefs ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}Save Preferences</Button>
         </div>
       </div>
+      {lastSaved && <p className="text-right text-xs text-emerald-700">Preferences saved at {lastSaved}</p>}
+      {(profileError || settingsError) && <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">Some saved settings could not be loaded. Check your connection and refresh before making changes.</div>}
 
-      <div className="grid gap-6 xl:grid-cols-2">
-        <VerificationStatusCard />
-
-        <Card className="xl:col-span-2">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2"><Store className="h-5 w-5" />Farm profile</CardTitle>
-            <CardDescription>Visible to buyers and used across your farmer dashboard.</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-2">
+      <Card className="w-full overflow-hidden rounded-2xl border-slate-200 shadow-sm">
+        <CardHeader className="border-b border-emerald-100 bg-emerald-50/60 pb-4"><CardTitle className="flex items-center gap-2 text-slate-900"><Store className="h-5 w-5 text-emerald-700" />Profile Details</CardTitle><CardDescription>Keep your personal and farm information up to date.</CardDescription></CardHeader>
+        <CardContent className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_300px]">
+          <div className="grid min-w-0 gap-4 sm:grid-cols-2 lg:col-span-2">
             {[
-              ["farmName", "Farm name"],
-              ["ownerName", "Owner name"],
-              ["phone", "Phone"],
-              ["email", "Email"],
-              ["city", "City"],
-              ["weeklyPickupWindow", "Pickup window"],
-              ["farmAddress", "Farm address"],
-              ["pickupInstructions", "Pickup instructions"],
-            ].map(([key, label]) => (
-              <div key={key as string}>
-                <label className="text-sm font-medium">{label}</label>
-                <Input
-                  className="mt-1"
-                  value={profile[key as keyof typeof profile]}
-                  onChange={(event) => setProfile((current) => ({ ...current, [key]: event.target.value }))}
-                />
-              </div>
-            ))}
-            <div className="md:col-span-2 flex justify-end">
-              <Button variant="outline" onClick={saveProfile} disabled={savingProfile}>
-                {savingProfile ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Save className="mr-1.5 h-4 w-4" />}
-                Save profile
-              </Button>
+              ["ownerName", "Full Name"], ["email", "Email Address"], ["phone", "Phone Number"],
+              ["farmAddress", "Farm Address"], ["farmVillage", "Farm Village / Locality"], ["farmTaluk", "Farm Taluk"], ["city", "City"], ["farmName", "Farm Name"],
+            ].map(([key, label]) => <div key={key} className="min-w-0"><label className="mb-1.5 block text-xs font-semibold text-slate-700">{label}</label><Input className="h-10 w-full rounded-lg border-slate-200 bg-white" value={profile[key as keyof typeof profile]} onChange={(event) => setProfile((current) => ({ ...current, [key]: event.target.value }))} /></div>)}
+            <div className="sm:col-span-2"><label className="mb-1.5 block text-xs font-semibold text-slate-700">Pickup Instructions</label><Input className="h-10 w-full rounded-lg border-slate-200" value={profile.pickupInstructions} onChange={(event) => setProfile((current) => ({ ...current, pickupInstructions: event.target.value }))} placeholder="Landmark, gate details or contact instructions" /></div>
+            <div className="sm:col-span-2"><label className="mb-1.5 block text-xs font-semibold text-slate-700">Weekly Pickup Window</label><Input className="h-10 w-full rounded-lg border-slate-200" value={profile.weeklyPickupWindow} onChange={(event) => setProfile((current) => ({ ...current, weeklyPickupWindow: event.target.value }))} /></div>
+          </div>
+          <div className="mx-auto flex aspect-square w-full max-w-[300px] flex-col items-center justify-center self-center rounded-xl border border-emerald-200 bg-emerald-50/60 p-5 text-center">
+            <p className="mb-3 text-sm font-semibold text-slate-800">Profile Photo</p>
+            <div className="mb-3 flex h-28 w-28 items-center justify-center overflow-hidden rounded-full border-2 border-emerald-600 bg-emerald-100 text-3xl font-bold text-emerald-700 shadow-sm">
+              {profilePhotoUrl ? <img src={profilePhotoUrl} alt="Farmer profile" className="h-full w-full object-cover" /> : (profile.ownerName || userName).trim().charAt(0).toUpperCase()}
+            </div>
+            <input ref={photoInputRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(event) => handleProfilePhoto(event.target.files?.[0])} />
+            <Button type="button" variant="outline" disabled={uploadingPhoto} onClick={() => photoInputRef.current?.click()} className="h-9 rounded-lg border-emerald-300 bg-white px-3 text-xs font-semibold text-emerald-800 hover:bg-emerald-50">
+              {uploadingPhoto ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Camera className="mr-2 h-4 w-4" />}
+              {uploadingPhoto ? "Uploading..." : profilePhotoUrl ? "Change Photo" : "Upload Photo"}
+            </Button>
+            {profilePhotoUrl && <button type="button" onClick={() => setProfile((current) => ({ ...current, profileImage: "" }))} className="mt-2 text-xs font-medium text-rose-600 hover:underline">Remove photo</button>}
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid min-w-0 grid-cols-1 items-start gap-5 xl:grid-cols-2">
+        <Card className="min-w-0 overflow-hidden rounded-2xl border-slate-200 shadow-sm">
+          <CardHeader className="border-b border-emerald-100 bg-emerald-50/50 pb-3"><CardTitle className="flex items-center gap-2 text-base"><Truck className="h-5 w-5 text-emerald-700" />Delivery settings</CardTitle><CardDescription>Your self-delivery preferences. Final fees follow platform rules.</CardDescription></CardHeader>
+          <CardContent className="space-y-3 p-5">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div><label className="mb-1.5 block text-xs font-semibold text-slate-700">Free delivery radius (km)</label><Input type="number" min="0" step="0.5" className="h-10" value={prefs.delivery.freeDeliveryRadiusKm} onChange={(e) => updateNested("delivery", "freeDeliveryRadiusKm", Number(e.target.value))} /></div>
+              <div><label className="mb-1.5 block text-xs font-semibold text-slate-700">Base delivery fee (₹)</label><Input type="number" min="0" step="0.5" className="h-10" value={prefs.delivery.baseFee} onChange={(e) => updateNested("delivery", "baseFee", Number(e.target.value))} /></div>
+              <div><label className="mb-1.5 block text-xs font-semibold text-slate-700">Additional fee / km (₹)</label><Input type="number" min="0" step="0.5" className="h-10" value={prefs.delivery.perKmRate} onChange={(e) => updateNested("delivery", "perKmRate", Number(e.target.value))} /></div>
+              <div><label className="mb-1.5 block text-xs font-semibold text-slate-700">Maximum delivery radius (km)</label><Input type="number" min="0" step="0.5" className="h-10" value={prefs.delivery.maxRadiusKm} onChange={(e) => updateNested("delivery", "maxRadiusKm", Number(e.target.value))} /></div>
+              <div><label className="mb-1.5 block text-xs font-semibold text-slate-700">Minimum order (₹)</label><Input type="number" min="0" className="h-10" value={prefs.delivery.minOrderValue} onChange={(e) => updateNested("delivery", "minOrderValue", Number(e.target.value))} /></div>
+            </div>
+            <div className="space-y-1 border-t border-slate-100 pt-2">
+              <div className="flex items-center justify-between py-2 text-sm"><span className="font-medium text-slate-700">Allow self delivery</span><SettingsToggle checked={Boolean(prefs.delivery.allowSelfDelivery)} onChange={(v) => updateNested("delivery", "allowSelfDelivery", v)} label="Allow self delivery" /></div>
+              <div className="flex items-center justify-between py-2 text-sm"><span className="font-medium text-slate-700">Allow delivery partners</span><SettingsToggle checked={Boolean(prefs.delivery.allowDeliveryPartners)} onChange={(v) => updateNested("delivery", "allowDeliveryPartners", v)} label="Allow delivery partners" /></div>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2"><Package className="h-5 w-5" />Product & inventory</CardTitle>
-            <CardDescription>Stock alert thresholds for your listings.</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label className="text-sm font-medium">Low stock alert (units)</label>
-              <Input type="number" min="0" className="mt-1" value={prefs.product.lowStockAlert}
-                onChange={(e) => updateNested("product", "lowStockAlert", Number(e.target.value))} />
-            </div>
-            <div>
-              <label className="text-sm font-medium">Critical stock (units)</label>
-              <Input type="number" min="0" className="mt-1" value={prefs.product.criticalStock}
-                onChange={(e) => updateNested("product", "criticalStock", Number(e.target.value))} />
-            </div>
-            <div className="sm:col-span-2">
-              <label className="text-sm font-medium">Notification method</label>
-              <Select className="mt-1" value={prefs.product.notificationMethod}
-                onValueChange={(v) => updateNested("product", "notificationMethod", v)}>
-                <SelectContent>
-                  <SelectItem value="email">Email</SelectItem>
-                  <SelectItem value="sms">SMS</SelectItem>
-                  <SelectItem value="push">Push</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+        <Card className="min-w-0 overflow-hidden rounded-2xl border-slate-200 shadow-sm">
+          <CardHeader className="border-b border-emerald-100 bg-emerald-50/50 pb-3"><CardTitle className="flex items-center gap-2 text-base"><CreditCard className="h-5 w-5 text-emerald-700" />Payments & payouts</CardTitle><CardDescription>Bank details for your earnings.</CardDescription></CardHeader>
+          <CardContent className="grid gap-3 p-5 sm:grid-cols-2">
+            <div className="sm:col-span-2"><label className="mb-1.5 block text-xs font-semibold text-slate-700">Bank / UPI account</label><Input className="h-10" value={prefs.payouts.bankAccount} onChange={(e) => updateNested("payouts", "bankAccount", e.target.value)} placeholder="UPI ID or account reference" /></div>
+            <div><label className="mb-1.5 block text-xs font-semibold text-slate-700">Account holder</label><Input className="h-10" value={prefs.payouts.accountHolder} onChange={(e) => updateNested("payouts", "accountHolder", e.target.value)} /></div>
+            <div><label className="mb-1.5 block text-xs font-semibold text-slate-700">Account number</label><Input className="h-10" value={prefs.payouts.accountNumber} onChange={(e) => updateNested("payouts", "accountNumber", e.target.value)} /></div>
+            <div><label className="mb-1.5 block text-xs font-semibold text-slate-700">IFSC code</label><Input className="h-10" value={prefs.payouts.ifsc} onChange={(e) => updateNested("payouts", "ifsc", e.target.value)} /></div>
+            <div><label className="mb-1.5 block text-xs font-semibold text-slate-700">Payout frequency</label><Select className="h-10" value={prefs.payouts.payoutFrequency} onValueChange={(v) => updateNested("payouts", "payoutFrequency", v)}><SelectContent><SelectItem value="daily">Daily</SelectItem><SelectItem value="weekly">Weekly</SelectItem><SelectItem value="biweekly">Bi-weekly</SelectItem><SelectItem value="monthly">Monthly</SelectItem></SelectContent></Select></div>
+            <div><label className="mb-1.5 block text-xs font-semibold text-slate-700">Minimum payout (₹)</label><Input type="number" min="0" className="h-10" value={prefs.payouts.minPayout} onChange={(e) => updateNested("payouts", "minPayout", Number(e.target.value))} /></div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2"><ShoppingBag className="h-5 w-5" />Order management</CardTitle>
-            <CardDescription>Defaults applied to incoming orders.</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label className="text-sm font-medium">Order timeout (min)</label>
-              <Input type="number" min="0" className="mt-1" value={prefs.orders.orderTimeout}
-                onChange={(e) => updateNested("orders", "orderTimeout", Number(e.target.value))} />
-            </div>
-            <div>
-              <label className="text-sm font-medium">Max orders / day</label>
-              <Input type="number" min="0" className="mt-1" value={prefs.orders.maxOrdersPerDay}
-                onChange={(e) => updateNested("orders", "maxOrdersPerDay", Number(e.target.value))} />
-            </div>
-            <div>
-              <label className="text-sm font-medium">Minimum order value (Rs)</label>
-              <Input type="number" min="0" className="mt-1" value={prefs.orders.minOrderValue}
-                onChange={(e) => updateNested("orders", "minOrderValue", Number(e.target.value))} />
-            </div>
-            <div>
-              <label className="text-sm font-medium">Delivery radius (km)</label>
-              <Input type="number" min="0" className="mt-1" value={prefs.orders.deliveryRadius}
-                onChange={(e) => updateNested("orders", "deliveryRadius", Number(e.target.value))} />
-            </div>
+        <Card className="min-w-0 overflow-hidden rounded-2xl border-slate-200 shadow-sm">
+          <CardHeader className="border-b border-emerald-100 bg-emerald-50/50 pb-3"><CardTitle className="flex items-center gap-2 text-base"><Bot className="h-5 w-5 text-emerald-700" />AI & analytics</CardTitle><CardDescription>Smart tools to grow your farm business.</CardDescription></CardHeader>
+          <CardContent className="divide-y divide-slate-100 px-5 py-2">
+            {toggleRow("Price prediction", "pricePrediction")}{toggleRow("Demand forecast", "demandForecast")}{toggleRow("Weather integration", "weatherIntegration")}{toggleRow("Smart recommendations", "smartRecommendations")}{toggleRow("Daily report", "dailyReport")}{toggleRow("Weekly report", "weeklyReport")}{toggleRow("Monthly report", "monthlyReport")}
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2"><Truck className="h-5 w-5" />Delivery settings</CardTitle>
-            <CardDescription>Your self-delivery preferences. Final fees follow platform rules.</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label className="text-sm font-medium">Free delivery radius (km)</label>
-              <Input type="number" min="0" step="0.5" className="mt-1" value={prefs.delivery.freeDeliveryRadiusKm}
-                onChange={(e) => updateNested("delivery", "freeDeliveryRadiusKm", Number(e.target.value))} />
-            </div>
-            <div>
-              <label className="text-sm font-medium">Base delivery fee (₹)</label>
-              <Input type="number" min="0" step="0.5" className="mt-1" value={prefs.delivery.baseFee}
-                onChange={(e) => updateNested("delivery", "baseFee", Number(e.target.value))} />
-            </div>
-            <div>
-              <label className="text-sm font-medium">Additional fee / km (₹)</label>
-              <Input type="number" min="0" step="0.5" className="mt-1" value={prefs.delivery.perKmRate}
-                onChange={(e) => updateNested("delivery", "perKmRate", Number(e.target.value))} />
-            </div>
-            <div>
-              <label className="text-sm font-medium">Maximum delivery radius (km)</label>
-              <Input type="number" min="0" step="0.5" className="mt-1" value={prefs.delivery.maxRadiusKm}
-                onChange={(e) => updateNested("delivery", "maxRadiusKm", Number(e.target.value))} />
-            </div>
-            <div>
-              <label className="text-sm font-medium">Minimum order (₹)</label>
-              <Input type="number" min="0" className="mt-1" value={prefs.delivery.minOrderValue}
-                onChange={(e) => updateNested("delivery", "minOrderValue", Number(e.target.value))} />
-            </div>
-            <div className="space-y-2 sm:col-span-2">
-              <div className="flex items-center justify-between rounded-lg border p-3 text-sm font-medium">
-                Allow self delivery
-                <Switch checked={Boolean(prefs.delivery.allowSelfDelivery)} onCheckedChange={(v) => updateNested("delivery", "allowSelfDelivery", v)} aria-label="Allow self delivery" />
-              </div>
-              <div className="flex items-center justify-between rounded-lg border p-3 text-sm font-medium">
-                Allow delivery partners
-                <Switch checked={Boolean(prefs.delivery.allowDeliveryPartners)} onCheckedChange={(v) => updateNested("delivery", "allowDeliveryPartners", v)} aria-label="Allow delivery partners" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2"><CreditCard className="h-5 w-5" />Payments & payouts</CardTitle>
-            <CardDescription>Bank details for your earnings.</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-4 sm:grid-cols-2">
-            <div className="sm:col-span-2">
-              <label className="text-sm font-medium">Bank / UPI account</label>
-              <Input className="mt-1" value={prefs.payouts.bankAccount}
-                onChange={(e) => updateNested("payouts", "bankAccount", e.target.value)} placeholder="UPI ID or account reference" />
-            </div>
-            <div>
-              <label className="text-sm font-medium">Account holder</label>
-              <Input className="mt-1" value={prefs.payouts.accountHolder}
-                onChange={(e) => updateNested("payouts", "accountHolder", e.target.value)} />
-            </div>
-            <div>
-              <label className="text-sm font-medium">Account number</label>
-              <Input className="mt-1" value={prefs.payouts.accountNumber}
-                onChange={(e) => updateNested("payouts", "accountNumber", e.target.value)} />
-            </div>
-            <div>
-              <label className="text-sm font-medium">IFSC code</label>
-              <Input className="mt-1" value={prefs.payouts.ifsc}
-                onChange={(e) => updateNested("payouts", "ifsc", e.target.value)} />
-            </div>
-            <div>
-              <label className="text-sm font-medium">Payout frequency</label>
-              <Select className="mt-1" value={prefs.payouts.payoutFrequency}
-                onValueChange={(v) => updateNested("payouts", "payoutFrequency", v)}>
-                <SelectContent>
-                  <SelectItem value="daily">Daily</SelectItem>
-                  <SelectItem value="weekly">Weekly</SelectItem>
-                  <SelectItem value="biweekly">Bi-weekly</SelectItem>
-                  <SelectItem value="monthly">Monthly</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="text-sm font-medium">Minimum payout (Rs)</label>
-              <Input type="number" min="0" className="mt-1" value={prefs.payouts.minPayout}
-                onChange={(e) => updateNested("payouts", "minPayout", Number(e.target.value))} />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2"><Bot className="h-5 w-5" />AI & analytics</CardTitle>
-            <CardDescription>Smart tools to grow your farm business.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {toggleRow("Price prediction", "pricePrediction")}
-            {toggleRow("Demand forecast", "demandForecast")}
-            {toggleRow("Weather integration", "weatherIntegration")}
-            {toggleRow("Smart recommendations", "smartRecommendations")}
-            {toggleRow("Daily report", "dailyReport")}
-            {toggleRow("Weekly report", "weeklyReport")}
-            {toggleRow("Monthly report", "monthlyReport")}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2"><Shield className="h-5 w-5" />Alerts & security</CardTitle>
-            <CardDescription>How you hear about orders and account safety.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {toggleRow("New order alert", "newOrderAlert")}
-            {toggleRow("Order cancelled alert", "orderCancelled")}
-            {toggleRow("Payment received alert", "paymentReceived")}
-            {toggleRow("Low stock alerts", "lowStockAlerts")}
-            {toggleRow("Auto-accept small orders", "autoAcceptSmallOrders")}
-            <div className="pt-1">
-              <Badge variant="outline">Two-factor auth off</Badge>
-              <p className="mt-2 text-xs text-muted-foreground">Account recovery and device controls are on the roadmap.</p>
-            </div>
+        <Card className="min-w-0 overflow-hidden rounded-2xl border-slate-200 shadow-sm">
+          <CardHeader className="border-b border-emerald-100 bg-emerald-50/50 pb-3"><CardTitle className="flex items-center gap-2 text-base"><Shield className="h-5 w-5 text-emerald-700" />Alerts & security</CardTitle><CardDescription>How you hear about orders and account safety.</CardDescription></CardHeader>
+          <CardContent className="divide-y divide-slate-100 px-5 py-2">
+            {toggleRow("New order alert", "newOrderAlert")}{toggleRow("Order cancelled alert", "orderCancelled")}{toggleRow("Payment received alert", "paymentReceived")}{toggleRow("Low stock alerts", "lowStockAlerts")}{toggleRow("Auto-accept small orders", "autoAcceptSmallOrders")}
+            <div className="my-2 rounded-lg bg-slate-50 p-3"><Badge variant="outline">Two-factor auth off</Badge><p className="mt-2 text-xs text-slate-500">Account recovery and device controls are not available yet.</p></div>
           </CardContent>
         </Card>
       </div>

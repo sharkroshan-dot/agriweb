@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 import { usePathname } from "next/navigation";
 import { PrefetchLink as Link } from "../shared/prefetch-link";
 import { useSession } from "next-auth/react";
@@ -7,8 +9,8 @@ import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard,
   Truck,
-  Map,
-  MapPin,
+  MapPinned,
+  PackageCheck,
   Settings,
   History,
   CheckCircle,
@@ -16,10 +18,11 @@ import {
   Banknote,
   LifeBuoy,
   Star,
-  RefreshCcw,
   MessageSquare,
   Route,
   Warehouse,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Badge } from "../ui/badge";
@@ -27,6 +30,7 @@ import { api } from "../../lib/api/client";
 
 export function DeliverySidebar() {
   const pathname = usePathname();
+  const [collapsedGroups, setCollapsedGroups] = useState<string[]>([]);
   const { data: session } = useSession();
   const accessToken = (session as any)?.accessToken;
   const deliveryUser = session?.user as any;
@@ -58,28 +62,43 @@ export function DeliverySidebar() {
     {
       label: "Overview",
       items: [
-        { name: "My Workflow", href: "/workflow", icon: RefreshCcw },
-    { name: "Dashboard", href: "/delivery/dashboard", icon: LayoutDashboard },
-        { name: "My Deliveries", href: "/delivery/deliveries", icon: Truck, badge: todayCount > 0 ? todayCount : undefined },
-        { name: "Messages", href: "/delivery/messages", icon: MessageSquare },
-        { name: "Order Map", href: "/delivery/order-map", icon: Map },
-        { name: "Live Route", href: "/delivery/route", icon: MapPin },
-        { name: "Warehouse Pickup", href: "/delivery/pickup-team", icon: Warehouse },
-        { name: "Pickup Routes", href: "/delivery/pickup-routes", icon: Route },
-        { name: "Auto-Reassignment", href: "/delivery/reassignments", icon: RefreshCcw },
-        { name: "History", href: "/delivery/history", icon: History },
-        { name: "My Ratings", href: "/delivery/ratings", icon: Star },
+        { name: "Dashboard", href: "/delivery/dashboard", icon: LayoutDashboard },
       ],
     },
     {
-      label: "Finance",
+      label: "Warehouse Pickup",
       items: [
+        { name: "Pickup Assignments", href: "/delivery/pickup-team", icon: Warehouse },
+        { name: "Pickup Routes", href: "/delivery/pickup-routes", icon: Route },
+        { name: "Pickup History", href: "/delivery/pickup-history", icon: History },
+      ],
+    },
+    {
+      label: "Customer Delivery",
+      items: [
+        { name: "Order Map & My Deliveries", href: "/delivery/orders", icon: Truck, badge: todayCount > 0 ? todayCount : undefined },
+        { name: "Order Map", href: "/delivery/order-map", icon: MapPinned },
+        { name: "My Deliveries", href: "/delivery/deliveries", icon: PackageCheck },
+        { name: "Delivery Routes", href: "/delivery/route", icon: Route },
+        { name: "Delivery History", href: "/delivery/history", icon: History },
+      ],
+    },
+    {
+      label: "Communication",
+      items: [
+        { name: "Messages", href: "/delivery/messages", icon: MessageSquare },
+      ],
+    },
+    {
+      label: "Performance & Finance",
+      items: [
+        { name: "My Ratings", href: "/delivery/ratings", icon: Star },
         { name: "Earnings", href: "/delivery/earnings", icon: Wallet },
         { name: "COD Collection", href: "/delivery/settlements", icon: Banknote },
       ],
     },
     {
-      label: "Support",
+      label: "Account & Support",
       items: [
         { name: "Support", href: "/delivery/support", icon: LifeBuoy },
         { name: "Settings", href: "/delivery/settings", icon: Settings },
@@ -88,7 +107,7 @@ export function DeliverySidebar() {
   ];
 
   return (
-    <aside className="hidden w-64 shrink-0 border-r border-slate-200/80 bg-white md:block">
+    <aside className="role-sidebar hidden w-64 shrink-0 border-r border-slate-200/80 bg-white md:block">
       <div className="sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto p-4 lg:p-5">
         <div className="mb-6 overflow-hidden rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 shadow-sm">
           <div className="flex min-w-0 items-start gap-3">
@@ -116,16 +135,31 @@ export function DeliverySidebar() {
         </div>
 
         <nav className="space-y-4">
-          {navGroups.map((group) => (
-            <div key={group.label}>
-              <p className="mb-1 px-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{group.label}</p>
-              <div className="space-y-1">
+          {navGroups.map((group) => {
+            const hasActiveItem = group.items.some((item) =>
+              pathname === item.href || pathname?.startsWith(item.href + "/")
+            );
+            const isCollapsed = collapsedGroups.includes(group.label) && !hasActiveItem;
+            return (
+              <section key={group.label} aria-label={group.label} className="space-y-1">
+                <button
+                  type="button"
+                  aria-expanded={!isCollapsed}
+                  onClick={() => setCollapsedGroups((current) => current.includes(group.label) ? current.filter((label) => label !== group.label) : [...current, group.label])}
+                  className="group flex w-full items-center justify-between rounded-lg px-3 py-2 text-left transition-colors hover:bg-slate-50"
+                >
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 group-hover:text-slate-600">{group.label}</span>
+                  {isCollapsed ? <ChevronRight className="h-3.5 w-3.5 text-slate-400" /> : <ChevronDown className="h-3.5 w-3.5 text-slate-400" />}
+                </button>
+                {!isCollapsed && (
+                  <div className="ml-2 space-y-1 border-l border-slate-200 pl-2">
                 {group.items.map((item) => {
                   const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
                   return (
                     <Link
                       key={item.name}
                       href={item.href}
+                      aria-current={isActive ? "page" : undefined}
                       className={cn(
                         "flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium transition-colors duration-150",
                         isActive ? "bg-emerald-700 text-white shadow-sm shadow-emerald-900/10" : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
@@ -147,8 +181,10 @@ export function DeliverySidebar() {
                   );
                 })}
               </div>
-            </div>
-          ))}
+                )}
+              </section>
+            );
+          })}
         </nav>
 
         {onTimeRate !== undefined && (

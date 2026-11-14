@@ -40,10 +40,20 @@ class DeliverySlotCreate(BaseModel):
     startTime: str
     endTime: str
     radiusKm: int = Field(10, ge=1, le=100)
-    maxOrders: int = Field(25, ge=1, le=500)
+    maxCapacityKg: float = Field(5, gt=0, le=100000)
     cutoffTime: Optional[datetime] = None
     deliveryFee: float = Field(0, ge=0)
     notes: Optional[str] = None
+
+
+async def _booked_capacity(slot_id: ObjectId) -> float:
+    """Sum kilograms reserved by active customer bookings for a slot."""
+    rows = await booking_repo.find_many({
+        "slotId": slot_id,
+        "status": {"$in": ["joined", "order_linked"]},
+        "deletedAt": None,
+    }, limit=10000)
+    return round(sum(float(row.get("capacityKg", 0) or 0) for row in rows), 3)
 
 
 async def _slot_status(slot: dict) -> str:
@@ -53,12 +63,9 @@ async def _slot_status(slot: dict) -> str:
     cutoff = slot.get("cutoffTime")
     if cutoff and cutoff < datetime.utcnow():
         return "closed"
-    bookings = await booking_repo.count({
-        "slotId": slot["_id"],
-        "status": "joined",
-        "deletedAt": None,
-    })
-    if bookings >= int(slot.get("maxOrders", 25)):
+    capacity = float(slot.get("maxCapacityKg", 0) or 0)
+    booked = await _booked_capacity(slot["_id"])
+    if capacity > 0 and booked >= capacity:
         return SLOT_FULL
     return SLOT_OPEN
 
@@ -104,7 +111,8 @@ async def create_delivery_slot(
         "startTime": data.startTime,
         "endTime": data.endTime,
         "radiusKm": data.radiusKm,
-        "maxOrders": data.maxOrders,
+        "maxCapacityKg": data.maxCapacityKg,
+        "bookedCapacityKg": 0.0,
         "cutoffTime": data.cutoffTime,
         "deliveryFee": data.deliveryFee,
         "notes": data.notes,
@@ -134,8 +142,58 @@ async def get_farmer_slots(
     for s in slots:
         _serialize_slot(s)
         s["status"] = await _slot_status(s)
-        s["bookings"] = await booking_repo.count({"slotId": s["_id"], "status": "joined", "deletedAt": None})
+        s["bookedCapacityKg"] = await _booked_capacity(s["_id"])
+        s["remainingCapacityKg"] = round(max(0.0, float(s.get("maxCapacityKg", 0)) - s["bookedCapacityKg"]), 3)
     return {"success": True, "data": {"slots": slots, "count": len(slots)}}
+
+
+@router.get("/farmer/slots/{slot_id}/bookings")
+async def get_farmer_slot_bookings(
+    slot_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Return customer reservations and linked orders for a farmer-owned slot."""
+    if current_user.get("role") != "farmer":
+        raise HTTPException(status_code=403, detail="Only farmers can view slot bookings")
+    if not ObjectId.is_valid(slot_id):
+        raise HTTPException(status_code=404, detail="Delivery slot not found")
+    slot = await slot_repo.find_one({"_id": ObjectId(slot_id), "deletedAt": None})
+    if not slot:
+        raise HTTPException(status_code=404, detail="Delivery slot not found")
+    if str(slot.get("farmerId")) != str(current_user["_id"]):
+        raise HTTPException(status_code=403, detail="Not your delivery slot")
+
+    bookings = await booking_repo.find_many(
+        {"slotId": ObjectId(slot_id), "status": {"$in": ["joined", "order_linked"]}, "deletedAt": None},
+        sort=[("createdAt", 1)],
+        limit=500,
+    )
+    order_repo = BaseRepository("orders")
+    result = []
+    for booking in bookings:
+        order = await order_repo.get_by_id(str(booking.get("orderId"))) if booking.get("orderId") else None
+        customer = await user_repository.get_by_id(str(booking.get("customerId")))
+        result.append({
+            "id": str(booking["_id"]),
+            "status": booking.get("status"),
+            "createdAt": booking.get("createdAt"),
+            "deliveryFee": booking.get("deliveryFee", 0),
+            "capacityKg": booking.get("capacityKg", 0),
+            "orderId": str(order.get("_id")) if order else None,
+            "orderNumber": (order or {}).get("orderNumber"),
+            "orderStatus": (order or {}).get("orderStatus"),
+            "totalAmount": (order or {}).get("totalAmount"),
+            "items": [
+                {"productName": item.get("productName"), "quantity": item.get("quantity")}
+                for item in ((order or {}).get("items") or [])
+            ],
+            "customer": {
+                "name": f"{(customer or {}).get('firstName', '')} {(customer or {}).get('lastName', '')}".strip() or "Customer",
+                "phone": (customer or {}).get("phone"),
+            },
+            "deliveryAddress": (order or {}).get("deliveryAddress") or {},
+        })
+    return {"success": True, "data": {"bookings": result, "count": len(result)}}
 
 
 @router.put("/slots/{slot_id}")
@@ -160,7 +218,7 @@ async def update_delivery_slot(
         "startTime": data.startTime,
         "endTime": data.endTime,
         "radiusKm": data.radiusKm,
-        "maxOrders": data.maxOrders,
+        "maxCapacityKg": data.maxCapacityKg,
         "cutoffTime": data.cutoffTime,
         "deliveryFee": data.deliveryFee,
         "notes": data.notes,
@@ -337,7 +395,8 @@ async def list_available_slots(
     for s in slots:
         _serialize_slot(s)
         s["status"] = await _slot_status(s)
-        s["bookings"] = await booking_repo.count({"slotId": s["_id"], "status": "joined", "deletedAt": None})
+        s["bookedCapacityKg"] = await _booked_capacity(s["_id"])
+        s["remainingCapacityKg"] = round(max(0.0, float(s.get("maxCapacityKg", 0)) - s["bookedCapacityKg"]), 3)
         if s.get("distance"):
             s["distanceKm"] = round(s["distance"] / 1000, 2)
         farm = s.pop("farm", None) or {}
@@ -368,14 +427,14 @@ async def join_delivery_slot(
     if cutoff and cutoff < datetime.utcnow():
         raise HTTPException(status_code=400, detail="Cutoff time has passed for this slot")
 
-    bookings = await booking_repo.count({"slotId": ObjectId(slot_id), "status": "joined", "deletedAt": None})
-    if bookings >= int(slot.get("maxOrders", 25)):
-        raise HTTPException(status_code=400, detail="This delivery slot is full")
+    booked_capacity = await _booked_capacity(ObjectId(slot_id))
+    if booked_capacity >= float(slot.get("maxCapacityKg", 0) or 0):
+        raise HTTPException(status_code=400, detail="This delivery slot has no remaining delivery capacity")
 
     existing = await booking_repo.find_one({
         "slotId": ObjectId(slot_id),
         "customerId": ObjectId(current_user["_id"]),
-        "status": "joined",
+        "status": {"$in": ["joined", "order_linked"]},
         "deletedAt": None,
     })
     if existing:
@@ -425,7 +484,7 @@ async def leave_delivery_slot(
 async def get_my_slots(current_user: dict = Depends(get_current_user)):
     """List slots the current customer has joined, with slot + farmer info."""
     pipeline = [
-        {"$match": {"customerId": ObjectId(current_user["_id"]), "status": "joined", "deletedAt": None}},
+        {"$match": {"customerId": ObjectId(current_user["_id"]), "status": {"$in": ["joined", "order_linked"]}, "deletedAt": None}},
         {"$lookup": {
             "from": "delivery_slots",
             "localField": "slotId",

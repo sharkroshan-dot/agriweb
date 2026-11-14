@@ -87,14 +87,18 @@ class RecommendationResponse(BaseModel):
 class WeatherImpactRequest(BaseModel):
     location: Dict[str, Any]
     productId: Optional[str] = None
-    days: int = 5
+    cropName: Optional[str] = None
+    days: int = 7
 
 class WeatherImpactResponse(BaseModel):
     location: str
     product: Optional[str] = None
+    crop: Optional[str] = None
     weather: Dict[str, Any]
     impactScore: float
     recommendation: str
+    alerts: List[Dict[str, Any]] = Field(default_factory=list)
+    harvestAdvice: Optional[str] = None
     forecast: List[Dict[str, Any]]
     timestamp: datetime
 

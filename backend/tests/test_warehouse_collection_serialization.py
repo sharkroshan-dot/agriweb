@@ -49,6 +49,12 @@ def test_settings_city_is_fallback_when_farm_collection_districts_are_empty():
     assert warehouse_collection_districts(warehouse) == {"tiruchirappalli"}
 
 
+def test_manachanallur_farm_location_matches_tiruchirappalli_coverage():
+    profile = {"farmCity": "Manachanallur"}
+
+    assert farmer_collection_district(profile, {}, {"tiruchirappalli"}) == "tiruchirappalli"
+
+
 def test_farmer_address_district_matches_warehouse_coverage_alias():
     profile = {"farmAddress": {"formattedAddress": "Near Trichy, Tamil Nadu"}}
 

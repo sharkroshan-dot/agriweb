@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../..
 import { Select, SelectContent, SelectItem } from "../../../components/ui/select";
 import { api } from "../../../lib/api/client";
 import toast from "react-hot-toast";
+import { AdminPageHeader } from "../../../components/admin/admin-page-header";
 
 const ROLE_LABELS: Record<string, string> = {
   customer: "Customer",
@@ -65,21 +66,16 @@ export default function AdminUsersPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-        <div>
-          <p className="text-sm font-medium text-primary">User management</p>
-          <h1 className="text-3xl font-semibold tracking-tight">Manage platform users</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Search accounts, review permissions, and manage verification status.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" className="gap-2" onClick={() => refetch()}>
-            <Filter className="h-4 w-4" />
-            Refresh
-          </Button>
-        </div>
-      </div>
+      <AdminPageHeader
+        eyebrow="Platform management"
+        title="Manage platform users"
+        description="Search accounts, review permissions, and manage verification status."
+      >
+        <Button variant="outline" className="gap-2" onClick={() => refetch()}>
+          <Filter className="h-4 w-4" />
+          Refresh
+        </Button>
+      </AdminPageHeader>
 
       <Card>
         <CardHeader>

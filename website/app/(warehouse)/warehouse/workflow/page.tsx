@@ -35,7 +35,7 @@ export default function WarehouseWorkflowPage() {
     : null;
 
   return (
-    <div className="space-y-7">
+    <div className="warehouse-control-center-page space-y-7">
       <section className="rounded-3xl bg-gradient-to-br from-slate-950 via-slate-900 to-emerald-950 p-6 text-white shadow-sm sm:p-8">
         <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
           <div>

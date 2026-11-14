@@ -1,5 +1,5 @@
 import PaymentDashboard from "../../../components/payments/payment-dashboard";
 
 export default function WarehousePaymentsPage() {
-  return <PaymentDashboard role="warehouse" />;
+  return <div className="warehouse-payments-page"><PaymentDashboard role="warehouse" /></div>;
 }

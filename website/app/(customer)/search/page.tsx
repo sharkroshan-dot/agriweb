@@ -1,13 +1,11 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import {
   Search,
   SlidersHorizontal,
-  ShoppingCart,
   X,
   ChevronDown,
   ChevronLeft,
@@ -18,7 +16,8 @@ import { formatPrice, cn } from "../../lib/utils";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
-import { useCartStore } from "../../lib/store/cart-store";
+import { ProductCard } from "../../components/customer/product-card";
+import { CustomerPageHeader } from "../../components/customer/customer-page-header";
 import { usePageParams } from "../../lib/hooks/use-page-params";
 import { usePersistentQuery } from "../../lib/hooks/use-persistent-query";
 import { useSessionStateStore } from "../../lib/store/session-state-store";
@@ -62,8 +61,6 @@ function SearchPageInner() {
     (patch: Record<string, string>) => update(patch, { reset: ["page"] }),
     [update],
   );
-
-  const addItem = useCartStore((s) => s.addItem);
 
   const { data: productsData, isLoading } = usePersistentQuery({
     queryKey: ["customerProducts", "search", q || "all"],
@@ -183,21 +180,6 @@ function SearchPageInner() {
     [searchValue, update],
   );
 
-  const handleAddToCart = (product: any) => {
-    addItem({
-      id: product.id,
-      name: product.name,
-      price: product.price,
-      quantity: 1,
-      image: product.image,
-      farmerName: product.farmerName,
-      unit: product.unit,
-      pickupAvailable: product.pickupAvailable ?? false,
-      farmAddress: product.farmAddress || "",
-    });
-    toast.success(`${product.name} added to cart!`);
-  };
-
   const clearFilters = () => {
     setFilter({ category: "", priceMin: "", priceMax: "", organic: "", sortBy: "", farmer: "" });
   };
@@ -223,13 +205,13 @@ function SearchPageInner() {
   );
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="customer-retail-shell space-y-6">
       {/* Search header */}
-      <div>
-        <h1 className="text-2xl font-semibold text-slate-900">Search</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Find fresh produce from local farmers
-        </p>
+      <CustomerPageHeader eyebrow="Shop fresh" title={q ? `Results for “${q}”` : "Find fresh produce"} description="Compare quality, price, farmer, availability and delivery options in one place." />
+      <div className="customer-trust-strip">
+        <div className="customer-trust-item"><span className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-emerald-700">✓</span><div><strong>Verified quality</strong><span>Traceable farm lots</span></div></div>
+        <div className="customer-trust-item"><span className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-emerald-700">↗</span><div><strong>Clear pricing</strong><span>Price per unit shown</span></div></div>
+        <div className="customer-trust-item"><span className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-emerald-700">⌁</span><div><strong>Fresh delivery</strong><span>ETA confirmed at checkout</span></div></div>
       </div>
 
       {/* Search input */}
@@ -401,54 +383,10 @@ function SearchPageInner() {
             <>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {pagedProducts.map((product: any) => (
-                  <Link
+                  <ProductCard
                     key={product.id}
-                    href={`/product/${product.id}`}
-                    className="group"
-                  >
-                    <Card className="overflow-hidden border-slate-200 transition-all hover:border-emerald-300 hover:shadow-sm">
-                      <div className="relative aspect-[4/3] overflow-hidden bg-slate-50">
-                        <Image
-                          src={product.image}
-                          alt={product.name}
-                          fill
-                          className="object-cover transition-transform duration-300 group-hover:scale-105"
-                        />
-                        {product.isOrganic && (
-                          <span className="absolute left-2 top-2 rounded bg-emerald-600 px-1.5 py-0.5 text-[10px] font-medium text-white">
-                            Organic
-                          </span>
-                        )}
-                      </div>
-                      <CardContent className="p-3">
-                        <h3 className="truncate text-sm font-medium text-slate-900">
-                          {product.name}
-                        </h3>
-                        <p className="mt-0.5 text-xs text-slate-400">
-                          {product.farmerName}
-                        </p>
-                        <div className="mt-2 flex items-center justify-between">
-                          <span className="text-sm font-semibold text-emerald-600">
-                            {formatPrice(product.price)}
-                            <span className="ml-0.5 text-xs font-normal text-slate-400">
-                              /{product.unit}
-                            </span>
-                          </span>
-                          <button
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              handleAddToCart(product);
-                            }}
-                            className="flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-medium text-white transition hover:bg-emerald-700"
-                          >
-                            <ShoppingCart className="h-3 w-3" />
-                            Add
-                          </button>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </Link>
+                    product={{ ...product, images: [product.image], quantity: product.quantity ?? product.availableQuantity ?? 1 }}
+                  />
                 ))}
               </div>
 

@@ -75,7 +75,7 @@ export default function FarmerFulfillmentConsolidationPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="warehouse-consolidation-page space-y-6">
       <div className="flex items-center justify-between gap-3">
         <div>
           <h1 className="text-3xl font-bold">Farmer Fulfillment Consolidation</h1>

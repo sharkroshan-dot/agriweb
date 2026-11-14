@@ -5,6 +5,8 @@ import { Providers } from "./(customer)/providers";
 import { Header } from "./components/common/header";
 import { NavigationProgress } from "./components/shared/navigation-progress";
 import "./globals.css";
+import "./styles/agriconnect-experience.css";
+import "./styles/agriconnect-pages.css";
 
 const inter = Inter({ subsets: ["latin"] });
 

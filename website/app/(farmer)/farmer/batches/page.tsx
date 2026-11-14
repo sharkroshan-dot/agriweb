@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -16,7 +16,17 @@ import {
   FlaskConical,
   PackagePlus,
   QrCode,
+  Search,
+  RefreshCw,
+  CalendarDays,
+  Clock3,
+  ShieldCheck,
+  AlertTriangle,
+  Filter,
+  PackageCheck,
+  CircleCheck,
 } from "lucide-react";
+import { FarmerPageHeader } from "../../../components/farmer/farmer-page-header";
 import { api } from "../../../lib/api/client";
 import { formatDate, cn } from "../../../lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
@@ -25,6 +35,7 @@ import { Input } from "../../../components/ui/input";
 import { Badge } from "../../../components/ui/badge";
 import { Select, SelectContent, SelectItem } from "../../../components/ui/select";
 import toast from "react-hot-toast";
+import { FarmerQualityPanel } from "../quality/page";
 
 interface Batch {
   id: string;
@@ -75,6 +86,8 @@ export default function FarmerBatchesPage() {
   const searchParams = useSearchParams();
   const fromHarvestId = searchParams.get("fromHarvest") || "";
   const [showForm, setShowForm] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeFilter, setActiveFilter] = useState<"all" | "inspection" | "listed" | "expired">("all");
   const [selectedProductId, setSelectedProductId] = useState("");
   const [selectedHarvestId, setSelectedHarvestId] = useState("");
   const [form, setForm] = useState({
@@ -89,7 +102,7 @@ export default function FarmerBatchesPage() {
   const [converting, setConverting] = useState<{ batchId: string; productId: string } | null>(null);
   const storageShelfLifeDefaults: Record<string, number> = { normal: 3, refrigerated: 5, cold_storage: 7, frozen: 30 };
 
-  const { data: batchesData, isLoading } = useQuery({
+  const { data: batchesData, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: ["farmerBatches"],
     queryFn: () => api.get("/batches"),
   });
@@ -152,19 +165,52 @@ export default function FarmerBatchesPage() {
   const products: FarmerProduct[] = productsData?.data?.products || productsData?.data || [];
   const harvestedPlans: any[] = harvestedData?.data?.plans || harvestedData?.plans || [];
 
-  // Batch creation is one-to-one with a product. Once a product has a batch,
-  // it must never appear again in the batch-creation selector.
-  const productsWithBatches = new Set(
-    batches.map((batch) => batch.productId).filter(Boolean).map((id) => String(id))
-  );
+  // Use the API freshness state when available, with the expiry timestamp as a
+  // fallback so older batch records still appear in the Expired dashboard view.
+  const isBatchExpired = (batch: Batch) => {
+    if (batch.freshness?.status === "expired") return true;
+    const expiry = batch.expiresAt || batch.freshness?.expiresAt;
+    if (!expiry) return false;
+    const expiryTime = new Date(expiry).getTime();
+    return Number.isFinite(expiryTime) && expiryTime <= Date.now();
+  };
+
+  const batchSummary = useMemo(() => ({
+    total: batches.length,
+    awaitingInspection: batches.filter((batch) => batch.qualityStatus !== "approved" && batch.qualityStatus !== "rejected").length,
+    listed: batches.filter((batch) => Boolean(batch.productId)).length,
+    expired: batches.filter(isBatchExpired).length,
+    remainingKg: batches.reduce((sum, batch) => sum + Math.max(0, Number(batch.remainingKg || 0)), 0),
+  }), [batches]);
+
+  const filteredBatches = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    return batches.filter((batch) => {
+      const matchesSearch = !query || [
+        batch.lotNumber,
+        batch.cropName,
+        batch.qualityGrade,
+        batch.storageType,
+        batch.status,
+        batch.qualityStatus,
+      ].some((value) => String(value || "").toLowerCase().includes(query));
+
+      const matchesFilter =
+        activeFilter === "all" ||
+        (activeFilter === "inspection" && batch.qualityStatus !== "approved" && batch.qualityStatus !== "rejected") ||
+        (activeFilter === "listed" && Boolean(batch.productId)) ||
+        (activeFilter === "expired" && isBatchExpired(batch));
+
+      return matchesSearch && matchesFilter;
+    });
+  }, [batches, searchQuery, activeFilter]);
+
+  // A marketplace product can have many harvest lots over time.
+  // Only the harvest event itself is one-to-one with a batch.
+  const batchEligibleProducts = products;
   const harvestPlansWithBatches = new Set(
     batches.map((batch) => batch.sourceHarvestPlanId).filter(Boolean).map((id) => String(id))
   );
-  const batchEligibleProducts = products.filter((product) => {
-    const productId = String(product._id);
-    const sourcePlanId = String(product.sourceHarvestPlanId || "");
-    return !productsWithBatches.has(productId) && !harvestPlansWithBatches.has(sourcePlanId);
-  });
   const availableHarvests = harvestedPlans
     .filter((plan) => {
       const id = String(plan.id || plan._id || "");
@@ -213,7 +259,9 @@ export default function FarmerBatchesPage() {
 
   const freshnessBadge = (batch: Batch) => {
     const f = batch.freshness?.status;
-    if (f === "expired") return <Badge variant="destructive">Expired</Badge>;
+    // Keep the row status consistent with the Expired summary and filter,
+    // including legacy records that only have an expiresAt timestamp.
+    if (isBatchExpired(batch)) return <Badge variant="destructive">Expired</Badge>;
     if (f === "expiring") return <Badge variant="warning">Expiring ({batch.freshness?.daysRemaining}d left)</Badge>;
     if (f === "fresh") return <Badge variant="success">Fresh ({batch.freshness?.daysRemaining}d left)</Badge>;
     return <Badge variant="secondary">Unknown</Badge>;
@@ -230,30 +278,73 @@ export default function FarmerBatchesPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Batches &amp; Traceability</h1>
-          <p className="text-gray-500">
-            Create traceable harvest lots, record the actual shelf life for each harvested batch, and send every batch through independent quality inspection before listing. Delivery deadlines and priority are calculated automatically.
-          </p>
-        </div>
-        <Button onClick={() => setShowForm((v) => !v)}>
+    <div className="w-full min-w-0 space-y-6 pb-10">
+      <FarmerPageHeader
+        eyebrow="Harvest lots & product traceability"
+        title="Batches & Traceability"
+        description="Track harvested lots, monitor freshness and shelf life, complete quality inspection and link approved batches to marketplace products."
+      >
+        <Button
+          type="button"
+          className="h-10 bg-emerald-700 shadow-sm hover:bg-emerald-800"
+          onClick={() => setShowForm((v) => !v)}
+        >
           {showForm ? <XCircle className="mr-2 h-4 w-4" /> : <Plus className="mr-2 h-4 w-4" />}
-          {showForm ? "Cancel" : "New Batch"}
+          {showForm ? "Close form" : "New batch"}
         </Button>
-      </div>
+        <Button
+          type="button"
+          variant="outline"
+          className="h-10 border-emerald-200 bg-white text-emerald-800 hover:bg-emerald-50"
+          onClick={() => refetch()}
+          disabled={isFetching}
+        >
+          <RefreshCw className={cn("mr-2 h-4 w-4", isFetching && "animate-spin")} />
+          Refresh
+        </Button>
+      </FarmerPageHeader>
 
+      <section aria-label="Batch overview" className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+        {[
+          { label: "Total batches", value: batchSummary.total, icon: Layers, tone: "bg-slate-100 text-slate-700" },
+          { label: "Needs attention", value: batchSummary.awaitingInspection, icon: FlaskConical, tone: "bg-amber-50 text-amber-700" },
+          { label: "Listed batches", value: batchSummary.listed, icon: PackageCheck, tone: "bg-emerald-50 text-emerald-700" },
+          { label: "Expired lots", value: batchSummary.expired, icon: AlertTriangle, tone: "bg-rose-50 text-rose-700" },
+          { label: "Available stock", value: `${batchSummary.remainingKg.toLocaleString("en-IN")} kg`, icon: Package, tone: "bg-sky-50 text-sky-700" },
+        ].map((stat) => (
+          <Card key={stat.label} className="border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-shadow hover:shadow-md">
+            <CardContent className="flex min-w-0 items-center justify-between gap-2 p-4 sm:p-5">
+              <div className="min-w-0">
+                <p className="truncate text-xs font-semibold uppercase tracking-wide text-slate-500">{stat.label}</p>
+                <p className="mt-2 text-2xl font-bold tracking-tight text-slate-950">{isLoading || isError ? "—" : stat.value}</p>
+              </div>
+              <span className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-xl", stat.tone)}><stat.icon className="h-[18px] w-[18px]" /></span>
+            </CardContent>
+          </Card>
+        ))}
+      </section>
+
+      <section className="space-y-3">
+        <div className="flex flex-wrap items-end justify-between gap-2 px-1">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700">Quality & compliance</p>
+            <h2 className="mt-1 text-lg font-semibold tracking-tight text-slate-950">Inspection workspace</h2>
+            <p className="mt-1 text-sm text-slate-500">Submit evidence for each lot and follow the warehouse verification decision.</p>
+          </div>
+          <Badge variant="outline" className="border-slate-200 bg-white text-slate-600">Farmer actions</Badge>
+        </div>
+        <FarmerQualityPanel />
+      </section>
       {showForm && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Create Batch from Harvested Crop</CardTitle>
+        <Card className="overflow-hidden border-slate-200 shadow-sm">
+          <CardHeader className="border-b border-slate-100 bg-slate-50/60">
+            <CardTitle className="text-base font-semibold text-slate-950">Create batch from harvested crop</CardTitle>
             <CardDescription>
-              Select a completed harvest to create its traceable batch. The marketplace product can be linked after quality approval.
+              Select a completed harvest to create a new traceable lot. You can add this lot to an existing marketplace product after quality approval.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={submit} className="grid gap-4 sm:grid-cols-2">
+            <form onSubmit={submit} className="grid gap-4 rounded-xl sm:grid-cols-2">
               <div className="space-y-1 sm:col-span-2">
                 <label className="text-xs font-medium text-gray-500">Harvested crop *</label>
                 <Select value={selectedHarvestId} onValueChange={(v) => {
@@ -323,7 +414,7 @@ export default function FarmerBatchesPage() {
                 <label className="text-xs font-medium text-gray-500">Notes</label>
                 <Input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="variety, field plot, remarks..." />
               </div>
-              <div className="sm:col-span-2 flex justify-end">
+              <div className="sm:col-span-2 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
                 <Button type="submit" disabled={createMutation.isPending || !selectedHarvest}>
                   {createMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
                   Create Batch
@@ -334,116 +425,188 @@ export default function FarmerBatchesPage() {
         </Card>
       )}
 
-      {isLoading ? (
-        <div className="flex justify-center py-16">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      {!isLoading && !isError && batches.length > 0 ? (
+        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_2px_8px_rgba(15,23,42,0.04)]">
+          <div className="flex flex-col gap-3 border-b border-slate-100 bg-white p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+            <div>
+              <h2 className="text-lg font-semibold tracking-tight text-slate-950">Harvest lots</h2>
+              <p className="mt-1 text-sm text-slate-500">{filteredBatches.length} of {batches.length} batches shown · {batchSummary.remainingKg.toLocaleString("en-IN")} kg remaining in stock</p>
+            </div>
+            <div className="relative w-full sm:max-w-sm">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <Input
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Search lot number, crop or grade..."
+                aria-label="Search harvest batches"
+                className="h-10 w-full bg-white pl-9 text-sm"
+              />
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-3 sm:px-5">
+            <span className="mr-1 inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <Filter className="h-3.5 w-3.5" />Filter
+            </span>
+            {([
+              ["all", "All batches", batches.length],
+              ["inspection", "Needs inspection", batchSummary.awaitingInspection],
+              ["listed", "Listed", batchSummary.listed],
+              ["expired", "Expired", batchSummary.expired],
+            ] as const).map(([value, label, count]) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={activeFilter === value}
+                onClick={() => setActiveFilter(value)}
+                className={cn(
+                  "inline-flex min-h-9 items-center gap-2 rounded-lg border px-3 text-xs font-semibold transition-colors",
+                  activeFilter === value
+                    ? "border-emerald-700 bg-emerald-700 text-white shadow-sm"
+                    : "border-slate-200 bg-white text-slate-600 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800"
+                )}
+              >
+                {label}
+                <span className={cn("rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums", activeFilter === value ? "bg-white/20 text-white" : "bg-slate-100 text-slate-600")}>{count}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {isError ? (
+        <Card className="border-red-200 shadow-sm">
+          <CardContent className="flex flex-col items-center px-5 py-14 text-center">
+            <AlertTriangle className="h-10 w-10 text-red-600" />
+            <h2 className="mt-3 text-base font-semibold text-slate-900">Unable to load batches</h2>
+            <p className="mt-1 max-w-lg text-sm text-slate-600">{(error as any)?.response?.data?.detail || (error as any)?.message || "Check your connection and try again."}</p>
+            <Button className="mt-4 bg-emerald-700 hover:bg-emerald-800" onClick={() => refetch()}>
+              <RefreshCw className="mr-2 h-4 w-4" />Try again
+            </Button>
+          </CardContent>
+        </Card>
+      ) : isLoading ? (
+        <div className="grid gap-3" aria-label="Loading batches">
+          {[0, 1, 2].map((item) => <div key={item} className="h-36 animate-pulse rounded-2xl border border-slate-200 bg-white" />)}
         </div>
       ) : batches.length === 0 ? (
-        <Card>
+        <Card className="border-dashed border-slate-300 shadow-none">
           <CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-            <Package className="h-10 w-10 text-slate-300" />
-            <p className="text-sm text-slate-500">No batches yet. Create your first harvest lot to enable traceability.</p>
+            <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700"><Package className="h-7 w-7" /></span>
+            <h2 className="text-base font-semibold text-slate-900">No batches created yet</h2>
+            <p className="max-w-md text-sm leading-6 text-slate-500">Create a traceable lot from a completed harvest to record shelf life, complete quality inspection and prepare the produce for listing.</p>
+            <Button className="mt-2 bg-emerald-700 hover:bg-emerald-800" onClick={() => setShowForm(true)}>
+              <Plus className="mr-2 h-4 w-4" />Create first batch
+            </Button>
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-3">
-          {batches.map((batch) => (
-            <Card key={batch.id}>
-              <CardContent className="grid gap-4 p-4 sm:grid-cols-[1fr_auto]">
-                <div className="space-y-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Layers className="h-4 w-4 text-primary" />
-                    <span className="font-mono text-sm font-semibold">{batch.lotNumber}</span>
-                    {batch.productId ? (
-                      <Badge variant="outline">
-                        <Link2 className="mr-1 h-3 w-3" /> Listed
-                      </Badge>
-                    ) : batch.status === "created" ? (
-                      <Badge variant="secondary">Unlisted</Badge>
-                    ) : null}
-                    {freshnessBadge(batch)}\n                    {qualityBadge(batch)}
-                  </div>
-                  <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-slate-600">
-                    <span className="flex items-center gap-1">
-                      <Wheat className="h-3.5 w-3.5 text-slate-400" /> {batch.cropName}
-                    </span>
-                    <span>{batch.quantityKg} kg{Number(batch.remainingKg) > 0 ? ` (${batch.remainingKg} kg remaining)` : ""}</span>
-                    <span className="flex items-center gap-1">
-                      <Snowflake className="h-3.5 w-3.5 text-slate-400" /> {storageLabel(batch.storageType)}
-                    </span>
-                    {batch.qualityGrade && (
-                      <span className="flex items-center gap-1">
-                        <FlaskConical className="h-3.5 w-3.5 text-slate-400" /> Grade: {batch.qualityGrade}
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-xs text-slate-400">
-                    Harvested {formatDate(batch.harvestDate)} · Default shelf life {batch.defaultShelfLifeDays ?? "—"} days · Actual shelf life {batch.actualShelfLifeDays ?? batch.shelfLifeDays ?? "—"} days · Safe delivery by {batch.safeDeliveryDate ? formatDate(batch.safeDeliveryDate) : "—"}
-                  </div>
-                </div>
-                <div className="flex items-start justify-end gap-2">
-                  <a
-                    href={`/trace/${encodeURIComponent(batch.lotNumber)}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:border-emerald-300 hover:text-emerald-700"
-                  >
-                    <QrCode className="h-4 w-4" /> QR / Trace
-                  </a>
-                  {!batch.productId && batch.status === "created" && batch.qualityStatus === "approved" && (
-                    <Button size="sm" onClick={() => setConverting({ batchId: batch.id, productId: "" })}>
-                      <PackagePlus className="mr-1.5 h-4 w-4" /> Add to Inventory
-                    </Button>
-                  )}
-                  {batch.qualityStatus === "pending_inspection" && batch.inspectionId && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={urgentMutation.isPending}
-                      onClick={() => urgentMutation.mutate(batch.inspectionId!)}
-                    >
-                      {urgentMutation.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <FlaskConical className="mr-1.5 h-4 w-4" />}
-                      Request Urgent Inspection
-                    </Button>
-                  )}
-                </div>
-
-                {converting?.batchId === batch.id && (
-                  <div className="sm:col-span-2 flex flex-col gap-2 rounded-md border bg-slate-50 p-3">
-                    <div className="flex items-center gap-2">
-                      <Select value={converting.productId} onValueChange={(v) => setConverting({ batchId: batch.id, productId: v })}>
-                        <SelectContent>
-                          <SelectItem value="">Select a product...</SelectItem>
-                          {products.map((p) => (
-                            <SelectItem key={p._id} value={p._id}>
-                              {p.name} ({(p as any).availableQuantity ?? p.quantity} {p.unit})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={!converting.productId || convertMutation.isPending}
-                        onClick={() => convertMutation.mutate({ batchId: batch.id, productId: converting.productId })}
-                      >
-                        {convertMutation.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-1.5 h-4 w-4" />}
-                        Add
-                      </Button>
-                      <Button size="sm" variant="ghost" onClick={() => setConverting(null)}>
-                        Cancel
-                      </Button>
-                    </div>
-                    {products.length === 0 && (
-                      <p className="text-xs text-slate-500">
-                        You have no products. Create one first under Products, then link this batch to it.
-                      </p>
-                    )}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          ))}
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          {filteredBatches.length === 0 ? (
+            <div className="flex flex-col items-center px-5 py-12 text-center">
+              <Search className="h-8 w-8 text-slate-300" />
+              <p className="mt-3 text-sm font-semibold text-slate-900">No matching batches</p>
+              <p className="mt-1 text-sm text-slate-500">Try another search or filter.</p>
+              <Button variant="outline" size="sm" className="mt-4" onClick={() => { setSearchQuery(""); setActiveFilter("all"); }}>Clear filters</Button>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[1080px] border-collapse text-left">
+                <thead className="bg-slate-50">
+                  <tr className="border-b border-slate-200 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    <th className="px-4 py-3">Batch / product</th>
+                    <th className="px-4 py-3">Harvest date</th>
+                    <th className="px-4 py-3">Quantity</th>
+                    <th className="px-4 py-3">Storage</th>
+                    <th className="px-4 py-3">Quality grade</th>
+                    <th className="px-4 py-3">Shelf life</th>
+                    <th className="px-4 py-3">Batch status</th>
+                    <th className="px-4 py-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredBatches.map((batch) => (
+                    <Fragment key={batch.id}>
+                      <tr className="align-top transition-colors hover:bg-emerald-50/30">
+                        <td className="px-4 py-4">
+                          <div className="flex items-start gap-3">
+                            <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><Layers className="h-4 w-4" /></span>
+                            <div className="min-w-0">
+                              <p className="font-mono text-xs font-bold text-slate-900">{batch.lotNumber}</p>
+                              <p className="mt-1 text-sm font-semibold text-slate-800">{batch.cropName}</p>
+                              <p className="mt-1 text-xs text-slate-500">{batch.productId ? "Linked to marketplace" : "Not listed yet"}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-700">{formatDate(batch.harvestDate)}</td>
+                        <td className="whitespace-nowrap px-4 py-4">
+                          <p className="text-sm font-semibold tabular-nums text-slate-900">{Number(batch.quantityKg || 0).toLocaleString("en-IN")} kg</p>
+                          <p className="mt-1 text-xs text-slate-500">{Number(batch.remainingKg || 0).toLocaleString("en-IN")} kg remaining</p>
+                        </td>
+                        <td className="px-4 py-4 text-sm text-slate-700">{storageLabel(batch.storageType)}</td>
+                        <td className="px-4 py-4 text-sm text-slate-700">{batch.qualityGrade || "—"}</td>
+                        <td className="px-4 py-4">
+                          <p className="text-sm font-medium text-slate-800">{batch.actualShelfLifeDays ?? batch.shelfLifeDays ?? "—"} days actual</p>
+                          <p className="mt-1 text-xs text-slate-500">Default: {batch.defaultShelfLifeDays ?? "—"} days</p>
+                          <p className="mt-1 text-xs text-slate-500">Safe by: {batch.safeDeliveryDate ? formatDate(batch.safeDeliveryDate) : "Not set"}</p>
+                        </td>
+                        <td className="px-4 py-4">
+                          <div className="flex flex-col items-start gap-1.5">
+                            {freshnessBadge(batch)}
+                            {qualityBadge(batch)}
+                            {batch.productId ? <Badge variant="outline"><Link2 className="mr-1 h-3 w-3" /> Listed</Badge> : <Badge variant="secondary">Unlisted</Badge>}
+                          </div>
+                        </td>
+                        <td className="px-4 py-4">
+                          <div className="flex justify-end gap-2">
+                            <a href={`/trace/${encodeURIComponent(batch.lotNumber)}`} target="_blank" rel="noreferrer" aria-label={`Open traceability for ${batch.lotNumber}`} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800">
+                              <QrCode className="h-4 w-4" /> Trace
+                            </a>
+                            {!batch.productId && batch.status === "created" && batch.qualityStatus === "approved" && (
+                              <Button size="sm" className="h-9 bg-emerald-700 px-2.5 text-xs hover:bg-emerald-800" onClick={() => setConverting({ batchId: batch.id, productId: "" })}>
+                                <PackagePlus className="mr-1 h-3.5 w-3.5" /> List
+                              </Button>
+                            )}
+                            {batch.qualityStatus === "pending_inspection" && batch.inspectionId && (
+                              <Button size="sm" variant="outline" className="h-9 border-amber-200 px-2.5 text-xs text-amber-800 hover:bg-amber-50" disabled={urgentMutation.isPending} onClick={() => urgentMutation.mutate(batch.inspectionId!)}>
+                                {urgentMutation.isPending ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <FlaskConical className="mr-1 h-3.5 w-3.5" />} Urgent
+                              </Button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                      {converting?.batchId === batch.id && (
+                        <tr className="bg-emerald-50/40">
+                          <td colSpan={8} className="px-4 py-4">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                              <div>
+                                <p className="text-sm font-semibold text-slate-900">Restock a marketplace product with {batch.lotNumber}</p>
+                                <p className="mt-1 text-xs text-slate-600">Choose the existing product to restock. Each additional harvest is tracked as a separate lot (001, 001A, 001B…).</p>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Select value={converting.productId} onValueChange={(value) => setConverting({ batchId: batch.id, productId: value })}>
+                                  <SelectContent>
+                                    <SelectItem value="">Select a product...</SelectItem>
+                                    {products.map((product) => (
+                                      <SelectItem key={product._id} value={product._id}>{product.name} ({(product as any).availableQuantity ?? product.quantity} {product.unit})</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                <Button size="sm" disabled={!converting.productId || convertMutation.isPending} onClick={() => convertMutation.mutate({ batchId: batch.id, productId: converting.productId })}>
+                                  {convertMutation.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-1.5 h-4 w-4" />} Add
+                                </Button>
+                                <Button size="sm" variant="ghost" onClick={() => setConverting(null)}>Cancel</Button>
+                              </div>
+                            </div>
+                            {products.length === 0 && <p className="mt-2 text-xs text-slate-500">You have no products. Create one first under Products, then link this batch to it.</p>}
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
     </div>

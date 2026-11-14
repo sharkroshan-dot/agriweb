@@ -210,6 +210,11 @@ function RouteMap({
       zoom={farm.lat != null ? 10 : 5}
       height="420px"
       markers={markers}
+      route={[
+        ...(hasFarmCoords ? [{ lat: farm.lat as number, lng: farm.lng as number }] : []),
+        ...locatedStops.map((stop) => ({ lat: stop.lat, lng: stop.lng })),
+        ...(hasFarmCoords && locatedStops.length ? [{ lat: farm.lat as number, lng: farm.lng as number }] : []),
+      ]}
       userLocation={userLocation}
       className="rounded-lg"
     />
@@ -353,6 +358,7 @@ export default function FarmerRoutePage() {
         return;
       }
       setStarted(true);
+      refetch();
       toast.success("Route started! Delivery stops are dispatched; priority is refreshed before execution.");
     },
     onError: () => toast.error("Failed to start route"),

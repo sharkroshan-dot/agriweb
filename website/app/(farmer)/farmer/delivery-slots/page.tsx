@@ -31,7 +31,9 @@ interface DeliverySlot {
   startTime: string;
   endTime: string;
   radiusKm: number;
-  maxOrders: number;
+  maxCapacityKg: number;
+  bookedCapacityKg?: number;
+  remainingCapacityKg?: number;
   deliveryFee: number;
   status: string;
   bookings?: number;
@@ -47,7 +49,7 @@ export default function FarmerDeliverySlotsPage() {
     startTime: "07:00",
     endTime: "10:00",
     radiusKm: "10",
-    maxOrders: "25",
+    maxCapacityKg: "5",
     deliveryFee: "0",
     notes: "",
   });
@@ -127,6 +129,13 @@ export default function FarmerDeliverySlotsPage() {
 
   const previewRadius = Math.max(1, Number(form.radiusKm) || 10);
   const selectedSlot = slots.find((s: DeliverySlot) => s.id === selectedSlotId) || null;
+  const { data: selectedSlotBookingsData, isLoading: selectedSlotBookingsLoading } = useQuery({
+    queryKey: ["farmerDeliverySlotBookings", selectedSlotId],
+    queryFn: () => api.get(`/delivery-slots/farmer/slots/${selectedSlotId}/bookings`),
+    enabled: Boolean(selectedSlotId),
+  });
+  const selectedSlotBookings = selectedSlotBookingsData?.data?.bookings || [];
+
   const slotMarkers = slots
     .filter((s: DeliverySlot) => areaCoordMap[s.area.trim()])
     .map((s: DeliverySlot) => ({
@@ -135,7 +144,7 @@ export default function FarmerDeliverySlotsPage() {
       lng: areaCoordMap[s.area.trim()].lng,
       title: s.area,
       color: "#059669",
-      info: `${formatDate(s.date)} • ${s.startTime} – ${s.endTime} · ${s.bookings ?? 0}/${s.maxOrders} joined`,
+      info: `${formatDate(s.date)} • ${s.startTime} – ${s.endTime} · ${Number(s.bookedCapacityKg || 0).toFixed(1)}/${s.maxCapacityKg} kg joined`,
     }));
   const selectedCircle =
     selectedSlot && areaCoordMap[selectedSlot.area.trim()]
@@ -189,8 +198,9 @@ export default function FarmerDeliverySlotsPage() {
               <Input type="number" min={1} value={form.radiusKm} onChange={(e) => setForm({ ...form, radiusKm: e.target.value })} />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-medium text-gray-500">Max orders</label>
-              <Input type="number" min={1} value={form.maxOrders} onChange={(e) => setForm({ ...form, maxOrders: e.target.value })} />
+              <label className="text-xs font-medium text-gray-500">Maximum delivery capacity (kg) *</label>
+              <Input type="number" min={0.1} step="0.1" value={form.maxCapacityKg} onChange={(e) => setForm({ ...form, maxCapacityKg: e.target.value })} />
+              <p className="text-xs text-gray-400">Total weight you can deliver in this time slot.</p>
             </div>
             <div className="space-y-1">
               <label className="text-xs font-medium text-gray-500">Delivery fee (₹)</label>
@@ -259,7 +269,7 @@ export default function FarmerDeliverySlotsPage() {
                     startTime: form.startTime,
                     endTime: form.endTime,
                     radiusKm: Number(form.radiusKm),
-                    maxOrders: Number(form.maxOrders),
+                    maxCapacityKg: Number(form.maxCapacityKg),
                     deliveryFee: Number(form.deliveryFee),
                     notes: form.notes || null,
                   })
@@ -312,7 +322,7 @@ export default function FarmerDeliverySlotsPage() {
                     ) : slot.status === "cancelled" ? (
                       <Badge variant="destructive">Cancelled</Badge>
                     ) : (
-                      <Badge variant="outline">{slot.bookings ?? 0}/{slot.maxOrders}</Badge>
+                      <Badge variant="outline">{Number(slot.remainingCapacityKg ?? 0).toFixed(2)} kg left</Badge>
                     )}
                   </div>
                   <CardDescription className="flex items-center gap-1">
@@ -320,6 +330,16 @@ export default function FarmerDeliverySlotsPage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
+                  <div className="rounded-lg bg-emerald-50 p-3">
+                    <div className="mb-1 flex items-center justify-between text-xs font-medium text-emerald-800">
+                      <span>Delivery capacity used</span>
+                      <span>{Number(slot.bookedCapacityKg ?? 0).toFixed(2)} / {Number(slot.maxCapacityKg ?? 0).toFixed(2)} kg</span>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-emerald-100">
+                      <div className="h-full rounded-full bg-emerald-600" style={{ width: `${Math.min(100, Number(slot.maxCapacityKg) > 0 ? Number(slot.bookedCapacityKg || 0) / Number(slot.maxCapacityKg) * 100 : 0)}%` }} />
+                    </div>
+                    <p className="mt-1 text-xs text-emerald-700">{Number(slot.remainingCapacityKg ?? 0).toFixed(2)} kg remaining</p>
+                  </div>
                   <div className="grid grid-cols-2 gap-2 text-sm text-gray-600">
                     <div className="flex items-center gap-2">
                       <MapPin className="h-4 w-4 text-emerald-600" />
@@ -327,7 +347,7 @@ export default function FarmerDeliverySlotsPage() {
                     </div>
                     <div className="flex items-center gap-2">
                       <Users className="h-4 w-4 text-emerald-600" />
-                      {slot.bookings ?? 0} joined
+                      {Number(slot.bookedCapacityKg ?? 0).toFixed(2)} / {Number(slot.maxCapacityKg ?? 0).toFixed(2)} kg booked
                     </div>
                     <div className="flex items-center gap-2">
                       <IndianRupee className="h-4 w-4 text-emerald-600" />
@@ -355,6 +375,43 @@ export default function FarmerDeliverySlotsPage() {
               </Card>
             ))}
           </div>
+
+          {selectedSlot && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Customer bookings · {selectedSlot.area}</CardTitle>
+                <CardDescription>
+                  {selectedSlotBookings.length} customer reservation(s) linked to this delivery batch.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {selectedSlotBookingsLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-gray-500"><Loader2 className="h-4 w-4 animate-spin"/> Loading bookings…</div>
+                ) : selectedSlotBookings.length === 0 ? (
+                  <p className="text-sm text-gray-500">No customers have booked this slot yet.</p>
+                ) : selectedSlotBookings.map((booking: any) => (
+                  <div key={booking.id} className="rounded-xl border p-3">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <p className="font-semibold text-slate-900">{booking.customer?.name || "Customer"}</p>
+                        <p className="text-xs text-slate-500">{booking.customer?.phone || "Phone not provided"}</p>
+                      </div>
+                      <Badge variant={booking.orderId ? "default" : "outline"}>{booking.orderId ? (booking.orderStatus || "Order linked") : "Slot joined · no order yet"}</Badge>
+                    </div>
+                    {booking.orderNumber && <p className="mt-2 text-xs text-slate-600">Order: {booking.orderNumber}</p>}
+                    <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-600">
+                      {(booking.items || []).map((item: any, index: number) => (
+                        <span key={index} className="rounded-full bg-slate-100 px-2 py-1">{item.productName} · {item.quantity}</span>
+                      ))}
+                    </div>
+                    {booking.deliveryAddress?.addressLine1 && (
+                      <p className="mt-2 text-xs text-slate-500">{booking.deliveryAddress.addressLine1}, {booking.deliveryAddress.city || ""}</p>
+                    )}
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
 
           {slotMarkers.length > 0 && (
             <Card>

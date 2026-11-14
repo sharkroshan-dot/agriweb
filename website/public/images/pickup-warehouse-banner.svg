@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 300" role="img" aria-label="AgriConnect warehouse landscape">
+<defs>
+ <linearGradient id="sky" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#f8fffd"/><stop offset=".48" stop-color="#e6f5ff"/><stop offset="1" stop-color="#dff4e8"/></linearGradient>
+ <linearGradient id="hill" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#b8dfc0"/><stop offset="1" stop-color="#77b889"/></linearGradient>
+ <linearGradient id="wall" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#fff"/><stop offset="1" stop-color="#e6edf0"/></linearGradient>
+ <linearGradient id="roof" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#647b83"/><stop offset="1" stop-color="#344e55"/></linearGradient>
+</defs>
+<rect width="1600" height="300" fill="url(#sky)"/>
+<circle cx="1370" cy="52" r="36" fill="#fff" opacity=".65"/>
+<path d="M0 215 Q180 110 350 190 T700 175 T1050 190 T1400 160 T1600 190 V300 H0Z" fill="#c9e8d1"/>
+<path d="M0 240 Q210 170 410 220 T830 205 T1250 210 T1600 205 V300 H0Z" fill="url(#hill)"/>
+<path d="M0 270 Q280 230 510 260 T1000 250 T1600 245 V300 H0Z" fill="#83bd8d"/>
+<!-- distant tree line -->
+<g fill="#6ca77a" opacity=".8"><circle cx="820" cy="174" r="32"/><circle cx="850" cy="164" r="40"/><circle cx="886" cy="180" r="27"/><rect x="846" y="178" width="9" height="62" fill="#927b59"/><circle cx="1500" cy="145" r="34"/><circle cx="1530" cy="158" r="29"/><rect x="1508" y="165" width="9" height="64" fill="#927b59"/></g>
+<!-- warehouse building -->
+<path d="M870 124 L1110 28 L1350 124" fill="url(#roof)" stroke="#49616a" stroke-width="5" stroke-linejoin="round"/>
+<path d="M902 122 H1318 V259 H902Z" fill="url(#wall)" stroke="#a6b7bd" stroke-width="4"/>
+<path d="M902 122 H1318 V146 H902Z" fill="#edf4f5"/>
+<rect x="946" y="162" width="145" height="97" fill="#b7c6ca" stroke="#82989f" stroke-width="3"/>
+<rect x="1105" y="160" width="168" height="99" fill="#d2dfe1" stroke="#82989f" stroke-width="3"/>
+<rect x="963" y="179" width="111" height="80" fill="#536d73"/>
+<rect x="1121" y="177" width="136" height="82" fill="#617b80"/>
+<path d="M963 179 H1074 M1121 177 H1257" stroke="#e7f1f0" stroke-width="7"/>
+<g fill="#e9bd74"><rect x="982" y="220" width="31" height="39"/><rect x="1017" y="220" width="31" height="39"/><rect x="1140" y="219" width="31" height="40"/><rect x="1175" y="219" width="31" height="40"/></g>
+<g fill="#166534"><path d="M1087 88 l13 -8 13 8 -13 8Z"/><path d="M1095 95 h10 v13 h-10Z"/></g>
+<text x="1110" y="118" text-anchor="middle" font-family="Arial,sans-serif" font-size="19" font-weight="700" fill="#243a3c">AgriConnect</text>
+<text x="1110" y="137" text-anchor="middle" font-family="Arial,sans-serif" font-size="13" font-weight="700" fill="#243a3c">WAREHOUSE</text>
+<!-- trees -->
+<g><rect x="790" y="177" width="12" height="79" fill="#8b7355"/><circle cx="796" cy="150" r="34" fill="#368b50"/><circle cx="770" cy="166" r="25" fill="#4a9d5e"/><circle cx="821" cy="166" r="27" fill="#277b45"/></g>
+<g><rect x="1380" y="171" width="12" height="83" fill="#8b7355"/><circle cx="1386" cy="145" r="36" fill="#34864c"/><circle cx="1358" cy="162" r="25" fill="#4b9c5c"/><circle cx="1413" cy="163" r="28" fill="#287844"/></g>
+<!-- delivery truck -->
+<g transform="translate(1280 207)"><rect x="0" y="5" width="133" height="54" rx="7" fill="#fff" stroke="#789098" stroke-width="3"/><path d="M133 22 H174 L197 43 V59 H133Z" fill="#eaf4f0" stroke="#789098" stroke-width="3"/><path d="M150 27 H170 L185 44 H150Z" fill="#a9d5e5"/><circle cx="39" cy="62" r="13" fill="#34464a"/><circle cx="39" cy="62" r="6" fill="#dce6e8"/><circle cx="159" cy="62" r="13" fill="#34464a"/><circle cx="159" cy="62" r="6" fill="#dce6e8"/><path d="M45 22 l10 -7 10 7 -10 7Z" fill="#15803d"/><path d="M51 29 h8 v13 h-8Z" fill="#15803d"/></g>
+<path d="M0 294 H1600" stroke="#6fae7d" stroke-width="12"/>
+</svg>

@@ -1,300 +1,138 @@
 "use client";
 
-import { useMemo } from "react";
-import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
-import { MapPin, Building2, Globe, ShieldCheck, IndianRupee, Truck, ArrowRight, Star, Loader2, Eye, Factory, ClipboardList, Layers, Briefcase } from "lucide-react";
-import { Card, CardContent } from "../../components/ui/card";
-import { Button } from "../../components/ui/button";
-import { Badge } from "../../components/ui/badge";
-import { formatPrice } from "../../lib/utils";
+import { Suspense, useMemo, useState } from "react";
+import { usePageParams } from "../../lib/hooks/use-page-params";
+import { usePersistentQuery } from "../../lib/hooks/use-persistent-query";
+import { useParamField } from "../../lib/hooks/use-param-field";
 import { api } from "../../lib/api/client";
-import { HarvestSections } from "../../components/customer/harvest-sections";
+import { PlaceSelector, type PlaceSelection } from "../../components/customer/place-selector";
+import { ProductCard } from "../../components/customer/product-card";
+import { Button } from "../../components/ui/button";
+import { Input } from "../../components/ui/input";
+import { MapPin, Globe2, Map, Search, Store, Navigation, Loader2, SlidersHorizontal, ChevronDown, Leaf, Sprout, LayoutGrid, List, X } from "lucide-react";
 
-const modes = [
-  {
-    icon: MapPin,
-    title: "Nearby Purchase",
-    description: "Buy from farmers in your neighborhood",
-    features: ["2km radius", "5km radius", "10km radius", "20km radius", "50km radius"],
-    cta: "Shop Nearby",
-    href: "/nearby",
-    gradient: "from-emerald-500 to-emerald-700",
-  },
-  {
-    icon: Building2,
-    title: "State Marketplace",
-    description: "Buy from any district in your state",
-    features: ["Fresh produce from across the state", "Wide variety of products", "Support local farmers"],
-    cta: "Explore State",
-    href: "/marketplace/state",
-    gradient: "from-teal-500 to-teal-700",
-  },
-  {
-    icon: Globe,
-    title: "National Marketplace",
-    description: "Premium products from across India",
-    features: ["Kashmir Apples", "Punjab Wheat", "Nagpur Oranges", "Kerala Spices", "Assam Tea"],
-    cta: "Shop Nationwide",
-    href: "/marketplace/national",
-    gradient: "from-green-500 to-green-700",
-  },
-  {
-    icon: Factory,
-    title: "B2B Procurement",
-    description: "Bulk sourcing for restaurants, hotels & businesses",
-    features: ["Wholesale pricing", "Contract farming options", "Regular delivery schedules", "Quality assurance", "GST invoicing"],
-    cta: "Explore B2B",
-    href: "/marketplace/b2b",
-    gradient: "from-indigo-500 to-indigo-700",
-  },
-];
+type Scope = "nearby" | "state" | "national" | "all";
+const RADII = [2, 5, 10, 20, 50];
 
-const trust = [
-  {
-    icon: ShieldCheck,
-    title: "Freshness Guaranteed",
-    desc: "Farm-fresh produce delivered directly to your doorstep within 24 hours of harvest.",
-  },
-  {
-    icon: IndianRupee,
-    title: "Fair Prices for Farmers",
-    desc: "We ensure farmers get fair market prices with no middlemen, helping rural communities thrive.",
-  },
-  {
-    icon: Truck,
-    title: "Free Delivery Above Rs 299",
-    desc: "Free delivery on all orders above Rs 299. Same-day delivery available in select areas.",
-  },
-];
+function MarketplaceInner() {
+  const { params, update } = usePageParams();
+  const legacyScope = params.view === "state" ? "state" : params.view === "national" ? "national" : params.view === "all" ? "all" : "nearby";
+  const scope: Scope = (["nearby","state","national","all"].includes(params.scope) ? params.scope : legacyScope) as Scope;
+  const place: PlaceSelection = {country:params.country||"",state:params.state||"",district:params.district||"",city:params.city||""};
+  const radius = RADII.includes(Number(params.radius)) ? Number(params.radius) : 10;
+  const search = useParamField("search",350);
+  const category = params.category || "";
+  const [coords,setCoords] = useState<{lat:number;lng:number}|null>(null);
+  const [locating,setLocating] = useState(false);
+  const [filtersOpen,setFiltersOpen] = useState({category:true,price:true,farmer:true,availability:true,certification:true,delivery:true});
+  const [gridView,setGridView] = useState(true);
+  const [harvestTab,setHarvestTab] = useState<"all"|"harvested"|"preharvest">((params.harvest as any)||"all");
+  const [mobileFilters,setMobileFilters] = useState(false);
 
-export default function MarketplaceHubPage() {
-  const { data: productsData, isLoading } = useQuery({
-    queryKey: ["marketplaceProducts"],
-    queryFn: () =>
-      api.get("/products/search", {
-        params: { limit: 8, sortBy: "createdAt", sortOrder: "desc" },
-      }),
+  const setScope=(next:Scope)=>update(next==="state"?{scope:next,country:place.country||"India",state:"",district:"",city:"",page:"1"}:{scope:next,page:"1"},{push:true});
+  const locate=()=>{
+    if(!navigator.geolocation)return;
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(p=>{setCoords({lat:p.coords.latitude,lng:p.coords.longitude});setLocating(false);},()=>setLocating(false),{enableHighAccuracy:true,timeout:10000,maximumAge:30000});
+  };
+
+  const productsQuery=usePersistentQuery({
+    queryKey:["unified-marketplace",scope,place,radius,coords,category,params.search||"",params.sortBy||"",params.minPrice||"",params.maxPrice||""],
+    enabled:scope!=="state"||!!place.state,
+    queryFn:()=>{
+      if(scope==="state")return api.get("/marketplace/state",{params:{country:place.country||undefined,state:place.state,district:place.district||undefined,city:place.city||undefined,category:category||undefined,search:params.search||undefined,sortBy:params.sortBy||undefined}});
+      if(scope==="national")return api.get("/marketplace/national",{params:{country:place.country||undefined,state:place.state||undefined,district:place.district||undefined,city:place.city||undefined,category:category||undefined,minPrice:params.minPrice||undefined,maxPrice:params.maxPrice||undefined,sortBy:params.sortBy||undefined}});
+      const q:Record<string,any>={limit:100,sortBy:params.sortBy||"createdAt",sortOrder:"desc"};
+      if(scope==="nearby"&&coords)Object.assign(q,{lat:coords.lat,lng:coords.lng,radius});
+      if(scope==="nearby"||(scope==="all"&&(place.country||place.state||place.district||place.city)))Object.assign(q,{country:place.country||undefined,state:place.state||undefined,district:place.district||undefined,city:place.city||undefined});
+      if(params.search)q.query=params.search;if(category)q.category=category;
+      return api.get("/products/search",{params:q});
+    }
   });
+  const raw=scope==="state"&&!place.state?[]:(productsQuery.data?.data?.products||productsQuery.data?.products||[]);
+  const products=useMemo(()=>{
+    let rows=raw.map((p:any)=>({...p,id:p._id||p.id,name:p.name||"Fresh Produce",price:Number(p.price)||0,unit:p.unit||"kg",images:p.images||(p.image?[p.image]:[]),farmerName:p.farmerName||p.farmName||p.farmer?.farmName||p.farmer?.name||"Local Farmer",rating:Number(p.ratings?.average||p.rating||0),category:p.category||"Others",quantity:p.availableQuantity??p.quantity??p.stock??0,farmDistanceKm:p.farmDistanceKm??p.distanceKm}));
+    const term=(params.search||"").trim().toLowerCase();
+    if(term)rows=rows.filter((p:any)=>[p.name,p.category,p.farmerName].some(v=>String(v||"").toLowerCase().includes(term)));
+    if(category)rows=rows.filter((p:any)=>String(p.category).toLowerCase()===category.toLowerCase());
+    if(params.minPrice)rows=rows.filter((p:any)=>p.price>=Number(params.minPrice));
+    if(params.maxPrice)rows=rows.filter((p:any)=>p.price<=Number(params.maxPrice));
+    if(params.availability==="stock")rows=rows.filter((p:any)=>Number(p.quantity)>0||p.inStock===true);
+    if(params.availability==="preorder")rows=rows.filter((p:any)=>["preorder","pre_harvest","open"].includes(String(p.status||p.harvestStatus||"").toLowerCase()));
+    if(params.farmerType==="individual")rows=rows.filter((p:any)=>!String(p.farmerType||p.farmer?.type||"").toLowerCase().match(/fpo|cooperative|organization/));
+    if(params.farmerType==="fpo")rows=rows.filter((p:any)=>String(p.farmerType||p.farmer?.type||"").toLowerCase().match(/fpo|cooperative|organization/));
+    if(params.assurance==="organic")rows=rows.filter((p:any)=>p.isOrganic===true||p.tags?.includes?.("organic"));
+    if(params.assurance==="verified")rows=rows.filter((p:any)=>["verified","buyer_verified"].includes(String(p.verificationStatus||"").toLowerCase()));
+    if(params.delivery==="home")rows=rows.filter((p:any)=>p.deliveryAvailable===true||p.homeDeliveryAvailable===true||p.deliveryOptions?.includes?.("home_delivery"));
+    if(params.delivery==="pickup")rows=rows.filter((p:any)=>p.pickupAvailable===true||p.deliveryOptions?.includes?.("farm_pickup"));
+    if(params.sortBy==="price-asc")rows.sort((a:any,b:any)=>a.price-b.price);
+    if(params.sortBy==="price-desc")rows.sort((a:any,b:any)=>b.price-a.price);
+    if(params.sortBy==="rating")rows.sort((a:any,b:any)=>b.rating-a.rating);
+    return rows;
+  },[raw,params.search,category,params.minPrice,params.maxPrice,params.sortBy,params.availability,params.farmerType,params.assurance,params.delivery,harvestTab]);
+  const categories=useMemo(()=>Array.from(new Set(raw.map((p:any)=>p.category).filter(Boolean))).sort() as string[],[raw]);
+  const preHarvestQuery=usePersistentQuery({queryKey:["marketplace-preharvest",place,coords,radius],queryFn:()=>api.get("/harvests/upcoming",{params:{...(coords?{lat:String(coords.lat),lng:String(coords.lng),radius}:{}),...(place.state?{state:place.state}:{}),...(place.district?{district:place.district}:{}),...(place.city?{city:place.city}:{})}})});
+  const preHarvestPlans=preHarvestQuery.data?.data?.plans||preHarvestQuery.data?.data||[];
+  const displayedProducts=harvestTab==="preharvest"?[]:products;
+  const title=scope==="nearby"?"Nearby Farmers":scope==="state"?"State Marketplace":scope==="national"?"National Marketplace":"All Products";
+  const needsState=scope==="state"&&!place.state;
+  const toggleFilter=(key:keyof typeof filtersOpen)=>setFiltersOpen(v=>({...v,[key]:!v}));
+  const resetFilters=()=>{update({category:"",minPrice:"",maxPrice:"",search:"",sortBy:"",availability:"",farmerType:"",assurance:"",delivery:""});setHarvestTab("all");};
 
-  const latestProducts = useMemo(() => {
-    const list = productsData?.data?.products || [];
-    return list.slice(0, 4).map((p: any) => ({
-      id: p._id || p.id,
-      name: p.name || "Unknown",
-      farmerName: p.farmerName || "Local Farmer",
-      category: p.category || "General",
-      price: p.price,
-      unit: p.unit || "kg",
-      image: p.images?.[0] || "/images/placeholder-product.jpg",
-      rating: p.ratings?.average || 4.5,
-      isOrganic: p.isOrganic || false,
-    }));
-  }, [productsData]);
+  const filterPanel=<div className="space-y-0 divide-y divide-slate-100">
+    <div className="pb-3"><div className="mb-2 flex items-center justify-between"><h3 className="font-bold text-slate-900">Filters</h3><button onClick={resetFilters} className="text-xs font-semibold text-emerald-700 hover:underline">Clear All</button></div></div>
+    <section className="py-3"><button onClick={()=>toggleFilter("category")} className="flex w-full items-center justify-between text-sm font-semibold text-slate-800">Category <ChevronDown className={`h-4 w-4 transition-transform ${filtersOpen.category?"":"-rotate-90"}`}/></button>{filtersOpen.category&&<div className="mt-2 space-y-2">{categories.map((c)=>{const count=raw.filter((p:any)=>String(p.category||"").toLowerCase()===c.toLowerCase()).length;return <label key={c} className="flex cursor-pointer items-center gap-2 text-sm text-slate-700"><input type="radio" name="market-category" checked={category===c} onChange={()=>update({category:category===c?"":c})} className="h-4 w-4 accent-emerald-700"/><span className="flex-1">{c}</span><span className="text-xs text-slate-400">({count})</span></label>})}</div>}</section>
+    <section className="py-3"><button onClick={()=>toggleFilter("price")} className="flex w-full items-center justify-between text-sm font-semibold text-slate-800">Price Range <ChevronDown className={`h-4 w-4 ${filtersOpen.price?"":"-rotate-90"}`}/></button>{filtersOpen.price&&<div className="mt-2 grid grid-cols-2 gap-2"><Input type="number" min="0" value={params.minPrice||""} onChange={e=>update({minPrice:e.target.value})} placeholder="Min ₹"/><Input type="number" min="0" value={params.maxPrice||""} onChange={e=>update({maxPrice:e.target.value})} placeholder="Max ₹"/></div>}</section>
+    <section className="py-3"><button onClick={()=>toggleFilter("availability")} className="flex w-full items-center justify-between text-sm font-semibold text-slate-800">Availability <ChevronDown className={`h-4 w-4 ${filtersOpen.availability?"":"-rotate-90"}`}/></button>{filtersOpen.availability&&<div className="mt-2 space-y-2">{[{value:"stock",label:"In stock",count:raw.filter((p:any)=>Number(p.availableQuantity??p.quantity??p.stock??0)>0||p.inStock===true).length},{value:"preorder",label:"Pre-order available",count:raw.filter((p:any)=>["preorder","pre_harvest","open"].includes(String(p.status||p.harvestStatus||"").toLowerCase())).length}].map(o=><label key={o.value} className="flex cursor-pointer items-center gap-2 text-sm text-slate-700"><input type="radio" name="availability" checked={(params.availability||"")===o.value} onChange={()=>update({availability:params.availability===o.value?"":o.value})} className="h-4 w-4 accent-emerald-700"/><span className="flex-1">{o.label}</span><span className="text-xs text-slate-400">({o.count})</span></label>)}</div>}</section>
+    <section className="py-3"><button onClick={()=>toggleFilter("farmer")} className="flex w-full items-center justify-between text-sm font-semibold text-slate-800">Farmer Type <ChevronDown className={`h-4 w-4 ${filtersOpen.farmer?"":"-rotate-90"}`}/></button>{filtersOpen.farmer&&<div className="mt-2 space-y-2">{[{value:"individual",label:"Individual farmer"},{value:"fpo",label:"FPO / Cooperative"}].map(o=><label key={o.value} className="flex cursor-pointer items-center gap-2 text-sm text-slate-700"><input type="radio" name="farmerType" checked={(params.farmerType||"")===o.value} onChange={()=>update({farmerType:params.farmerType===o.value?"":o.value})} className="h-4 w-4 accent-emerald-700"/>{o.label}</label>)}</div>}</section>
+    <section className="py-3"><button onClick={()=>toggleFilter("certification")} className="flex w-full items-center justify-between text-sm font-semibold text-slate-800">Product Assurance <ChevronDown className={`h-4 w-4 ${filtersOpen.certification?"":"-rotate-90"}`}/></button>{filtersOpen.certification&&<div className="mt-2 space-y-2">{[{value:"organic",label:"Organic",count:raw.filter((p:any)=>p.isOrganic===true||p.tags?.includes?.("organic")).length},{value:"verified",label:"Verified farmer",count:raw.filter((p:any)=>["verified","buyer_verified"].includes(String(p.verificationStatus||"").toLowerCase())).length}].map(o=><label key={o.value} className="flex cursor-pointer items-center gap-2 text-sm text-slate-700"><input type="radio" name="assurance" checked={(params.assurance||"")===o.value} onChange={()=>update({assurance:params.assurance===o.value?"":o.value})} className="h-4 w-4 accent-emerald-700"/><span className="flex-1">{o.label}</span><span className="text-xs text-slate-400">({o.count})</span></label>)}</div>}</section>
+    <section className="py-3"><button onClick={()=>toggleFilter("delivery")} className="flex w-full items-center justify-between text-sm font-semibold text-slate-800">Delivery Method <ChevronDown className={`h-4 w-4 ${filtersOpen.delivery?"":"-rotate-90"}`}/></button>{filtersOpen.delivery&&<div className="mt-2 space-y-2">{[{value:"home",label:"Home delivery",count:raw.filter((p:any)=>p.deliveryAvailable===true||p.homeDeliveryAvailable===true||p.deliveryOptions?.includes?.("home_delivery")).length},{value:"pickup",label:"Farm pickup",count:raw.filter((p:any)=>p.pickupAvailable===true||p.deliveryOptions?.includes?.("farm_pickup")).length}].map(o=><label key={o.value} className="flex cursor-pointer items-center gap-2 text-sm text-slate-700"><input type="radio" name="delivery" checked={(params.delivery||"")===o.value} onChange={()=>update({delivery:params.delivery===o.value?"":o.value})} className="h-4 w-4 accent-emerald-700"/><span className="flex-1">{o.label}</span><span className="text-xs text-slate-400">({o.count})</span></label>)}</div>}</section>
+  </div>;
 
-  return (
-    <div className="space-y-16 p-6">
-      {/* Header */}
-      <div className="space-y-2 pt-4">
-        <h1 className="text-3xl font-bold text-slate-900">Marketplace</h1>
-        <p className="text-base text-slate-500">Choose how you want to shop</p>
-      </div>
+  return <div className="space-y-4 px-4 py-5 md:px-5 md:py-6">
+    <header className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700"><Store className="h-6 w-6"/></div><div><h1 className="text-2xl font-extrabold tracking-tight text-slate-950">Marketplace</h1><p className="text-sm text-slate-600">Discover fresh products from local farmers near you, across your state and from all over India.</p></div></header>
 
-      {/* Mode cards */}
-      <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-4">
-        {modes.map((mode) => {
-          const Icon = mode.icon;
-          return (
-            <Card
-              key={mode.title}
-              className="group relative overflow-hidden border-0 p-0 shadow-lg transition-all hover:shadow-xl"
-            >
-              <div className={`bg-gradient-to-br ${mode.gradient} p-8 text-white`}>
-                <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-white/20 backdrop-blur">
-                  <Icon className="h-7 w-7" />
-                </div>
-                <h2 className="mb-2 text-xl font-bold">{mode.title}</h2>
-                <p className="text-sm text-white/80">{mode.description}</p>
-              </div>
-              <CardContent className="space-y-4 p-6">
-                <ul className="space-y-2">
-                  {mode.features.map((f) => (
-                    <li key={f} className="flex items-center gap-2 text-sm text-slate-600">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                      {f}
-                    </li>
-                  ))}
-                </ul>
-                <Button asChild className="w-full">
-                  <Link href={mode.href}>
-                    {mode.cta}
-                    <ArrowRight className="ml-2 h-4 w-4" />
-                  </Link>
-                </Button>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
-
-      {/* Bulk / Event banner */}
-      <Card className="border-purple-100 bg-gradient-to-r from-purple-50 to-violet-50 p-0 shadow-md">
-        <CardContent className="flex flex-col items-center gap-6 p-8 text-center md:flex-row md:text-left">
-          <div className="flex-1 space-y-3">
-            <h2 className="text-2xl font-bold text-slate-900">🎉 Planning an event?</h2>
-            <p className="text-slate-600">
-              Need large quantities for a wedding, function, festival or party? Create a bulk request,
-              get quotes from nearby farmers, and pick the best offer — no need to search farmers one by one.
-            </p>
-            <Button asChild size="lg" className="bg-purple-600 hover:bg-purple-700">
-              <Link href="/bulk-orders/create">
-                Create Bulk Order
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Link>
-            </Button>
-          </div>
-          <div className="flex shrink-0 gap-2">
-            {["🎉", "👰", "🧑‍🤝‍🧑", "🎊"].map((e, i) => (
-              <span
-                key={i}
-                className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-white bg-slate-100 text-lg shadow-sm"
-              >
-                {e}
-              </span>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Latest Products */}
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-2xl font-bold text-slate-900">Latest Products</h2>
-            <p className="mt-1 text-slate-500">Fresh from the farm, straight to you</p>
-          </div>
-          <Button asChild variant="outline" className="hidden sm:inline-flex">
-            <Link href="/search">
-              Browse All
-              <ArrowRight className="ml-2 h-4 w-4" />
-            </Link>
-          </Button>
+    <section className="relative isolate min-h-[165px] overflow-hidden rounded-2xl border border-emerald-100 bg-cover bg-center shadow-sm md:min-h-[185px]" style={{backgroundImage:"linear-gradient(90deg, rgba(248,252,222,.98) 0%, rgba(238,250,220,.94) 38%, rgba(231,247,224,.45) 62%, rgba(231,247,224,.08) 100%), url('https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=1800&q=85')"}}>
+      <div className="absolute inset-0 bg-gradient-to-r from-lime-100/35 via-transparent to-emerald-900/5" aria-hidden="true"/>
+      <div className="relative z-10 flex min-h-[165px] items-center px-5 py-5 md:min-h-[185px] md:px-9">
+        <div className="max-w-[58%] md:max-w-[62%]">
+          <p className="mb-2 text-[10px] font-extrabold uppercase tracking-[0.22em] text-emerald-800">Fresh Daily · Farm to Home</p>
+          <h2 className="text-2xl font-black leading-tight tracking-tight text-slate-950 md:text-3xl">Fresh from<br className="hidden sm:block"/> Local Farmers to Your Home</h2>
+          <p className="mt-2 text-xs font-bold text-slate-800 md:text-sm">Fresh Produce <span className="mx-2 text-emerald-700">|</span> Verified Farmers <span className="mx-2 text-emerald-700">|</span> Safe &amp; Traceable</p>
+          <a href="/nearby" className="mt-3 inline-flex items-center rounded-full bg-emerald-700 px-5 py-2.5 text-sm font-bold text-white shadow-md transition hover:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2">Shop Fresh Now <span className="ml-2">→</span></a>
         </div>
-
-        {isLoading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="h-8 w-8 animate-spin text-emerald-600" />
-          </div>
-        ) : latestProducts.length === 0 ? (
-          <Card className="p-12 text-center">
-            <Eye className="mx-auto h-12 w-12 text-slate-300" />
-            <h3 className="mt-4 text-lg font-semibold text-slate-900">No products yet</h3>
-            <p className="mt-2 text-sm text-slate-500">
-              Products will appear here once farmers start listing them.
-            </p>
-          </Card>
-        ) : (
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-            {latestProducts.map((product: any) => (
-              <Link key={product.id} href={`/product/${product.id}`} className="group">
-                <Card className="overflow-hidden border-slate-200 transition-all hover:border-emerald-300 hover:shadow-md">
-                  <div className="relative aspect-[4/3] overflow-hidden bg-slate-100">
-                    <img
-                      src={product.image}
-                      alt={product.name}
-                      className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-                    />
-                    {product.isOrganic && (
-                      <Badge className="absolute left-2 top-2 bg-emerald-600 text-xs text-white">Organic</Badge>
-                    )}
-                  </div>
-                  <CardContent className="p-4">
-                    <p className="text-xs text-slate-400">{product.category}</p>
-                    <h3 className="mt-0.5 truncate text-sm font-semibold text-slate-900">{product.name}</h3>
-                    <p className="mt-0.5 text-xs text-slate-500">{product.farmerName}</p>
-                    <div className="mt-3 flex items-center justify-between">
-                      <span className="text-sm font-bold text-emerald-700">
-                        {formatPrice(product.price)}
-                        <span className="ml-0.5 text-xs font-normal text-slate-400">/{product.unit}</span>
-                      </span>
-                      <span className="flex items-center gap-1 text-xs text-slate-500">
-                        <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
-                        {product.rating.toFixed(1)}
-                      </span>
-                    </div>
-                  </CardContent>
-                </Card>
-              </Link>
-            ))}
-          </div>
-        )}
-
-        <div className="text-center sm:hidden">
-          <Button asChild variant="outline">
-            <Link href="/search">
-              Browse All Products
-              <ArrowRight className="ml-2 h-4 w-4" />
-            </Link>
-          </Button>
+        <div className="pointer-events-none absolute inset-y-0 right-0 hidden w-[43%] items-end justify-end md:flex" aria-hidden="true">
+          <img src="https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=1100&q=90" alt="" className="h-full w-full object-cover object-center [mask-image:linear-gradient(to_right,transparent_0%,black_23%)]"/>
         </div>
       </div>
+    </section>
 
-      {/* Community card */}
-      <Card className="border-emerald-100 bg-gradient-to-r from-emerald-50 to-teal-50 p-0 shadow-md">
-        <CardContent className="flex flex-col items-center gap-6 p-8 text-center md:flex-row md:text-left">
-          <div className="flex-1 space-y-3">
-            <h2 className="text-2xl font-bold text-slate-900">Community Group Buying</h2>
-            <p className="text-slate-600">
-              Join neighborhood group buys to get fresh produce at bulk prices. Team up with
-              neighbours, split orders, and save more!
-            </p>
-            <Button asChild size="lg">
-              <Link href="/marketplace/community">
-                Explore Group Buys
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Link>
-            </Button>
-          </div>
-          <div className="flex shrink-0 gap-2">
-            <div className="flex -space-x-3">
-              {["👨‍🌾", "👩‍🌾", "🧑‍🌾", "👨‍🌾"].map((e, i) => (
-                <span
-                  key={i}
-                  className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-white bg-slate-100 text-lg shadow-sm"
-                >
-                  {e}
-                </span>
-              ))}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+    <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
+      {([{value:"nearby",label:"Nearby Marketplace",sub:"From farmers near you",Icon:MapPin},{value:"state",label:"State Marketplace",sub:"Across your state",Icon:Map},{value:"national",label:"National Marketplace",sub:"Across India",Icon:Globe2},{value:"all",label:"All Products",sub:"Search across all markets",Icon:Store}] as const).map(({value,label,sub,Icon})=><button key={value} onClick={()=>setScope(value)} className={`flex min-h-[58px] items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition ${scope===value?"border-emerald-600 bg-emerald-50 shadow-sm":"border-slate-200 bg-white hover:border-emerald-200"}`}><span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${scope===value?"bg-emerald-100 text-emerald-700":"bg-slate-50 text-slate-600"}`}><Icon className="h-5 w-5"/></span><span><strong className="block text-sm text-slate-900">{label}</strong><small className="text-xs text-slate-500">{sub}</small></span></button>)}
+    </div>
 
-      {/* Harvest sections */}
-      <HarvestSections />
+    <section className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+      <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(190px,250px)_minmax(145px,175px)_auto]">
+        <form className="relative" onSubmit={e=>{e.preventDefault();update({search:search.value.trim(),page:"1"});}}><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-emerald-700"/><Input value={search.value} onChange={e=>search.setValue(e.target.value)} placeholder="Search for fresh fruits, vegetables, grains and more..." className="h-10 pl-10"/></form>
+        <div className="min-w-0"><PlaceSelector value={place} onChange={v=>update({country:v.country,state:v.state,district:v.district,city:v.city})} includeAll={scope==="national"||scope==="all"}/></div>
+        {scope==="nearby"?<select aria-label="Search radius" value={radius} onChange={e=>update({radius:e.target.value})} className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"><option value={2}>Within 2 KM</option><option value={5}>Within 5 KM</option><option value={10}>Within 10 KM</option><option value={20}>Within 20 KM</option><option value={50}>Within 50 KM</option></select>:<div className="flex h-10 items-center rounded-lg border border-slate-200 px-3 text-xs text-slate-500">{scope==="state"?"Across selected state":scope==="national"?"Across India":"All locations"}</div>}
+        <Button onClick={()=>{if(scope==="nearby"&&!coords)locate();else update({search:search.value.trim(),page:"1"});}} disabled={locating} className="h-10 bg-emerald-700 hover:bg-emerald-800">{locating?<Loader2 className="h-4 w-4 animate-spin"/>:<Search className="mr-1 h-4 w-4"/>}Search</Button>
+      </div>
+    </section>
 
-      {/* Trust section */}
-      <div className="space-y-6 pb-8">
-        <h2 className="text-center text-2xl font-bold text-slate-900">
-          Why choose our marketplace?
-        </h2>
-        <div className="grid gap-6 md:grid-cols-3">
-          {trust.map((item) => {
-            const Icon = item.icon;
-            return (
-              <Card key={item.title} className="border-0 bg-white/60 text-center shadow-sm">
-                <CardContent className="space-y-3 p-6">
-                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-100">
-                    <Icon className="h-6 w-6 text-emerald-700" />
-                  </div>
-                  <h3 className="font-semibold text-slate-900">{item.title}</h3>
-                  <p className="text-sm text-slate-500">{item.desc}</p>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
+    <div className="flex flex-col gap-2 border-b border-slate-200 pb-3"><div className="grid w-full grid-cols-3 gap-2">{([{value:"all",label:"All Products",Icon:Store},{value:"harvested",label:"Harvested",Icon:Leaf},{value:"preharvest",label:"Pre Harvest",Icon:Sprout}] as const).map(({value,label,Icon})=><button key={value} onClick={()=>{setHarvestTab(value);update({harvest:value});}} className={`inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-semibold transition ${harvestTab===value?"border-emerald-700 bg-emerald-700 text-white shadow-sm":"border-slate-200 bg-white text-slate-700 hover:border-emerald-300 hover:bg-emerald-50"}`}><Icon className="h-4 w-4"/>{label}{value==="all"?` (${raw.length})`:""}</button>)}</div><div className="flex w-full flex-wrap items-center justify-end gap-3 rounded-xl bg-slate-50 px-3 py-2"><label className="text-base font-bold text-slate-800" htmlFor="marketplace-sort">Sort by</label><select id="marketplace-sort" aria-label="Sort products" value={params.sortBy||"relevance"} onChange={e=>update({sortBy:e.target.value==="relevance"?"":e.target.value})} className="h-12 min-w-[280px] rounded-xl border border-slate-300 bg-white px-5 text-base font-semibold text-slate-800 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100"><option value="relevance">Relevance</option><option value="price-asc">Price: Low to High</option><option value="price-desc">Price: High to Low</option><option value="rating">Top Rated</option><option value="newest">Newest</option></select><div className="flex items-center gap-2"><button onClick={()=>setGridView(true)} aria-label="Grid view" aria-pressed={gridView} className={`inline-flex h-12 w-12 items-center justify-center rounded-xl ${gridView?"bg-emerald-700 text-white shadow-sm":"border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"}`}><LayoutGrid className="h-5 w-5"/></button><button onClick={()=>setGridView(false)} aria-label="List view" aria-pressed={!gridView} className={`inline-flex h-12 w-12 items-center justify-center rounded-xl ${!gridView?"bg-emerald-700 text-white shadow-sm":"border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"}`}><List className="h-5 w-5"/></button></div></div></div>
+
+    <div className="grid gap-4 lg:grid-cols-[240px_minmax(0,1fr)]">
+      <aside className="hidden h-fit rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:block">{filterPanel}</aside>
+      <div className="min-w-0 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2"><div><h2 className="font-bold text-slate-900">Showing <span className="text-emerald-700">{harvestTab==="preharvest"?preHarvestPlans.length:products.length}</span> products from <span className="text-emerald-700">{title}</span>{scope==="nearby"&&coords?<span className="font-normal text-slate-500"> (within {radius} KM)</span>:null}</h2><p className="text-xs text-slate-500">{(harvestTab==="preharvest"?preHarvestQuery.isLoading:productsQuery.isLoading)?"Loading available products...":`Showing 1–${Math.min(displayedProducts.length,12)} of ${displayedProducts.length} products`}</p></div><Button variant="outline" size="sm" className="lg:hidden" onClick={()=>setMobileFilters(true)}><SlidersHorizontal className="mr-2 h-4 w-4"/>Filters</Button></div>
+        {needsState?<div className="rounded-xl border bg-white py-14 text-center text-sm text-slate-500">Choose a state to see available products.</div>:harvestTab==="preharvest"?(preHarvestQuery.isLoading?<div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-emerald-700"/></div>:preHarvestPlans.length?<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{preHarvestPlans.map((plan:any)=><article key={plan._id||plan.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><div className="mb-2 flex items-center justify-between"><span className="rounded-full bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700">Pre Harvest</span><span className="text-xs text-slate-500">{plan.expectedQuantityKg??"—"} kg planned</span></div><h3 className="font-bold text-slate-900">{plan.cropName||plan.productName||"Upcoming harvest"}</h3><p className="mt-1 text-xs text-slate-500">{plan.farmerInfo?.farmName||plan.farmerInfo?.name||"Local Farmer"}</p><p className="mt-2 text-sm text-slate-600">Expected harvest: {plan.expectedHarvestDate?new Date(plan.expectedHarvestDate).toLocaleDateString():"Date not provided"}</p><p className="mt-1 text-sm font-semibold text-emerald-700">₹{plan.preOrderPricePerKg??"—"} / kg</p></article>)}</div>:<div className="rounded-xl border border-slate-200 bg-white py-14 text-center text-sm text-slate-500">No upcoming harvests available for this location yet.</div>):productsQuery.isLoading?<div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-emerald-700"/></div>:displayedProducts.length?<div className={gridView?"grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6":"grid grid-cols-1 gap-3"}>{displayedProducts.slice(0,12).map((p:any)=><ProductCard key={p.id} product={p} compact/>)}</div>:<div className="rounded-xl border border-slate-200 bg-white py-14 text-center text-sm text-slate-500">No products found. Try another location or clear some filters.</div>}
+        {displayedProducts.length>12&&<div className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500"><span>Showing 1–12 of {displayedProducts.length} products</span><div className="flex gap-2"><Button size="sm" variant="outline" disabled>Previous</Button><Button size="sm" className="bg-emerald-700">1</Button><Button size="sm" variant="outline" disabled>Next</Button></div></div>}
       </div>
     </div>
-  );
+
+    {mobileFilters&&<div className="fixed inset-0 z-50 bg-slate-950/40 p-4 lg:hidden" onClick={()=>setMobileFilters(false)}><div className="ml-auto h-full max-w-sm overflow-y-auto rounded-2xl bg-white p-4 shadow-xl" onClick={e=>e.stopPropagation()}><div className="mb-3 flex items-center justify-between"><h2 className="font-bold">Filter Products</h2><button onClick={()=>setMobileFilters(false)} aria-label="Close filters"><X className="h-5 w-5"/></button></div>{filterPanel}<Button className="mt-4 w-full bg-emerald-700" onClick={()=>setMobileFilters(false)}>Show {products.length} products</Button></div></div>}
+  </div>;
 }
+
+export default function MarketplacePage(){return <Suspense fallback={<div className="p-8 text-center text-slate-500">Loading marketplace…</div>}><MarketplaceInner/></Suspense>;}

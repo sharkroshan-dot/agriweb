@@ -14,7 +14,11 @@ import {
   Leaf,
   Star,
   Bell,
+  CalendarDays,
+  Package,
+  Search,
 } from "lucide-react";
+import { FarmerPageHeader } from "../../../components/farmer/farmer-page-header";
 import { api } from "../../../lib/api/client";
 import { cn, formatPrice, formatDate } from "../../../lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
@@ -90,6 +94,7 @@ const emptyForm = {
 export default function FarmerFarmBasketsPage() {
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<"baskets" | "create" | "subscribers" | "orders">("baskets");
+  const [basketSearch, setBasketSearch] = useState("");
   const [form, setForm] = useState(emptyForm);
   const [selectedItems, setSelectedItems] = useState<Record<string, string>>({});
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -156,6 +161,15 @@ export default function FarmerFarmBasketsPage() {
   const subscribers = useMemo(() => subsData?.data?.subscribers || [], [subsData]);
   const orders = useMemo(() => ordersData?.data?.orders || [], [ordersData]);
   const selectedPlan = plans.find((p) => p.id === selectedPlanId);
+  const activePlans = plans.filter((plan) => plan.status === "active");
+  const totalSubscribers = plans.reduce((sum, plan) => sum + Number(plan.subscriberCount || 0), 0);
+  const totalBasketProducts = new Set(plans.flatMap((plan) => plan.items.map((item) => item.productId))).size;
+  const visiblePlans = plans.filter((plan) => {
+    const query = basketSearch.trim().toLowerCase();
+    if (!query) return true;
+    return [plan.name, plan.description, plan.cadence, plan.day, ...plan.items.map((item) => item.name)]
+      .some((value) => String(value || "").toLowerCase().includes(query));
+  });
   const editingPlan = plans.find((p) => p.id === editingId);
   const displayProducts: Product[] = useMemo(() => {
     const map = new Map<string, Product>();
@@ -375,66 +389,90 @@ export default function FarmerFarmBasketsPage() {
     `${i.name} · ${i.quantity} ${i.unit}`;
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold">Farm Baskets</h1>
-          <p className="text-gray-500">Create recurring baskets and get predictable demand from subscribers.</p>
-        </div>
-        <Button onClick={() => { resetForm(); setTab("create"); }}>
-          <Plus className="mr-1.5 h-4 w-4" /> Create Basket
+    <div className="w-full min-w-0 space-y-5 pb-8">
+      <FarmerPageHeader
+        eyebrow="Subscriptions & recurring produce"
+        title="Farm Baskets"
+        description="Create recurring produce baskets, manage subscribers and track scheduled basket orders."
+      >
+        <Button className="h-10 bg-emerald-700 shadow-sm hover:bg-emerald-800" onClick={() => { resetForm(); setTab("create"); }}>
+          <Plus className="mr-2 h-4 w-4" />Create Basket
         </Button>
-      </div>
+      </FarmerPageHeader>
 
-      <div className="flex flex-wrap gap-2">
+      <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+        {[
+          { label: "Total baskets", value: plans.length, icon: ShoppingBasket, tone: "bg-slate-100 text-slate-700" },
+          { label: "Active baskets", value: activePlans.length, icon: Leaf, tone: "bg-emerald-50 text-emerald-700" },
+          { label: "Subscribers", value: totalSubscribers, icon: Users, tone: "bg-blue-50 text-blue-700" },
+          { label: "Basket products", value: totalBasketProducts, icon: Package, tone: "bg-amber-50 text-amber-700" },
+        ].map((stat) => (
+          <Card key={stat.label} className="border-slate-200 shadow-sm">
+            <CardContent className="flex items-center justify-between gap-3 p-4 sm:p-5">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-slate-500">{stat.label}</p>
+                <p className="mt-1 text-2xl font-bold tracking-tight text-slate-950">{plansLoading ? "—" : stat.value}</p>
+              </div>
+              <span className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-xl", stat.tone)}>
+                <stat.icon className="h-5 w-5" />
+              </span>
+            </CardContent>
+          </Card>
+        ))}
+      </section>
+
+      <nav aria-label="Farm basket sections" className="grid grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-white p-2 shadow-sm sm:grid-cols-4">
         {tabs.map((t) => (
           <button
             key={t.key}
+            type="button"
             onClick={() => setTab(t.key)}
+            aria-current={tab === t.key ? "page" : undefined}
             className={cn(
-              "flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors",
-              tab === t.key ? "bg-emerald-600 text-white" : "bg-white text-gray-600 hover:bg-gray-100"
+              "flex min-h-11 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors",
+              tab === t.key ? "bg-emerald-700 text-white shadow-sm" : "text-slate-600 hover:bg-emerald-50 hover:text-emerald-800"
             )}
           >
-            <t.icon className="h-4 w-4" />
-            {t.label}
+            <t.icon className="h-4 w-4 shrink-0" />
+            <span>{t.label}</span>
           </button>
         ))}
-      </div>
+      </nav>
 
       {tab === "baskets" && (
-        <div>
+        <div className="space-y-4">
+          <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+            <div><h2 className="text-base font-semibold text-slate-900">Your basket plans</h2><p className="mt-1 text-sm text-slate-500">{visiblePlans.length} of {plans.length} baskets</p></div>
+            <div className="relative w-full sm:max-w-sm"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><Input value={basketSearch} onChange={(event) => setBasketSearch(event.target.value)} placeholder="Search baskets or products..." aria-label="Search farm baskets" className="h-10 w-full bg-white pl-9 text-sm" /></div>
+          </div>
           {plansLoading ? (
             <div className="flex justify-center py-12">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
             </div>
           ) : plans.length === 0 ? (
-            <Card>
+            <Card className="border-dashed border-slate-300 shadow-none">
               <CardContent className="flex flex-col items-center py-14 text-center">
-                <ShoppingBasket className="h-10 w-10 text-gray-300" />
-                <p className="mt-3 text-sm text-slate-500">
-                  You haven't created any farm baskets yet. Create your first basket to start getting subscribers.
-                </p>
-                <Button className="mt-4" onClick={() => setTab("create")}>
-                  <Plus className="mr-1.5 h-4 w-4" /> Create Basket
-                </Button>
+                <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700"><ShoppingBasket className="h-7 w-7" /></span>
+                <p className="mt-4 text-base font-semibold text-slate-900">No farm baskets yet</p>
+                <p className="mt-1 max-w-md text-sm leading-6 text-slate-500">Create your first recurring basket to offer subscribers a regular selection of fresh farm produce.</p>
+                <Button className="mt-5 bg-emerald-700 hover:bg-emerald-800" onClick={() => setTab("create")}><Plus className="mr-2 h-4 w-4" />Create Basket</Button>
               </CardContent>
             </Card>
+          ) : visiblePlans.length === 0 ? (
+            <Card className="border-dashed border-slate-300 shadow-none"><CardContent className="flex flex-col items-center py-12 text-center"><Search className="h-8 w-8 text-slate-300" /><p className="mt-3 text-sm font-semibold text-slate-800">No matching baskets</p><p className="mt-1 text-sm text-slate-500">Try another basket or product name.</p><Button className="mt-3" size="sm" variant="outline" onClick={() => setBasketSearch("")}>Clear search</Button></CardContent></Card>
           ) : (
-            <div className="grid gap-4 md:grid-cols-2">
-              {plans.map((p) => (
-                <Card key={p.id}>
-                  <CardHeader>
-                    <div className="flex items-start justify-between">
+            <div className="grid gap-4 xl:grid-cols-2">
+              {visiblePlans.map((p) => (
+                <Card key={p.id} className="overflow-hidden rounded-2xl border-slate-200 shadow-sm transition-all hover:border-emerald-200 hover:shadow-md">
+                  <CardHeader className="border-b border-slate-100 bg-slate-50/50 pb-4">
+                    <div className="flex items-start justify-between gap-3">
                       <div className="flex items-center gap-3">
                         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700">
                           <ShoppingBasket className="h-5 w-5" />
                         </div>
                         <div>
-                          <CardTitle className="text-base">{p.name}</CardTitle>
-                          <CardDescription className="capitalize">
-                            {p.cadence} · {p.day} · {formatPrice(p.price)}/{p.cadence.replace("ly", "")}
-                          </CardDescription>
+                          <CardTitle className="text-lg font-bold tracking-tight text-slate-950">{p.name}</CardTitle>
+                          <CardDescription className="mt-1 flex flex-wrap items-center gap-1.5 text-xs capitalize"><CalendarDays className="h-3.5 w-3.5" />{p.cadence} · {p.day}</CardDescription>
                         </div>
                       </div>
                       <Badge variant={p.status === "active" ? "success" : "secondary"}>
@@ -442,16 +480,20 @@ export default function FarmerFarmBasketsPage() {
                       </Badge>
                     </div>
                   </CardHeader>
-                  <CardContent className="space-y-3">
-                    {p.description && <p className="text-xs text-slate-500">{p.description}</p>}
+                  <CardContent className="space-y-4 p-5">
+                    {p.description && <p className="text-sm leading-5 text-slate-600">{p.description}</p>}
+                    <div className="flex items-end justify-between gap-3 rounded-xl bg-emerald-50/70 p-3">
+                      <div><p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-800">Basket price</p><p className="mt-1 text-2xl font-bold tracking-tight text-emerald-900">{formatPrice(p.price)}</p><p className="text-xs capitalize text-emerald-800">per {p.cadence === "weekly" ? "week" : p.cadence === "biweekly" ? "two weeks" : "month"}</p></div>
+                      <Badge variant={p.deliveryMode === "pickup" ? "secondary" : "outline"} className="border-emerald-200 bg-white text-emerald-800">{p.deliveryMode === "pickup" ? "Farm pickup" : "Farm delivery"}</Badge>
+                    </div>
                     <div className="space-y-1.5">
                       {p.items.map((i) => (
-                        <div key={i.productId} className="flex items-center justify-between gap-2 rounded-lg bg-slate-100 px-2 py-1.5 text-xs text-slate-600">
+                        <div key={i.productId} className="flex items-center justify-between gap-2 rounded-lg border border-slate-100 bg-white px-3 py-2 text-sm text-slate-700">
                           <span className="truncate">{itemLabel(i)}</span>
                         </div>
                       ))}
                     </div>
-                    <div className="flex items-center justify-between border-t pt-3 text-sm">
+                    <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-4 text-sm">
                       <span className="text-slate-600">
                         <Users className="mr-1 inline h-4 w-4" />
                         {p.subscriberCount} / {p.maxSubscribers} subscribers
@@ -462,8 +504,8 @@ export default function FarmerFarmBasketsPage() {
                         </span>
                       ) : null}
                     </div>
-                    <div className="flex items-center justify-between border-t pt-3">
-                      <div className="flex gap-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-4">
+                      <div className="flex flex-wrap gap-2">
                         <Button size="sm" variant="outline" onClick={() => openEdit(p)}>
                           <Pencil className="mr-1.5 h-3.5 w-3.5" /> Edit
                         </Button>
@@ -493,8 +535,8 @@ export default function FarmerFarmBasketsPage() {
       )}
 
       {tab === "create" && (
-        <div className="grid gap-6 lg:grid-cols-2">
-          <Card>
+        <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+          <Card className="border-slate-200 shadow-sm">
             <CardHeader>
               <CardTitle>{editingId ? "Edit Basket" : "Create Farm Basket"}</CardTitle>
               <CardDescription>Define the basket schedule, price and contents.</CardDescription>
@@ -560,9 +602,9 @@ export default function FarmerFarmBasketsPage() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
+          <Card className="border-slate-200 shadow-sm">
+            <CardHeader className="border-b border-slate-100 bg-slate-50/50">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <CardTitle>Basket Products</CardTitle>
                   <CardDescription>Select your products and set quantities per delivery.</CardDescription>
@@ -615,7 +657,7 @@ export default function FarmerFarmBasketsPage() {
                 <p className="text-sm text-slate-500">No products listed yet. Add products first or create one above.</p>
               ) : (
                 displayProducts.map((p) => (
-                  <div key={p.id} className="flex items-center justify-between rounded-lg border px-3 py-2">
+                  <div key={p.id} className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3 transition-colors hover:border-emerald-200 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <p className="text-sm font-medium">
                         {p.name}
@@ -631,7 +673,7 @@ export default function FarmerFarmBasketsPage() {
                       <Input
                         type="number"
                         min="0"
-                        className="w-20"
+                        className="h-10 w-24 text-sm"
                         placeholder="0 kg"
                         value={selectedItems[p.id] || ""}
                         onChange={(e) => setSelectedItems({ ...selectedItems, [p.id]: e.target.value })}
@@ -665,7 +707,7 @@ export default function FarmerFarmBasketsPage() {
             </CardContent>
           </Card>
 
-          <div className="lg:col-span-2 flex justify-between gap-2">
+          <div className="xl:col-span-2 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex gap-2">
               {editingId && (
                 <Button
@@ -698,10 +740,10 @@ export default function FarmerFarmBasketsPage() {
       )}
 
       {tab === "subscribers" && (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle>Subscribers</CardTitle>
+        <Card className="overflow-hidden border-slate-200 shadow-sm">
+          <CardHeader className="border-b border-slate-100 bg-slate-50/50">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <CardTitle className="text-lg font-semibold text-slate-900">Subscribers</CardTitle>
               <Select value={selectedPlanId} onValueChange={setSelectedPlanId}>
                 <SelectTrigger className="w-64"><SelectValue placeholder="Select a basket" /></SelectTrigger>
                 <SelectContent>
@@ -724,9 +766,9 @@ export default function FarmerFarmBasketsPage() {
               <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">No active subscribers yet.</div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="w-full min-w-[720px] text-sm">
                   <thead>
-                    <tr className="border-b text-left text-xs text-muted-foreground">
+                    <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                       <th className="px-6 py-3 font-medium">Customer</th>
                       <th className="px-6 py-3 font-medium">Status</th>
                       <th className="px-6 py-3 font-medium">Week</th>
@@ -736,7 +778,7 @@ export default function FarmerFarmBasketsPage() {
                   </thead>
                   <tbody>
                     {subscribers.map((s: any) => (
-                      <tr key={s.id} className="border-b last:border-0 hover:bg-slate-50/50">
+                      <tr key={s.id} className="border-b border-slate-100 last:border-0 hover:bg-emerald-50/40">
                         <td className="px-6 py-4 font-medium">{s.customerName}</td>
                         <td className="px-6 py-4">
                           <Badge variant={s.status === "active" ? "success" : "secondary"}>
@@ -757,9 +799,9 @@ export default function FarmerFarmBasketsPage() {
       )}
 
       {tab === "orders" && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Basket Orders</CardTitle>
+        <Card className="overflow-hidden border-slate-200 shadow-sm">
+          <CardHeader className="border-b border-slate-100 bg-slate-50/50">
+            <CardTitle className="text-lg font-semibold text-slate-900">Basket Orders</CardTitle>
             <CardDescription>Recurring orders generated from your baskets.</CardDescription>
           </CardHeader>
           <CardContent className="p-0">
@@ -771,9 +813,9 @@ export default function FarmerFarmBasketsPage() {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="w-full min-w-[820px] text-sm">
                   <thead>
-                    <tr className="border-b text-left text-xs text-muted-foreground">
+                    <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                       <th className="px-6 py-3 font-medium">Order</th>
                       <th className="px-6 py-3 font-medium">Delivery Date</th>
                       <th className="px-6 py-3 font-medium">Total</th>
@@ -784,7 +826,7 @@ export default function FarmerFarmBasketsPage() {
                   </thead>
                   <tbody>
                     {orders.map((o: any) => (
-                      <tr key={o.id} className="border-b last:border-0 hover:bg-slate-50/50">
+                      <tr key={o.id} className="border-b border-slate-100 last:border-0 hover:bg-emerald-50/40">
                         <td className="px-6 py-4 font-medium">{o.orderNumber}</td>
                         <td className="px-6 py-4 text-slate-600">{o.deliveryDate ? formatDate(o.deliveryDate) : "—"}</td>
                         <td className="px-6 py-4 font-medium">{formatPrice(o.totalAmount)}</td>

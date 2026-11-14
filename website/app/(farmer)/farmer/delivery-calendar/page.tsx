@@ -1,7 +1,7 @@
 "use client";
 import { DeliveryWorkflowNav } from "../../../components/farmer/delivery-workflow-nav";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -30,6 +30,7 @@ import { Badge } from "../../../components/ui/badge";
 import { cn, formatPrice } from "../../../lib/utils";
 import { api } from "../../../lib/api/client";
 import Link from "next/link";
+import { FarmerPageHeader } from "../../../components/farmer/farmer-page-header";
 
 type ViewMode = "month" | "week" | "day";
 
@@ -141,7 +142,9 @@ function DeliveryRow({ d }: { d: any }) {
   );
 }
 
-export default function DeliveryCalendarPage() {
+export function FarmerDeliveryCalendarContent(props: { compact?: boolean; selectedDate?: string } = {}) {
+  const compact = props.compact ?? false;
+  const sharedSelectedDate = props.selectedDate;
   const router = useRouter();
   const searchParams = useSearchParams();
   const workflowOrderIds = searchParams.get("orderIds") || "";
@@ -150,7 +153,8 @@ export default function DeliveryCalendarPage() {
   const [weekOffset, setWeekOffset] = useState(0);
   const [monthOffset, setMonthOffset] = useState(0);
   const [dayOffset, setDayOffset] = useState(0);
-  const [selectedSlot, setSelectedSlot] = useState<{ day: string; time: string } | null>(null);
+  useEffect(() => { if (compact && sharedSelectedDate) { const target = new Date(sharedSelectedDate + "T00:00:00"); const today = new Date(); const base = new Date(today.getFullYear(), today.getMonth(), today.getDate()); setDayOffset(Math.round((target.getTime() - base.getTime()) / 86400000)); } }, [compact, sharedSelectedDate]);
+  const [selectedSlot, setSelectedSlot] = useState<{ day: string; time: string; date: string } | null>(null);
   const dates = weekDates(weekOffset);
 
   const { data: calendarData, isLoading } = useQuery({
@@ -161,16 +165,23 @@ export default function DeliveryCalendarPage() {
   const slots = (calendarData as any)?.slots ?? [];
   const summary = (calendarData as any)?.summary ?? {};
 
+  const dateKey = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+
   const countForDate = (date: Date) =>
     slots
-      .filter((s: any) => s.day === dayName(date))
+      .filter((s: any) => (s.dateKey || s.date) === dateKey(date))
       .reduce((sum: number, s: any) => sum + (s.count || 0), 0);
 
   const selectedDate = addDays(new Date(), dayOffset);
   const selectedDaySlots = TIME_SLOTS.map((slot) => ({
     ...slot,
     data: slots.find(
-      (s: any) => s.day === dayName(selectedDate) && s.timeSlot === slot.label
+      (s: any) => (s.dateKey || s.date) === dateKey(selectedDate) && s.timeSlot === slot.label
     ),
   }));
 
@@ -202,14 +213,68 @@ export default function DeliveryCalendarPage() {
 
   const selectedSlotData = selectedSlot
     ? slots.find(
-        (s: any) => s.day === selectedSlot.day && s.timeSlot === selectedSlot.time
+        (s: any) => (s.dateKey || s.date) === selectedSlot.date && s.timeSlot === selectedSlot.time
       )
     : null;
 
+  // Route only the orders belonging to the date/slot the farmer selected.
+  const selectedRouteDeliveries = selectedSlotData?.deliveries?.length
+    ? selectedSlotData.deliveries
+    : selectedDaySlots.flatMap((slot: any) => slot.data?.deliveries ?? []);
+  const selectedRouteOrderIds = selectedRouteDeliveries
+    .map((delivery: any) => delivery.orderId || delivery.id)
+    .filter(Boolean)
+    .join(",");
+  const routeQuery = selectedRouteOrderIds || workflowOrderIds;
+  const selectedRouteHref = `/farmer/smart-route${routeQuery ? `?orderIds=${encodeURIComponent(routeQuery)}` : ""}`;
+  // Sidebar summary follows the date selected in the calendar, rather than
+  // the API's all-time totals. Weekly cards use only the currently visible week.
+  const selectedSummaryDate = selectedSlot?.date || dateKey(selectedDate);
+  const selectedDateSlots = slots.filter(
+    (slot: any) => (slot.dateKey || slot.date) === selectedSummaryDate
+  );
+  const selectedDateDeliveries = selectedDateSlots.flatMap((slot: any) => slot.deliveries ?? []);
+  const selectedDayDistance = selectedDateSlots.reduce(
+    (sum: number, slot: any) => sum + Number(slot.distanceKm || 0), 0
+  );
+  const selectedDayIncome = selectedDateSlots.reduce(
+    (sum: number, slot: any) => sum + Number(slot.income || 0), 0
+  );
+  const selectedDayMinutes = selectedDateSlots.reduce(
+    (sum: number, slot: any) => sum + Number(slot.estimatedMinutes || 0), 0
+  );
+  const selectedDayFuelCost = selectedDayDistance * Number((calendarData as any)?.capacity?.fuelCostPerKm || 4.5);
+  const weekDateKeys = new Set(dates.map(dateKey));
+  const visibleWeekSlots = slots.filter((slot: any) => weekDateKeys.has(slot.dateKey || slot.date));
+  const visibleWeekDeliveries = visibleWeekSlots.flatMap((slot: any) => slot.deliveries ?? []);
+  // These three cards describe the date currently selected in the calendar,
+  // not the whole visible week. Use normalized values to avoid duplicate counts
+  // caused only by capitalization or extra spaces.
+  const normalizeSummaryValue = (value: unknown) =>
+    String(value || "").normalize("NFKC").trim().toLowerCase().replace(/\\s+/g, " ");
+  const uniqueSelectedDayCustomers = new Set(
+    selectedDateDeliveries
+      .map((delivery: any) => normalizeSummaryValue(delivery.customerName))
+      .filter(Boolean)
+  ).size;
+  const locationKey = (delivery: any) => {
+    const landmark = normalizeSummaryValue(delivery.landmark || delivery.nearbyLandmark || delivery.landmarkName);
+    const address = normalizeSummaryValue(delivery.address || delivery.addressLine1);
+    const city = normalizeSummaryValue(delivery.city);
+    return landmark || address || city;
+  };
+  const uniqueSelectedDayLocations = new Set(
+    selectedDateDeliveries.map(locationKey).filter(Boolean)
+  ).size;
+  const selectedSummaryLabel = selectedSlot
+    ? new Date(`${selectedSlot.date}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+    : selectedDate.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+
+
   if (isLoading) {
     return (
-      <div className="space-y-6">
-      <DeliveryWorkflowNav current="calendar" />
+      <div className={cn(compact ? "space-y-3" : "space-y-6")}>
+      {!compact && <DeliveryWorkflowNav current="calendar" />}
         <div className="h-8 w-64 animate-pulse rounded bg-gray-200" />
         <div className="h-32 animate-pulse rounded-lg bg-gray-200" />
         <div className="h-96 animate-pulse rounded-lg bg-gray-200" />
@@ -219,11 +284,7 @@ export default function DeliveryCalendarPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Delivery Calendar</h1>
-          <p className="text-gray-500">Manage your monthly, weekly and daily delivery schedule</p>
-        </div>
+      {!compact && <FarmerPageHeader title="Delivery calendar" description="See upcoming customer commitments, time slots and partner handoffs before planning the route." actionHref="/farmer/delivery-schedule/new" actionLabel="Schedule delivery" actionIcon="plus">
         <div className="flex items-center gap-2">
           <div className="flex rounded-lg border p-1">
             {(["month", "week", "day"] as const).map((mode) => (
@@ -241,17 +302,11 @@ export default function DeliveryCalendarPage() {
               </button>
             ))}
           </div>
-          <Button asChild>
-            <Link href="/farmer/delivery-schedule/new">
-              <Plus className="mr-2 h-4 w-4" />
-              Schedule Delivery
-            </Link>
-          </Button>
         </div>
-      </div>
+      </FarmerPageHeader>}
 
-      <div className="grid gap-6 lg:grid-cols-[1fr,320px]">
-        <div className="space-y-4">
+      <div className="flex min-w-0 flex-col gap-4">
+        <div className={cn("space-y-4", compact && "hidden")}>
           <div className="flex items-center justify-between">
             <Button variant="ghost" size="icon" onClick={goPrev}>
               <ChevronLeft className="h-5 w-5" />
@@ -294,12 +349,12 @@ export default function DeliveryCalendarPage() {
                 </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <div className="grid min-w-[910px] grid-cols-7 gap-3">
+                  <div className="grid min-w-[760px] grid-cols-7 gap-1.5">
                     {DAYS.map((day, dayIndex) => (
                       <div key={day} className="space-y-2">
                         <div
                           className={cn(
-                            "rounded-lg p-3 text-center",
+                            "rounded-lg p-2 text-center",
                             isToday(dates[dayIndex]) ? "bg-emerald-100" : "bg-gray-50"
                           )}
                         >
@@ -310,7 +365,7 @@ export default function DeliveryCalendarPage() {
                         </div>
                         {TIME_SLOTS.map((slot) => {
                           const slotData = slots.find(
-                            (s: any) => s.day === day && s.timeSlot === slot.label
+                            (s: any) => (s.dateKey || s.date) === dateKey(dates[dayIndex]) && s.timeSlot === slot.label
                           );
                           const count = slotData?.count || 0;
                           const selfCt = slotData?.selfCount ?? count;
@@ -318,9 +373,9 @@ export default function DeliveryCalendarPage() {
                           return (
                             <button
                               key={slot.label}
-                              onClick={() => setSelectedSlot({ day, time: slot.label })}
+                              onClick={() => setSelectedSlot({ day, time: slot.label, date: dateKey(dates[dayIndex]) })}
                               className={cn(
-                                "w-full rounded-lg border p-3 text-left transition-all",
+                                "w-full rounded-lg border p-2 text-left transition-all",
                                 count > 0
                                   ? slot.color
                                   : "border-dashed border-gray-200 bg-white hover:bg-gray-50",
@@ -376,7 +431,7 @@ export default function DeliveryCalendarPage() {
                   <CardHeader className="flex flex-row items-center justify-between">
                     <div>
                       <CardTitle className="text-base">
-                        {selectedSlotData.day} · {selectedSlotData.timeSlot}
+                        {selectedSlotData.date} · {selectedSlotData.day} · {selectedSlotData.timeSlot}
                       </CardTitle>
                       <CardDescription>
                         Delivery slot details
@@ -431,7 +486,7 @@ export default function DeliveryCalendarPage() {
                       ) : (
                         <p className="text-sm text-gray-500">No deliveries in this slot</p>
                       )}
-                      <Button size="sm" className="mt-2" onClick={() => router.push(`/farmer/smart-route${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`)}>
+                      <Button size="sm" className="mt-2" onClick={() => router.push(selectedRouteHref)}>
                         <Truck className="mr-2 h-4 w-4" />
                         View Route
                       </Button>
@@ -464,7 +519,7 @@ export default function DeliveryCalendarPage() {
                         }}
                         title={`${date.toLocaleDateString("en-IN", { day: "numeric", month: "short" })} — click for day view`}
                         className={cn(
-                          "flex h-20 flex-col items-center rounded-lg border p-2 transition-colors",
+                          "flex h-16 flex-col items-center rounded-lg border p-2 transition-colors",
                           count > 0
                             ? "border-emerald-200 bg-emerald-50 hover:bg-emerald-100"
                             : "border-dashed border-gray-200 bg-white hover:bg-gray-50",
@@ -500,8 +555,8 @@ export default function DeliveryCalendarPage() {
                 </div>
                 <p className="mt-3 flex items-center gap-1 text-xs text-gray-400">
                   <Info className="h-3 w-3" />
-                  Counts repeat weekly based on each order's scheduled delivery day. Click a date
-                  for its full day plan.
+                  Counts are shown for the exact date assigned to each order. Click a date
+                  to view its delivery plan.
                 </p>
               </CardContent>
             </Card>
@@ -575,7 +630,7 @@ export default function DeliveryCalendarPage() {
                   </Card>
                 );
               })}
-              <Button size="sm" onClick={() => router.push(`/farmer/smart-route${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`)}>
+              <Button size="sm" onClick={() => router.push(selectedRouteHref)}>
                 <Truck className="mr-2 h-4 w-4" />
                 Smart Route
               </Button>
@@ -583,19 +638,19 @@ export default function DeliveryCalendarPage() {
           )}
         </div>
 
-        <div className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Today's Summary</CardTitle>
+        <aside className={cn("grid min-w-0 items-start gap-3", compact ? "grid-cols-2" : "grid-cols-1 sm:grid-cols-2 xl:grid-cols-4")}>
+          <Card className={cn(compact ? "col-span-2" : "sm:col-span-2 xl:col-span-2")}>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Calendar Summary · {selectedSummaryLabel}</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-2.5">
               <div className="flex items-center justify-between border-b pb-3">
                 <div className="flex items-center gap-2 text-sm text-gray-500">
                   <Truck className="h-4 w-4" />
                   Deliveries
                 </div>
                 <span className="font-semibold">
-                  {summary.totalDeliveries || 0}
+                  {selectedDateDeliveries.length}
                 </span>
               </div>
               <div className="flex items-center justify-between border-b pb-3">
@@ -604,7 +659,7 @@ export default function DeliveryCalendarPage() {
                   Distance
                 </div>
                 <span className="font-semibold">
-                  {summary.totalDistance || "0 km"}
+                  {selectedDayDistance.toFixed(2)} km
                 </span>
               </div>
               <div className="flex items-center justify-between border-b pb-3">
@@ -613,7 +668,7 @@ export default function DeliveryCalendarPage() {
                   Fuel Cost
                 </div>
                 <span className="font-semibold">
-                  {formatPrice(summary.fuelCost || 0)}
+                  {formatPrice(selectedDayFuelCost)}
                 </span>
               </div>
               <div className="flex items-center justify-between border-b pb-3">
@@ -622,7 +677,7 @@ export default function DeliveryCalendarPage() {
                   Expected Income
                 </div>
                 <span className="font-semibold text-emerald-600">
-                  {formatPrice(summary.expectedIncome || 0)}
+                  {formatPrice(selectedDayIncome)}
                 </span>
               </div>
               <div className="flex items-center justify-between">
@@ -631,44 +686,50 @@ export default function DeliveryCalendarPage() {
                   Est. Time
                 </div>
                 <span className="font-semibold">
-                  {summary.estimatedTime || "0 hrs"}
+                  {selectedDayMinutes >= 60 ? `${Math.floor(selectedDayMinutes / 60)} hrs ${selectedDayMinutes % 60} min` : `${selectedDayMinutes} min`}
                 </span>
               </div>
             </CardContent>
           </Card>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className={cn("grid grid-cols-3 gap-2", compact && "col-span-2")}>
             <Card className="bg-emerald-50 border-emerald-200">
-              <CardContent className="p-4 text-center">
+              <CardContent className="p-2.5 text-center">
                 <p className="text-2xl font-bold text-emerald-600">
-                  {slots.reduce(
-                    (sum: number, s: any) => sum + (s.count || 0),
-                    0
-                  ) || 0}
+                  {selectedDateDeliveries.length}
                 </p>
-                <p className="text-xs text-emerald-700">Weekly Deliveries</p>
+                <p className="text-[10px] text-emerald-700">Daily Deliveries</p>
               </CardContent>
             </Card>
             <Card className="bg-blue-50 border-blue-200">
               <CardContent className="p-4 text-center">
                 <p className="text-2xl font-bold text-blue-600">
-                  {new Set(
-                    slots.flatMap((s: any) => s.deliveries?.map((d: any) => d.customerName) || [])
-                  ).size || 0}
+                  {uniqueSelectedDayCustomers}
                 </p>
-                <p className="text-xs text-blue-700">Unique Customers</p>
+                <p className="text-[10px] text-blue-700">Unique Customers</p>
+              </CardContent>
+            </Card>
+            <Card className="bg-violet-50 border-violet-200">
+              <CardContent className="p-2.5 text-center">
+                <p className="text-2xl font-bold text-violet-600">{uniqueSelectedDayLocations}</p>
+                <p className="text-[10px] text-violet-700">Locations</p>
               </CardContent>
             </Card>
           </div>
 
-          <Button asChild className="w-full">
-            <Link href={`/farmer/smart-route${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`}>
+          <Button asChild className={cn("w-full", compact && "col-span-2")}>
+            <Link href={selectedRouteHref}>
               <Truck className="mr-2 h-4 w-4" />
               View Optimized Route
             </Link>
           </Button>
-        </div>
+        </aside>
       </div>
     </div>
   );
+}
+
+
+export default function DeliveryCalendarPage() {
+  return <FarmerDeliveryCalendarContent />;
 }
