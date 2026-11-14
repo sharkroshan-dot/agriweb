@@ -29,7 +29,7 @@ function MarketplaceInner() {
   const [harvestTab,setHarvestTab] = useState<"all"|"harvested"|"preharvest">((params.harvest as any)||"all");
   const [mobileFilters,setMobileFilters] = useState(false);
 
-  const setScope=(next:Scope)=>update({scope:next,page:"1"},{push:true});
+  const setScope=(next:Scope)=>update(next==="state"?{scope:next,country:place.country||"India",state:"",district:"",city:"",page:"1"}:{scope:next,page:"1"},{push:true});
   const locate=()=>{
     if(!navigator.geolocation)return;
     setLocating(true);
@@ -49,7 +49,7 @@ function MarketplaceInner() {
       return api.get("/products/search",{params:q});
     }
   });
-  const raw=productsQuery.data?.data?.products||productsQuery.data?.products||[];
+  const raw=scope==="state"&&!place.state?[]:(productsQuery.data?.data?.products||productsQuery.data?.products||[]);
   const products=useMemo(()=>{
     let rows=raw.map((p:any)=>({...p,id:p._id||p.id,name:p.name||"Fresh Produce",price:Number(p.price)||0,unit:p.unit||"kg",images:p.images||(p.image?[p.image]:[]),farmerName:p.farmerName||p.farmName||p.farmer?.farmName||p.farmer?.name||"Local Farmer",rating:Number(p.ratings?.average||p.rating||0),category:p.category||"Others",quantity:p.availableQuantity??p.quantity??p.stock??0,farmDistanceKm:p.farmDistanceKm??p.distanceKm}));
     const term=(params.search||"").trim().toLowerCase();
