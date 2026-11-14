@@ -47,9 +47,7 @@ const navGroups = [
   {
     label: "Discover & Shop",
     items: [
-      { name: "Nearby Marketplace", href: "/nearby", icon: MapPin },
-      { name: "State Marketplace", href: "/marketplace/state", icon: Landmark },
-      { name: "National Marketplace", href: "/marketplace/national", icon: Globe },
+      { name: "Marketplace", href: "/marketplace", icon: ShoppingCart },
       { name: "Search Products", href: "/search", icon: Search },
       { name: "Trace a Lot", href: "/trace", icon: ShieldCheck },
     ],
@@ -201,7 +199,8 @@ export function CustomerSidebar() {
                 {!isCollapsed && (
                   <div className="ml-2 space-y-1 border-l border-slate-200 pl-2">
                 {group.items.map((item) => {
-                  const isActive = pathname === item.href || pathname?.startsWith(item.href + "/");
+                  const isMarketplaceRoute = item.href === "/marketplace" && (pathname === "/marketplace" || pathname?.startsWith("/marketplace/") || pathname === "/nearby");
+                  const isActive = isMarketplaceRoute || pathname === item.href || pathname?.startsWith(item.href + "/");
                   const badge = item.name === "Cart" ? cartCount : item.name === "Wishlist" ? wishlistItems.length : item.name === "Farm Pickup" ? pickupCount : item.name === "Deliveries" ? deliveryCount : item.name === "Wallet" && walletBalance > 0 ? "₹" + walletBalance : 0;
                   return (
                     <Link
