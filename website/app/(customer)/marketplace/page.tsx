@@ -95,7 +95,44 @@ function MarketplaceInner() {
     <section className="relative min-h-[150px] overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-r from-lime-100 via-emerald-50 to-teal-100 px-5 py-5 shadow-sm md:min-h-[165px] md:px-9">
       <div className="absolute inset-0 opacity-25" style={{backgroundImage:"radial-gradient(circle at 12% 95%, #65a30d 0, transparent 34%), radial-gradient(circle at 82% 8%, #10b981 0, transparent 34%)"}}/>
       <div className="relative z-10 max-w-3xl"><p className="mb-2 text-[10px] font-extrabold uppercase tracking-[0.22em] text-emerald-800">Fresh Daily · Farm to Home</p><h2 className="text-2xl font-black leading-tight tracking-tight text-slate-950 md:text-3xl">Freshness You Can Trust,<br className="hidden sm:block"/> Straight from Our Farms</h2><p className="mt-2 text-sm font-semibold text-slate-800">Farm Fresh Produce <span className="mx-2 text-emerald-700">|</span> Trusted Local Farmers <span className="mx-2 text-emerald-700">|</span> Quality Assured</p><a href="/nearby" className="mt-3 inline-flex items-center rounded-full bg-emerald-700 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2">Explore Fresh Products <span className="ml-2">→</span></a></div>
-      <div className="pointer-events-none absolute bottom-1 right-4 hidden items-end gap-2 text-5xl md:flex lg:right-8 lg:text-6xl" aria-hidden="true">🥬 🥕 🍅 🧺</div>
+      <div className="pointer-events-none absolute -bottom-2 right-3 hidden h-[145px] w-[310px] items-end md:flex lg:right-8 lg:h-[158px] lg:w-[360px]" aria-hidden="true">
+        <svg viewBox="0 0 360 170" className="h-full w-full drop-shadow-md" role="img" aria-label="Basket filled with fresh vegetables">
+          <defs>
+            <linearGradient id="marketBasket" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stopColor="#d99a45"/><stop offset="1" stopColor="#92501e"/></linearGradient>
+            <linearGradient id="marketLeaf" x1="0" x2="1"><stop offset="0" stopColor="#9bdc35"/><stop offset="1" stopColor="#23852c"/></linearGradient>
+            <linearGradient id="marketCarrot" x1="0" x2="1"><stop offset="0" stopColor="#ffb52e"/><stop offset="1" stopColor="#ed6417"/></linearGradient>
+          </defs>
+          <path d="M92 89 C94 15 265 8 276 90" fill="none" stroke="#a96528" strokeWidth="13" strokeLinecap="round"/>
+          <path d="M92 89 C99 22 258 17 276 90" fill="none" stroke="#f1bd70" strokeWidth="5" strokeLinecap="round"/>
+          <g>
+            <path d="M82 91 Q180 72 288 91 L269 151 Q180 168 101 151Z" fill="url(#marketBasket)" stroke="#8a4c20" strokeWidth="3"/>
+            <path d="M91 103 Q180 119 280 103 M96 119 Q180 136 275 119 M101 136 Q180 151 270 136" fill="none" stroke="#f0bd76" strokeWidth="5" opacity=".9"/>
+            <path d="M111 94 L122 151 M143 89 L151 158 M178 86 L180 160 M213 87 L208 158 M246 90 L236 153" fill="none" stroke="#7d431e" strokeWidth="3" opacity=".65"/>
+          </g>
+          <g>
+            <path d="M102 91 Q78 64 91 43 Q113 48 119 80 Q126 45 149 39 Q160 68 129 93Z" fill="url(#marketLeaf)"/>
+            <path d="M130 84 Q119 51 141 25 Q164 42 151 83Z" fill="#48a92e"/>
+            <path d="M184 83 Q167 45 192 23 Q218 44 207 87Z" fill="#328f2c"/>
+            <path d="M213 88 Q211 48 246 32 Q260 63 232 91Z" fill="#7dc52c"/>
+            <path d="M245 91 Q251 58 284 54 Q289 81 260 98Z" fill="#3d9a31"/>
+            <path d="M161 92 L178 31 Q188 24 194 35 L181 94Z" fill="url(#marketCarrot)"/>
+            <path d="M176 34 Q165 16 174 8 Q184 17 185 29 Q191 11 202 13 Q205 26 188 37Z" fill="#399b32"/>
+            <path d="M225 91 L247 40 Q257 35 262 44 L244 97Z" fill="#8b4ab2"/>
+            <path d="M239 48 Q231 27 244 17 Q255 30 249 43Z" fill="#4e9d2f"/>
+          </g>
+          <g>
+            <circle cx="127" cy="91" r="24" fill="#e83d2f"/><circle cx="151" cy="99" r="22" fill="#f04432"/>
+            <path d="M127 69 l-7 -8 10 3 7 -6 1 10 9 3 -10 4 -5 8 -3 -10Z" fill="#2f8d2c"/>
+            <path d="M151 77 l-5 -8 9 4 8 -5 -1 10 8 4 -10 2 -6 7 -1 -10Z" fill="#2f8d2c"/>
+            <path d="M184 96 Q195 69 219 75 Q235 89 221 111 Q199 126 184 96Z" fill="#f2c943"/>
+            <path d="M188 81 Q179 68 188 57 Q200 65 197 77 M201 77 Q200 60 214 56 Q220 70 211 81" fill="#389b36"/>
+            <ellipse cx="257" cy="103" rx="19" ry="25" fill="#8b4aaf" transform="rotate(25 257 103)"/>
+            <path d="M252 81 Q245 69 257 60 Q270 70 263 85Z" fill="#379532"/>
+            <path d="M106 108 Q91 88 104 72 Q120 80 119 101Z" fill="#65b832"/>
+          </g>
+          <path d="M82 91 Q180 77 288 91" fill="none" stroke="#f5c47e" strokeWidth="8" strokeLinecap="round"/>
+        </svg>
+      </div>
     </section>
 
     <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
