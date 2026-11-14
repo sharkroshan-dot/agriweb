@@ -108,19 +108,6 @@ export default function CustomerDashboardPage() {
 
   return (
     <div className="space-y-4 bg-slate-50/70 p-3 sm:p-5 lg:p-6">
-      <section className="relative flex min-h-[88px] items-center overflow-hidden rounded-2xl border border-emerald-100 bg-[linear-gradient(105deg,#f2fbe8_0%,#e7f7dc_58%,#cceebd_100%)] px-4 py-4 shadow-sm sm:min-h-[96px] sm:px-6">
-        <div className="relative z-10 flex items-center gap-3 sm:gap-4">
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-700 text-white shadow-sm sm:h-12 sm:w-12"><ShoppingBasket className="h-6 w-6" /></span>
-          <div className="border-l border-emerald-600/50 pl-3 sm:pl-4">
-            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">Customer</p>
-            <h1 className="text-xl font-extrabold leading-tight text-slate-900 sm:text-2xl">Dashboard</h1>
-            <p className="mt-0.5 hidden text-xs text-slate-600 sm:block">Your shopping, orders, subscriptions and deliveries at a glance.</p>
-          </div>
-        </div>
-        <div className="pointer-events-none absolute inset-y-0 right-0 w-[42%] bg-gradient-to-l from-lime-200/60 to-transparent" />
-        <div className="pointer-events-none absolute -right-6 -bottom-12 h-28 w-[36%] rounded-tl-[100%] bg-gradient-to-tl from-emerald-300/50 to-transparent" />
-        <div className="pointer-events-none absolute right-5 top-2 hidden h-16 w-28 items-center justify-center text-3xl opacity-70 sm:flex">🌳 🏡 🌿</div>
-      </section>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Good morning, <span className="text-emerald-700">{userName}</span> <span aria-hidden="true">👋</span></h2>
