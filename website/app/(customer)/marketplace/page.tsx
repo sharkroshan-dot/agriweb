@@ -10,7 +10,7 @@ import { HarvestSections } from "../../components/customer/harvest-sections";
 import { ProductCard } from "../../components/customer/product-card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
-import { MapPin, Globe2, Map, Search, SlidersHorizontal, Store, Navigation, Loader2 } from "lucide-react";
+import { MapPin, Globe2, Map, Search, Store, Navigation, Loader2, SlidersHorizontal, ChevronDown, Leaf, Sprout, LayoutGrid, List, X } from "lucide-react";
 
 type Scope = "nearby" | "state" | "national" | "all";
 const RADII = [2, 5, 10, 20, 50];
@@ -18,77 +18,101 @@ const RADII = [2, 5, 10, 20, 50];
 function MarketplaceInner() {
   const { params, update } = usePageParams();
   const legacyScope = params.view === "state" ? "state" : params.view === "national" ? "national" : params.view === "all" ? "all" : "nearby";
-  const scope: Scope = (["nearby", "state", "national", "all"].includes(params.scope) ? params.scope : legacyScope) as Scope;
-  const place: PlaceSelection = { country: params.country || "", state: params.state || "", district: params.district || "", city: params.city || "" };
+  const scope: Scope = (["nearby","state","national","all"].includes(params.scope) ? params.scope : legacyScope) as Scope;
+  const place: PlaceSelection = {country:params.country||"",state:params.state||"",district:params.district||"",city:params.city||""};
   const radius = RADII.includes(Number(params.radius)) ? Number(params.radius) : 10;
-  const search = useParamField("search", 350);
+  const search = useParamField("search",350);
   const category = params.category || "";
-  const [coords, setCoords] = useState<{lat:number; lng:number} | null>(null);
-  const [locating, setLocating] = useState(false);
-  const [showFilters, setShowFilters] = useState(true);
-  const setScope = (next: Scope) => update({ scope: next, page: "1" }, { push: true });
-  const locate = () => {
-    if (!navigator.geolocation) return;
+  const [coords,setCoords] = useState<{lat:number;lng:number}|null>(null);
+  const [locating,setLocating] = useState(false);
+  const [filtersOpen,setFiltersOpen] = useState({category:true,price:false,farmer:false,availability:false,certification:false,delivery:false});
+  const [gridView,setGridView] = useState(true);
+  const [harvestTab,setHarvestTab] = useState<"all"|"harvested"|"preharvest">((params.harvest as any)||"all");
+  const [mobileFilters,setMobileFilters] = useState(false);
+
+  const setScope=(next:Scope)=>update({scope:next,page:"1"},{push:true});
+  const locate=()=>{
+    if(!navigator.geolocation)return;
     setLocating(true);
-    navigator.geolocation.getCurrentPosition(p => { setCoords({lat:p.coords.latitude,lng:p.coords.longitude}); setLocating(false); }, () => setLocating(false), {enableHighAccuracy:true,timeout:10000,maximumAge:30000});
+    navigator.geolocation.getCurrentPosition(p=>{setCoords({lat:p.coords.latitude,lng:p.coords.longitude});setLocating(false);},()=>setLocating(false),{enableHighAccuracy:true,timeout:10000,maximumAge:30000});
   };
 
-  const productsQuery = usePersistentQuery({
-    queryKey: ["unified-marketplace", scope, place, radius, coords, category, params.search || "", params.sortBy || "", params.minPrice || "", params.maxPrice || ""],
-    enabled: scope !== "state" || !!place.state,
-    queryFn: () => {
-      if (scope === "state") return api.get("/marketplace/state", {params:{country:place.country||undefined,state:place.state,district:place.district||undefined,city:place.city||undefined,category:category||undefined,search:params.search||undefined,sortBy:params.sortBy||undefined}});
-      if (scope === "national") return api.get("/marketplace/national", {params:{country:place.country||undefined,state:place.state||undefined,district:place.district||undefined,city:place.city||undefined,category:category||undefined,minPrice:params.minPrice||undefined,maxPrice:params.maxPrice||undefined,sortBy:params.sortBy||undefined}});
-      const queryParams:Record<string,any>={limit:100,sortBy:params.sortBy||"createdAt",sortOrder:"desc"};
-      if (scope==="nearby" && coords) Object.assign(queryParams,{lat:coords.lat,lng:coords.lng,radius});
-      if (scope==="nearby" || (scope==="all" && (place.country||place.state||place.district||place.city))) Object.assign(queryParams,{country:place.country||undefined,state:place.state||undefined,district:place.district||undefined,city:place.city||undefined});
-      if(params.search) queryParams.query=params.search;
-      if(category) queryParams.category=category;
-      return api.get("/products/search",{params:queryParams});
+  const productsQuery=usePersistentQuery({
+    queryKey:["unified-marketplace",scope,place,radius,coords,category,params.search||"",params.sortBy||"",params.minPrice||"",params.maxPrice||""],
+    enabled:scope!=="state"||!!place.state,
+    queryFn:()=>{
+      if(scope==="state")return api.get("/marketplace/state",{params:{country:place.country||undefined,state:place.state,district:place.district||undefined,city:place.city||undefined,category:category||undefined,search:params.search||undefined,sortBy:params.sortBy||undefined}});
+      if(scope==="national")return api.get("/marketplace/national",{params:{country:place.country||undefined,state:place.state||undefined,district:place.district||undefined,city:place.city||undefined,category:category||undefined,minPrice:params.minPrice||undefined,maxPrice:params.maxPrice||undefined,sortBy:params.sortBy||undefined}});
+      const q:Record<string,any>={limit:100,sortBy:params.sortBy||"createdAt",sortOrder:"desc"};
+      if(scope==="nearby"&&coords)Object.assign(q,{lat:coords.lat,lng:coords.lng,radius});
+      if(scope==="nearby"||(scope==="all"&&(place.country||place.state||place.district||place.city)))Object.assign(q,{country:place.country||undefined,state:place.state||undefined,district:place.district||undefined,city:place.city||undefined});
+      if(params.search)q.query=params.search;if(category)q.category=category;
+      return api.get("/products/search",{params:q});
     }
   });
-
   const raw=productsQuery.data?.data?.products||productsQuery.data?.products||[];
   const products=useMemo(()=>{
-    let rows=raw.map((p:any)=>({...p,id:p._id||p.id,name:p.name||"Fresh Produce",price:Number(p.price)||0,unit:p.unit||"kg",images:p.images||(p.image?[p.image]:[]),farmerName:p.farmerName||p.farmName||p.farmer?.farmName||p.farmer?.name||"Local Farmer",rating:Number(p.ratings?.average||p.rating||0),category:p.category||"General",quantity:p.availableQuantity??p.quantity??p.stock??0,farmDistanceKm:p.farmDistanceKm??p.distanceKm}));
+    let rows=raw.map((p:any)=>({...p,id:p._id||p.id,name:p.name||"Fresh Produce",price:Number(p.price)||0,unit:p.unit||"kg",images:p.images||(p.image?[p.image]:[]),farmerName:p.farmerName||p.farmName||p.farmer?.farmName||p.farmer?.name||"Local Farmer",rating:Number(p.ratings?.average||p.rating||0),category:p.category||"Others",quantity:p.availableQuantity??p.quantity??p.stock??0,farmDistanceKm:p.farmDistanceKm??p.distanceKm}));
     const term=(params.search||"").trim().toLowerCase();
-    if(term) rows=rows.filter((p:any)=>[p.name,p.category,p.farmerName].some(v=>String(v||"").toLowerCase().includes(term)));
-    if(category) rows=rows.filter((p:any)=>String(p.category).toLowerCase()===category.toLowerCase());
-    if(params.minPrice) rows=rows.filter((p:any)=>p.price>=Number(params.minPrice));
-    if(params.maxPrice) rows=rows.filter((p:any)=>p.price<=Number(params.maxPrice));
-    if(params.sortBy==="price-asc") rows.sort((a:any,b:any)=>a.price-b.price);
-    if(params.sortBy==="price-desc") rows.sort((a:any,b:any)=>b.price-a.price);
-    if(params.sortBy==="rating") rows.sort((a:any,b:any)=>b.rating-a.rating);
+    if(term)rows=rows.filter((p:any)=>[p.name,p.category,p.farmerName].some(v=>String(v||"").toLowerCase().includes(term)));
+    if(category)rows=rows.filter((p:any)=>String(p.category).toLowerCase()===category.toLowerCase());
+    if(params.minPrice)rows=rows.filter((p:any)=>p.price>=Number(params.minPrice));
+    if(params.maxPrice)rows=rows.filter((p:any)=>p.price<=Number(params.maxPrice));
+    if(harvestTab==="harvested")rows=rows.filter((p:any)=>p.harvestStatus==="harvested"||p.status==="harvested"||p.isHarvested===true);
+    if(harvestTab==="preharvest")rows=rows.filter((p:any)=>p.harvestStatus==="preharvest"||p.status==="preorder"||p.status==="pre_harvest"||p.isPreHarvest===true);
+    if(params.sortBy==="price-asc")rows.sort((a:any,b:any)=>a.price-b.price);
+    if(params.sortBy==="price-desc")rows.sort((a:any,b:any)=>b.price-a.price);
+    if(params.sortBy==="rating")rows.sort((a:any,b:any)=>b.rating-a.rating);
     return rows;
-  },[raw,params.search,category,params.minPrice,params.maxPrice,params.sortBy]);
+  },[raw,params.search,category,params.minPrice,params.maxPrice,params.sortBy,harvestTab]);
   const categories=useMemo(()=>Array.from(new Set(raw.map((p:any)=>p.category).filter(Boolean))).sort() as string[],[raw]);
-  const title=scope==="nearby"?"Nearby Marketplace":scope==="state"?"State Marketplace":scope==="national"?"National Marketplace":"All Products";
+  const title=scope==="nearby"?"Nearby Farmers":scope==="state"?"State Marketplace":scope==="national"?"National Marketplace":"All Products";
   const needsState=scope==="state"&&!place.state;
+  const toggleFilter=(key:keyof typeof filtersOpen)=>setFiltersOpen(v=>({...v,[key]:!v}));
+  const resetFilters=()=>{update({category:"",minPrice:"",maxPrice:"",search:"",sortBy:""});setHarvestTab("all");};
 
-  return <div className="space-y-5 p-4 md:p-6">
-    <header><h1 className="text-2xl font-bold text-slate-900 md:text-3xl">Marketplace</h1><p className="text-sm text-slate-600">Discover fresh products from local farmers near you, across your state and from all over India.</p></header>
-    <section className="relative overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-r from-lime-50 via-emerald-50 to-green-100 px-6 py-7 md:px-10">
-      <div className="relative z-10 max-w-2xl"><p className="mb-2 text-[10px] font-bold uppercase tracking-[0.22em] text-emerald-700">Fresh daily · Farm to home</p><h2 className="text-2xl font-extrabold leading-tight text-slate-900 md:text-3xl">Fresh from<br/>Local Farmers to Your Home</h2><p className="mt-2 text-sm font-medium text-slate-700">Fresh Produce <span className="mx-2 text-emerald-600">|</span> Verified Farmers <span className="mx-2 text-emerald-600">|</span> Safe &amp; Traceable</p><a href="/nearby" className="mt-4 inline-flex rounded-full bg-emerald-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-800">Shop Fresh Now →</a></div>
-      <div className="pointer-events-none absolute -right-2 bottom-0 hidden items-end gap-2 text-6xl md:flex" aria-hidden="true">🥬 🥕 🍅 🧺</div><div className="pointer-events-none absolute -right-10 -top-20 h-64 w-64 rounded-full bg-white/40 blur-3xl"/>
+  const filterPanel=<div className="space-y-0 divide-y divide-slate-100">
+    <div className="pb-3"><div className="mb-2 flex items-center justify-between"><h3 className="font-bold text-slate-900">Filters</h3><button onClick={resetFilters} className="text-xs font-semibold text-emerald-700 hover:underline">Clear All</button></div></div>
+    <section className="py-3"><button onClick={()=>toggleFilter("category")} className="flex w-full items-center justify-between text-sm font-semibold text-slate-800">Category <ChevronDown className={`h-4 w-4 transition-transform ${filtersOpen.category?"":"-rotate-90"}`}/></button>{filtersOpen.category&&<div className="mt-2 space-y-2">{categories.map((c)=>{const count=raw.filter((p:any)=>String(p.category||"").toLowerCase()===c.toLowerCase()).length;return <label key={c} className="flex cursor-pointer items-center gap-2 text-sm text-slate-700"><input type="radio" name="market-category" checked={category===c} onChange={()=>update({category:category===c?"":c})} className="h-4 w-4 accent-emerald-700"/><span className="flex-1">{c}</span><span className="text-xs text-slate-400">({count})</span></label>})}</div>}</section>
+    <section className="py-3"><button onClick={()=>toggleFilter("price")} className="flex w-full items-center justify-between text-sm font-semibold text-slate-800">Price Range <ChevronDown className={`h-4 w-4 ${filtersOpen.price?"":"-rotate-90"}`}/></button>{filtersOpen.price&&<div className="mt-2 grid grid-cols-2 gap-2"><Input type="number" min="0" value={params.minPrice||""} onChange={e=>update({minPrice:e.target.value})} placeholder="Min ₹"/><Input type="number" min="0" value={params.maxPrice||""} onChange={e=>update({maxPrice:e.target.value})} placeholder="Max ₹"/></div>}</section>
+    {([{key:"farmer",label:"Farmer Type",items:["Individual Farmer","FPO / Cooperative","Verified Farm"]},{key:"availability",label:"Availability",items:["In Stock","Pre-order Open"]},{key:"certification",label:"Certification",items:["Organic","Verified"]},{key:"delivery",label:"Delivery Options",items:["Home Delivery","Farm Pickup"]}] as const).map(group=><section key={group.key} className="py-3"><button onClick={()=>toggleFilter(group.key)} className="flex w-full items-center justify-between text-sm font-semibold text-slate-800">{group.label}<ChevronDown className={`h-4 w-4 ${filtersOpen[group.key]?"":"-rotate-90"}`}/></button>{filtersOpen[group.key]&&<div className="mt-2 space-y-2">{group.items.map(item=><label key={item} className="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" disabled className="h-4 w-4 accent-emerald-700"/>{item}</label>)}</div>}</section>)}
+  </div>;
+
+  return <div className="space-y-4 px-3 py-4 md:px-5 md:py-5">
+    <header className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700"><Store className="h-6 w-6"/></div><div><h1 className="text-2xl font-extrabold tracking-tight text-slate-950">Marketplace</h1><p className="text-sm text-slate-600">Discover fresh products from local farmers near you, across your state and from all over India.</p></div></header>
+
+    <section className="relative min-h-[150px] overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-r from-lime-100 via-emerald-50 to-sky-100 px-6 py-5 shadow-sm md:min-h-[160px] md:px-10">
+      <div className="absolute inset-0 opacity-20" style={{backgroundImage:"radial-gradient(circle at 15% 90%, #65a30d 0, transparent 32%), radial-gradient(circle at 80% 10%, #10b981 0, transparent 30%)"}}/>
+      <div className="relative z-10 max-w-2xl"><h2 className="text-2xl font-black leading-tight text-slate-950 md:text-3xl">Fresh from<br/>Local Farmers to Your Home</h2><p className="mt-2 text-sm font-semibold text-slate-800">Fresh Produce <span className="mx-2 text-emerald-700">|</span> Verified Farmers <span className="mx-2 text-emerald-700">|</span> Safe &amp; Traceable</p><a href="/nearby" className="mt-3 inline-flex rounded-full bg-emerald-700 px-5 py-2 text-sm font-bold text-white shadow-sm hover:bg-emerald-800">Shop Fresh Now <span className="ml-2">→</span></a></div>
+      <div className="pointer-events-none absolute -right-3 bottom-0 hidden items-end gap-2 text-6xl md:flex" aria-hidden="true">🥬 🥕 🍅 🧺</div>
     </section>
+
     <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
-      {([{value:"nearby",label:"Nearby Marketplace",sub:"From farmers near you",Icon:MapPin},{value:"state",label:"State Marketplace",sub:"Across your state",Icon:Map},{value:"national",label:"National Marketplace",sub:"Across India",Icon:Globe2},{value:"all",label:"All Products",sub:"Search across all markets",Icon:Store}] as const).map(({value,label,sub,Icon})=><button key={value} onClick={()=>setScope(value)} className={`flex min-h-[68px] items-center gap-3 rounded-xl border px-3 py-3 text-left transition ${scope===value?"border-emerald-600 bg-emerald-50 shadow-sm":"border-slate-200 bg-white hover:border-emerald-200 hover:bg-emerald-50/50"}`}><span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${scope===value?"bg-emerald-100 text-emerald-700":"bg-slate-50 text-slate-600"}`}><Icon className="h-5 w-5"/></span><span><strong className="block text-sm text-slate-900">{label}</strong><small className="text-xs text-slate-500">{sub}</small></span></button>)}
+      {([{value:"nearby",label:"Nearby Marketplace",sub:"From farmers near you",Icon:MapPin},{value:"state",label:"State Marketplace",sub:"Across your state",Icon:Map},{value:"national",label:"National Marketplace",sub:"Across India",Icon:Globe2},{value:"all",label:"All Products",sub:"Search across all markets",Icon:Store}] as const).map(({value,label,sub,Icon})=><button key={value} onClick={()=>setScope(value)} className={`flex min-h-[58px] items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition ${scope===value?"border-emerald-600 bg-emerald-50 shadow-sm":"border-slate-200 bg-white hover:border-emerald-200"}`}><span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${scope===value?"bg-emerald-100 text-emerald-700":"bg-slate-50 text-slate-600"}`}><Icon className="h-5 w-5"/></span><span><strong className="block text-sm text-slate-900">{label}</strong><small className="text-xs text-slate-500">{sub}</small></span></button>)}
     </div>
-    <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(220px,280px)_auto]">
-        <form className="relative" onSubmit={e=>{e.preventDefault();update({search:search.value.trim(),page:"1"});}}><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-emerald-700"/><Input value={search.value} onChange={e=>search.setValue(e.target.value)} placeholder="Search products, farmers or categories (e.g., Tomato, Onion, Organic...)" className="h-11 pl-10"/></form>
-        <PlaceSelector value={place} onChange={v=>update({country:v.country,state:v.state,district:v.district,city:v.city})} includeAll={scope==="national"||scope==="all"}/>
-        {scope==="nearby"&&<Button variant="outline" onClick={locate} disabled={locating} className="h-11">{locating?<Loader2 className="mr-2 h-4 w-4 animate-spin"/>:<Navigation className="mr-2 h-4 w-4"/>}Use My Location</Button>}
+
+    <section className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+      <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(190px,250px)_minmax(145px,175px)_auto]">
+        <form className="relative" onSubmit={e=>{e.preventDefault();update({search:search.value.trim(),page:"1"});}}><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-emerald-700"/><Input value={search.value} onChange={e=>search.setValue(e.target.value)} placeholder="Search for fresh fruits, vegetables, grains and more..." className="h-10 pl-10"/></form>
+        <div className="min-w-0"><PlaceSelector value={place} onChange={v=>update({country:v.country,state:v.state,district:v.district,city:v.city})} includeAll={scope==="national"||scope==="all"}/></div>
+        {scope==="nearby"?<select aria-label="Search radius" value={radius} onChange={e=>update({radius:e.target.value})} className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"><option value={2}>Within 2 KM</option><option value={5}>Within 5 KM</option><option value={10}>Within 10 KM</option><option value={20}>Within 20 KM</option><option value={50}>Within 50 KM</option></select>:<div className="flex h-10 items-center rounded-lg border border-slate-200 px-3 text-xs text-slate-500">{scope==="state"?"Across selected state":scope==="national"?"Across India":"All locations"}</div>}
+        <Button onClick={()=>{if(scope==="nearby"&&!coords)locate();else update({search:search.value.trim(),page:"1"});}} disabled={locating} className="h-10 bg-emerald-700 hover:bg-emerald-800">{locating?<Loader2 className="h-4 w-4 animate-spin"/>:<Search className="mr-1 h-4 w-4"/>}Search</Button>
       </div>
-      {scope==="nearby"&&<div className="flex flex-wrap items-center gap-2"><span className="mr-1 text-xs font-semibold text-slate-600">Search radius</span>{RADII.map(r=><button key={r} onClick={()=>update({radius:String(r)})} className={`rounded-full border px-4 py-1.5 text-xs font-semibold ${radius===r?"border-emerald-700 bg-emerald-700 text-white":"border-slate-200 bg-white text-slate-600 hover:border-emerald-300"}`}>{r} km</button>)}</div>}
-      {needsState&&<p className="text-xs text-amber-700">Select a country and state to browse state-level products.</p>}
     </section>
-    <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex flex-wrap gap-1 rounded-xl bg-slate-100 p-1"><button onClick={()=>update({harvest:"all"})} className={`rounded-lg px-4 py-2 text-sm font-semibold ${(params.harvest||"all")==="all"?"bg-emerald-700 text-white":"text-slate-600"}`}>All Products</button><button onClick={()=>update({harvest:"harvested"})} className={`rounded-lg px-4 py-2 text-sm font-semibold ${params.harvest==="harvested"?"bg-emerald-700 text-white":"text-slate-600"}`}>Harvested</button><button onClick={()=>update({harvest:"preharvest"})} className={`rounded-lg px-4 py-2 text-sm font-semibold ${params.harvest==="preharvest"?"bg-emerald-700 text-white":"text-slate-600"}`}>Pre Harvest</button></div><div className="flex items-center gap-2"><Button variant="outline" size="sm" onClick={()=>setShowFilters(v=>!v)}><SlidersHorizontal className="mr-2 h-4 w-4"/>Filters</Button><select aria-label="Sort products" value={params.sortBy||"relevance"} onChange={e=>update({sortBy:e.target.value==="relevance"?"":e.target.value})} className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm"><option value="relevance">Sort: Relevance</option><option value="price-asc">Price: Low to High</option><option value="price-desc">Price: High to Low</option><option value="rating">Top Rated</option><option value="newest">Newest</option></select></div></div>
-    {showFilters&&<section className="grid gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:grid-cols-2 lg:grid-cols-4"><label className="text-xs font-semibold text-slate-600">Category<select value={category} onChange={e=>update({category:e.target.value})} className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm font-normal"><option value="">All categories</option>{categories.map(c=><option key={c} value={c}>{c}</option>)}</select></label><label className="text-xs font-semibold text-slate-600">Minimum price<input type="number" min="0" value={params.minPrice||""} onChange={e=>update({minPrice:e.target.value})} className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm font-normal" placeholder="₹ Min"/></label><label className="text-xs font-semibold text-slate-600">Maximum price<input type="number" min="0" value={params.maxPrice||""} onChange={e=>update({maxPrice:e.target.value})} className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm font-normal" placeholder="₹ Max"/></label><button onClick={()=>update({category:"",minPrice:"",maxPrice:"",sortBy:"",search:""})} className="self-end text-left text-sm font-semibold text-emerald-700 hover:underline">Clear all filters</button></section>}
-    <section className="space-y-3"><div className="flex items-center justify-between gap-2"><div><h3 className="font-bold text-slate-900">{title}</h3><p className="text-xs text-slate-500">{products.length} products {scope==="nearby"&&coords? `within ${radius} km`:""}</p></div><span className="text-xs text-slate-500">{productsQuery.isLoading?"Loading products…":`Showing ${products.length} products`}</span></div>
-      {needsState?<div className="rounded-xl border border-slate-200 bg-white py-14 text-center text-sm text-slate-500">Choose a state to see available products.</div>:productsQuery.isLoading?<div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-emerald-700"/></div>:products.length?<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">{products.slice(0,24).map((p:any)=><ProductCard key={p.id} product={p}/>)}</div>:<div className="rounded-xl border border-slate-200 bg-white py-14 text-center text-sm text-slate-500">No products found. Try another location or clear some filters.</div>}
-    </section>
+
+    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2"><div className="flex flex-wrap gap-1 rounded-lg bg-slate-100 p-1">{([{value:"all",label:"All Products",Icon:Store},{value:"harvested",label:"Harvested",Icon:Leaf},{value:"preharvest",label:"Pre Harvest",Icon:Sprout}] as const).map(({value,label,Icon})=><button key={value} onClick={()=>{setHarvestTab(value);update({harvest:value});}} className={`inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold ${harvestTab===value?"bg-emerald-700 text-white shadow-sm":"text-slate-600 hover:bg-white"}`}><Icon className="h-4 w-4"/>{label}{value==="all"?` (${raw.length})`:""}</button>)}</div><div className="flex items-center gap-2"><span className="hidden text-xs text-slate-500 sm:inline">Sort by</span><select aria-label="Sort products" value={params.sortBy||"relevance"} onChange={e=>update({sortBy:e.target.value==="relevance"?"":e.target.value})} className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs"><option value="relevance">Relevance</option><option value="price-asc">Price: Low to High</option><option value="price-desc">Price: High to Low</option><option value="rating">Top Rated</option><option value="newest">Newest</option></select><button onClick={()=>setGridView(true)} aria-label="Grid view" className={`rounded-lg p-2 ${gridView?"bg-emerald-700 text-white":"border text-slate-600"}`}><LayoutGrid className="h-4 w-4"/></button><button onClick={()=>setGridView(false)} aria-label="List view" className={`rounded-lg p-2 ${!gridView?"bg-emerald-700 text-white":"border text-slate-600"}`}><List className="h-4 w-4"/></button></div></div>
+
+    <div className="grid gap-4 lg:grid-cols-[230px_minmax(0,1fr)]">
+      <aside className="hidden h-fit rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:block">{filterPanel}</aside>
+      <div className="min-w-0 space-y-3">
+        <div className="flex items-center justify-between gap-2"><div><h2 className="font-bold text-slate-900">Showing <span className="text-emerald-700">{products.length}</span> products from <span className="text-emerald-700">{title}</span>{scope==="nearby"&&coords?<span className="font-normal text-slate-500"> (within {radius} KM)</span>:null}</h2><p className="text-xs text-slate-500">{productsQuery.isLoading?"Loading available products...":`Showing 1–${Math.min(products.length,24)} of ${products.length} products`}</p></div><Button variant="outline" size="sm" className="lg:hidden" onClick={()=>setMobileFilters(true)}><SlidersHorizontal className="mr-2 h-4 w-4"/>Filters</Button></div>
+        {needsState?<div className="rounded-xl border bg-white py-14 text-center text-sm text-slate-500">Choose a state to see available products.</div>:productsQuery.isLoading?<div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-emerald-700"/></div>:products.length?<div className={gridView?"grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5":"grid grid-cols-1 gap-3"}>{products.slice(0,24).map((p:any)=><ProductCard key={p.id} product={p}/>)}</div>:<div className="rounded-xl border border-slate-200 bg-white py-14 text-center text-sm text-slate-500">No products found. Try another location or clear some filters.</div>}
+        {products.length>24&&<div className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500"><span>Showing 1–24 of {products.length} products</span><div className="flex gap-2"><Button size="sm" variant="outline" disabled>Previous</Button><Button size="sm" className="bg-emerald-700">1</Button><Button size="sm" variant="outline" disabled>Next</Button></div></div>}
+      </div>
+    </div>
     <HarvestSections country={place.country} state={place.state} district={place.district} city={place.city} coords={coords?{lat:String(coords.lat),lng:String(coords.lng)}:null} radius={radius}/>
+
+    {mobileFilters&&<div className="fixed inset-0 z-50 bg-slate-950/40 p-4 lg:hidden" onClick={()=>setMobileFilters(false)}><div className="ml-auto h-full max-w-sm overflow-y-auto rounded-2xl bg-white p-4 shadow-xl" onClick={e=>e.stopPropagation()}><div className="mb-3 flex items-center justify-between"><h2 className="font-bold">Filter Products</h2><button onClick={()=>setMobileFilters(false)} aria-label="Close filters"><X className="h-5 w-5"/></button></div>{filterPanel}<Button className="mt-4 w-full bg-emerald-700" onClick={()=>setMobileFilters(false)}>Show {products.length} products</Button></div></div>}
   </div>;
 }
 
