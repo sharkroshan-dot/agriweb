@@ -256,6 +256,18 @@ export default function OrderDetailPage() {
       deliveryTimeSlot: o.deliveryTimeSlot,
       deliveryVerification: o.deliveryVerification || null,
       isBulkOrder: o.isBulkOrder || false,
+      fulfillmentMethod: o.fulfillmentMethod || "",
+      routeCategory: o.routeCategory || "",
+      logisticsMode: o.logisticsMode || "",
+      transferStatus: String(o.transferStatus || "").toLowerCase(),
+      warehouseFulfillmentStage: String(o.warehouseFulfillmentStage || "").toLowerCase(),
+      warehouseCollectionStatus: String(o.warehouseCollectionStatus || "").toLowerCase(),
+      sourceWarehouseId: o.sourceWarehouseId || o.warehouseId || null,
+      sourceWarehouseName: o.sourceWarehouseName || o.warehouseName || "",
+      destinationWarehouseId: o.destinationWarehouseId || o.targetWarehouseId || null,
+      destinationWarehouseName: o.destinationWarehouseName || o.targetWarehouseName || "",
+      localHubId: o.localHubId || null,
+      localHubName: o.localHubName || "",
       tracking: (o.statusHistory || []).map((h: any) => ({
         status: (h.status || "").toLowerCase(),
         eventType: h.eventType || "",
@@ -613,15 +625,108 @@ export default function OrderDetailPage() {
     router.push("/cart");
   };
 
-  const displayStatus = order.status.replace(/_/g, " ").replace(/\\b\\w/g, (c: string) => c.toUpperCase());
-  const journeySteps = [
-    { key: "confirmed", label: "Order Confirmed", description: "Your order has been placed successfully." },
-    { key: "preparing", label: "Preparing", description: "Your products are being prepared." },
-    { key: "dispatched", label: "Dispatched", description: "Your order has left the dispatch point." },
-    { key: "in_transit", label: "In Transit", description: "Your order is on the way to your delivery address." },
-    { key: "delivered", label: "Delivered", description: "Your order has been delivered." },
-  ];
-  const currentJourneyIndex = order.status === "delivered" ? 4 : order.status === "in_transit" || order.status === "out_for_delivery" ? 3 : order.status === "dispatched" || order.status === "shipped" ? 2 : order.status === "preparing" || order.status === "processing" || order.status === "ready_for_delivery" ? 1 : 0;
+  const displayStatus = order.status.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
+
+  // Only show the transfer journey when the backend route identifies an
+  // inter-district / destination-warehouse movement. Nearby routes stay direct.
+  const isWarehouseTransfer =
+    order.routeCategory === "inter_district" ||
+    String(order.logisticsMode || "").includes("destination_warehouse") ||
+    Boolean(order.destinationWarehouseId);
+
+  const hasLocalHubStage = Boolean(
+    order.localHubId ||
+    order.localHubName ||
+    String(order.logisticsMode || "").includes("local_hub")
+  );
+
+  const journeySteps = isWarehouseTransfer
+    ? [
+        { key: "order_placed", label: "Order Placed", description: "Your order has been placed.", aliases: ["order_placed", "created"] },
+        { key: "confirmed", label: "Confirmed", description: "Your order has been confirmed.", aliases: ["confirmed", "order_confirmed", "order_status_confirmed"] },
+        { key: "preparing", label: "Preparing", description: "The farmer is preparing your products.", aliases: ["preparing", "processing", "order_status_processing", "farmer_preparing", "fulfillment_packed", "customer_order_packed"] },
+        { key: "farm_pickup", label: "Farm Pickup", description: "Your packed order is being collected from the farm.", aliases: ["farmer_fulfillment_ready_for_pickup", "warehouse_pickup_requested", "pickup_assigned", "farm_pickup_assigned", "pickup_started", "collected_from_farm", "farm_pickup_completed", "pickup_completed", "arrived_warehouse"] },
+        { key: "transfer_assigned", label: "Warehouse Transfer Assigned", description: "A transfer team and destination warehouse have been assigned.", aliases: ["warehouse_transfer_assigned", "transfer_assigned", "transfer_team_assigned"] },
+        { key: "transfer_dispatched", label: "Transfer Dispatched", description: "Your order has left the source warehouse.", aliases: ["warehouse_transfer_dispatched", "transfer_dispatched", "transfer_shipped"] },
+        { key: "transfer_in_transit", label: "Transfer In Transit", description: "Your order is travelling to the destination warehouse.", aliases: ["warehouse_transfer_in_transit", "transfer_in_transit"] },
+        { key: "destination_received", label: "Destination Warehouse Received", description: "The destination warehouse has confirmed receipt of your order.", aliases: ["destination_warehouse_received", "warehouse_transfer_received", "transfer_received", "received_at_destination"] },
+        { key: "local_delivery_preparation", label: "Local Delivery Preparation", description: "Your order is being prepared for final-mile delivery.", aliases: ["local_delivery_preparation", "local_hub_received", "consolidation_completed", "ready_for_direct_delivery"] },
+        { key: "delivery_partner_assigned", label: "Delivery Partner Assigned", description: "A delivery partner has been assigned to your order.", aliases: ["delivery_partner_assigned", "delivery_assigned", "partner_assigned"] },
+        { key: "out_for_delivery", label: "Out for Delivery", description: "Your delivery partner is on the way to your address.", aliases: ["out_for_delivery", "order_out_for_delivery"] },
+        { key: "delivered", label: "Delivered", description: "Your order has been delivered successfully.", aliases: ["delivered", "order_delivered", "completed"] },
+      ]
+    : [
+        { key: "order_placed", label: "Order Placed", description: "Your order has been placed.", aliases: ["order_placed", "created"] },
+        { key: "confirmed", label: "Order Confirmed", description: "Your order has been confirmed.", aliases: ["confirmed", "order_confirmed", "order_status_confirmed"] },
+        { key: "preparing", label: "Farmer Preparing", description: "The farmer is preparing your products.", aliases: ["preparing", "processing", "order_status_processing", "farmer_preparing", "fulfillment_packed"] },
+        { key: "ready_for_delivery", label: "Ready for Delivery", description: "Your order is ready for the delivery process.", aliases: ["ready_for_delivery", "ready_for_pickup", "packed", "order_ready_for_delivery"] },
+        ...(hasLocalHubStage ? [{ key: "local_hub", label: "Local Hub / Delivery Preparation", description: "Your order is being prepared for local delivery.", aliases: ["local_hub_received", "local_delivery_preparation", "ready_for_direct_delivery"] }] : []),
+        { key: "delivery_partner_assigned", label: "Delivery Partner Assigned", description: "A delivery partner has been assigned to your order.", aliases: ["delivery_partner_assigned", "delivery_assigned", "partner_assigned"] },
+        { key: "out_for_delivery", label: "Out for Delivery", description: "Your delivery partner is on the way to your address.", aliases: ["out_for_delivery", "order_out_for_delivery", "in_transit"] },
+        { key: "delivered", label: "Delivered", description: "Your order has been delivered successfully.", aliases: ["delivered", "order_delivered", "completed"] },
+      ];
+
+  const eventMatchesStep = (event: any, step: any) => {
+    const values = [event.status, event.eventType, event.description]
+      .filter(Boolean)
+      .map((value: string) => String(value).toLowerCase().replace(/\s+/g, "_"));
+    return step.aliases.some((alias: string) =>
+      values.some((value: string) => value === alias || value.includes(alias))
+    );
+  };
+
+  const matchedJourneyEvents = journeySteps.map((step: any) =>
+    order.tracking.find((event: any) => eventMatchesStep(event, step))
+  );
+
+  const statusFallbackIndex = (() => {
+    const status = order.status;
+    if (status === "delivered" || status === "completed") return journeySteps.length - 1;
+    if (["out_for_delivery", "in_transit", "shipped"].includes(status)) return journeySteps.findIndex((step: any) => step.key === "out_for_delivery");
+    if (["dispatched"].includes(status)) return journeySteps.findIndex((step: any) => step.key === (isWarehouseTransfer ? "transfer_dispatched" : "out_for_delivery"));
+    if (["ready_for_pickup", "pickup_assigned", "collected_from_farm"].includes(status)) return journeySteps.findIndex((step: any) => step.key === (isWarehouseTransfer ? "farm_pickup" : "ready_for_delivery"));
+    if (["ready_for_delivery", "packed"].includes(status)) return journeySteps.findIndex((step: any) => step.key === "ready_for_delivery");
+    if (["processing", "preparing"].includes(status)) return journeySteps.findIndex((step: any) => step.key === "preparing");
+    if (["confirmed"].includes(status)) return journeySteps.findIndex((step: any) => step.key === "confirmed");
+    return 0;
+  })();
+
+  const latestMatchedIndex = matchedJourneyEvents.reduce(
+    (latest: number, event: any, index: number) => event ? Math.max(latest, index) : latest,
+    -1
+  );
+
+  const transferStateIndex = (() => {
+    const state = order.transferStatus;
+    const stage = order.warehouseFulfillmentStage;
+    const collection = order.warehouseCollectionStatus;
+    const stateAliases: Record<string, string> = {
+      awaiting_farm_pickup: "farm_pickup",
+      ready_for_pickup: "farm_pickup",
+      pickup_assigned: "farm_pickup",
+      collected_from_farm: "transfer_assigned",
+      arrived_warehouse: "transfer_assigned",
+      assigned: "transfer_assigned",
+      transfer_assigned: "transfer_assigned",
+      dispatched: "transfer_dispatched",
+      in_transit: "transfer_in_transit",
+      received: "destination_received",
+      completed: "destination_received",
+    };
+    const stateKey = stateAliases[state] || stateAliases[stage] || stateAliases[collection];
+    return stateKey ? journeySteps.findIndex((step: any) => step.key === stateKey) : -1;
+  })();
+
+  const currentJourneyIndex = Math.max(
+    0,
+    latestMatchedIndex,
+    transferStateIndex,
+    statusFallbackIndex
+  );
+  const isTerminalOrder = ["cancelled", "refunded"].includes(order.status);
+  const progressPercent = journeySteps.length > 1
+    ? Math.round((currentJourneyIndex / (journeySteps.length - 1)) * 100)
+    : 0;
 
   return (
     <div className="customer-retail-shell space-y-5 pb-8">
@@ -668,14 +773,13 @@ export default function OrderDetailPage() {
             </div>
           </div>
           <div className="min-w-0">
-            <div className="mb-3 flex items-center justify-between gap-3"><span className="text-sm font-bold text-slate-900">Order progress</span><Badge className={statusColors[order.status] || "border-gray-200 bg-gray-50 text-gray-700"}>{displayStatus}</Badge></div>
-            <div className="flex items-center">
-              {journeySteps.map((step, index) => {
-                const done = index <= currentJourneyIndex && !["cancelled", "refunded"].includes(order.status);
-                return <div key={step.key} className="flex min-w-0 flex-1 items-center last:flex-none"><div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 ${done ? "border-emerald-700 bg-emerald-700 text-white" : "border-slate-300 bg-white text-slate-400"}`}>{done ? <CheckCircle className="h-4 w-4" /> : <span className="text-xs">{index + 1}</span>}</div>{index < journeySteps.length - 1 && <div className={`h-1 min-w-2 flex-1 ${index < currentJourneyIndex ? "bg-emerald-600" : "bg-slate-200"}`} />}</div>;
-              })}
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div><span className="text-sm font-bold text-slate-900">Order progress</span><p className="mt-1 text-xs text-slate-500">{isTerminalOrder ? displayStatus : `Step ${Math.min(currentJourneyIndex + 1, journeySteps.length)} of ${journeySteps.length} · ${journeySteps[currentJourneyIndex]?.label || "Order Placed"}`}</p></div>
+              <Badge className={statusColors[order.status] || "border-gray-200 bg-gray-50 text-gray-700"}>{displayStatus}</Badge>
             </div>
-            <div className="mt-2 flex justify-between gap-1 text-[10px] font-semibold text-slate-600"><span>Confirmed</span><span>Preparing</span><span>Dispatched</span><span>In Transit</span><span>Delivered</span></div>
+            <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+              <div className={`h-full rounded-full transition-all ${isTerminalOrder ? "bg-slate-300" : "bg-emerald-600"}`} style={{ width: `${isTerminalOrder ? 0 : progressPercent}%` }} />
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -1103,22 +1207,30 @@ export default function OrderDetailPage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-0">
-                {journeySteps.map((step, index) => {
-                  const aliases: Record<string, string[]> = {
-                    confirmed: ["confirmed", "pending", "order_confirmed"],
-                    preparing: ["preparing", "processing", "ready_for_delivery", "packed"],
-                    dispatched: ["dispatched", "shipped"],
-                    in_transit: ["in_transit", "out_for_delivery"],
-                    delivered: ["delivered", "completed"],
-                  };
-                  const event = order.tracking.find((entry: any) => aliases[step.key]?.includes(entry.status));
-                  const isComplete = index <= currentJourneyIndex && !["cancelled", "refunded"].includes(order.status);
-                  const isCurrent = index === currentJourneyIndex && !["delivered", "cancelled", "refunded"].includes(order.status);
+                {journeySteps.map((step: any, index: number) => {
+                  const event = matchedJourneyEvents[index];
+                  const isComplete = !isTerminalOrder && (index < currentJourneyIndex || Boolean(event) || (index === currentJourneyIndex && ["delivered", "completed"].includes(order.status)));
+                  const isCurrent = !isTerminalOrder && index === currentJourneyIndex && order.status !== "delivered";
+                  const eventDate = event?.date;
+                  const stageDescription = event?.description || step.description;
+                  const timestampLabel = eventDate
+                    ? formatDate(eventDate)
+                    : isComplete
+                      ? "Completed"
+                      : isCurrent
+                        ? "In progress"
+                        : step.key === "delivered" && order.estimatedDelivery
+                          ? `Expected by ${formatDate(order.estimatedDelivery)}`
+                          : "Update pending";
                   return (
                     <div key={step.key} className={`relative flex gap-3 pb-4 last:pb-0 ${isCurrent ? "rounded-xl bg-emerald-50 px-3 py-2" : "px-3 py-2"}`}>
                       {index < journeySteps.length - 1 && <div className={`absolute left-[23px] top-9 h-[calc(100%-12px)] w-0.5 ${isComplete ? "bg-emerald-500" : "bg-slate-200"}`} />}
-                      <div className={`relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 ${isComplete ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-300 bg-white text-slate-400"}`}>{isComplete ? <CheckCircle className="h-4 w-4" /> : <span className="h-2 w-2 rounded-full bg-slate-300" />}</div>
-                      <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-semibold text-slate-900">{step.label}</p><p className="text-xs text-slate-500">{event?.date ? formatDate(event.date) : step.key === "delivered" && order.status !== "delivered" && order.estimatedDelivery ? `Expected by ${formatDate(order.estimatedDelivery)}` : "Update pending"}</p></div><p className="text-xs text-slate-600">{step.description}</p></div>
+                      <div className={`relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 ${isComplete ? "border-emerald-600 bg-emerald-600 text-white" : isCurrent ? "border-emerald-600 bg-white text-emerald-700" : "border-slate-300 bg-white text-slate-400"}`}>{isComplete ? <CheckCircle className="h-4 w-4" /> : <span className="h-2 w-2 rounded-full bg-current" />}</div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center justify-between gap-2"><p className={`text-sm font-semibold ${isCurrent ? "text-emerald-900" : "text-slate-900"}`}>{step.label}</p><p className="text-xs text-slate-500">{timestampLabel}</p></div>
+                        <p className="text-xs text-slate-600">{stageDescription}</p>
+                        {isWarehouseTransfer && step.key === "transfer_assigned" && (order.sourceWarehouseName || order.destinationWarehouseName) && <p className="mt-1 text-xs font-medium text-slate-600">{order.sourceWarehouseName || "Source warehouse"} → {order.destinationWarehouseName || "Destination warehouse"}</p>}
+                      </div>
                     </div>
                   );
                 })}
