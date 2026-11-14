@@ -627,7 +627,7 @@ export default function OrderDetailPage() {
     <div className="customer-retail-shell space-y-5 pb-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
-          <Button asChild variant="outline" size="sm" className="mt-1 shrink-0 rounded-xl border-slate-200 bg-white">
+          <Button asChild variant="ghost" size="sm" className="mt-1 shrink-0 px-0 text-slate-600 hover:bg-transparent hover:text-emerald-700">
             <Link href="/orders"><ArrowLeft className="mr-2 h-4 w-4" /> Back</Link>
           </Button>
           <div className="min-w-0">
