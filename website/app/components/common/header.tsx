@@ -94,7 +94,7 @@ export function Header() {
         </div>
 
         <nav
-          className={`agri-header-navigation${role === "customer" ? " flex items-center gap-1 rounded-xl border border-emerald-100 bg-slate-50/90 p-1" : ""}`}
+          className={`agri-header-navigation${role === "customer" ? " flex items-center justify-center gap-1 rounded-full border border-emerald-100 bg-emerald-50/60 p-1" : ""}`}
           aria-label="Main navigation"
         >
           {primaryLinks.map((item) => (
@@ -102,7 +102,7 @@ export function Header() {
               key={item.href}
               href={item.href}
               aria-current={isActive(item.href) ? "page" : undefined}
-              className={`agri-header-nav-link${isActive(item.href) ? " is-active" : ""}${role === "customer" ? " rounded-lg px-3 py-2 text-xs font-semibold text-slate-600 transition-colors hover:bg-white hover:text-emerald-800" : ""}${role === "customer" && isActive(item.href) ? " bg-white text-emerald-800 shadow-sm" : ""}`}
+              className={`agri-header-nav-link${isActive(item.href) ? " is-active" : ""}${role === "customer" ? " rounded-full px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-white hover:text-emerald-800" : ""}${role === "customer" && isActive(item.href) ? " bg-white text-emerald-800 shadow-sm" : ""}`}
             >
               {item.label}
             </Link>
