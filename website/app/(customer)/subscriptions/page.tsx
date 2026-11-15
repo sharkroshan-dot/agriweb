@@ -197,7 +197,7 @@ export default function CustomerSubscriptionsPage() {
         ))}
       </div>
 
-      <div className="grid items-start gap-4 2xl:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
         <section className="min-w-0">
           <div className="mb-4">
             <h2 className="text-xl font-bold text-slate-900">Choose Your Farm Basket Plan</h2>
@@ -234,7 +234,7 @@ export default function CustomerSubscriptionsPage() {
               </CardContent>
             </Card>
           ) : (
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <div className={cn("grid gap-4 sm:grid-cols-2", visiblePlans.length >= 3 ? "2xl:grid-cols-3" : "xl:grid-cols-2")}>
               {visiblePlans.map((plan, index) => {
                 const artwork = planArtwork(plan);
                 return (
