@@ -11,7 +11,6 @@ import {
   Trash2,
   Pause,
   Play,
-  IndianRupee,
   PackageCheck,
   Star,
   Truck,
@@ -23,9 +22,7 @@ import {
   Apple,
   Carrot,
   Gift,
-  Basket,
   ChevronRight,
-  Clock3,
 } from "lucide-react";
 import { api } from "../../lib/api/client";
 import { cn, formatPrice } from "../../lib/utils";
