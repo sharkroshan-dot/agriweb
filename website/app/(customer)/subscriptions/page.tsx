@@ -91,11 +91,10 @@ function getBasketItemImage(item: any): string | undefined {
 
 function planArtwork(plan: BasketPlan | any) {
   const category = getPlanCategory(plan as BasketPlan);
-  const itemImage = (plan?.items || []).map(getBasketItemImage).find(Boolean);
-  if (category === "fruits") return { emoji: "🍎 🍌 🍊 🍇", image: itemImage || "https://images.pexels.com/photos/1132047/pexels-photo-1132047.jpeg?auto=compress&cs=tinysrgb&w=1000" };
-  if (category === "organic") return { emoji: "🥬 🥕 🥦 🍅", image: itemImage || "https://images.pexels.com/photos/5945755/pexels-photo-5945755.jpeg?auto=compress&cs=tinysrgb&w=1000" };
-  if (category === "vegetables") return { emoji: "🥕 🥦 🍅 🥬", image: itemImage || "https://images.pexels.com/photos/1300972/pexels-photo-1300972.jpeg?auto=compress&cs=tinysrgb&w=1000" };
-  return { emoji: "🥬 🍅 🍎 🥕", image: itemImage || "https://images.pexels.com/photos/1300972/pexels-photo-1300972.jpeg?auto=compress&cs=tinysrgb&w=1000" };
+  if (category === "fruits") return { emoji: "🍎 🍌 🍊 🍇", className: "from-amber-50 via-orange-50 to-yellow-100", image: "https://images.unsplash.com/photo-1610832958506-aa56368176cf?auto=format&fit=crop&w=900&q=85" };
+  if (category === "organic") return { emoji: "🥬 🥕 🥦 🍅", className: "from-emerald-50 via-lime-50 to-green-100", image: "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=900&q=85" };
+  if (category === "vegetables") return { emoji: "🥕 🥦 🍅 🥬", className: "from-green-50 via-emerald-50 to-lime-100", image: "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=900&q=85" };
+  return { emoji: "🥬 🍅 🍎 🥕", className: "from-lime-50 via-green-50 to-amber-100", image: "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=900&q=85" };
 }
 
 function subscriptionArtwork(subscription: any, plans: BasketPlan[]) {
