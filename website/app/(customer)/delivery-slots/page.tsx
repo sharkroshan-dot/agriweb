@@ -105,6 +105,14 @@ export default function DeliverySlotsPage() {
     queryFn: () => api.get("/delivery-slots/my"),
   });
 
+  // Normalize the current user's joined-slot response before rendering it.
+  const mySlots: any[] = useMemo(() => {
+    const responseData = mySlotsData?.data;
+    const payload = responseData?.data ?? responseData;
+    const raw = payload?.bookings ?? payload?.slots ?? payload;
+    return Array.isArray(raw) ? raw : [];
+  }, [mySlotsData]);
+
   const joinMutation = useMutation({
     mutationFn: (slotId: string) => api.post(`/delivery-slots/slots/${slotId}/join`),
     onSuccess: () => {
