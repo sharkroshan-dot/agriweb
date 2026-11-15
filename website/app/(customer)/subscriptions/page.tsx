@@ -85,10 +85,10 @@ function getPlanCategory(plan: BasketPlan): PlanFilter {
 
 function planArtwork(plan: BasketPlan) {
   const category = getPlanCategory(plan);
-  if (category === "fruits") return { emoji: "🍎 🍌 🍊 🍇", className: "from-amber-50 via-orange-50 to-yellow-100" };
-  if (category === "organic") return { emoji: "🥬 🥕 🥦 🍅", className: "from-emerald-50 via-lime-50 to-green-100" };
-  if (category === "vegetables") return { emoji: "🥕 🥦 🍅 🥬", className: "from-green-50 via-emerald-50 to-lime-100" };
-  return { emoji: "🥬 🍅 🍎 🥕", className: "from-lime-50 via-green-50 to-amber-100" };
+  if (category === "fruits") return { emoji: "🍎 🍌 🍊 🍇", className: "from-amber-50 via-orange-50 to-yellow-100", image: "https://images.unsplash.com/photo-1610832958506-aa56368176cf?auto=format&fit=crop&w=900&q=85" };
+  if (category === "organic") return { emoji: "🥬 🥕 🥦 🍅", className: "from-emerald-50 via-lime-50 to-green-100", image: "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=900&q=85" };
+  if (category === "vegetables") return { emoji: "🥕 🥦 🍅 🥬", className: "from-green-50 via-emerald-50 to-lime-100", image: "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=900&q=85" };
+  return { emoji: "🥬 🍅 🍎 🥕", className: "from-lime-50 via-green-50 to-amber-100", image: "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=900&q=85" };
 }
 
 export default function CustomerSubscriptionsPage() {
@@ -174,8 +174,9 @@ export default function CustomerSubscriptionsPage() {
               </div>
             </div>
           </div>
-          <div className="pointer-events-none absolute -right-4 -top-4 hidden h-36 w-80 items-center justify-center rounded-bl-[5rem] bg-gradient-to-br from-emerald-200/70 to-lime-100/60 text-8xl sm:flex">
-            🥬 🥕 🍅
+          <div className="absolute inset-y-0 right-0 hidden w-[34%] overflow-hidden rounded-l-[5rem] sm:block">
+            <img src="https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=1200&q=90" alt="Fresh seasonal vegetables from local farms" className="h-full w-full object-cover" />
+            <div className="absolute inset-0 bg-gradient-to-r from-emerald-50/30 via-transparent to-transparent" />
           </div>
         </div>
       </div>
@@ -197,7 +198,7 @@ export default function CustomerSubscriptionsPage() {
         ))}
       </div>
 
-      <div className="grid w-full min-w-0 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="grid w-full min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_365px]">
         <section className="min-w-0">
           <div className="mb-4">
             <h2 className="text-xl font-bold text-slate-900">Choose Your Farm Basket Plan</h2>
@@ -234,41 +235,36 @@ export default function CustomerSubscriptionsPage() {
               </CardContent>
             </Card>
           ) : (
-            <div className={cn("grid min-w-0 gap-4 sm:grid-cols-2", visiblePlans.length >= 3 ? "xl:grid-cols-3" : "xl:grid-cols-2")}>
+            <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
               {visiblePlans.map((plan, index) => {
                 const artwork = planArtwork(plan);
                 return (
                   <Card key={plan.id} className={cn("flex min-w-0 flex-col overflow-hidden border-slate-200 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md", index === 0 && "border-emerald-300")}>
-                    <div className={cn("relative flex h-36 items-center justify-center bg-gradient-to-br text-6xl tracking-widest sm:h-40", artwork.className)}>
-                      <span aria-hidden="true">{artwork.emoji}</span>
-                      {index === 0 && <Badge className="absolute left-3 top-3 border-emerald-200 bg-emerald-700 text-white">Available from farmers</Badge>}
+                    <div className="relative h-28 overflow-hidden bg-emerald-50">
+                      <img src={artwork.image} alt={`${plan.name} fresh produce`} className="h-full w-full object-cover" />
+                      {index === 0 && <Badge className="absolute left-2 top-2 border-emerald-200 bg-emerald-700 text-white">Most Popular</Badge>}
                       {getPlanCategory(plan) === "organic" && <Badge className="absolute right-3 top-3 bg-white text-emerald-800"><Leaf className="mr-1 h-3 w-3" /> Organic</Badge>}
                     </div>
-                    <CardHeader className="space-y-1 p-4 pb-2">
-                      <CardTitle className="text-lg">{plan.name}</CardTitle>
-                      <CardDescription className="min-h-12 text-sm leading-5 line-clamp-2">{plan.description || `A fresh farm basket from ${plan.farmerName || "a local farmer"}.`}</CardDescription>
+                    <CardHeader className="space-y-1 p-3 pb-2">
+                      <CardTitle className="text-base leading-5">{plan.name}</CardTitle>
+                      <CardDescription className="min-h-10 text-xs leading-4 line-clamp-2">{plan.description || `A fresh farm basket from ${plan.farmerName || "a local farmer"}.`}</CardDescription>
                       <p className="flex items-center gap-1 text-xs text-slate-500">Farmer: <span className="font-semibold text-slate-700">{plan.farmerName || "Verified farmer"}</span>
                         {plan.rating ? <span className="ml-1 inline-flex items-center gap-0.5 text-amber-600"><Star className="h-3 w-3 fill-current" />{plan.rating.toFixed(1)}</span> : null}
                       </p>
                     </CardHeader>
-                    <CardContent className="flex flex-1 flex-col gap-3 px-4 pb-4 pt-1">
-                      <div className="flex flex-wrap gap-2">
-                        {(plan.items || []).slice(0, 5).map((item) => (
-                          <span key={item.productId || item.name} className="rounded-full bg-slate-100 px-2.5 py-1.5 text-xs text-slate-700">{itemLabel(item)}</span>
-                        ))}
-                        {plan.items.length > 5 && <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] text-slate-500">+{plan.items.length - 5} more</span>}
-                      </div>
-                      <div className="space-y-2.5 border-t border-slate-100 pt-3 text-sm text-slate-600">
+                    <CardContent className="flex flex-1 flex-col gap-2 px-3 pb-3 pt-1">
+                      <div className="flex flex-wrap gap-1.5">{(plan.items || []).slice(0, 3).map((item) => <span key={item.productId || item.name} className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-medium text-emerald-800">{item.name}</span>)}{plan.items.length > 3 && <span className="text-[10px] text-slate-500">+{plan.items.length - 3} more</span>}</div>
+                      <div className="space-y-1.5 border-t border-slate-100 pt-2 text-xs text-slate-700">
                         <p className="flex items-center gap-2"><CalendarDays className="h-4 w-4 text-emerald-600" /> Delivery: {plan.cadence}{plan.day ? ` · ${plan.day}` : ""}</p>
-                        <p className="flex items-center gap-2"><PackageCheck className="h-4 w-4 text-emerald-600" /> {(plan.items || []).length} products in this basket</p>
+                        <p className="flex items-center gap-2"><PackageCheck className="h-4 w-4 text-emerald-600" /> {(plan.items || []).length} varieties included</p>
                         <p className="flex items-center gap-2"><Truck className="h-4 w-4 text-emerald-600" /> {plan.deliveryMode === "pickup" ? "Farmer pickup" : "Home delivery"}</p>
                       </div>
-                      <div className="mt-auto border-t border-slate-100 pt-3">
+                      <div className="mt-auto border-t border-slate-100 pt-2">
                         <div className="mb-3 flex items-end justify-between gap-2">
-                          <span className="text-2xl font-bold text-emerald-700">{formatPrice(plan.price)}</span>
+                          <span className="text-xl font-extrabold text-emerald-700">{formatPrice(plan.price)}</span>
                           <span className="text-sm text-slate-500">/ {String(plan.cadence || "schedule").toLowerCase()}</span>
                         </div>
-                        <Button className="w-full rounded-xl bg-emerald-700 text-white hover:bg-emerald-800" disabled={subscribeMutation.isPending || full(plan) || !plan.id} onClick={() => subscribeMutation.mutate(plan.id)}>
+                        <Button className="h-9 w-full rounded-lg bg-emerald-700 px-2 text-xs text-white hover:bg-emerald-800" disabled={subscribeMutation.isPending || full(plan) || !plan.id} onClick={() => subscribeMutation.mutate(plan.id)}>
                           {subscribeMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ArrowRight className="mr-2 h-4 w-4" />}
                           {full(plan) ? "Basket Full" : "Subscribe Now"}
                         </Button>
@@ -286,7 +282,7 @@ export default function CustomerSubscriptionsPage() {
           <Card className="overflow-hidden border-emerald-100 shadow-sm">
             <CardHeader className="bg-gradient-to-r from-emerald-50 to-green-50 p-4">
               <div className="flex items-center justify-between gap-2">
-                <CardTitle className="flex items-center gap-2 text-base"><ShoppingBag className="h-5 w-5 text-emerald-700" /> My Subscription</CardTitle>
+                <CardTitle className="flex items-center gap-2 text-lg"><ShoppingBag className="h-5 w-5 text-emerald-700" /> My Subscription</CardTitle>
                 {activeSubscription ? <Badge className="bg-emerald-700 text-white">{activeSubscription.status === "active" ? "Active" : "Paused"}</Badge> : <Badge variant="secondary">No active plan</Badge>}
               </div>
             </CardHeader>
