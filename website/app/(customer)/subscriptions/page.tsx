@@ -154,17 +154,17 @@ export default function CustomerSubscriptionsPage() {
     `${item.name}${item.quantity > 0 ? ` · ${item.quantity} ${item.unit}` : ""}`;
 
   return (
-    <div className="space-y-5 pb-5">
+    <div className="subscription-workspace w-full min-w-0 space-y-6 pb-8 text-base">
       <div className="space-y-3">
         <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
           <span className="text-emerald-700">Home</span><ChevronRight className="h-3 w-3" />
           <span className="text-slate-700">Farm Basket Subscriptions</span>
         </div>
-        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-white via-emerald-50 to-green-100 px-5 py-5 sm:px-7">
+        <div className="relative min-h-[150px] overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-r from-white via-emerald-50 to-green-100 px-5 py-6 shadow-sm sm:px-7">
           <div className="relative z-10 max-w-3xl">
             <div className="flex items-center gap-3">
-              <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700">
-                <ShoppingBag className="h-7 w-7" />
+              <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700">
+                <ShoppingBag className="h-8 w-8" />
               </span>
               <div>
                 <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Farm Basket Subscriptions</h1>
@@ -174,7 +174,7 @@ export default function CustomerSubscriptionsPage() {
               </div>
             </div>
           </div>
-          <div className="pointer-events-none absolute -right-4 -top-8 hidden h-44 w-80 items-center justify-center rounded-bl-[5rem] bg-gradient-to-br from-emerald-200/70 to-lime-100/60 text-7xl sm:flex">
+          <div className="pointer-events-none absolute -right-4 -top-4 hidden h-36 w-80 items-center justify-center rounded-bl-[5rem] bg-gradient-to-br from-emerald-200/70 to-lime-100/60 text-8xl sm:flex">
             🥬 🥕 🍅
           </div>
         </div>
@@ -197,7 +197,7 @@ export default function CustomerSubscriptionsPage() {
         ))}
       </div>
 
-      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="grid w-full min-w-0 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
         <section className="min-w-0">
           <div className="mb-4">
             <h2 className="text-xl font-bold text-slate-900">Choose Your Farm Basket Plan</h2>
@@ -234,39 +234,39 @@ export default function CustomerSubscriptionsPage() {
               </CardContent>
             </Card>
           ) : (
-            <div className={cn("grid gap-4 sm:grid-cols-2", visiblePlans.length >= 3 ? "2xl:grid-cols-3" : "xl:grid-cols-2")}>
+            <div className={cn("grid min-w-0 gap-4 sm:grid-cols-2", visiblePlans.length >= 3 ? "xl:grid-cols-3" : "xl:grid-cols-2")}>
               {visiblePlans.map((plan, index) => {
                 const artwork = planArtwork(plan);
                 return (
                   <Card key={plan.id} className={cn("flex min-w-0 flex-col overflow-hidden border-slate-200 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md", index === 0 && "border-emerald-300")}>
-                    <div className={cn("relative flex h-32 items-center justify-center bg-gradient-to-br text-5xl tracking-widest", artwork.className)}>
+                    <div className={cn("relative flex h-36 items-center justify-center bg-gradient-to-br text-6xl tracking-widest sm:h-40", artwork.className)}>
                       <span aria-hidden="true">{artwork.emoji}</span>
                       {index === 0 && <Badge className="absolute left-3 top-3 border-emerald-200 bg-emerald-700 text-white">Available from farmers</Badge>}
                       {getPlanCategory(plan) === "organic" && <Badge className="absolute right-3 top-3 bg-white text-emerald-800"><Leaf className="mr-1 h-3 w-3" /> Organic</Badge>}
                     </div>
                     <CardHeader className="space-y-1 p-4 pb-2">
-                      <CardTitle className="text-base">{plan.name}</CardTitle>
-                      <CardDescription className="min-h-10 line-clamp-2">{plan.description || `A fresh farm basket from ${plan.farmerName || "a local farmer"}.`}</CardDescription>
+                      <CardTitle className="text-lg">{plan.name}</CardTitle>
+                      <CardDescription className="min-h-12 text-sm leading-5 line-clamp-2">{plan.description || `A fresh farm basket from ${plan.farmerName || "a local farmer"}.`}</CardDescription>
                       <p className="flex items-center gap-1 text-xs text-slate-500">Farmer: <span className="font-semibold text-slate-700">{plan.farmerName || "Verified farmer"}</span>
                         {plan.rating ? <span className="ml-1 inline-flex items-center gap-0.5 text-amber-600"><Star className="h-3 w-3 fill-current" />{plan.rating.toFixed(1)}</span> : null}
                       </p>
                     </CardHeader>
                     <CardContent className="flex flex-1 flex-col gap-3 px-4 pb-4 pt-1">
-                      <div className="flex flex-wrap gap-1.5">
+                      <div className="flex flex-wrap gap-2">
                         {(plan.items || []).slice(0, 5).map((item) => (
-                          <span key={item.productId || item.name} className="rounded-full bg-slate-100 px-2 py-1 text-[11px] text-slate-600">{itemLabel(item)}</span>
+                          <span key={item.productId || item.name} className="rounded-full bg-slate-100 px-2.5 py-1.5 text-xs text-slate-700">{itemLabel(item)}</span>
                         ))}
                         {plan.items.length > 5 && <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] text-slate-500">+{plan.items.length - 5} more</span>}
                       </div>
-                      <div className="space-y-2 border-t border-slate-100 pt-3 text-xs text-slate-600">
+                      <div className="space-y-2.5 border-t border-slate-100 pt-3 text-sm text-slate-600">
                         <p className="flex items-center gap-2"><CalendarDays className="h-4 w-4 text-emerald-600" /> Delivery: {plan.cadence}{plan.day ? ` · ${plan.day}` : ""}</p>
                         <p className="flex items-center gap-2"><PackageCheck className="h-4 w-4 text-emerald-600" /> {(plan.items || []).length} products in this basket</p>
                         <p className="flex items-center gap-2"><Truck className="h-4 w-4 text-emerald-600" /> {plan.deliveryMode === "pickup" ? "Farmer pickup" : "Home delivery"}</p>
                       </div>
                       <div className="mt-auto border-t border-slate-100 pt-3">
                         <div className="mb-3 flex items-end justify-between gap-2">
-                          <span className="text-xl font-bold text-emerald-700">{formatPrice(plan.price)}</span>
-                          <span className="text-xs text-slate-500">/ {String(plan.cadence || "schedule").toLowerCase()}</span>
+                          <span className="text-2xl font-bold text-emerald-700">{formatPrice(plan.price)}</span>
+                          <span className="text-sm text-slate-500">/ {String(plan.cadence || "schedule").toLowerCase()}</span>
                         </div>
                         <Button className="w-full rounded-xl bg-emerald-700 text-white hover:bg-emerald-800" disabled={subscribeMutation.isPending || full(plan) || !plan.id} onClick={() => subscribeMutation.mutate(plan.id)}>
                           {subscribeMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ArrowRight className="mr-2 h-4 w-4" />}
@@ -330,7 +330,7 @@ export default function CustomerSubscriptionsPage() {
         {isLoading ? <div className="flex justify-center py-8"><Loader2 className="h-7 w-7 animate-spin text-emerald-600" /></div> : mySubs.length === 0 ? (
           <Card className="border-dashed border-slate-300 shadow-none"><CardContent className="flex items-center gap-3 p-5"><ShoppingBag className="h-8 w-8 text-slate-300" /><div><p className="font-semibold text-slate-800">Your subscriptions will appear here</p><p className="text-sm text-slate-500">Subscribe to a published basket plan to see its schedule and manage it here.</p></div></CardContent></Card>
         ) : (
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {mySubs.map((subscription: any) => {
               const cancelled = subscription.status === "cancelled";
               const paused = subscription.status === "paused";
