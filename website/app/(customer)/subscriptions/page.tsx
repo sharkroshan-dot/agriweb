@@ -14,6 +14,18 @@ import {
   IndianRupee,
   PackageCheck,
   Star,
+  Truck,
+  CalendarDays,
+  ArrowRight,
+  ShieldCheck,
+  RefreshCw,
+  Sprout,
+  Apple,
+  Carrot,
+  Gift,
+  Basket,
+  ChevronRight,
+  Clock3,
 } from "lucide-react";
 import { api } from "../../lib/api/client";
 import { cn, formatPrice } from "../../lib/utils";
@@ -46,13 +58,47 @@ interface BasketPlan {
   deliveryMode: "delivery" | "pickup";
   rating?: number;
   distanceKm?: number;
+  category?: string;
+}
+
+type PlanFilter = "all" | "vegetables" | "fruits" | "mixed" | "organic";
+
+const filterOptions: { id: PlanFilter; label: string; Icon: typeof Leaf }[] = [
+  { id: "all", label: "All Plans", Icon: ShoppingBag },
+  { id: "vegetables", label: "Vegetables", Icon: Carrot },
+  { id: "fruits", label: "Fruits", Icon: Apple },
+  { id: "mixed", label: "Mixed", Icon: Gift },
+  { id: "organic", label: "Organic", Icon: Sprout },
+];
+
+function getPlanCategory(plan: BasketPlan): PlanFilter {
+  const text = `${plan.category || ""} ${plan.name || ""} ${plan.description || ""}`.toLowerCase();
+  if (text.includes("organic")) return "organic";
+  const names = (plan.items || []).map((item) => item.name.toLowerCase()).join(" ");
+  const fruitWords = /fruit|apple|banana|mango|orange|grape|papaya|guava|watermelon|pineapple|pomegranate/;
+  const vegetableWords = /vegetable|brinjal|tomato|potato|onion|carrot|beans|spinach|cabbage|cauliflower|okra|ladies finger/;
+  const hasFruit = fruitWords.test(names);
+  const hasVegetable = vegetableWords.test(names);
+  if (text.includes("fruit") && !text.includes("vegetable")) return "fruits";
+  if (text.includes("vegetable") && !text.includes("fruit")) return "vegetables";
+  if (hasFruit && !hasVegetable) return "fruits";
+  if (hasVegetable && !hasFruit) return "vegetables";
+  return "mixed";
+}
+
+function planArtwork(plan: BasketPlan) {
+  const category = getPlanCategory(plan);
+  if (category === "fruits") return { emoji: "🍎 🍌 🍊 🍇", className: "from-amber-50 via-orange-50 to-yellow-100" };
+  if (category === "organic") return { emoji: "🥬 🥕 🥦 🍅", className: "from-emerald-50 via-lime-50 to-green-100" };
+  if (category === "vegetables") return { emoji: "🥕 🥦 🍅 🥬", className: "from-green-50 via-emerald-50 to-lime-100" };
+  return { emoji: "🥬 🍅 🍎 🥕", className: "from-lime-50 via-green-50 to-amber-100" };
 }
 
 export default function CustomerSubscriptionsPage() {
   const queryClient = useQueryClient();
-  const [showSubscribe, setShowSubscribe] = useState(false);
+  const [activeFilter, setActiveFilter] = useState<PlanFilter>("all");
 
-  const { data: plansData, isLoading: plansLoading } = useQuery({
+  const { data: plansData, isLoading: plansLoading, isError: plansError } = useQuery({
     queryKey: ["availableBasketPlans"],
     queryFn: () => api.get("/subscriptions/plans/available"),
     retry: 1,
@@ -65,14 +111,16 @@ export default function CustomerSubscriptionsPage() {
   });
 
   const availablePlans: BasketPlan[] = useMemo(() => {
-    const list = plansData?.data?.plans || plansData?.plans || [];
-    return Array.isArray(list) ? list : [];
+    const payload = plansData?.data?.data ?? plansData?.data;
+    const list = payload?.plans ?? plansData?.plans ?? payload ?? [];
+    if (!Array.isArray(list)) return [];
+    return list.map((plan: any) => ({ ...plan, id: plan._id || plan.id, items: Array.isArray(plan.items) ? plan.items : [] }));
   }, [plansData]);
 
   const apiSubs = useMemo(() => {
-    const list = subsData?.data?.subscriptions || subsData?.data || [];
-    if (Array.isArray(list) && list.length > 0) return list;
-    return [];
+    const payload = subsData?.data?.data ?? subsData?.data;
+    const list = payload?.subscriptions ?? payload ?? [];
+    return Array.isArray(list) ? list : [];
   }, [subsData]);
 
   const subscribeMutation = useMutation({
@@ -80,7 +128,6 @@ export default function CustomerSubscriptionsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["customerSubscriptions"] });
       queryClient.invalidateQueries({ queryKey: ["availableBasketPlans"] });
-      setShowSubscribe(false);
       toast.success("Basket subscribed! Farmers now have predictable demand from you.");
     },
     onError: (err: any) => toast.error(err?.message || "Failed to subscribe"),
@@ -96,176 +143,217 @@ export default function CustomerSubscriptionsPage() {
     onError: (err: any) => toast.error(err?.message || "Failed to update basket"),
   });
 
-  const mySubs = apiSubs.map((s: any) => ({ ...s, id: s._id || s.id }));
-  const subscribedPlanIds = new Set(mySubs.filter((s: any) => s.status !== "cancelled").map((s: any) => s.planId));
-  const canSubscribe = availablePlans.filter((p) => !subscribedPlanIds.has(p.id));
-  const full = (p: BasketPlan) => p.subscriberCount >= p.maxSubscribers;
+  const mySubs = apiSubs.map((subscription: any) => ({
+    ...subscription,
+    id: subscription._id || subscription.id,
+  }));
+  const subscribedPlanIds = new Set(mySubs.filter((s: any) => s.status !== "cancelled").map((s: any) => String(s.planId?._id || s.planId)));
+  const canSubscribe = availablePlans.filter((plan) => !subscribedPlanIds.has(String(plan.id)));
+  const visiblePlans = canSubscribe.filter((plan) => activeFilter === "all" || getPlanCategory(plan) === activeFilter);
+  const activeSubscription = mySubs.find((subscription: any) => subscription.status === "active") || mySubs.find((subscription: any) => subscription.status === "paused");
+  const full = (plan: BasketPlan) => Number(plan.maxSubscribers || 0) > 0 && Number(plan.subscriberCount || 0) >= Number(plan.maxSubscribers);
 
-  const itemLabel = (i: BasketItem) =>
-    `${i.name}${i.quantity > 0 ? ` · ${i.quantity} ${i.unit}` : ""}`;
+  const itemLabel = (item: BasketItem) =>
+    `${item.name}${item.quantity > 0 ? ` · ${item.quantity} ${item.unit}` : ""}`;
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold">Farm Baskets & Subscriptions</h1>
-          <p className="text-gray-500">Get fresh produce on a schedule. Farmers get predictable demand.</p>
+    <div className="space-y-5 pb-5">
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
+          <span className="text-emerald-700">Home</span><ChevronRight className="h-3 w-3" />
+          <span className="text-slate-700">Farm Basket Subscriptions</span>
         </div>
-        <Button onClick={() => setShowSubscribe((v) => !v)} disabled={subscribeMutation.isPending}>
-          {showSubscribe ? "Close" : "Browse Baskets"}
-        </Button>
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-white via-emerald-50 to-green-100 px-5 py-5 sm:px-7">
+          <div className="relative z-10 max-w-3xl">
+            <div className="flex items-center gap-3">
+              <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700">
+                <ShoppingBag className="h-7 w-7" />
+              </span>
+              <div>
+                <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Farm Basket Subscriptions</h1>
+                <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600">
+                  Get fresh, seasonal produce regularly from verified farmers. Choose a plan, subscribe once, and enjoy hassle-free deliveries at your doorstep.
+                </p>
+              </div>
+            </div>
+          </div>
+          <div className="pointer-events-none absolute -right-4 -top-8 hidden h-44 w-80 items-center justify-center rounded-bl-[5rem] bg-gradient-to-br from-emerald-200/70 to-lime-100/60 text-7xl sm:flex">
+            🥬 🥕 🍅
+          </div>
+        </div>
       </div>
 
-      {showSubscribe && (
-        <div>
-          {plansLoading ? (
-            <div className="flex justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        {[
+          { Icon: Truck, title: "Regular Delivery", detail: "On your chosen days" },
+          { Icon: Leaf, title: "Farm Fresh", detail: "Direct from farmers" },
+          { Icon: CalendarDays, title: "Flexible Plans", detail: "Weekly / Bi-weekly / Monthly" },
+          { Icon: RefreshCw, title: "Modify Anytime", detail: "Pause, change or cancel" },
+          { Icon: ShieldCheck, title: "Quality Assured", detail: "Fresh, safe and traceable" },
+        ].map(({ Icon, title, detail }) => (
+          <Card key={title} className="border-slate-200/80 shadow-sm">
+            <CardContent className="flex items-center gap-3 p-3">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-700"><Icon className="h-5 w-5" /></span>
+              <div className="min-w-0"><p className="text-sm font-bold text-slate-900">{title}</p><p className="text-xs text-slate-500">{detail}</p></div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <div className="grid items-start gap-4 2xl:grid-cols-[minmax(0,1fr)_320px]">
+        <section className="min-w-0">
+          <div className="mb-4">
+            <h2 className="text-xl font-bold text-slate-900">Choose Your Farm Basket Plan</h2>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {filterOptions.map(({ id, label, Icon }) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setActiveFilter(id)}
+                  className={cn(
+                    "inline-flex h-10 items-center gap-2 rounded-full border px-4 text-sm font-semibold transition",
+                    activeFilter === id
+                      ? "border-emerald-700 bg-emerald-700 text-white shadow-sm"
+                      : "border-slate-200 bg-white text-slate-700 hover:border-emerald-300 hover:bg-emerald-50",
+                  )}
+                >
+                  <Icon className="h-4 w-4" />{label}
+                </button>
+              ))}
             </div>
-          ) : canSubscribe.length === 0 ? (
-            <Card>
-              <CardContent className="flex flex-col items-center py-14 text-center">
-                <ShoppingBag className="h-10 w-10 text-gray-300" />
-                <p className="mt-3 text-sm text-slate-500">
-                  No new baskets available right now. Check back soon — farmers publish baskets regularly.
-                </p>
+          </div>
+
+          {plansLoading ? (
+            <div className="flex min-h-64 items-center justify-center rounded-2xl border border-slate-200 bg-white"><Loader2 className="h-8 w-8 animate-spin text-emerald-600" /></div>
+          ) : plansError ? (
+            <Card className="border-red-100"><CardContent className="py-12 text-center"><p className="font-semibold text-slate-800">Unable to load farm basket plans</p><p className="mt-1 text-sm text-slate-500">Please refresh the page and try again.</p></CardContent></Card>
+          ) : visiblePlans.length === 0 ? (
+            <Card className="border-dashed border-slate-300 shadow-none">
+              <CardContent className="flex min-h-64 flex-col items-center justify-center px-5 text-center">
+                <ShoppingBag className="h-10 w-10 text-slate-300" />
+                <p className="mt-3 font-semibold text-slate-800">{canSubscribe.length === 0 ? "No new baskets available right now" : "No plans in this category"}</p>
+                <p className="mt-1 max-w-md text-sm text-slate-500">Farmers publish basket plans as produce becomes available. Try another category or check back soon.</p>
+                {activeFilter !== "all" && <Button variant="outline" className="mt-4" onClick={() => setActiveFilter("all")}>View all plans</Button>}
               </CardContent>
             </Card>
           ) : (
-            <div className="grid gap-4 md:grid-cols-3">
-              {canSubscribe.map((p) => (
-                <Card key={p.id} className="flex flex-col">
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700">
-                        <ShoppingBag className="h-5 w-5" />
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {visiblePlans.map((plan, index) => {
+                const artwork = planArtwork(plan);
+                return (
+                  <Card key={plan.id} className={cn("flex min-w-0 flex-col overflow-hidden border-slate-200 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md", index === 0 && "border-emerald-300")}>
+                    <div className={cn("relative flex h-32 items-center justify-center bg-gradient-to-br text-5xl tracking-widest", artwork.className)}>
+                      <span aria-hidden="true">{artwork.emoji}</span>
+                      {index === 0 && <Badge className="absolute left-3 top-3 border-emerald-200 bg-emerald-700 text-white">Available from farmers</Badge>}
+                      {getPlanCategory(plan) === "organic" && <Badge className="absolute right-3 top-3 bg-white text-emerald-800"><Leaf className="mr-1 h-3 w-3" /> Organic</Badge>}
+                    </div>
+                    <CardHeader className="space-y-1 p-4 pb-2">
+                      <CardTitle className="text-base">{plan.name}</CardTitle>
+                      <CardDescription className="min-h-10 line-clamp-2">{plan.description || `A fresh farm basket from ${plan.farmerName || "a local farmer"}.`}</CardDescription>
+                      <p className="flex items-center gap-1 text-xs text-slate-500">Farmer: <span className="font-semibold text-slate-700">{plan.farmerName || "Verified farmer"}</span>
+                        {plan.rating ? <span className="ml-1 inline-flex items-center gap-0.5 text-amber-600"><Star className="h-3 w-3 fill-current" />{plan.rating.toFixed(1)}</span> : null}
+                      </p>
+                    </CardHeader>
+                    <CardContent className="flex flex-1 flex-col gap-3 px-4 pb-4 pt-1">
+                      <div className="flex flex-wrap gap-1.5">
+                        {(plan.items || []).slice(0, 5).map((item) => (
+                          <span key={item.productId || item.name} className="rounded-full bg-slate-100 px-2 py-1 text-[11px] text-slate-600">{itemLabel(item)}</span>
+                        ))}
+                        {plan.items.length > 5 && <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] text-slate-500">+{plan.items.length - 5} more</span>}
                       </div>
-                      <Badge variant="outline">{p.cadence}</Badge>
-                    </div>
-                    <CardTitle className="mt-3 text-base">{p.name}</CardTitle>
-                    <CardDescription>
-                      Every {p.day === "1st of month" ? p.day : p.day} · {p.farmerName}
-                      {p.rating ? (
-                        <span className="ml-1 inline-flex items-center gap-0.5 text-yellow-600">
-                          <Star className="h-3 w-3 fill-current" /> {p.rating.toFixed(1)}
-                        </span>
-                      ) : null}
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="flex flex-1 flex-col gap-3">
-                    {p.description ? (
-                      <p className="text-xs text-slate-500">{p.description}</p>
-                    ) : null}
-                    <ul className="flex flex-wrap gap-1.5">
-                      {p.items.map((i) => (
-                        <li key={i.productId} className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
-                          {itemLabel(i)}
-                        </li>
-                      ))}
-                    </ul>
-                    <div className="text-xs text-slate-500">
-                      {p.subscriberCount} / {p.maxSubscribers} subscriptions
-                    </div>
-                    <div className="mt-auto pt-3">
-                      <div className="mb-2 flex items-end justify-between">
-                        <span className="text-xl font-bold text-emerald-700">{formatPrice(p.price)}</span>
-                        <span className="text-xs text-gray-400">/ {p.cadence.toLowerCase()}</span>
+                      <div className="space-y-2 border-t border-slate-100 pt-3 text-xs text-slate-600">
+                        <p className="flex items-center gap-2"><CalendarDays className="h-4 w-4 text-emerald-600" /> Delivery: {plan.cadence}{plan.day ? ` · ${plan.day}` : ""}</p>
+                        <p className="flex items-center gap-2"><PackageCheck className="h-4 w-4 text-emerald-600" /> {(plan.items || []).length} products in this basket</p>
+                        <p className="flex items-center gap-2"><Truck className="h-4 w-4 text-emerald-600" /> {plan.deliveryMode === "pickup" ? "Farmer pickup" : "Home delivery"}</p>
                       </div>
-                      <Button
-                        className="w-full"
-                        disabled={subscribeMutation.isPending || full(p)}
-                        onClick={() => subscribeMutation.mutate(p.id)}
-                      >
-                        {subscribeMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Leaf className="mr-2 h-4 w-4" />}
-                        {full(p) ? "Basket Full" : "Subscribe"}
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+                      <div className="mt-auto border-t border-slate-100 pt-3">
+                        <div className="mb-3 flex items-end justify-between gap-2">
+                          <span className="text-xl font-bold text-emerald-700">{formatPrice(plan.price)}</span>
+                          <span className="text-xs text-slate-500">/ {String(plan.cadence || "schedule").toLowerCase()}</span>
+                        </div>
+                        <Button className="w-full rounded-xl bg-emerald-700 text-white hover:bg-emerald-800" disabled={subscribeMutation.isPending || full(plan) || !plan.id} onClick={() => subscribeMutation.mutate(plan.id)}>
+                          {subscribeMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ArrowRight className="mr-2 h-4 w-4" />}
+                          {full(plan) ? "Basket Full" : "Subscribe Now"}
+                        </Button>
+                        {Number(plan.maxSubscribers || 0) > 0 && <p className="mt-2 text-center text-[11px] text-slate-400">{plan.subscriberCount || 0} / {plan.maxSubscribers} subscribers</p>}
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
           )}
-        </div>
-      )}
+        </section>
 
-      <div>
-        <h2 className="mb-3 text-lg font-semibold">Your baskets</h2>
-        {isLoading ? (
-          <div className="flex justify-center py-12">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          </div>
-        ) : mySubs.length === 0 ? (
-          <Card>
-            <CardContent className="flex flex-col items-center py-14 text-center">
-              <CalendarClock className="h-10 w-10 text-gray-300" />
-              <p className="mt-3 text-sm text-slate-500">
-                You haven't subscribed to any farm basket yet. Browse baskets to get started.
-              </p>
+        <aside className="space-y-4">
+          <Card className="overflow-hidden border-emerald-100 shadow-sm">
+            <CardHeader className="bg-gradient-to-r from-emerald-50 to-green-50 p-4">
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="flex items-center gap-2 text-base"><ShoppingBag className="h-5 w-5 text-emerald-700" /> My Subscription</CardTitle>
+                {activeSubscription ? <Badge className="bg-emerald-700 text-white">{activeSubscription.status === "active" ? "Active" : "Paused"}</Badge> : <Badge variant="secondary">No active plan</Badge>}
+              </div>
+            </CardHeader>
+            <CardContent className="p-4">
+              {isLoading ? <div className="flex justify-center py-5"><Loader2 className="h-6 w-6 animate-spin text-emerald-600" /></div> : activeSubscription ? (
+                <div className="flex items-center gap-3">
+                  <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-3xl">🧺</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-bold text-slate-900">{activeSubscription.planName || "Farm Basket"}</p>
+                    {activeSubscription.nextDelivery && <p className="mt-1 text-xs text-slate-600">Next delivery: {new Date(activeSubscription.nextDelivery).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</p>}
+                    <p className="mt-1 text-xs text-slate-500">Plan: {activeSubscription.cadence || "Recurring"} · {activeSubscription.farmerName || "Local farmer"}</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="py-3 text-center">
+                  <CalendarClock className="mx-auto h-8 w-8 text-slate-300" />
+                  <p className="mt-2 text-sm font-semibold text-slate-700">No active subscription yet</p>
+                  <p className="mt-1 text-xs text-slate-500">Choose a farmer-published basket to start regular deliveries.</p>
+                </div>
+              )}
+              {mySubs.length > 0 && <Button variant="outline" className="mt-4 w-full" onClick={() => document.getElementById("my-subscriptions")?.scrollIntoView({ behavior: "smooth" })}>Manage my subscriptions <ChevronRight className="ml-1 h-4 w-4" /></Button>}
             </CardContent>
           </Card>
+
+          <Card className="border-slate-200 shadow-sm">
+            <CardHeader className="p-4 pb-2"><CardTitle className="flex items-center gap-2 text-base"><Gift className="h-5 w-5 text-emerald-700" /> Subscription Benefits</CardTitle></CardHeader>
+            <CardContent className="space-y-3 p-4 pt-2">
+              {["Fresh and seasonal produce", "Planned and reliable delivery", "Support local farmers", "Flexible pause and cancellation", "Traceable farm-to-home sourcing"].map((benefit) => (
+                <p key={benefit} className="flex items-start gap-2 text-sm text-slate-700"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />{benefit}</p>
+              ))}
+            </CardContent>
+          </Card>
+        </aside>
+      </div>
+
+      <section id="my-subscriptions">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div><h2 className="text-lg font-bold text-slate-900">My Subscriptions</h2><p className="text-xs text-slate-500">Manage the farm baskets you have joined.</p></div>
+          <Badge variant="outline">{mySubs.length} subscription{mySubs.length === 1 ? "" : "s"}</Badge>
+        </div>
+        {isLoading ? <div className="flex justify-center py-8"><Loader2 className="h-7 w-7 animate-spin text-emerald-600" /></div> : mySubs.length === 0 ? (
+          <Card className="border-dashed border-slate-300 shadow-none"><CardContent className="flex items-center gap-3 p-5"><ShoppingBag className="h-8 w-8 text-slate-300" /><div><p className="font-semibold text-slate-800">Your subscriptions will appear here</p><p className="text-sm text-slate-500">Subscribe to a published basket plan to see its schedule and manage it here.</p></div></CardContent></Card>
         ) : (
           <div className="grid gap-4 md:grid-cols-2">
-            {mySubs.map((s: any) => {
-              const cancelled = s.status === "cancelled";
-              const paused = s.status === "paused";
+            {mySubs.map((subscription: any) => {
+              const cancelled = subscription.status === "cancelled";
+              const paused = subscription.status === "paused";
               return (
-                <Card key={s.id} className={cn(cancelled && "opacity-60")}>
-                  <CardHeader>
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <CardTitle className="text-base">{s.planName}</CardTitle>
-                        <CardDescription className="mt-1 flex items-center gap-2">
-                          <span className="capitalize">{s.cadence}</span> · {s.day} · {s.farmerName}
-                          {s.weekNumber > 0 && <span>· Week {s.weekNumber}</span>}
-                        </CardDescription>
-                      </div>
-                      <Badge variant={s.status === "active" ? "success" : cancelled ? "destructive" : "secondary"}>
-                        {s.status === "active" ? <CheckCircle2 className="mr-1 h-3 w-3" /> : <Pause className="mr-1 h-3 w-3" />}
-                        {s.status === "active" ? "Active" : s.status === "cancelled" ? "Cancelled" : "Paused"}
-                      </Badge>
+                <Card key={subscription.id} className={cn("border-slate-200 shadow-sm", cancelled && "opacity-60")}>
+                  <CardHeader className="p-4 pb-2">
+                    <div className="flex items-start justify-between gap-3">
+                      <div><CardTitle className="text-base">{subscription.planName || "Farm Basket"}</CardTitle><CardDescription className="mt-1">{subscription.cadence} · {subscription.day} · {subscription.farmerName}</CardDescription></div>
+                      <Badge variant={subscription.status === "active" ? "success" : cancelled ? "destructive" : "secondary"}>{subscription.status}</Badge>
                     </div>
                   </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div className="flex flex-wrap gap-1.5">
-                      {(s.items || []).map((i: any, idx: number) => (
-                        <span key={idx} className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
-                          {itemLabel(i)}
-                        </span>
-                      ))}
-                    </div>
-                    {s.nextDelivery && s.status !== "cancelled" && (
-                      <p className="flex items-center gap-1.5 text-sm text-gray-600">
-                        <PackageCheck className="h-4 w-4 text-emerald-600" />
-                        Next delivery:{" "}
-                        <span className="font-medium">
-                          {new Date(s.nextDelivery).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })}
-                        </span>
-                      </p>
-                    )}
-                    <div className="flex items-center justify-between border-t pt-3">
-                      <span className="font-bold text-emerald-700">{formatPrice(s.price)}</span>
-                      {!cancelled && (
-                        <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={manageMutation.isPending}
-                            onClick={() => manageMutation.mutate({ id: s.id, action: paused ? "resume" : "pause" })}
-                          >
-                            {paused ? <Play className="mr-1.5 h-3.5 w-3.5" /> : <Pause className="mr-1.5 h-3.5 w-3.5" />}
-                            {paused ? "Resume" : "Pause"}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="text-red-600 hover:bg-red-50"
-                            disabled={manageMutation.isPending}
-                            onClick={() => manageMutation.mutate({ id: s.id, action: "cancel" })}
-                          >
-                            <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Cancel
-                          </Button>
-                        </div>
-                      )}
+                  <CardContent className="space-y-3 p-4 pt-2">
+                    <div className="flex flex-wrap gap-1.5">{(subscription.items || []).map((item: any, index: number) => <span key={item.productId || index} className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600">{itemLabel(item)}</span>)}</div>
+                    {subscription.nextDelivery && !cancelled && <p className="flex items-center gap-2 text-sm text-slate-600"><PackageCheck className="h-4 w-4 text-emerald-600" />Next delivery: {new Date(subscription.nextDelivery).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })}</p>}
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3">
+                      <span className="font-bold text-emerald-700">{formatPrice(subscription.price)}</span>
+                      {!cancelled && <div className="flex gap-2">
+                        <Button size="sm" variant="outline" disabled={manageMutation.isPending} onClick={() => manageMutation.mutate({ id: subscription.id, action: paused ? "resume" : "pause" })}>{paused ? <Play className="mr-1 h-3.5 w-3.5" /> : <Pause className="mr-1 h-3.5 w-3.5" />}{paused ? "Resume" : "Pause"}</Button>
+                        <Button size="sm" variant="outline" className="text-red-600 hover:bg-red-50" disabled={manageMutation.isPending} onClick={() => manageMutation.mutate({ id: subscription.id, action: "cancel" })}><Trash2 className="mr-1 h-3.5 w-3.5" />Cancel</Button>
+                      </div>}
                     </div>
                   </CardContent>
                 </Card>
@@ -273,16 +361,15 @@ export default function CustomerSubscriptionsPage() {
             })}
           </div>
         )}
-      </div>
+      </section>
 
-      <Card className="border-emerald-200 bg-gradient-to-br from-emerald-50 to-teal-50">
-        <CardContent className="flex items-center gap-3 p-4">
-          <IndianRupee className="h-6 w-6 shrink-0 text-emerald-600" />
-          <p className="text-sm text-emerald-900/80">
-            Subscriptions give farmers predictable income and reduce food waste — you always get the freshest harvest.
-          </p>
-        </CardContent>
-      </Card>
+      <div className="overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-r from-emerald-50 via-green-50 to-lime-50 px-5 py-5 sm:px-7">
+        <div className="flex items-center gap-4">
+          <span className="hidden text-4xl sm:block">🌱</span>
+          <div><h2 className="text-lg font-bold text-emerald-950">Farm to Home, Regularly</h2><p className="mt-1 text-sm text-emerald-900/75">Subscribe to a farm basket and enjoy fresh, seasonal produce from local farmers on a schedule that works for you.</p></div>
+          <span className="ml-auto hidden text-4xl sm:block">🏡</span>
+        </div>
+      </div>
     </div>
   );
 }
