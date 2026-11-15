@@ -154,7 +154,7 @@ export default function CustomerSubscriptionsPage() {
     `${item.name}${item.quantity > 0 ? ` · ${item.quantity} ${item.unit}` : ""}`;
 
   return (
-    <div className="subscription-workspace w-full min-w-0 space-y-6 pb-8 text-base">
+    <div className="subscription-workspace w-full min-w-0 space-y-4 pb-6 text-base">
       <div className="space-y-3">
         <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
           <span className="text-emerald-700">Home</span><ChevronRight className="h-3 w-3" />
@@ -239,32 +239,32 @@ export default function CustomerSubscriptionsPage() {
               {visiblePlans.map((plan, index) => {
                 const artwork = planArtwork(plan);
                 return (
-                  <Card key={plan.id} className={cn("flex min-w-0 flex-col overflow-hidden border-slate-200 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md", index === 0 && "border-emerald-300")}>
-                    <div className="relative h-28 overflow-hidden bg-emerald-50">
+                  <Card key={plan.id} className={cn("flex min-w-0 flex-col overflow-hidden rounded-2xl border-slate-200 bg-white shadow-[0_3px_12px_rgba(15,23,42,0.08)] transition hover:-translate-y-0.5 hover:shadow-lg", index === 0 && "border-emerald-400 ring-1 ring-emerald-100")}>
+                    <div className="relative h-28 overflow-hidden bg-emerald-50 sm:h-[108px]">
                       <img src={artwork.image} alt={`${plan.name} fresh produce`} className="h-full w-full object-cover" />
                       {index === 0 && <Badge className="absolute left-2 top-2 border-emerald-200 bg-emerald-700 text-white">Most Popular</Badge>}
                       {getPlanCategory(plan) === "organic" && <Badge className="absolute right-3 top-3 bg-white text-emerald-800"><Leaf className="mr-1 h-3 w-3" /> Organic</Badge>}
                     </div>
                     <CardHeader className="space-y-1 p-3 pb-2">
-                      <CardTitle className="text-base leading-5">{plan.name}</CardTitle>
-                      <CardDescription className="min-h-10 text-xs leading-4 line-clamp-2">{plan.description || `A fresh farm basket from ${plan.farmerName || "a local farmer"}.`}</CardDescription>
+                      <CardTitle className="text-[15px] font-extrabold leading-5">{plan.name}</CardTitle>
+                      <CardDescription className="min-h-10 text-[13px] leading-[1.35rem] line-clamp-2">{plan.description || `A fresh farm basket from ${plan.farmerName || "a local farmer"}.`}</CardDescription>
                       <p className="flex items-center gap-1 text-xs text-slate-500">Farmer: <span className="font-semibold text-slate-700">{plan.farmerName || "Verified farmer"}</span>
                         {plan.rating ? <span className="ml-1 inline-flex items-center gap-0.5 text-amber-600"><Star className="h-3 w-3 fill-current" />{plan.rating.toFixed(1)}</span> : null}
                       </p>
                     </CardHeader>
                     <CardContent className="flex flex-1 flex-col gap-2 px-3 pb-3 pt-1">
                       <div className="flex flex-wrap gap-1.5">{(plan.items || []).slice(0, 3).map((item) => <span key={item.productId || item.name} className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-medium text-emerald-800">{item.name}</span>)}{plan.items.length > 3 && <span className="text-[10px] text-slate-500">+{plan.items.length - 3} more</span>}</div>
-                      <div className="space-y-1.5 border-t border-slate-100 pt-2 text-xs text-slate-700">
+                      <div className="space-y-1.5 border-t border-slate-100 pt-2 text-[13px] text-slate-700">
                         <p className="flex items-center gap-2"><CalendarDays className="h-4 w-4 text-emerald-600" /> Delivery: {plan.cadence}{plan.day ? ` · ${plan.day}` : ""}</p>
                         <p className="flex items-center gap-2"><PackageCheck className="h-4 w-4 text-emerald-600" /> {(plan.items || []).length} varieties included</p>
                         <p className="flex items-center gap-2"><Truck className="h-4 w-4 text-emerald-600" /> {plan.deliveryMode === "pickup" ? "Farmer pickup" : "Home delivery"}</p>
                       </div>
                       <div className="mt-auto border-t border-slate-100 pt-2">
                         <div className="mb-3 flex items-end justify-between gap-2">
-                          <span className="text-xl font-extrabold text-emerald-700">{formatPrice(plan.price)}</span>
+                          <span className="text-[22px] font-extrabold leading-7 text-emerald-700">{formatPrice(plan.price)}</span>
                           <span className="text-sm text-slate-500">/ {String(plan.cadence || "schedule").toLowerCase()}</span>
                         </div>
-                        <Button className="h-9 w-full rounded-lg bg-emerald-700 px-2 text-xs text-white hover:bg-emerald-800" disabled={subscribeMutation.isPending || full(plan) || !plan.id} onClick={() => subscribeMutation.mutate(plan.id)}>
+                        <Button className="h-9 w-full rounded-lg bg-emerald-700 px-2 text-[13px] font-bold text-white hover:bg-emerald-800" disabled={subscribeMutation.isPending || full(plan) || !plan.id} onClick={() => subscribeMutation.mutate(plan.id)}>
                           {subscribeMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ArrowRight className="mr-2 h-4 w-4" />}
                           {full(plan) ? "Basket Full" : "Subscribe Now"}
                         </Button>
@@ -326,27 +326,34 @@ export default function CustomerSubscriptionsPage() {
         {isLoading ? <div className="flex justify-center py-8"><Loader2 className="h-7 w-7 animate-spin text-emerald-600" /></div> : mySubs.length === 0 ? (
           <Card className="border-dashed border-slate-300 shadow-none"><CardContent className="flex items-center gap-3 p-5"><ShoppingBag className="h-8 w-8 text-slate-300" /><div><p className="font-semibold text-slate-800">Your subscriptions will appear here</p><p className="text-sm text-slate-500">Subscribe to a published basket plan to see its schedule and manage it here.</p></div></CardContent></Card>
         ) : (
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="space-y-3">
             {mySubs.map((subscription: any) => {
               const cancelled = subscription.status === "cancelled";
               const paused = subscription.status === "paused";
               return (
-                <Card key={subscription.id} className={cn("border-slate-200 shadow-sm", cancelled && "opacity-60")}>
-                  <CardHeader className="p-4 pb-2">
-                    <div className="flex items-start justify-between gap-3">
-                      <div><CardTitle className="text-base">{subscription.planName || "Farm Basket"}</CardTitle><CardDescription className="mt-1">{subscription.cadence} · {subscription.day} · {subscription.farmerName}</CardDescription></div>
-                      <Badge variant={subscription.status === "active" ? "success" : cancelled ? "destructive" : "secondary"}>{subscription.status}</Badge>
+                <Card key={subscription.id} className={cn("overflow-hidden rounded-2xl border-slate-200 bg-white shadow-sm", cancelled && "opacity-60")}>
+                  <CardContent className="flex flex-col gap-4 p-3 sm:flex-row sm:items-center sm:gap-5 sm:px-5">
+                    <div className="flex min-w-0 flex-1 items-center gap-3">
+                      <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-3xl">🧺</span>
+                      <div className="min-w-0">
+                        <p className="truncate text-[15px] font-extrabold text-slate-900">{subscription.planName || "Farm Basket"}</p>
+                        <p className="mt-1 text-xs text-slate-600">{subscription.cadence || "Recurring"} · {subscription.day || "Scheduled"} · {subscription.items?.length || 0} varieties</p>
+                      </div>
                     </div>
-                  </CardHeader>
-                  <CardContent className="space-y-3 p-4 pt-2">
-                    <div className="flex flex-wrap gap-1.5">{(subscription.items || []).map((item: any, index: number) => <span key={item.productId || index} className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600">{itemLabel(item)}</span>)}</div>
-                    {subscription.nextDelivery && !cancelled && <p className="flex items-center gap-2 text-sm text-slate-600"><PackageCheck className="h-4 w-4 text-emerald-600" />Next delivery: {new Date(subscription.nextDelivery).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })}</p>}
-                    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3">
-                      <span className="font-bold text-emerald-700">{formatPrice(subscription.price)}</span>
-                      {!cancelled && <div className="flex gap-2">
-                        <Button size="sm" variant="outline" disabled={manageMutation.isPending} onClick={() => manageMutation.mutate({ id: subscription.id, action: paused ? "resume" : "pause" })}>{paused ? <Play className="mr-1 h-3.5 w-3.5" /> : <Pause className="mr-1 h-3.5 w-3.5" />}{paused ? "Resume" : "Pause"}</Button>
-                        <Button size="sm" variant="outline" className="text-red-600 hover:bg-red-50" disabled={manageMutation.isPending} onClick={() => manageMutation.mutate({ id: subscription.id, action: "cancel" })}><Trash2 className="mr-1 h-3.5 w-3.5" />Cancel</Button>
-                      </div>}
+                    <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 pt-3 sm:border-l sm:border-t-0 sm:pl-5 sm:pt-0">
+                      <div className="min-w-[130px]">
+                        <p className="flex items-center gap-2 text-xs text-slate-500"><CalendarDays className="h-4 w-4 text-emerald-700" />Next Delivery</p>
+                        <p className="pl-6 text-sm font-semibold text-slate-800">{subscription.nextDelivery ? new Date(subscription.nextDelivery).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "To be scheduled"}</p>
+                      </div>
+                      <div className="min-w-[120px]">
+                        <p className="flex items-center gap-2 text-xs text-slate-500"><Truck className="h-4 w-4 text-emerald-700" />Delivery Day</p>
+                        <p className="pl-6 text-sm font-semibold text-slate-800">{subscription.day || "As per plan"}</p>
+                      </div>
+                      <Badge className="border-0 bg-emerald-100 px-3 py-1.5 text-xs font-bold text-emerald-800" variant="secondary">{paused ? "Paused" : cancelled ? "Cancelled" : "Active"}</Badge>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap gap-2 sm:ml-auto">
+                      {!cancelled && <Button size="sm" variant="outline" className="rounded-xl" disabled={manageMutation.isPending} onClick={() => manageMutation.mutate({ id: subscription.id, action: paused ? "resume" : "pause" })}>{paused ? <Play className="mr-1 h-3.5 w-3.5" /> : <Pause className="mr-1 h-3.5 w-3.5" />}{paused ? "Resume" : "Pause"}</Button>}
+                      {!cancelled && <Button size="sm" variant="outline" className="rounded-xl border-red-200 text-red-600 hover:bg-red-50" disabled={manageMutation.isPending} onClick={() => manageMutation.mutate({ id: subscription.id, action: "cancel" })}><Trash2 className="mr-1 h-3.5 w-3.5" />Cancel</Button>}
                     </div>
                   </CardContent>
                 </Card>
