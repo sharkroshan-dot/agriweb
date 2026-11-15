@@ -83,12 +83,60 @@ function getPlanCategory(plan: BasketPlan): PlanFilter {
   return "mixed";
 }
 
-function planArtwork(plan: BasketPlan) {
-  const category = getPlanCategory(plan);
-  if (category === "fruits") return { emoji: "🍎 🍌 🍊 🍇", className: "from-amber-50 via-orange-50 to-yellow-100", image: "https://images.unsplash.com/photo-1610832958506-aa56368176cf?auto=format&fit=crop&w=900&q=85" };
-  if (category === "organic") return { emoji: "🥬 🥕 🥦 🍅", className: "from-emerald-50 via-lime-50 to-green-100", image: "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=900&q=85" };
-  if (category === "vegetables") return { emoji: "🥕 🥦 🍅 🥬", className: "from-green-50 via-emerald-50 to-lime-100", image: "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=900&q=85" };
-  return { emoji: "🥬 🍅 🍎 🥕", className: "from-lime-50 via-green-50 to-amber-100", image: "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=900&q=85" };
+function getBasketItemImage(item: any): string | undefined {
+  return item?.imageUrl || item?.image_url || item?.photoUrl || item?.photo_url ||
+    item?.thumbnailUrl || item?.thumbnail || item?.image || item?.product?.imageUrl ||
+    item?.product?.image_url || item?.product?.image;
+}
+
+function planArtwork(plan: BasketPlan | any) {
+  const category = getPlanCategory(plan as BasketPlan);
+  const itemImage = (plan?.items || []).map(getBasketItemImage).find(Boolean);
+  if (category === "fruits") return { emoji: "🍎 🍌 🍊 🍇", image: itemImage || "https://images.pexels.com/photos/1132047/pexels-photo-1132047.jpeg?auto=compress&cs=tinysrgb&w=1000" };
+  if (category === "organic") return { emoji: "🥬 🥕 🥦 🍅", image: itemImage || "https://images.pexels.com/photos/5945755/pexels-photo-5945755.jpeg?auto=compress&cs=tinysrgb&w=1000" };
+  if (category === "vegetables") return { emoji: "🥕 🥦 🍅 🥬", image: itemImage || "https://images.pexels.com/photos/1300972/pexels-photo-1300972.jpeg?auto=compress&cs=tinysrgb&w=1000" };
+  return { emoji: "🥬 🍅 🍎 🥕", image: itemImage || "https://images.pexels.com/photos/1300972/pexels-photo-1300972.jpeg?auto=compress&cs=tinysrgb&w=1000" };
+}
+
+function subscriptionArtwork(subscription: any, plans: BasketPlan[]) {
+  const planId = String(subscription?.planId?._id || subscription?.planId || "");
+  const plan = plans.find((candidate) => String(candidate.id) === planId) ||
+    plans.find((candidate) => candidate.name === subscription?.planName);
+  return planArtwork(plan || {
+    name: subscription?.planName || "",
+    description: subscription?.description || "",
+    category: subscription?.category,
+    items: Array.isArray(subscription?.items) ? subscription.items : [],
+  });
+}
+
+function BasketProduceImage({ src, alt, className, fallbackEmoji = "🥬 🥕 🍅" }: {
+  src: string;
+  alt: string;
+  className: string;
+  fallbackEmoji?: string;
+}) {
+  const fallback = "https://images.pexels.com/photos/1300972/pexels-photo-1300972.jpeg?auto=compress&cs=tinysrgb&w=1000";
+  return (
+    <div className={cn("relative overflow-hidden bg-gradient-to-br from-emerald-50 to-lime-100", className)}>
+      <div className="absolute inset-0 flex items-center justify-center text-3xl tracking-widest" aria-hidden="true">{fallbackEmoji}</div>
+      <img
+        src={src}
+        alt={alt}
+        loading="lazy"
+        className="relative z-10 h-full w-full object-cover"
+        onError={(event) => {
+          const image = event.currentTarget;
+          if (image.dataset.fallbackTried !== "true" && image.src !== fallback) {
+            image.dataset.fallbackTried = "true";
+            image.src = fallback;
+          } else {
+            image.style.display = "none";
+          }
+        }}
+      />
+    </div>
+  );
 }
 
 export default function CustomerSubscriptionsPage() {
@@ -240,10 +288,10 @@ export default function CustomerSubscriptionsPage() {
                 const artwork = planArtwork(plan);
                 return (
                   <Card key={plan.id} className={cn("flex min-w-0 flex-col overflow-hidden rounded-2xl border-slate-200 bg-white shadow-[0_3px_12px_rgba(15,23,42,0.08)] transition hover:-translate-y-0.5 hover:shadow-lg", index === 0 && "border-emerald-400 ring-1 ring-emerald-100")}>
-                    <div className="relative h-28 overflow-hidden bg-emerald-50 sm:h-[108px]">
-                      <img src={artwork.image} alt={`${plan.name} fresh produce`} className="h-full w-full object-cover" />
-                      {index === 0 && <Badge className="absolute left-2 top-2 border-emerald-200 bg-emerald-700 text-white">Most Popular</Badge>}
-                      {getPlanCategory(plan) === "organic" && <Badge className="absolute right-3 top-3 bg-white text-emerald-800"><Leaf className="mr-1 h-3 w-3" /> Organic</Badge>}
+                    <div className="relative h-32 overflow-hidden sm:h-36">
+                      <BasketProduceImage src={artwork.image} alt={`${plan.name} fresh produce`} className="h-full w-full" fallbackEmoji={artwork.emoji} />
+                      {index === 0 && <Badge className="absolute left-2 top-2 z-20 border-emerald-200 bg-emerald-700 text-white">Most Popular</Badge>}
+                      {getPlanCategory(plan) === "organic" && <Badge className="absolute right-3 top-3 z-20 bg-white text-emerald-800"><Leaf className="mr-1 h-3 w-3" /> Organic</Badge>}
                     </div>
                     <CardHeader className="space-y-1 p-3 pb-2">
                       <CardTitle className="text-[15px] font-extrabold leading-5">{plan.name}</CardTitle>
@@ -253,7 +301,7 @@ export default function CustomerSubscriptionsPage() {
                       </p>
                     </CardHeader>
                     <CardContent className="flex flex-1 flex-col gap-2 px-3 pb-3 pt-1">
-                      <div className="flex flex-wrap gap-1.5">{(plan.items || []).slice(0, 3).map((item) => <span key={item.productId || item.name} className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-medium text-emerald-800">{item.name}</span>)}{plan.items.length > 3 && <span className="text-[10px] text-slate-500">+{plan.items.length - 3} more</span>}</div>
+                      <div className="flex max-h-24 flex-wrap gap-1.5 overflow-y-auto pr-1">{(plan.items || []).map((item, itemIndex) => <span key={item.productId || `${item.name}-${itemIndex}`} className="rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-800">{item.name}{item.quantity ? ` · ${item.quantity} ${item.unit || ""}`.trim() : ""}</span>)}</div>
                       <div className="space-y-1.5 border-t border-slate-100 pt-2 text-[13px] text-slate-700">
                         <p className="flex items-center gap-2"><CalendarDays className="h-4 w-4 text-emerald-600" /> Delivery: {plan.cadence}{plan.day ? ` · ${plan.day}` : ""}</p>
                         <p className="flex items-center gap-2"><PackageCheck className="h-4 w-4 text-emerald-600" /> {(plan.items || []).length} varieties included</p>
@@ -289,7 +337,7 @@ export default function CustomerSubscriptionsPage() {
             <CardContent className="p-4">
               {isLoading ? <div className="flex justify-center py-5"><Loader2 className="h-6 w-6 animate-spin text-emerald-600" /></div> : activeSubscription ? (
                 <div className="flex items-center gap-3">
-                  <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-3xl">🧺</span>
+                  <BasketProduceImage src={subscriptionArtwork(activeSubscription, availablePlans).image} alt={`${activeSubscription.planName || "Farm basket"} vegetables and produce`} className="h-16 w-16 shrink-0 rounded-xl" fallbackEmoji={subscriptionArtwork(activeSubscription, availablePlans).emoji} />
                   <div className="min-w-0 flex-1">
                     <p className="font-bold text-slate-900">{activeSubscription.planName || "Farm Basket"}</p>
                     {activeSubscription.nextDelivery && <p className="mt-1 text-xs text-slate-600">Next delivery: {new Date(activeSubscription.nextDelivery).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</p>}
@@ -334,7 +382,7 @@ export default function CustomerSubscriptionsPage() {
                 <Card key={subscription.id} className={cn("overflow-hidden rounded-2xl border-slate-200 bg-white shadow-sm", cancelled && "opacity-60")}>
                   <CardContent className="flex flex-col gap-4 p-3 sm:flex-row sm:items-center sm:gap-5 sm:px-5">
                     <div className="flex min-w-0 flex-1 items-center gap-3">
-                      <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-3xl">🧺</span>
+                      <BasketProduceImage src={subscriptionArtwork(subscription, availablePlans).image} alt={`${subscription.planName || "Farm basket"} vegetables and produce`} className="h-14 w-14 shrink-0 rounded-xl" fallbackEmoji={subscriptionArtwork(subscription, availablePlans).emoji} />
                       <div className="min-w-0">
                         <p className="truncate text-[15px] font-extrabold text-slate-900">{subscription.planName || "Farm Basket"}</p>
                         <p className="mt-1 text-xs text-slate-600">{subscription.cadence || "Recurring"} · {subscription.day || "Scheduled"} · {subscription.items?.length || 0} varieties</p>
