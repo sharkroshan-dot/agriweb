@@ -53,7 +53,7 @@ const dateKey = (value: string | Date) => {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
   const d = String(date.getDate()).padStart(2, "0");
-  return \`\${y}-\${m}-\${d}\`;
+  return `${y}-${m}-${d}`;
 };
 
 const parseSlotDate = (value: string) => {
@@ -66,7 +66,7 @@ const parseSlotDate = (value: string) => {
 };
 
 const slotPeriod = (slot: DeliverySlot) => {
-  const text = \`\${slot.startTime} \${slot.endTime}\`.toLowerCase();
+  const text = `${slot.startTime} ${slot.endTime}`.toLowerCase();
   const hour = Number(String(slot.startTime).match(/\d{1,2}/)?.[0] || 0);
   if (hour < 11) return { label: "Morning", Icon: Sun };
   if (hour < 14) return { label: "Midday", Icon: Sun };
@@ -106,7 +106,7 @@ export default function DeliverySlotsPage() {
   });
 
   const joinMutation = useMutation({
-    mutationFn: (slotId: string) => api.post(\`/delivery-slots/slots/\${slotId}/join\`),
+    mutationFn: (slotId: string) => api.post(`/delivery-slots/slots/${slotId}/join`),
     onSuccess: () => {
       setBusyId(null);
       setSelectedSlotId("");
@@ -120,7 +120,7 @@ export default function DeliverySlotsPage() {
   });
 
   const leaveMutation = useMutation({
-    mutationFn: (slotId: string) => api.delete(\`/delivery-slots/slots/\${slotId}/join\`),
+    mutationFn: (slotId: string) => api.delete(`/delivery-slots/slots/${slotId}/join`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["delivery-slots"] });
       toast.success("Left the delivery slot");
@@ -178,8 +178,8 @@ export default function DeliverySlotsPage() {
   const monthDays = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 0).getDate();
   const leadingDays = monthStart.getDay();
   const calendarCells = [
-    ...Array.from({ length: leadingDays }, (_, index) => ({ key: \`empty-\${index}\`, day: 0 })),
-    ...Array.from({ length: monthDays }, (_, index) => ({ key: \`day-\${index + 1}\`, day: index + 1 })),
+    ...Array.from({ length: leadingDays }, (_, index) => ({ key: `empty-${index}`, day: 0 })),
+    ...Array.from({ length: monthDays }, (_, index) => ({ key: `day-${index + 1}`, day: index + 1 })),
   ];
 
   const selectedPeriod = selectedSlot ? slotPeriod(selectedSlot) : null;
@@ -298,8 +298,8 @@ export default function DeliverySlotsPage() {
                     type="button"
                     disabled={!hasSlots || past}
                     onClick={() => { setSelectedDate(key); setSelectedSlotId(""); }}
-                    className={\`mx-auto flex h-10 w-10 items-center justify-center rounded-xl text-sm font-semibold transition \${selected ? "bg-emerald-600 text-white shadow-sm" : hasSlots ? "bg-emerald-50 text-emerald-800 hover:bg-emerald-100" : "text-slate-300"} \${past ? "cursor-not-allowed opacity-50" : ""}\`}
-                    aria-label={\`\${key}\${hasSlots ? ", delivery slots available" : ", no published slots"}\`}
+                    className={`mx-auto flex h-10 w-10 items-center justify-center rounded-xl text-sm font-semibold transition ${selected ? "bg-emerald-600 text-white shadow-sm" : hasSlots ? "bg-emerald-50 text-emerald-800 hover:bg-emerald-100" : "text-slate-300"} ${past ? "cursor-not-allowed opacity-50" : ""}`}
+                    aria-label={`${key}${hasSlots ? ", delivery slots available" : ", no published slots"}`}
                   >
                     {cell.day}
                   </button>
@@ -347,10 +347,10 @@ export default function DeliverySlotsPage() {
                       key={slot.id}
                       disabled={full}
                       onClick={() => setSelectedSlotId(slot.id)}
-                      className={\`w-full rounded-2xl border p-3 text-left transition sm:p-4 \${isSelected ? "border-emerald-500 bg-emerald-50/70 ring-1 ring-emerald-200" : "border-slate-200 bg-white hover:border-emerald-300 hover:bg-emerald-50/30"} \${full ? "cursor-not-allowed opacity-60" : ""}\`}
+                      className={`w-full rounded-2xl border p-3 text-left transition sm:p-4 ${isSelected ? "border-emerald-500 bg-emerald-50/70 ring-1 ring-emerald-200" : "border-slate-200 bg-white hover:border-emerald-300 hover:bg-emerald-50/30"} ${full ? "cursor-not-allowed opacity-60" : ""}`}
                     >
                       <div className="flex items-start gap-3">
-                        <span className={\`mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 \${isSelected ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-300 text-transparent"}\`}>
+                        <span className={`mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 ${isSelected ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-300 text-transparent"}`}>
                           {isSelected && <CheckCircle2 className="h-4 w-4" />}
                         </span>
                         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-500">
@@ -360,13 +360,13 @@ export default function DeliverySlotsPage() {
                           <span className="flex flex-wrap items-center justify-between gap-2">
                             <span className="font-bold text-slate-900">{period.label}</span>
                             <Badge variant={full ? "secondary" : "outline"} className={!full ? "border-emerald-100 bg-emerald-50 text-emerald-800" : ""}>
-                              {full ? "Full" : slot.maxOrders > 0 ? \`\${remainingOrders} places left\` : "Available"}
+                              {full ? "Full" : slot.maxOrders > 0 ? `${remainingOrders} places left` : "Available"}
                             </Badge>
                           </span>
                           <span className="mt-0.5 block text-sm font-medium text-slate-700">{slot.startTime} – {slot.endTime}</span>
                           <span className="mt-1 block text-xs text-slate-500">
                             Farmer: {slot.farmerInfo?.farmName || slot.farmerInfo?.name || "Local farmer"}
-                            {slot.distanceKm !== undefined ? \` · \${slot.distanceKm} km away\` : ""}
+                            {slot.distanceKm !== undefined ? ` · ${slot.distanceKm} km away` : ""}
                           </span>
                           {hasKgCapacity && <span className="mt-1 block text-xs font-medium text-emerald-700">Available capacity: {remainingKg} kg</span>}
                           {slot.notes && <span className="mt-1 block text-xs text-slate-500">{slot.notes}</span>}
@@ -390,7 +390,7 @@ export default function DeliverySlotsPage() {
               <>
                 <div className="max-h-56 space-y-3 overflow-y-auto">
                   {cartItems.map((item: any) => (
-                    <div key={\`\${item.id}-\${item.variantId || "default"}\`} className="flex items-center gap-3 border-b border-slate-100 pb-3 last:border-0">
+                    <div key={`${item.id}-${item.variantId || "default"}`} className="flex items-center gap-3 border-b border-slate-100 pb-3 last:border-0">
                       <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-emerald-50 text-emerald-700">
                         {item.image ? <img src={item.image} alt={item.name} className="h-full w-full object-cover" /> : <Package className="h-6 w-6" />}
                       </div>
