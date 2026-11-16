@@ -253,10 +253,7 @@ export default function WishlistPage() {
             ))}
           </div>
 
-          <div className="flex items-center justify-center rounded-2xl bg-gradient-to-r from-emerald-50 via-green-50 to-emerald-50 px-4 py-4 text-sm font-semibold text-emerald-800">
-            <span className="mr-2 inline-flex h-5 w-5 items-center justify-center rounded-full border-2 border-dotted border-emerald-600 text-[10px]">•••</span>
-            {filtered.length > 0 ? `Showing all ${filtered.length} saved ${filtered.length === 1 ? "item" : "items"} — scroll to explore` : "No saved products"}
-          </div>
+
         </>
       )}
     </div>
