@@ -29,8 +29,8 @@
  <path d="M2440 104L2588 130 2790 103 2638 80Z" fill="#f9d9a3" stroke="#b8783d" stroke-width="5"/>
  <path d="M2588 82L2574 127 2628 136 2650 90" fill="#d99a56" stroke="#a96832" stroke-width="5"/>
  <path d="M2480 174H2745" stroke="#ffe5bf" stroke-width="4" stroke-dasharray="10 11" opacity=".9"/>
- <path d="M2592 199C2570 176 2581 147 2607 137C2627 128 2650 137 2658 155" fill="none" stroke="#178d37" stroke-width="17" stroke-linecap="round"/>
- <path d="M2651 135L2676 154 2645 174" fill="none" stroke="#178d37" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/>
+ <path d="M2670 184H2606C2584 184 2574 165 2587 149C2600 133 2626 136 2640 151" fill="none" stroke="#087f32" stroke-width="19" stroke-linecap="round" stroke-linejoin="round"/>
+ <path d="M2608 126L2581 149L2608 171" fill="none" stroke="#087f32" stroke-width="19" stroke-linecap="round" stroke-linejoin="round"/>
  <circle cx="2790" cy="218" r="67" fill="url(#coin)" stroke="#f0ad13" stroke-width="9"/>
  <circle cx="2790" cy="218" r="54" fill="none" stroke="#fff4a5" stroke-width="5"/>
  <text x="2790" y="242" text-anchor="middle" font-family="Arial,sans-serif" font-size="68" font-weight="700" fill="#a96a00">₹</text>
