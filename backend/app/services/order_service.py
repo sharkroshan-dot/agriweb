@@ -19,6 +19,7 @@ from app.services.inventory_service import inventory_service, broadcast_stock_up
 from app.core.config import settings
 from app.repositories.reservation_repository import reservation_repository
 from app.repositories.base_repository import BaseRepository
+from app.services.loyalty_service import spend_points_for_order, restore_points_for_cancelled_order
 from app.services.delivery_availability_service import get_delivery_service_availability, estimate_fastest_eligibility
 delivery_slot_repository = BaseRepository("delivery_slots")
 delivery_slot_booking_repository = BaseRepository("delivery_slot_bookings")
@@ -281,6 +282,18 @@ class OrderService:
         if data.idempotencyKey:
             existing = await order_repository.get_by_idempotency_key(customer_id, data.idempotencyKey)
             if existing:
+                # Recover safely if a previous request saved the order but the
+                # process stopped before its AgriPoints spend transaction.
+                if (
+                    int(existing.get("loyaltyPointsUsed") or 0) > 0
+                    and str(existing.get("orderStatus") or "").lower() != OrderStatus.CANCELLED.value
+                ):
+                    await spend_points_for_order(
+                        customer_id,
+                        str(existing["_id"]),
+                        int(existing.get("loyaltyPointsUsed") or 0),
+                        float(existing.get("loyaltyDiscount") or 0),
+                    )
                 existing["id"] = str(existing["_id"])
                 return existing
 
@@ -750,39 +763,13 @@ class OrderService:
                     logger.exception("Failed to release checkout reservation for %s", product_id)
             raise
 
-        loyalty_debit_applied = False
-        loyalty_account = None
-        if loyalty_points_used:
-            loyalty_account = await loyalty_account_repo.find_one({
-                "userId": ObjectId(customer_id),
-                "deletedAt": None,
-            })
-            if not loyalty_account:
-                for product_id, quantity, inventory_id in reserved_items:
-                    await inventory_repository.atomic_release(product_id, quantity, inventory_id=inventory_id)
-                raise OrderCreationError("No AgriPoints balance is available for this account.")
-            debit_result = await loyalty_account_repo.collection.update_one(
-                {"_id": loyalty_account["_id"], "balance": {"$gte": loyalty_points_used}},
-                {"$inc": {"balance": -loyalty_points_used, "lifetimeSpent": loyalty_points_used}},
-            )
-            if not getattr(debit_result, "modified_count", 0):
-                for product_id, quantity, inventory_id in reserved_items:
-                    await inventory_repository.atomic_release(product_id, quantity, inventory_id=inventory_id)
-                raise OrderCreationError("Insufficient AgriPoints balance. Refresh your points and try again.")
-            loyalty_debit_applied = True
-
         try:
             order_id = await order_repository.create_order(order_data)
         except Exception:
             order_id = None
-            logger.exception("Order creation failed after AgriPoints reservation")
+            logger.exception("Order creation failed")
         if not order_id:
-            if loyalty_debit_applied and loyalty_account:
-                await loyalty_account_repo.collection.update_one(
-                    {"_id": loyalty_account["_id"]},
-                    {"$inc": {"balance": loyalty_points_used, "lifetimeSpent": -loyalty_points_used}},
-                )
-            logger.error(f"Failed to create order in database. order_data keys: {list(order_data.keys())}")
+            logger.error(f"Failed to save order. order_data keys: {list(order_data.keys())}")
             for product_id, quantity, inventory_id in reserved_items:
                 try:
                     await inventory_repository.atomic_release(product_id, quantity, inventory_id=inventory_id)
@@ -790,19 +777,32 @@ class OrderService:
                     logger.exception("Failed to release checkout reservation for %s", product_id)
             raise OrderCreationError("Failed to save order to database")
 
-        if loyalty_debit_applied:
+        if loyalty_points_used:
             try:
-                await loyalty_txn_repo.create({
-                    "userId": ObjectId(customer_id),
-                    "orderId": ObjectId(order_id),
-                    "type": "spend",
-                    "points": -loyalty_points_used,
-                    "balanceAfter": int(loyalty_account.get("balance") or 0) - loyalty_points_used,
-                    "reason": "checkout_discount",
-                    "description": f"Used {loyalty_points_used} AgriPoints for Rs {loyalty_discount:g} order discount",
-                })
-            except Exception:
-                logger.exception("Order %s created but AgriPoints ledger write failed", order_id)
+                await spend_points_for_order(
+                    customer_id,
+                    str(order_id),
+                    loyalty_points_used,
+                    loyalty_discount,
+                )
+            except Exception as exc:
+                # Never leave an order active with a discount whose points were
+                # not successfully reserved and written to the loyalty ledger.
+                await order_repository.update(
+                    {"_id": ObjectId(order_id)},
+                    {
+                        "orderStatus": OrderStatus.CANCELLED.value,
+                        "cancellationReason": "AgriPoints reservation could not be completed",
+                        "loyaltyReservationStatus": "failed",
+                        "updatedAt": datetime.utcnow(),
+                    },
+                )
+                for product_id, quantity, inventory_id in reserved_items:
+                    try:
+                        await inventory_repository.atomic_release(product_id, quantity, inventory_id=inventory_id)
+                    except Exception:
+                        logger.exception("Failed to release stock after AgriPoints reservation failure")
+                raise OrderCreationError(str(exc) or "Could not reserve AgriPoints for this order")
 
         if selected_delivery_slot:
             # Link the confirmed checkout record to the published delivery batch.
@@ -1354,32 +1354,13 @@ class OrderService:
             return None
 
         if new_status == OrderStatus.CANCELLED and int(order.get("loyaltyPointsUsed") or 0) > 0:
-            points_to_restore = int(order.get("loyaltyPointsUsed") or 0)
-            existing_reversal = await loyalty_txn_repo.find_one({
-                "orderId": ObjectId(order_id),
-                "reason": "order_cancel_reversal",
-                "deletedAt": None,
-            })
-            if not existing_reversal:
-                loyalty_account = await loyalty_account_repo.find_one({
-                    "userId": ObjectId(str(order.get("customerId"))),
-                    "deletedAt": None,
-                })
-                if loyalty_account:
-                    restored = await loyalty_account_repo.collection.update_one(
-                        {"_id": loyalty_account["_id"]},
-                        {"$inc": {"balance": points_to_restore, "lifetimeSpent": -points_to_restore}},
-                    )
-                    if getattr(restored, "modified_count", 0):
-                        await loyalty_txn_repo.create({
-                            "userId": ObjectId(str(order.get("customerId"))),
-                            "orderId": ObjectId(order_id),
-                            "type": "reversal",
-                            "points": points_to_restore,
-                            "balanceAfter": int(loyalty_account.get("balance") or 0) + points_to_restore,
-                            "reason": "order_cancel_reversal",
-                            "description": "AgriPoints restored because the order was cancelled",
-                        })
+            try:
+                await restore_points_for_cancelled_order(order)
+            except Exception:
+                # The cancellation remains visible, but a failed reversal is
+                # logged for reconciliation rather than risking a duplicate
+                # non-transactional balance increment.
+                logger.exception("AgriPoints cancellation reversal failed for order %s", order_id)
 
         if role == "farmer" and new_status == OrderStatus.CONFIRMED and committed_inventory:
             for product_id, quantity, _inventory_id in committed_inventory:
