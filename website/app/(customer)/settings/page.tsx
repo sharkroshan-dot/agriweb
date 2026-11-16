@@ -52,6 +52,8 @@ export default function CustomerSettingsPage() {
 
   const [pwFields, setPwFields] = useState({ current: "", next: "", confirm: "" });
   const [changingPassword, setChangingPassword] = useState(false);
+  const [language, setLanguage] = useState("en");
+  const [theme, setTheme] = useState("system");
 
   const { data: settingsData, isLoading } = useQuery({
     queryKey: ["mySettings"],
@@ -69,7 +71,7 @@ export default function CustomerSettingsPage() {
   const saveNotifications = async () => {
     setSavingNotifications(true);
     try {
-      await api.put("/settings/mine", { notifications });
+      await api.put("/settings/mine", { notifications, preferences: { language, theme } });
       toast.success("Notification preferences saved");
     } catch (err: any) {
       toast.error(err?.message || "Failed to save preferences");
