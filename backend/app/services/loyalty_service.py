@@ -90,7 +90,7 @@ async def restore_points_for_cancelled_order(order: Dict[str, Any]) -> int:
             new_balance = int(account.get("balance") or 0) + points
             await account_collection.update_one(
                 {"_id": account["_id"]},
-                {"$inc": {"balance": points, "lifetimeSpent": -points}},
+                {"$inc": {"balance": points}, "$set": {"lifetimeSpent": max(0, int(account.get("lifetimeSpent") or 0) - points)}},
                 session=session,
             )
             await txn_collection.insert_one(
@@ -167,7 +167,7 @@ async def restore_points_for_refund(order_id: str, refund_id: str, refund_amount
                     raise ValueError("AgriPoints account was not found for refund reversal.")
                 await account_collection.update_one(
                     {"_id": account["_id"]},
-                    {"$inc": {"balance": points_to_restore, "lifetimeSpent": -points_to_restore}},
+                    {"$inc": {"balance": points_to_restore}, "$set": {"lifetimeSpent": max(0, int(account.get("lifetimeSpent") or 0) - points_to_restore)}},
                     session=session,
                 )
                 balance_after = int(account.get("balance") or 0) + points_to_restore
