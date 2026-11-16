@@ -1,27 +1,50 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="380" viewBox="0 0 1800 380">
+<svg xmlns="http://www.w3.org/2000/svg" width="2880" height="320" viewBox="0 0 2880 320">
 <defs>
-<linearGradient id="sky" x2="0" y2="1"><stop stop-color="#e4f5ff"/><stop offset=".58" stop-color="#f5fcff"/><stop offset="1" stop-color="#d7f2b2"/></linearGradient>
-<linearGradient id="field" x2="0" y2="1"><stop stop-color="#b8eb50"/><stop offset="1" stop-color="#3aa91f"/></linearGradient>
-<linearGradient id="field2" x2="0" y2="1"><stop stop-color="#e4f77a"/><stop offset="1" stop-color="#65c52d"/></linearGradient>
-<linearGradient id="card" x2="0" y2="1"><stop stop-color="#20d66a"/><stop offset="1" stop-color="#007c3c"/></linearGradient>
-<linearGradient id="leather" x2="0" y2="1"><stop stop-color="#dca05b"/><stop offset="1" stop-color="#8d4a20"/></linearGradient>
-<linearGradient id="gold" x2="0" y2="1"><stop stop-color="#fff28a"/><stop offset=".45" stop-color="#ffc928"/><stop offset="1" stop-color="#e78b00"/></linearGradient>
-<linearGradient id="phone" x2="0" y2="1"><stop stop-color="#18d17b"/><stop offset="1" stop-color="#007d49"/></linearGradient>
-<filter id="shadow" x="-30%" y="-30%" width="160%" height="170%"><feDropShadow dx="0" dy="9" stdDeviation="9" flood-color="#174d2c" flood-opacity=".22"/></filter>
-<pattern id="rows" width="90" height="34" patternUnits="userSpaceOnUse"><path d="M-20 34 Q25 0 110 34" fill="none" stroke="#e7ff8a" stroke-width="4" opacity=".65"/><path d="M-20 27 Q25 -7 110 27" fill="none" stroke="#278f23" stroke-width="2" opacity=".55"/></pattern>
+ <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#dff3ff"/><stop offset=".55" stop-color="#f5fbff"/><stop offset="1" stop-color="#e8f7dc"/></linearGradient>
+ <linearGradient id="mountain" x1="0" y1="0" x2=".4" y2="1"><stop stop-color="#8ed1e8"/><stop offset=".55" stop-color="#5daecb"/><stop offset="1" stop-color="#3e91b2"/></linearGradient>
+ <linearGradient id="mountain2" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#b4e1ee"/><stop offset="1" stop-color="#75b9c9"/></linearGradient>
+ <linearGradient id="fieldBack" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#b9e85a"/><stop offset="1" stop-color="#70c735"/></linearGradient>
+ <linearGradient id="fieldFront" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#8bdc2c"/><stop offset="1" stop-color="#259b20"/></linearGradient>
+ <linearGradient id="wallet" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#d99b55"/><stop offset=".55" stop-color="#b66b32"/><stop offset="1" stop-color="#87451f"/></linearGradient>
+ <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#fff49a"/><stop offset=".48" stop-color="#ffc72e"/><stop offset="1" stop-color="#e58b00"/></linearGradient>
+ <linearGradient id="greenCard" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#27d977"/><stop offset="1" stop-color="#008044"/></linearGradient>
+ <linearGradient id="fade" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#fff" stop-opacity="1"/><stop offset=".32" stop-color="#fff" stop-opacity=".96"/><stop offset=".53" stop-color="#fff" stop-opacity=".64"/><stop offset=".7" stop-color="#fff" stop-opacity="0"/></linearGradient>
+ <filter id="shadow" x="-25%" y="-30%" width="160%" height="180%"><feDropShadow dx="0" dy="7" stdDeviation="7" flood-color="#24552c" flood-opacity=".24"/></filter>
+ <pattern id="cropRows" width="110" height="34" patternUnits="userSpaceOnUse"><path d="M-40 36 Q30 -9 150 36" fill="none" stroke="#e6ff8b" stroke-width="5" opacity=".65"/><path d="M-40 29 Q30 -16 150 29" fill="none" stroke="#278c1e" stroke-width="2" opacity=".55"/></pattern>
 </defs>
-<rect width="1800" height="380" fill="url(#sky)"/>
-<g fill="#fff" opacity=".72"><ellipse cx="1100" cy="76" rx="90" ry="18"/><ellipse cx="1160" cy="66" rx="55" ry="22"/><ellipse cx="1510" cy="54" rx="85" ry="18"/><ellipse cx="1560" cy="45" rx="48" ry="20"/></g>
-<path d="M0 230 L120 172 205 205 340 124 455 200 585 138 710 215 835 158 965 216 1110 138 1245 222 1390 157 1510 220 1640 142 1800 220 V380 H0Z" fill="#83c9e4"/>
-<path d="M0 245 Q120 196 245 228 T490 224 T735 225 T980 222 T1225 223 T1470 217 T1800 225 V380 H0Z" fill="#3d9e46"/>
-<path d="M0 260 Q150 220 300 255 T600 250 T900 252 T1200 248 T1500 250 T1800 246 V380 H0Z" fill="#79c83b"/>
-<path d="M0 270 Q380 232 770 260 T1450 245 T1800 260 V380 H0Z" fill="url(#field2)"/><path d="M0 292 Q430 250 860 280 T1500 270 T1800 278 V380 H0Z" fill="url(#field)"/><path d="M0 290 Q430 250 860 280 T1500 270 T1800 278 V380 H0Z" fill="url(#rows)" opacity=".8"/>
-<path d="M0 340 Q430 294 900 325 T1800 312 V380 H0Z" fill="#43aa22"/><path d="M0 340 Q430 294 900 325 T1800 312 V380 H0Z" fill="url(#rows)" opacity=".6"/>
-<g fill="#2f9d27"><path d="M60 380q-10-52 25-67q7 35-25 67m30 0q2-55 45-62q-2 42-45 62m-4 0q-18-40 2-59q17 30-2 59"/><path d="M1250 380q-12-50 22-68q9 35-22 68m30 0q5-55 47-60q-3 41-47 60"/></g>
-<g filter="url(#shadow)"><rect x="1325" y="35" width="188" height="290" rx="30" fill="#073d35"/><rect x="1335" y="47" width="168" height="266" rx="23" fill="#f7fffb"/><path d="M1336 70q0-23 23-23h122q22 0 22 23v27h-167z" fill="url(#phone)"/><rect x="1390" y="54" width="58" height="6" rx="3" fill="#073d35"/><rect x="1354" y="119" width="130" height="13" rx="6" fill="#c5efdc"/><rect x="1354" y="150" width="82" height="11" rx="5" fill="#d6f2e3"/><rect x="1354" y="180" width="120" height="11" rx="5" fill="#d6f2e3"/><rect x="1354" y="215" width="130" height="48" rx="10" fill="#e4f9ed"/><circle cx="1373" cy="239" r="10" fill="#12a65b"/><path d="M1392 232h74m-74 14h55" stroke="#8dd9b1" stroke-width="6" stroke-linecap="round"/></g>
-<g fill="#2fbd24" stroke="#168d20" stroke-width="2"><path d="M1580 176q-20-95 55-135q26 72-55 135Z"/><path d="M1640 194q7-104 93-124q8 77-93 124Z"/><path d="M1680 246q42-92 112-81q-20 73-112 81Z"/><path d="M1575 274q-67-71-38-132q63 46 38 132Z"/><path d="M1700 310q64-67 100-28q-39 62-100 28Z"/></g>
-<g filter="url(#shadow)"><rect x="1505" y="165" width="250" height="158" rx="24" fill="url(#leather)" stroke="#78401f" stroke-width="7"/><path d="M1514 190q110 22 231 0v-13q-110 20-231 0Z" fill="#f0bf7d" opacity=".6"/><rect x="1540" y="224" width="210" height="78" rx="13" fill="#a85c2b" stroke="#e2a366" stroke-width="4"/><path d="M1530 184h215" stroke="#f6d2a0" stroke-width="3" stroke-dasharray="7 8" opacity=".8"/></g>
-<g filter="url(#shadow)"><ellipse cx="1590" cy="166" rx="42" ry="15" fill="#d98b00"/><path d="M1548 166v-34q42-27 84 0v34q-42 27-84 0" fill="url(#gold)" stroke="#c77a00" stroke-width="4"/><ellipse cx="1590" cy="132" rx="42" ry="15" fill="#ffe77b" stroke="#d99000" stroke-width="4"/><ellipse cx="1660" cy="158" rx="42" ry="15" fill="#d98b00"/><path d="M1618 158v-37q42-27 84 0v37q-42 27-84 0" fill="url(#gold)" stroke="#c77a00" stroke-width="4"/><ellipse cx="1660" cy="121" rx="42" ry="15" fill="#fff08b" stroke="#d99000" stroke-width="4"/></g>
-<g filter="url(#shadow)" transform="rotate(-3 1370 290)"><rect x="1190" y="235" width="270" height="130" rx="19" fill="url(#card)" stroke="#d1ffd9" stroke-width="4"/><rect x="1217" y="264" width="40" height="32" rx="6" fill="#ffdc54"/><path d="M1237 264v32m-20-16h40" stroke="#e79d00" stroke-width="3"/><path d="M1220 328h44m18 0h44" stroke="#e5fff0" stroke-width="6" stroke-linecap="round"/><path d="M1390 272q22 16 0 32m12-40q35 24 0 48" fill="none" stroke="#eafff0" stroke-width="7" stroke-linecap="round"/></g>
-<g filter="url(#shadow)"><circle cx="1665" cy="290" r="77" fill="url(#gold)" stroke="#d58a00" stroke-width="8"/><circle cx="1665" cy="290" r="63" fill="none" stroke="#fff1a0" stroke-width="5"/><text x="1665" y="315" text-anchor="middle" font-family="Arial,sans-serif" font-size="78" font-weight="700" fill="#b56b00">₹</text></g>
+<rect width="2880" height="320" fill="url(#sky)"/>
+<g fill="#fff" opacity=".7"><ellipse cx="1810" cy="58" rx="92" ry="14"/><ellipse cx="1870" cy="50" rx="55" ry="20"/><ellipse cx="2220" cy="44" rx="75" ry="13"/><ellipse cx="2270" cy="38" rx="43" ry="17"/></g>
+<path d="M0 210 Q170 172 310 194 T600 174 Q740 136 875 183 Q1010 126 1155 177 Q1285 105 1435 173 Q1580 119 1730 172 Q1885 93 2030 172 Q2180 115 2320 175 Q2490 112 2640 178 L2880 150 V320 H0Z" fill="url(#mountain2)"/>
+<path d="M0 225 Q160 195 310 210 Q440 170 560 201 Q700 155 840 208 Q980 163 1120 205 Q1260 142 1410 204 Q1550 164 1690 205 Q1830 140 1980 203 Q2120 165 2260 204 Q2400 145 2540 203 Q2700 157 2880 196 V320 H0Z" fill="url(#mountain)"/>
+<path d="M0 236 Q170 208 330 229 T650 220 T970 227 T1290 218 T1610 224 T1930 216 T2250 225 T2570 214 T2880 220 V320 H0Z" fill="#3c9c43"/>
+<g fill="#258d37" opacity=".9">
+ <circle cx="620" cy="220" r="17"/><circle cx="650" cy="216" r="23"/><circle cx="683" cy="221" r="16"/><circle cx="1000" cy="215" r="20"/><circle cx="1030" cy="210" r="25"/><circle cx="1065" cy="218" r="17"/><circle cx="1440" cy="213" r="20"/><circle cx="1470" cy="207" r="25"/><circle cx="1505" cy="215" r="17"/><circle cx="1870" cy="209" r="22"/><circle cx="1905" cy="205" r="25"/><circle cx="1940" cy="213" r="17"/><circle cx="2300" cy="207" r="22"/><circle cx="2335" cy="203" r="26"/><circle cx="2370" cy="212" r="17"/>
+</g>
+<path d="M0 246 Q400 220 800 247 T1600 241 T2400 237 T2880 228 V320 H0Z" fill="url(#fieldBack)"/>
+<path d="M0 270 Q430 230 870 267 T1740 256 T2600 248 T2880 247 V320 H0Z" fill="url(#fieldFront)"/>
+<path d="M0 270 Q430 230 870 267 T1740 256 T2600 248 T2880 247 V320 H0Z" fill="url(#cropRows)" opacity=".85"/>
+<path d="M0 302 Q500 260 1000 298 T2000 282 T2880 276 V320 H0Z" fill="#299a20"/>
+<path d="M0 302 Q500 260 1000 298 T2000 282 T2880 276 V320 H0Z" fill="url(#cropRows)" opacity=".7"/>
+<g filter="url(#shadow)">
+ <g fill="#24a92b" stroke="#168c27" stroke-width="3"><path d="M2580 122 Q2542 45 2610 9 Q2640 78 2580 122Z"/><path d="M2640 115 Q2654 31 2730 8 Q2738 79 2640 115Z"/><path d="M2730 132 Q2790 44 2865 58 Q2828 121 2730 132Z"/><path d="M2690 164 Q2634 99 2670 55 Q2722 112 2690 164Z"/></g>
+ <rect x="2480" y="112" width="300" height="166" rx="25" fill="url(#wallet)" stroke="#884a25" stroke-width="7"/>
+ <path d="M2495 135 Q2630 153 2765 135" fill="none" stroke="#f3c184" stroke-width="5" stroke-dasharray="7 8"/>
+ <rect x="2502" y="151" width="258" height="108" rx="17" fill="#a85f30" stroke="#e0a36a" stroke-width="4"/>
+ <path d="M2514 164 Q2630 180 2748 164" fill="none" stroke="#f5c995" stroke-width="3" opacity=".75"/>
+ <rect x="2705" y="177" width="85" height="54" rx="15" fill="#8d4a22" stroke="#e1a56b" stroke-width="5"/>
+ <circle cx="2747" cy="204" r="8" fill="#f7cf82"/>
+</g>
+<g filter="url(#shadow)">
+ <rect x="2315" y="207" width="250" height="95" rx="16" fill="url(#greenCard)" stroke="#c2ffd3" stroke-width="4"/>
+ <rect x="2340" y="230" width="34" height="27" rx="5" fill="#ffdb57" stroke="#d69b12" stroke-width="2"/>
+ <path d="M2340 243h34m-17-13v27" stroke="#d49a16" stroke-width="2"/>
+ <path d="M2395 238q13 8 0 17m9-23q21 14 0 29" fill="none" stroke="#d7ffe5" stroke-width="4" stroke-linecap="round"/>
+ <path d="M2340 280h76m-76 9h50" stroke="#e1ffec" stroke-width="5" stroke-linecap="round"/>
+</g>
+<g filter="url(#shadow)">
+ <circle cx="2705" cy="230" r="64" fill="url(#gold)" stroke="#d88a00" stroke-width="7"/>
+ <circle cx="2705" cy="230" r="51" fill="none" stroke="#fff0a0" stroke-width="5" opacity=".9"/>
+ <text x="2705" y="252" font-family="Arial,sans-serif" font-size="65" font-weight="700" text-anchor="middle" fill="#bd7200">₹</text>
+</g>
+<rect width="2880" height="320" fill="url(#fade)"/>
 </svg>
