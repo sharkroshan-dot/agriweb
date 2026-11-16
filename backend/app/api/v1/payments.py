@@ -256,8 +256,9 @@ async def process_refund(
             detail="Only delivered orders can be refunded"
         )
     
-    # Process refund
-    success = await PaymentService.process_refund(order_id)
+    # Process refund using the approved amount, then restore the corresponding
+    # AgriPoints against the provider's stable refund reference.
+    success = await PaymentService.process_refund(order_id, amount=refund_data.amount)
     
     if not success:
         raise HTTPException(
@@ -272,8 +273,25 @@ async def process_refund(
         metadata={"amount": refund_data.amount},
     )
     
-    # Get refund details
+    # This legacy admin/farmer endpoint bypasses the refund-request workflow.
+    # Still reconcile AgriPoints here so no successful money refund omits points.
     payment = await payment_repository.get_by_order_id(order_id)
+    if payment and payment.get("refundId"):
+        try:
+            from app.services.loyalty_service import restore_points_for_refund
+            order_for_points = await OrderService.get_order(
+                order_id, str(current_user["_id"]), current_user.get("role")
+            )
+            refund_amount = float(refund_data.amount or payment.get("refundAmount") or payment.get("amount") or 0)
+            await restore_points_for_refund(
+                order_id,
+                f"legacy:{payment.get('refundId')}",
+                refund_amount,
+            )
+        except Exception:
+            logger.exception("AgriPoints restoration failed for legacy refund on order %s", order_id)
+
+    # Get refund details
     
     return {
         "id": payment.get("refundId", ""),
