@@ -111,14 +111,14 @@ function SummaryCard({ title, value, icon: Icon, tone }: {
     violet: "bg-violet-100 text-violet-700",
   };
   return (
-    <Card className={`h-[82px] min-h-[82px] self-start rounded-2xl shadow-sm transition-shadow hover:shadow-md ${styles[tone]}`}>
-      <CardContent className="flex h-full items-center gap-2.5 !p-2.5 sm:gap-3 sm:!p-3">
-        <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full sm:h-11 sm:w-11 ${iconStyles[tone]}`}>
-          <Icon className="h-5 w-5 sm:h-6 sm:w-6" strokeWidth={2.5} />
+    <Card className={`h-[108px] min-h-[108px] self-start rounded-2xl shadow-sm transition-shadow hover:shadow-md ${styles[tone]}`}>
+      <CardContent className="flex h-full items-center gap-3 !p-3 sm:gap-4 sm:!p-4">
+        <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full sm:h-[52px] sm:w-[52px] ${iconStyles[tone]}`}>
+          <Icon className="h-6 w-6 sm:h-7 sm:w-7" strokeWidth={2.5} />
         </span>
         <div className="min-w-0">
-          <p className="text-[11px] font-bold leading-4 text-slate-800 sm:text-xs">{title}</p>
-          <p className="mt-0.5 text-[23px] font-extrabold leading-none tracking-tight text-slate-950 sm:text-2xl">{value}</p>
+          <p className="text-xs font-bold leading-4 text-slate-800 sm:text-sm">{title}</p>
+          <p className="mt-0.5 text-[27px] font-extrabold leading-none tracking-tight text-slate-950 sm:text-[30px]">{value}</p>
         </div>
       </CardContent>
     </Card>
@@ -209,16 +209,16 @@ export default function CustomerRefundsPage() {
 
   return (
     <div className="space-y-4 p-3 sm:space-y-5 sm:p-4 lg:p-5">
-      <header className="relative isolate flex h-[158px] min-h-[158px] items-center overflow-hidden rounded-2xl border border-slate-100 bg-white px-5 py-5 shadow-sm sm:px-7">
+      <header className="relative isolate flex h-[190px] min-h-[190px] items-center overflow-hidden rounded-2xl border border-slate-100 bg-white px-5 py-5 shadow-sm sm:px-7">
         <div className="pointer-events-none absolute inset-0 z-0" aria-hidden="true">
           <img src="/images/refunds-returns-banner.svg" alt="" className="h-full w-full object-cover object-center" />
         </div>
-        <div className="relative z-10 flex max-w-[68%] items-center gap-4 sm:gap-5">
-          <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 shadow-sm sm:h-16 sm:w-16">
-            <Package className="h-8 w-8 sm:h-9 sm:w-9" />
+        <div className="relative z-10 flex max-w-[72%] items-center gap-4 sm:gap-5">
+          <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 shadow-sm sm:h-[76px] sm:w-[76px]">
+            <Package className="h-9 w-9 sm:h-10 sm:w-10" />
           </span>
           <div className="min-w-0">
-            <h1 className="text-[26px] font-extrabold tracking-tight text-slate-950 sm:text-3xl lg:text-[34px]">Refunds &amp; Returns</h1>
+            <h1 className="text-[28px] font-extrabold tracking-tight text-slate-950 sm:text-[34px] lg:text-[38px]">Refunds &amp; Returns</h1>
             <p className="mt-1 max-w-2xl text-sm font-semibold leading-5 text-slate-800 sm:text-base">
               Request a return, track your refund, and check the status of your return requests.
             </p>
@@ -233,7 +233,7 @@ export default function CustomerRefundsPage() {
           <SummaryCard title="Refunds in Progress" value={counts.inProgress} icon={CircleDollarSign} tone="amber" />
           <SummaryCard title="Completed" value={counts.completed} icon={CheckCircle2} tone="violet" />
         </div>
-        <Card className="h-[158px] min-h-[158px] border-slate-200/80 !bg-gradient-to-br !from-white !to-emerald-50/70 shadow-sm">
+        <Card className="h-[190px] min-h-[190px] border-slate-200/80 !bg-gradient-to-br !from-white !to-emerald-50/70 shadow-sm">
           <CardContent className="flex h-full flex-col justify-center !p-4">
             <div className="flex items-center gap-2">
               <span className="rounded-full bg-emerald-100 p-2 text-emerald-700"><PackageCheck className="h-5 w-5" /></span>
@@ -359,11 +359,11 @@ export default function CustomerRefundsPage() {
             <CardContent className="p-4">
               <div className="flex items-center gap-2"><span className="rounded-full bg-emerald-100 p-2 text-emerald-700"><ArrowLeftRight className="h-5 w-5" /></span><h2 className="font-extrabold text-slate-950">Return &amp; Refund Process</h2></div>
               <div className="mt-4 space-y-4">
-                <div className="flex gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><Package className="h-5 w-5" /></span><div><p className="text-sm font-bold text-slate-900">Raise Request</p><p className="text-xs leading-4 text-slate-600">Select the order and reason for return or refund.</p></div></div>
+                <div className="flex gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><Package className="h-5 w-5" /></span><div><p className="text-sm font-bold text-slate-900">Raise Request</p><p className="text-xs leading-4 text-slate-600">Select the order and reason for return or refund.</p></div></div>
                 <div className="ml-[17px] h-3 border-l-2 border-emerald-300" />
-                <div className="flex gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><Truck className="h-5 w-5" /></span><div><p className="text-sm font-bold text-slate-900">Pickup / Verification</p><p className="text-xs leading-4 text-slate-600">Product pickup (if required) and quality check.</p></div></div>
+                <div className="flex gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><Truck className="h-5 w-5" /></span><div><p className="text-sm font-bold text-slate-900">Pickup / Verification</p><p className="text-xs leading-4 text-slate-600">Product pickup (if required) and quality check.</p></div></div>
                 <div className="ml-4 h-3 border-l-2 border-dashed border-emerald-300" />
-                <div className="flex gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><CircleDollarSign className="h-5 w-5" /></span><div><p className="text-sm font-bold text-slate-900">Refund Processing</p><p className="text-xs leading-4 text-slate-600">Approved refunds are credited to the original payment method or wallet.</p></div></div>
+                <div className="flex gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><CircleDollarSign className="h-5 w-5" /></span><div><p className="text-sm font-bold text-slate-900">Refund Processing</p><p className="text-xs leading-4 text-slate-600">Approved refunds are credited to the original payment method or wallet.</p></div></div>
               </div>
             </CardContent>
           </Card>
