@@ -65,6 +65,7 @@ export default function CustomerPaymentsWallet() {
   const [tab, setTab] = useState<"all" | "wallet" | "payments" | "refunds">("all");
   const [search, setSearch] = useState("");
   const [period, setPeriod] = useState("30");
+  const [showAddMoney, setShowAddMoney] = useState(false);
   const ledgerQuery = useQuery({
     queryKey: ["customer-payment-ledger"],
     queryFn: () => api.get("/customers/me/payments", { params: { page: 1, limit: 100 } }),
@@ -210,5 +211,12 @@ export default function CustomerPaymentsWallet() {
         <Card className="border-slate-200 shadow-sm"><CardContent className="p-4"><div className="flex items-center gap-2"><Activity className="h-5 w-5 text-emerald-700"/><h2 className="font-bold text-slate-900">Payment &amp; Refund Lifecycle</h2></div><div className="mt-4 space-y-3">{[{icon:ShoppingCart,label:"Place Order",desc:"Choose products and confirm your order."},{icon:CreditCard,label:"Make Payment",desc:"Pay using your selected payment method."},{icon:PackageCheck,label:"Order Processing",desc:"Your order is prepared and delivered."},{icon:ArrowDownLeft,label:"Refund (if applicable)",desc:"Refunds are processed according to the refund policy."}].map((step,index)=>{const Icon=step.icon;return <div key={step.label} className="flex items-start gap-3"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><Icon className="h-4 w-4"/></span><div><p className="text-sm font-semibold text-slate-800">{step.label}</p><p className="text-xs leading-5 text-slate-500">{step.desc}</p></div></div>})}</div></CardContent></Card>
       </aside>
     </section>
+    {showAddMoney && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/45 p-4" role="dialog" aria-modal="true" aria-labelledby="wallet-topup-title">
+      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+        <div className="flex items-start justify-between gap-4"><div><h2 id="wallet-topup-title" className="text-xl font-extrabold text-slate-950">Add Money to Wallet</h2><p className="mt-1 text-sm text-slate-500">Wallet top-up is available through the payment gateway.</p></div><button type="button" onClick={() => setShowAddMoney(false)} className="rounded-full px-3 py-1 text-xl text-slate-500 hover:bg-slate-100" aria-label="Close">×</button></div>
+        <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">The reference layout includes Add Money. Payment initiation and verification must be enabled and tested with your configured payment gateway before accepting real top-ups.</p>
+        <div className="mt-6 flex justify-end"><Button variant="outline" onClick={() => setShowAddMoney(false)}>Close</Button></div>
+      </div>
+    </div>}
   </div>;
 }
