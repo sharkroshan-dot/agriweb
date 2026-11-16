@@ -31,9 +31,14 @@ const statusClasses: Record<string, string> = {
 };
 
 function rowsFrom(payload: any): any[] {
-  const options = [payload?.data?.transactions, payload?.data?.entries, payload?.data?.payments,
-    payload?.data?.items, payload?.data, payload?.transactions, payload?.entries, payload];
-  return options.find(Array.isArray) || [];
+  const candidates = [
+    payload?.data?.transactions, payload?.data?.entries, payload?.data?.payments,
+    payload?.data?.items, payload?.data?.data?.transactions, payload?.data?.data?.entries,
+    payload?.data?.data?.payments, payload?.data?.data?.items, payload?.data?.data,
+    payload?.transactions, payload?.entries, payload?.payments, payload?.items,
+    payload?.data, payload,
+  ];
+  return candidates.find(Array.isArray) || [];
 }
 
 function Status({ value }: { value: string }) {
@@ -97,7 +102,7 @@ export default function CustomerPaymentsWallet() {
 
   const walletRows = useMemo<Row[]>(() => {
     const transactionPayload = (walletTransactionsQuery.data as any)?.data || walletTransactionsQuery.data || {};
-    const raw = Array.isArray(transactionPayload.transactions) ? transactionPayload.transactions : Array.isArray(wallet.transactions) ? wallet.transactions : [];
+    const raw = rowsFrom(transactionPayload).length ? rowsFrom(transactionPayload) : Array.isArray(wallet.transactions) ? wallet.transactions : [];
     return raw.map((item: any, index: number) => ({
       id: String(item._id || item.id || `wallet-${index}`),
       date: item.createdAt || item.date,
