@@ -3,7 +3,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { useQuery } from "@tanstack/react-query";
-import Link from "next/link";
 import { Camera, Loader2, Save, X, CheckCircle, AlertCircle, User, Pencil } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
 import { Badge } from "../../components/ui/badge";
@@ -188,8 +187,8 @@ export default function CustomerProfilePage() {
   return (
     <div className="space-y-6 p-6">
       <div>
-        <h1 className="text-2xl font-semibold text-slate-900">Profile</h1>
-        <p className="mt-1 text-sm text-slate-600">Saved preferences and contact details.</p>
+        <h1 className="text-2xl font-semibold text-slate-900">My Profile</h1>
+        <p className="mt-1 text-sm text-slate-600">Manage your personal information, account verification and delivery addresses.</p>
       </div>
 
       {message && (
@@ -343,23 +342,14 @@ export default function CustomerProfilePage() {
         </Card>
 
         <Card>
-          <CardHeader>
-            <CardTitle>Preferences</CardTitle>
-            <CardDescription>Quick toggles for shopping and notifications.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex items-center justify-between rounded-lg border p-3 text-sm">
-              Order updates
-              <Button variant="outline" size="sm">Enabled</Button>
-            </div>
-            <div className="flex items-center justify-between rounded-lg border p-3 text-sm">
-              Settings
-              <Button variant="outline" size="sm" asChild>
-                <Link href="/settings">Open</Link>
-              </Button>
-            </div>
+          <CardHeader><CardTitle>Account Overview</CardTitle><CardDescription>Your account standing and verification information.</CardDescription></CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between rounded-lg border p-3"><div><p className="text-sm font-medium">Account status</p><p className="text-xs text-slate-500">Current account availability</p></div><Badge variant="outline" className={isActive ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-red-200 bg-red-50 text-red-700"}>{isActive ? "Active" : "Inactive"}</Badge></div>
+            <div className="flex items-center justify-between rounded-lg border p-3"><div><p className="text-sm font-medium">Email verification</p><p className="text-xs text-slate-500">{email || "No email on account"}</p></div><Badge variant="outline" className={isVerified ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}>{isVerified ? "Verified" : "Not verified"}</Badge></div>
+            <div className="flex items-center justify-between rounded-lg border p-3"><div><p className="text-sm font-medium">Phone number</p><p className="text-xs text-slate-500">{getField(user, "phone") || "Add a phone number"}</p></div><Badge variant="outline">{getField(user, "phone") ? "On file" : "Not added"}</Badge></div>
+            {memberSince && <p className="text-xs text-slate-500">Member since {memberSince}</p>}
           </CardContent>
-        </Card>
+        </Card>>
       </div>
 
       <section className="space-y-3">
@@ -367,7 +357,7 @@ export default function CustomerProfilePage() {
           <h2 className="text-lg font-semibold text-slate-900">Saved Addresses</h2>
           <p className="text-sm text-slate-600">Add, update and manage the addresses used for your deliveries.</p>
         </div>
-        <AddressesPage />
+        <AddressesPage embedded />
       </section>
     </div>
   );
