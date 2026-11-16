@@ -1422,7 +1422,7 @@ export default function CheckoutPage() {
                     max={maxAgriPointsForOrder}
                     step={100}
                     value={agripointsToUse || ""}
-                    onChange={(e) => setAgripointsToUse(Math.max(0, Number(e.target.value) || 0))}
+                    onChange={(e) => setAgripointsToUse(Math.min(Math.floor(maxAgriPointsForOrder / 100) * 100, Math.floor(Math.max(0, Number(e.target.value) || 0) / 100) * 100))}
                     placeholder="Points to use (multiples of 100)"
                     disabled={availableAgriPoints < 100 || maxAgriPointsForOrder < 100}
                     className="bg-white"
