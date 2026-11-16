@@ -111,14 +111,14 @@ function SummaryCard({ title, value, icon: Icon, tone }: {
     violet: "bg-violet-100 text-violet-700",
   };
   return (
-    <Card className={`min-h-[92px] rounded-2xl shadow-sm transition-shadow hover:shadow-md ${styles[tone]}`}>
-      <CardContent className="flex h-full items-center gap-3 p-3 sm:gap-4 sm:p-4">
-        <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full sm:h-14 sm:w-14 ${iconStyles[tone]}`}>
+    <Card className={`h-[92px] min-h-[92px] self-start rounded-2xl shadow-sm transition-shadow hover:shadow-md ${styles[tone]}`}>
+      <CardContent className="flex h-full items-center gap-3 !p-3 sm:gap-3">
+        <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full sm:h-12 sm:w-12 ${iconStyles[tone]}`}>
           <Icon className="h-6 w-6 sm:h-7 sm:w-7" strokeWidth={2.5} />
         </span>
         <div className="min-w-0">
-          <p className="text-xs font-bold leading-5 text-slate-800 sm:text-sm">{title}</p>
-          <p className="mt-0.5 text-2xl font-extrabold leading-none tracking-tight text-slate-950 sm:text-[28px]">{value}</p>
+          <p className="text-xs font-bold leading-4 text-slate-800 sm:text-[13px]">{title}</p>
+          <p className="mt-0.5 text-[25px] font-extrabold leading-none tracking-tight text-slate-950 sm:text-[27px]">{value}</p>
         </div>
       </CardContent>
     </Card>
@@ -209,7 +209,7 @@ export default function CustomerRefundsPage() {
 
   return (
     <div className="space-y-4 p-3 sm:space-y-5 sm:p-4 lg:p-5">
-      <header className="relative isolate flex min-h-[158px] items-center overflow-hidden rounded-2xl border border-slate-100 bg-white px-5 py-5 shadow-sm sm:min-h-[158px] sm:px-7">
+      <header className="relative isolate flex h-[158px] min-h-[158px] items-center overflow-hidden rounded-2xl border border-slate-100 bg-white px-5 py-5 shadow-sm sm:px-7">
         <div className="pointer-events-none absolute inset-0 z-0" aria-hidden="true">
           <img src="/images/refunds-returns-banner.svg" alt="" className="h-full w-full object-cover object-center" />
         </div>
@@ -226,15 +226,15 @@ export default function CustomerRefundsPage() {
         </div>
       </header>
 
-      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_318px]">
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid items-start gap-3 xl:grid-cols-[minmax(0,1fr)_318px]">
+        <div className="grid grid-cols-2 items-start gap-3 lg:grid-cols-4">
           <SummaryCard title="Total Requests" value={counts.all} icon={Package} tone="green" />
           <SummaryCard title="Return Requests" value={counts.returns} icon={RotateCcw} tone="mint" />
           <SummaryCard title="Refunds in Progress" value={counts.inProgress} icon={CircleDollarSign} tone="amber" />
           <SummaryCard title="Completed" value={counts.completed} icon={CheckCircle2} tone="violet" />
         </div>
-        <Card className="border-slate-200/80 !bg-gradient-to-br !from-white !to-emerald-50/70 shadow-sm">
-          <CardContent className="flex h-full flex-col justify-center p-4">
+        <Card className="h-[158px] min-h-[158px] border-slate-200/80 !bg-gradient-to-br !from-white !to-emerald-50/70 shadow-sm">
+          <CardContent className="flex h-full flex-col justify-center !p-4">
             <div className="flex items-center gap-2">
               <span className="rounded-full bg-emerald-100 p-2 text-emerald-700"><PackageCheck className="h-5 w-5" /></span>
               <h2 className="font-extrabold text-slate-950">Request a Return / Refund</h2>
