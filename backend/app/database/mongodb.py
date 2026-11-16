@@ -178,6 +178,23 @@ class MongoDB:
         )
         await cls.db.b2b_acceptance_batches.create_index([("rfqId", 1), ("createdAt", -1)])
 
+        # AgriPoints ledger idempotency for spends, earnings and reversals.
+        try:
+            await cls.db.loyalty_transactions.create_index(
+                [("orderId", 1), ("type", 1), ("reason", 1)],
+                unique=True,
+                partialFilterExpression={"orderId": {"$type": "objectId"}, "reason": {"$type": "string"}},
+                name="loyalty_order_event_idempotency",
+            )
+            await cls.db.loyalty_transactions.create_index(
+                [("refundId", 1), ("reason", 1)],
+                unique=True,
+                partialFilterExpression={"refundId": {"$type": "string"}},
+                name="loyalty_refund_event_idempotency",
+            )
+        except Exception as exc:
+            logger.warning("AgriPoints idempotency indexes could not be created: %s", exc)
+
         # AI training jobs
         await cls.db.ai_training_jobs.create_index([("status", 1), ("createdAt", -1)])
         await cls.db.ai_training_jobs.create_index([("modelType", 1), ("createdAt", -1)])

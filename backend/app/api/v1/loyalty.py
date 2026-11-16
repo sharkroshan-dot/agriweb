@@ -1,7 +1,7 @@
 """Loyalty / AgriPoints program.
 
 Points are earned on delivered orders and behavior that improves logistics
-(pickup, community delivery, nearby farmer). Points can be redeemed for wallet
+(pickup, community delivery, nearby farmer). Customers apply points as discounts at checkout; they are not converted into wallet
 credit. All movements are recorded in an immutable-style ledger.
 
 Collections:
@@ -10,8 +10,7 @@ Collections:
 """
 from datetime import datetime, timedelta
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, Body
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Query
 from bson import ObjectId
 import logging
 
@@ -33,7 +32,6 @@ BASE_POINTS_PER_ORDER = 5
 BONUS_PICKUP = 10
 BONUS_COMMUNITY = 20
 BONUS_NEARBY = 5
-POINTS_PER_RS_REWARD = 100       # 500 points -> ₹5 wallet credit
 MAX_REDEEM_POINTS = 10000
 
 
@@ -131,21 +129,18 @@ async def get_my_points(current_user: dict = Depends(get_current_user)):
     for t in txns:
         _serialize_txn(t)
 
-    reward_rs = int((account.get("balance") or 0) / POINTS_PER_RS_REWARD)
     return {
         "success": True,
         "data": {
             "balance": int(account.get("balance") or 0),
             "lifetimeEarned": int(account.get("lifetimeEarned") or 0),
-            "rewardValueRs": reward_rs,
-            "redeemablePoints": int(account.get("balance") or 0),
+            "lifetimeSpent": int(account.get("lifetimeSpent") or 0),
             "rules": {
                 "pointsPerRupee": POINTS_PER_RUPEE,
                 "basePointsPerOrder": BASE_POINTS_PER_ORDER,
                 "bonusPickup": BONUS_PICKUP,
                 "bonusCommunity": BONUS_COMMUNITY,
                 "bonusNearby": BONUS_NEARBY,
-                "pointsPerRsReward": POINTS_PER_RS_REWARD,
             },
             "transactions": txns,
             "count": len(txns),
@@ -153,78 +148,12 @@ async def get_my_points(current_user: dict = Depends(get_current_user)):
     }
 
 
-class RedeemRequest(BaseModel):
-    points: int = Field(..., ge=1)
-
-
 @router.post("/redeem")
-async def redeem_points(
-    data: RedeemRequest,
-    current_user: dict = Depends(get_current_user),
-):
-    """Redeem AgriPoints for wallet credit."""
+async def redeem_points(current_user: dict = Depends(get_current_user)):
+    """Retired endpoint: points are used as discounts directly at checkout."""
     if current_user.get("role") != "customer":
-        raise HTTPException(status_code=403, detail="Only customers can redeem points")
-
-    if data.points > MAX_REDEEM_POINTS:
-        raise HTTPException(status_code=400, detail=f"Maximum {MAX_REDEEM_POINTS} points per redemption")
-
-    account = await _get_account(str(current_user["_id"]))
-    balance = int(account.get("balance") or 0)
-    if data.points > balance:
-        raise HTTPException(status_code=400, detail="Insufficient points")
-
-    if data.points % POINTS_PER_RS_REWARD != 0:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Points must be a multiple of {POINTS_PER_RS_REWARD} (each {POINTS_PER_RS_REWARD} points = ₹1)",
-        )
-
-    reward_rs = data.points // POINTS_PER_RS_REWARD
-    new_balance = balance - data.points
-
-    await account_repo.update(
-        {"_id": account["_id"]},
-        {"balance": new_balance},
+        raise HTTPException(status_code=403, detail="Only customers can use AgriPoints")
+    raise HTTPException(
+        status_code=410,
+        detail="Wallet-credit redemption is no longer supported. Apply AgriPoints directly at checkout.",
     )
-
-    txn = {
-        "userId": ObjectId(current_user["_id"]),
-        "type": "redeem",
-        "points": -data.points,
-        "balanceAfter": new_balance,
-        "reason": "redeem",
-        "description": f"Redeemed for ₹{reward_rs} wallet credit",
-    }
-    txn_id = await txn_repo.create(txn)
-
-    # Credit the customer wallet + record the wallet transaction.
-    from app.repositories.wallet_repository import wallet_repository, wallet_transaction_repository
-    wallet = await wallet_repository.get_by_user_id(str(current_user["_id"]))
-    if not wallet:
-        raise HTTPException(status_code=400, detail="No wallet found for redemption")
-    await wallet_repository.update_balance(str(wallet["_id"]), reward_rs, "credit")
-    await wallet_transaction_repository.create_transaction({
-        "walletId": wallet["_id"],
-        "userId": ObjectId(current_user["_id"]),
-        "type": "credit",
-        "amount": reward_rs,
-        "description": "AgriPoints redemption",
-        "reference": txn_id or None,
-        "balanceAfter": float((wallet.get("balance") or 0) + reward_rs),
-    })
-
-    await NotificationService.create_in_app_notification(
-        str(current_user["_id"]),
-        NotificationType.CUSTOMER,
-        "Points redeemed 🎉",
-        f"₹{reward_rs} has been credited to your wallet.",
-        {"points": data.points, "rewardRs": reward_rs, "type": "loyalty"},
-        NotificationPriority.HIGH,
-    )
-
-    return {
-        "success": True,
-        "data": {"redeemedPoints": data.points, "rewardRs": reward_rs, "newBalance": new_balance},
-        "message": f"₹{reward_rs} credited to your wallet",
-    }

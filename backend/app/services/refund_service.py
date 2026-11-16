@@ -10,6 +10,7 @@ from app.schemas.refund import (
 )
 from app.schemas.order import OrderStatus, PaymentStatus
 from app.services.payment_service import PaymentService
+from app.services.loyalty_service import restore_points_for_refund
 from app.services.notification_service import NotificationService
 from app.core.config import settings
 import logging
@@ -730,6 +731,21 @@ class RefundService:
             )
             raise RefundNotEligibleError("Refund processing failed at the payment provider")
 
+        loyalty_restore_status = "not_applicable"
+        try:
+            restored_points = await restore_points_for_refund(
+                order_id,
+                refund_id,
+                amount,
+            )
+            loyalty_restore_status = "completed" if restored_points else "completed_no_points_due"
+        except Exception:
+            # The money refund has already succeeded at the provider. Do not
+            # retry that payout merely because the separate points ledger
+            # failed; mark it for reconciliation and retain the refund record.
+            loyalty_restore_status = "pending_reconciliation"
+            logger.exception("AgriPoints refund restoration failed for refund %s", refund_id)
+
         await refund_repository.update_status(
             refund_id,
             RefundStatus.REFUNDED.value,
@@ -740,6 +756,7 @@ class RefundService:
                 "completedAt": datetime.utcnow(),
                 "processedAt": datetime.utcnow(),
                 "refundTransactionId": provider_refund_id,
+                "loyaltyPointsRestorationStatus": loyalty_restore_status,
             },
         )
 
