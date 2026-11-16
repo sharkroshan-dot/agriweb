@@ -5,11 +5,13 @@ import { useQuery } from "@tanstack/react-query";
 import {
   BadgePercent,
   CheckCircle2,
+  Coins,
   Gift,
   History,
   Info,
   Leaf,
   Loader2,
+  ShoppingBasket,
   ShoppingCart,
   Sprout,
   Star,
@@ -85,11 +87,13 @@ export default function AgriPointsPage() {
         <span className="font-semibold text-slate-800">AgriPoints</span>
       </div>
 
-      <section className="relative isolate overflow-hidden rounded-2xl bg-gradient-to-r from-white via-emerald-50 to-sky-100 px-5 py-5 sm:px-7">
-        <div className="pointer-events-none absolute -right-8 -top-14 -z-10 h-48 w-[48%] rounded-full bg-gradient-to-l from-emerald-300/50 via-lime-200/40 to-transparent blur-2xl" />
-        <div className="pointer-events-none absolute bottom-0 right-5 -z-10 hidden items-end gap-2 text-emerald-600/20 sm:flex">
-          <Sprout className="h-20 w-20" />
-          <Leaf className="mb-5 h-14 w-14" />
+      <section className="relative isolate overflow-hidden rounded-2xl border border-sky-100 bg-[linear-gradient(105deg,#ffffff_0%,#f0fdf4_42%,#e0f2fe_100%)] px-5 py-5 shadow-sm sm:px-7">
+        <div className="pointer-events-none absolute inset-y-0 right-0 -z-10 w-[58%] opacity-80" aria-hidden="true">
+          <div className="absolute inset-0 bg-[linear-gradient(90deg,#f0fdf4_0%,rgba(220,252,231,.45)_35%,rgba(186,230,253,.15)_100%)]" />
+          <div className="absolute bottom-0 right-0 h-16 w-full rounded-tl-[100%] bg-gradient-to-t from-lime-300/60 to-emerald-100/10" />
+          <div className="absolute bottom-0 right-8 h-12 w-3/4 rounded-tl-[100%] bg-gradient-to-t from-green-500/35 to-transparent" />
+          <div className="absolute right-8 top-3 text-emerald-600/50"><Sprout className="h-20 w-20" /></div>
+          <div className="absolute right-28 top-8 text-lime-600/40"><Leaf className="h-12 w-12" /></div>
         </div>
         <div className="flex items-center gap-4">
           <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 ring-4 ring-white">
@@ -116,7 +120,7 @@ export default function AgriPointsPage() {
         <div className="flex min-h-[116px] items-center rounded-2xl bg-gradient-to-r from-emerald-700 via-emerald-700 to-green-800 p-5 text-white shadow-md shadow-emerald-900/10">
           <div className="flex w-1/2 items-center gap-3">
             <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-white/10">
-              <Gift className="h-10 w-10 text-amber-300" />
+              <Coins className="h-10 w-10 text-amber-300" />
             </div>
             <div>
               <p className="text-sm font-semibold text-emerald-100">Available Points</p>
@@ -161,9 +165,9 @@ export default function AgriPointsPage() {
           </div>
         </div>
 
-        <div className="flex flex-col justify-center gap-3 rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-yellow-50 p-5 shadow-sm sm:flex-row sm:items-center xl:flex-col xl:items-start">
+        <div className="flex flex-row items-center gap-4 rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 via-yellow-50 to-amber-100/60 p-5 shadow-sm">
           <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white text-emerald-600 shadow-sm">
-            <ShoppingCart className="h-9 w-9" />
+            <ShoppingBasket className="h-10 w-10" />
           </div>
           <div className="min-w-0 flex-1">
             <h2 className="text-lg font-extrabold text-slate-950">Use AgriPoints at Checkout</h2>
@@ -343,7 +347,7 @@ function FlowStep({
   detail: string;
 }) {
   return (
-    <div className="relative flex flex-col items-center px-2 py-2 text-center">
+    <div className="relative flex flex-col items-center px-2 py-2 text-center after:absolute after:right-[-8px] after:top-1/2 after:hidden after:-translate-y-1/2 after:text-2xl after:font-bold after:text-green-700 after:content-[\'→\'] last:after:hidden xl:after:block">
       <div className="mb-2 flex h-11 w-11 items-center justify-center rounded-full bg-emerald-50 text-emerald-700 [&>svg]:h-7 [&>svg]:w-7">
         {icon}
       </div>
