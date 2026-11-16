@@ -67,11 +67,6 @@ const navGroups = [
       { name: "Farm Basket Subscriptions", href: "/subscriptions", icon: CalendarClock },
       { name: "AgriPoints", href: "/agripoints", icon: Leaf },
       { name: "Coupons", href: "/coupons", icon: Ticket },
-    ],
-  },
-  {
-    label: "Payments & Refunds",
-    items: [
       { name: "Payments & Wallet", href: "/payments", icon: CreditCard },
       { name: "Refunds & Returns", href: "/refunds", icon: ArrowUpLeft },
     ],
