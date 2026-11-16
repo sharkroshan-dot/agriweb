@@ -19,7 +19,6 @@ import {
   ArrowUpLeft,
   Ticket,
   MessageSquare,
-  Settings,
   Truck,
   Leaf,
   Sparkles,
@@ -68,12 +67,6 @@ const navGroups = [
     label: "Community & Support",
     items: [
       { name: "Messages", href: "/customer/messages", icon: MessageSquare },
-    ],
-  },
-  {
-    label: "Account",
-    items: [
-      { name: "Settings", href: "/settings", icon: Settings },
     ],
   },
 ];
