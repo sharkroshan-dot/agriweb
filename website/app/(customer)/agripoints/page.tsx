@@ -87,13 +87,14 @@ export default function AgriPointsPage() {
         <span className="font-semibold text-slate-800">AgriPoints</span>
       </div>
 
-      <section className="relative isolate overflow-hidden rounded-2xl border border-sky-100 bg-[linear-gradient(105deg,#ffffff_0%,#f0fdf4_42%,#e0f2fe_100%)] px-5 py-5 shadow-sm sm:px-7">
-        <div className="pointer-events-none absolute inset-y-0 right-0 -z-10 w-[58%] opacity-80" aria-hidden="true">
-          <div className="absolute inset-0 bg-[linear-gradient(90deg,#f0fdf4_0%,rgba(220,252,231,.45)_35%,rgba(186,230,253,.15)_100%)]" />
-          <div className="absolute bottom-0 right-0 h-16 w-full rounded-tl-[100%] bg-gradient-to-t from-lime-300/60 to-emerald-100/10" />
-          <div className="absolute bottom-0 right-8 h-12 w-3/4 rounded-tl-[100%] bg-gradient-to-t from-green-500/35 to-transparent" />
-          <div className="absolute right-8 top-3 text-emerald-600/50"><Sprout className="h-20 w-20" /></div>
-          <div className="absolute right-28 top-8 text-lime-600/40"><Leaf className="h-12 w-12" /></div>
+      <section className="relative isolate flex min-h-[112px] items-center overflow-hidden px-2 py-3 sm:px-2">
+        <div className="pointer-events-none absolute inset-y-0 right-0 -z-10 w-[64%]" aria-hidden="true">
+          <img
+            src="/images/agripoints-heading-banner.svg"
+            alt=""
+            className="h-full w-full object-cover object-center"
+          />
+          <div className="absolute inset-0 bg-gradient-to-r from-white via-white/75 via-20% to-transparent" />
         </div>
         <div className="flex items-center gap-4">
           <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 ring-4 ring-white">
