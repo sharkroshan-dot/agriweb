@@ -36,10 +36,10 @@ const statusMeta: Record<string, { label: string; className: string }> = {
   requested: { label: "Requested", className: "border-slate-200 bg-slate-100 text-slate-700" },
   under_review: { label: "Under Review", className: "border-amber-200 bg-amber-100 text-amber-800" },
   approved: { label: "Approved", className: "border-emerald-200 bg-emerald-100 text-emerald-800" },
-  refund_processing: { label: "Refund in Progress", className: "border-amber-200 bg-amber-100 text-amber-800" },
+  refund_processing: { label: "Refund in Progress", className: "border-amber-200 bg-amber-100 text-amber-800" },\n  refund_in_progress: { label: "Refund in Progress", className: "border-amber-200 bg-amber-100 text-amber-800" },
   refunded: { label: "Refunded", className: "border-emerald-200 bg-emerald-100 text-emerald-800" },
   rejected: { label: "Rejected", className: "border-rose-200 bg-rose-100 text-rose-800" },
-  return_received: { label: "Return Received", className: "border-sky-200 bg-sky-100 text-sky-800" },
+  return_received: { label: "Return Received", className: "border-sky-200 bg-sky-100 text-sky-800" },\n  returned: { label: "Return Received", className: "border-sky-200 bg-sky-100 text-sky-800" },
   not_applicable: { label: "Not Applicable", className: "border-slate-200 bg-slate-100 text-slate-600" },
 };
 
@@ -65,7 +65,7 @@ function extractRows(payload: any): any[] {
 }
 
 function getRequestType(item: any): "return" | "refund" {
-  const value = String(item.requestType || item.requestKind || item.category || item.type || "").toLowerCase();
+  const value = String(item.requestType || item.request_type || item.requestKind || item.category || item.type || "").toLowerCase();
   return item.isReturn === true || value.includes("return") ? "return" : "refund";
 }
 
@@ -84,20 +84,26 @@ function SummaryCard({ title, value, icon: Icon, tone }: {
   title: string; value: number; icon: any; tone: "green" | "mint" | "amber" | "violet";
 }) {
   const styles = {
-    green: "bg-emerald-50 text-emerald-700",
-    mint: "bg-green-50 text-green-700",
-    amber: "bg-amber-50 text-amber-700",
-    violet: "bg-violet-50 text-violet-700",
+    green: "border-emerald-100 bg-gradient-to-br from-emerald-50 to-green-100/80",
+    mint: "border-teal-100 bg-gradient-to-br from-teal-50 to-emerald-50",
+    amber: "border-amber-100 bg-gradient-to-br from-amber-50 to-orange-50",
+    violet: "border-violet-100 bg-gradient-to-br from-violet-50 to-indigo-50",
+  };
+  const iconStyles = {
+    green: "bg-green-100 text-green-700",
+    mint: "bg-emerald-100 text-emerald-700",
+    amber: "bg-amber-100 text-amber-700",
+    violet: "bg-violet-100 text-violet-700",
   };
   return (
-    <Card className="min-h-[92px] border-slate-200/80 shadow-sm">
-      <CardContent className="flex h-full items-center gap-3 p-3 sm:p-4">
-        <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${styles[tone]}`}>
-          <Icon className="h-6 w-6" />
+    <Card className={`min-h-[92px] rounded-2xl shadow-sm transition-shadow hover:shadow-md ${styles[tone]}`}>
+      <CardContent className="flex h-full items-center gap-3 p-3 sm:gap-4 sm:p-4">
+        <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full sm:h-14 sm:w-14 ${iconStyles[tone]}`}>
+          <Icon className="h-6 w-6 sm:h-7 sm:w-7" strokeWidth={2.5} />
         </span>
         <div className="min-w-0">
-          <p className="text-xs font-semibold text-slate-700 sm:text-sm">{title}</p>
-          <p className="mt-0.5 text-2xl font-extrabold leading-none text-slate-950">{value}</p>
+          <p className="text-xs font-bold leading-5 text-slate-800 sm:text-sm">{title}</p>
+          <p className="mt-0.5 text-2xl font-extrabold leading-none tracking-tight text-slate-950 sm:text-[28px]">{value}</p>
         </div>
       </CardContent>
     </Card>
@@ -118,19 +124,19 @@ export default function CustomerRefundsPage() {
 
   const refunds = useMemo<RefundRow[]>(() => extractRows(data).map((item: any, index: number) => {
     const product = getProduct(item);
-    const status = String(item.status || "requested").toLowerCase();
+    const status = String(item.status || item.refundStatus || item.refund_status || "requested").toLowerCase().replace(/[\\s-]+/g, "_");
     return {
       id: String(item.id || item._id || item.refundId || `refund-${index}`),
       refundId: String(item.refundId || item.requestId || item.transactionId || item.id || item._id || `Request ${index + 1}`),
       orderId: item.orderId ? String(item.orderId) : undefined,
-      orderNumber: String(item.orderNumber || item.orderId || "—"),
+      orderNumber: String(item.orderNumber || item.order_number || item.order?.orderNumber || item.orderId || item.order_id || "—"),
       product: product.name,
       quantity: product.quantity,
       requestType: getRequestType(item),
       amount: Number(item.approvedAmount ?? item.refundAmount ?? item.amount ?? item.requestedAmount ?? 0) || 0,
       status,
       reason: reasonLabels[item.reason] || item.reason || undefined,
-      requestedAt: item.requestedAt || item.createdAt,
+      requestedAt: item.requestedAt || item.requested_at || item.requestDate || item.request_date || item.createdAt || item.created_at,
       transactionId: item.refundTransactionId || item.transactionId,
       rejectionReason: item.rejectionReason,
     };
@@ -176,17 +182,17 @@ export default function CustomerRefundsPage() {
 
   return (
     <div className="space-y-4 p-3 sm:space-y-5 sm:p-4 lg:p-5">
-      <header className="relative isolate flex min-h-[150px] items-center overflow-hidden rounded-2xl border border-slate-100 bg-white px-5 py-5 shadow-sm sm:min-h-[158px] sm:px-7">
+      <header className="relative isolate flex min-h-[158px] items-center overflow-hidden rounded-2xl border border-slate-100 bg-white px-5 py-5 shadow-sm sm:min-h-[158px] sm:px-7">
         <div className="pointer-events-none absolute inset-0 z-0" aria-hidden="true">
           <img src="/images/refunds-returns-banner.svg" alt="" className="h-full w-full object-cover object-center" />
         </div>
-        <div className="relative z-10 flex max-w-[66%] items-center gap-4 sm:gap-5">
+        <div className="relative z-10 flex max-w-[68%] items-center gap-4 sm:gap-5">
           <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 shadow-sm sm:h-16 sm:w-16">
             <Package className="h-8 w-8 sm:h-9 sm:w-9" />
           </span>
           <div className="min-w-0">
-            <h1 className="text-2xl font-extrabold tracking-tight text-slate-950 sm:text-3xl lg:text-[34px]">Refunds &amp; Returns</h1>
-            <p className="mt-1 max-w-2xl text-xs font-semibold leading-5 text-slate-800 sm:text-sm lg:text-base">
+            <h1 className="text-[26px] font-extrabold tracking-tight text-slate-950 sm:text-3xl lg:text-[34px]">Refunds &amp; Returns</h1>
+            <p className="mt-1 max-w-2xl text-sm font-semibold leading-5 text-slate-800 sm:text-base">
               Request a return, track your refund, and check the status of your return requests.
             </p>
           </div>
@@ -215,7 +221,7 @@ export default function CustomerRefundsPage() {
       </div>
 
       <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_318px]">
-        <Card className="min-w-0 overflow-hidden border-slate-200/90 shadow-sm">
+        <Card className="min-w-0 overflow-hidden rounded-2xl border-slate-200/90 shadow-sm">
           <CardContent className="p-0">
             <div className="flex flex-col gap-3 border-b border-slate-100 bg-slate-50/70 p-3 sm:flex-row sm:items-center sm:justify-between sm:px-4">
               <div className="flex flex-wrap items-center gap-1 rounded-full border border-slate-200 bg-white p-1 shadow-sm">
