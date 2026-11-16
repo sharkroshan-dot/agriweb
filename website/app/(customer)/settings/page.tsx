@@ -12,7 +12,6 @@ import {
 } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
-import { Switch } from "../../components/ui/switch";
 import { api } from "../../lib/api/client";
 import toast from "react-hot-toast";
 
@@ -36,6 +35,50 @@ const initialNotifications: Record<string, boolean> = {
   returnUpdates: true, promotions: false, chatMessages: true,
   email: true, sms: true, push: true,
 };
+
+function SettingsToggle({ checked, onChange, label }: { checked: boolean; onChange: (value: boolean) => void; label: string }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={() => onChange(!checked)}
+      className="settings-modern-switch focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: checked ? "flex-end" : "flex-start",
+        width: 44,
+        minWidth: 44,
+        maxWidth: 44,
+        height: 24,
+        minHeight: 24,
+        maxHeight: 24,
+        flexShrink: 0,
+        padding: 2,
+        boxSizing: "border-box",
+        border: 0,
+        borderRadius: 9999,
+        backgroundColor: checked ? "#059669" : "#cbd5e1",
+        cursor: "pointer",
+        transition: "background-color 180ms ease",
+        verticalAlign: "middle",
+      }}
+    >
+      <span aria-hidden="true" style={{
+        display: "block",
+        width: 20,
+        minWidth: 20,
+        height: 20,
+        borderRadius: "50%",
+        backgroundColor: "#ffffff",
+        boxShadow: "0 1px 3px rgba(15, 23, 42, 0.25)",
+        transition: "transform 180ms ease",
+      }} />
+    </button>
+  );
+}
 
 const panelClass = "rounded-2xl border border-slate-200 bg-white shadow-sm";
 const iconBubble = "flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-700";
@@ -146,7 +189,7 @@ export default function CustomerSettingsPage() {
               <div key={key} className="flex items-center gap-3 py-3">
                 <div className={iconBubble}><Icon className="h-5 w-5" /></div>
                 <div className="min-w-0 flex-1"><p className="text-sm font-bold text-slate-900">{label}</p><p className="text-xs leading-5 text-slate-600">{description}</p></div>
-                <Switch checked={Boolean(notifications[key])} onCheckedChange={(checked) => setNotifications((current) => ({ ...current, [key]: checked }))} aria-label={`Toggle ${label}`} />
+                <SettingsToggle checked={Boolean(notifications[key])} onChange={(checked) => setNotifications((current) => ({ ...current, [key]: checked }))} label={`Toggle ${label}`} />
               </div>
             ))}
           </div>
@@ -160,7 +203,7 @@ export default function CustomerSettingsPage() {
             </div>
             {CHANNEL_ITEMS.map(({ key, label, description, icon: Icon }) => (
               <div key={key} className="flex items-center gap-3 border-b border-slate-100 py-2.5 last:border-0">
-                <input type="checkbox" checked={Boolean(notifications[key])} onChange={(e) => setNotifications((current) => ({ ...current, [key]: e.target.checked }))} className="h-4 w-4 accent-emerald-600" aria-label={`Enable ${label}`} />
+                <SettingsToggle checked={Boolean(notifications[key])} onChange={(checked) => setNotifications((current) => ({ ...current, [key]: checked }))} label={`Enable ${label}`} />
                 <Icon className="h-5 w-5 text-emerald-700" />
                 <div className="min-w-0"><p className="text-sm font-bold text-slate-900">{label}</p><p className="text-xs text-slate-600">{description}</p></div>
               </div>
