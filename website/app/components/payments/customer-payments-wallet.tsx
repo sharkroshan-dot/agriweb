@@ -69,6 +69,11 @@ export default function CustomerPaymentsWallet() {
     queryFn: () => api.get("/payments/wallet/info"),
     retry: false,
   });
+  const walletTransactionsQuery = useQuery({
+    queryKey: ["customerWalletTransactions", "payments-workspace"],
+    queryFn: () => api.get("/payments/wallet/transactions", { params: { page: 1, limit: 100 } }),
+    retry: false,
+  });
 
   const wallet = (walletQuery.data as any)?.data || walletQuery.data || {};
   const balance = Number(wallet.balance || 0);
@@ -91,7 +96,8 @@ export default function CustomerPaymentsWallet() {
   }), [ledgerQuery.data]);
 
   const walletRows = useMemo<Row[]>(() => {
-    const raw = Array.isArray(wallet.transactions) ? wallet.transactions : [];
+    const transactionPayload = (walletTransactionsQuery.data as any)?.data || walletTransactionsQuery.data || {};
+    const raw = Array.isArray(transactionPayload.transactions) ? transactionPayload.transactions : Array.isArray(wallet.transactions) ? wallet.transactions : [];
     return raw.map((item: any, index: number) => ({
       id: String(item._id || item.id || `wallet-${index}`),
       date: item.createdAt || item.date,
@@ -103,7 +109,7 @@ export default function CustomerPaymentsWallet() {
       status: String(item.status || "completed").toLowerCase(),
       method: "Wallet",
     }));
-  }, [wallet.transactions]);
+  }, [wallet.transactions, walletTransactionsQuery.data]);
 
   const allRows = useMemo(() => {
     const seen = new Set<string>();
@@ -129,7 +135,7 @@ export default function CustomerPaymentsWallet() {
   const paid = paymentRows.filter(r => ["paid", "success", "completed"].includes(r.status) && r.type === "Payment").reduce((sum, r) => sum + r.amount, 0);
   const pending = paymentRows.filter(r => ["pending", "processing"].includes(r.status)).reduce((sum, r) => sum + r.amount, 0);
   const refunded = paymentRows.filter(r => r.type === "Refund" || ["refunded", "partially_refunded"].includes(r.status)).reduce((sum, r) => sum + r.amount, 0);
-  const refresh = () => { void ledgerQuery.refetch(); void walletQuery.refetch(); };
+  const refresh = () => { void ledgerQuery.refetch(); void walletQuery.refetch(); void walletTransactionsQuery.refetch(); };
   const exportRows = () => {
     const columns = ["Date", "Type", "Description", "Reference", "Amount", "Direction", "Status", "Method"];
     const cell = (v: unknown) => '"' + String(v ?? "").replace(/"/g, '""') + '"';
@@ -143,14 +149,17 @@ export default function CustomerPaymentsWallet() {
   const methodIcon = (method: string) => /upi|phonepe|gpay|paytm/i.test(method) ? Smartphone : /bank|net/i.test(method) ? Landmark : CreditCard;
 
   return <div className="space-y-5 pb-8">
-    <header className="relative isolate overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-r from-white via-emerald-50/80 to-sky-50 px-5 py-5 sm:px-7">
-      <div className="pointer-events-none absolute -right-4 -top-8 h-44 w-[55%] rounded-full bg-gradient-to-br from-sky-100 via-emerald-100 to-lime-100 opacity-80 blur-2xl"/>
-      <div className="relative flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
-        <div className="flex items-center gap-4">
-          <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700"><Wallet className="h-7 w-7"/></span>
-          <div><p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Account</p><h1 className="text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">Payments &amp; Wallet</h1><p className="mt-1 max-w-2xl text-sm text-slate-600">Manage your wallet balance, payments, refunds and transaction history in one place.</p></div>
+    <header className="relative isolate flex min-h-[142px] items-center overflow-hidden bg-white px-5 py-5 sm:px-7">
+      <div className="pointer-events-none absolute inset-y-0 right-0 -z-10 w-[64%] sm:w-[60%]" aria-hidden="true">
+        <img src="/images/payments-wallet-banner.svg" alt="" className="h-full w-full object-cover object-right"/>
+        <div className="absolute inset-0 bg-gradient-to-r from-white via-white/80 via-25% to-transparent"/>
+      </div>
+      <div className="relative flex w-full items-center justify-between gap-4">
+        <div className="flex min-w-0 items-center gap-4">
+          <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><Wallet className="h-8 w-8"/></span>
+          <div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Account</p><h1 className="text-2xl font-extrabold tracking-tight text-slate-950 sm:text-3xl">Payments &amp; Wallet</h1><p className="mt-1 max-w-2xl text-sm font-medium text-slate-700">Manage your wallet balance, payments, refunds and transaction history in one place.</p></div>
         </div>
-        <Button variant="outline" size="sm" onClick={refresh} disabled={ledgerQuery.isFetching || walletQuery.isFetching}><RefreshCw className={`mr-2 h-4 w-4 ${ledgerQuery.isFetching || walletQuery.isFetching ? "animate-spin" : ""}`}/>Refresh</Button>
+        <Button variant="outline" size="sm" className="shrink-0 bg-white/90" onClick={refresh} disabled={ledgerQuery.isFetching || walletQuery.isFetching || walletTransactionsQuery.isFetching}><RefreshCw className="mr-2 h-4 w-4"/>Refresh</Button>
       </div>
     </header>
 
@@ -182,8 +191,8 @@ export default function CustomerPaymentsWallet() {
             <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center"><div><h2 className="text-lg font-bold text-slate-950">Transaction History</h2><p className="mt-1 text-sm text-slate-500">Search and review your wallet, payment and refund transactions.</p></div><div className="flex items-center gap-2"><Badge variant="outline">{visibleRows.length} records</Badge><Button size="sm" variant="outline" onClick={exportRows} disabled={!visibleRows.length}><Download className="mr-1.5 h-4 w-4"/>Export</Button></div></div>
             <div className="relative mt-4"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"/><Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by order number, transaction ID or description..." className="h-10 pl-9"/></div>
           </div>
-          {ledgerQuery.isLoading || walletQuery.isLoading ? <div className="space-y-3 p-5">{[1,2,3].map(i => <div key={i} className="h-12 animate-pulse rounded-lg bg-slate-100"/>)}</div>
-          : ledgerQuery.isError && walletQuery.isError ? <div className="p-8 text-center"><XCircle className="mx-auto h-8 w-8 text-rose-500"/><p className="mt-2 font-semibold">Unable to load financial history</p><Button className="mt-3" size="sm" variant="outline" onClick={refresh}>Try again</Button></div>
+          {ledgerQuery.isLoading || walletQuery.isLoading || walletTransactionsQuery.isLoading ? <div className="space-y-3 p-5">{[1,2,3].map(i => <div key={i} className="h-12 animate-pulse rounded-lg bg-slate-100"/>)}</div>
+          : ledgerQuery.isError && walletQuery.isError && walletTransactionsQuery.isError ? <div className="p-8 text-center"><XCircle className="mx-auto h-8 w-8 text-rose-500"/><p className="mt-2 font-semibold">Unable to load financial history</p><Button className="mt-3" size="sm" variant="outline" onClick={refresh}>Try again</Button></div>
           : visibleRows.length === 0 ? <div className="p-10 text-center"><Wallet className="mx-auto h-8 w-8 text-slate-300"/><p className="mt-2 font-semibold text-slate-800">No transactions found</p><p className="mt-1 text-sm text-slate-500">Try another filter or your transactions will appear here when recorded.</p></div>
           : <><div className="hidden overflow-x-auto md:block"><table className="w-full min-w-[760px] text-sm"><thead className="bg-slate-50 text-left text-xs font-semibold text-slate-500"><tr><th className="px-4 py-3">Date &amp; Time</th><th className="px-3 py-3">Type</th><th className="px-3 py-3">Description</th><th className="px-3 py-3">Order ID / Reference</th><th className="px-3 py-3 text-right">Amount</th><th className="px-4 py-3">Status</th></tr></thead><tbody className="divide-y divide-slate-100">{visibleRows.map(row => <tr key={row.id} className="hover:bg-emerald-50/30"><td className="whitespace-nowrap px-4 py-3 text-xs text-slate-600">{row.date ? formatDate(row.date) : "—"}</td><td className="px-3 py-3"><span className="inline-flex items-center gap-2 font-medium text-slate-800">{row.type === "Wallet" ? <Wallet className="h-4 w-4 text-emerald-600"/> : row.type === "Refund" ? <ArrowDownLeft className="h-4 w-4 text-violet-600"/> : row.type === "AgriPoints Discount" ? <Gift className="h-4 w-4 text-amber-600"/> : <CreditCard className="h-4 w-4 text-sky-700"/>}{row.type}</span></td><td className="max-w-[230px] px-3 py-3 text-slate-700">{row.description}</td><td className="px-3 py-3 font-mono text-xs text-slate-600">{row.reference}</td><td className={`whitespace-nowrap px-3 py-3 text-right font-semibold tabular-nums ${row.direction === "credit" ? "text-emerald-700" : "text-rose-600"}`}>{row.direction === "credit" ? "+" : "−"}{formatPrice(row.amount)}</td><td className="px-4 py-3"><Status value={row.status}/></td></tr>)}</tbody></table></div><div className="divide-y divide-slate-100 md:hidden">{visibleRows.map(row => <div key={row.id} className="space-y-2 p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="font-semibold text-slate-900">{row.description}</p><p className="mt-1 text-xs text-slate-500">{row.type} · {row.reference}</p></div><Status value={row.status}/></div><div className="flex justify-between text-xs text-slate-500"><span>{row.date ? formatDate(row.date) : "—"}</span><strong className={row.direction === "credit" ? "text-emerald-700" : "text-rose-600"}>{row.direction === "credit" ? "+" : "−"}{formatPrice(row.amount)}</strong></div></div>)}</div></>}
         </Card>
