@@ -161,7 +161,7 @@ export function CustomerSidebar() {
         </div>
 
         <nav className="space-y-4">
-          {navGroups.map((group) => {
+          {navGroups.filter((group) => group.items.some((item) => !["Reviews", "Notifications"].includes(item.name))).map((group) => {
             const hasActiveItem = group.items.some((item) =>
               pathname === item.href || pathname?.startsWith(item.href + "/")
             );
@@ -179,7 +179,7 @@ export function CustomerSidebar() {
                 </button>
                 {!isCollapsed && (
                   <div className="ml-2 space-y-1 border-l border-slate-200 pl-2">
-                {group.items.map((item) => {
+                {group.items.filter((item) => !["Reviews", "Notifications"].includes(item.name)).map((item) => {
                   const isMarketplaceRoute = item.href === "/marketplace" && (pathname === "/marketplace" || pathname?.startsWith("/marketplace/") || pathname === "/nearby");
                   const isActive = isMarketplaceRoute || pathname === item.href || pathname?.startsWith(item.href + "/");
                   const badge = item.name === "Cart" ? cartCount : item.name === "Wishlist" ? wishlistItems.length : item.name === "Farm Pickup" ? pickupCount : item.name === "Deliveries" ? deliveryCount : 0;
