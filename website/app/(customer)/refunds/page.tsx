@@ -111,14 +111,14 @@ function SummaryCard({ title, value, icon: Icon, tone }: {
     violet: "bg-violet-100 text-violet-700",
   };
   return (
-    <Card className={`h-[92px] min-h-[92px] self-start rounded-2xl shadow-sm transition-shadow hover:shadow-md ${styles[tone]}`}>
-      <CardContent className="flex h-full items-center gap-3 !p-3 sm:gap-3">
-        <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full sm:h-12 sm:w-12 ${iconStyles[tone]}`}>
-          <Icon className="h-6 w-6 sm:h-7 sm:w-7" strokeWidth={2.5} />
+    <Card className={`h-[82px] min-h-[82px] self-start rounded-2xl shadow-sm transition-shadow hover:shadow-md ${styles[tone]}`}>
+      <CardContent className="flex h-full items-center gap-2.5 !p-2.5 sm:gap-3 sm:!p-3">
+        <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full sm:h-11 sm:w-11 ${iconStyles[tone]}`}>
+          <Icon className="h-5 w-5 sm:h-6 sm:w-6" strokeWidth={2.5} />
         </span>
         <div className="min-w-0">
-          <p className="text-xs font-bold leading-4 text-slate-800 sm:text-[13px]">{title}</p>
-          <p className="mt-0.5 text-[25px] font-extrabold leading-none tracking-tight text-slate-950 sm:text-[27px]">{value}</p>
+          <p className="text-[11px] font-bold leading-4 text-slate-800 sm:text-xs">{title}</p>
+          <p className="mt-0.5 text-[23px] font-extrabold leading-none tracking-tight text-slate-950 sm:text-2xl">{value}</p>
         </div>
       </CardContent>
     </Card>
@@ -227,7 +227,7 @@ export default function CustomerRefundsPage() {
       </header>
 
       <div className="grid items-start gap-3 xl:grid-cols-[minmax(0,1fr)_318px]">
-        <div className="grid grid-cols-2 items-start gap-3 lg:grid-cols-4">
+        <div className="grid grid-cols-2 content-start items-start gap-2.5 lg:grid-cols-4">
           <SummaryCard title="Total Requests" value={counts.all} icon={Package} tone="green" />
           <SummaryCard title="Return Requests" value={counts.returns} icon={RotateCcw} tone="mint" />
           <SummaryCard title="Refunds in Progress" value={counts.inProgress} icon={CircleDollarSign} tone="amber" />
