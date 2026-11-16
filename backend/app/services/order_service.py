@@ -797,6 +797,12 @@ class OrderService:
                         "updatedAt": datetime.utcnow(),
                     },
                 )
+                try:
+                    cancelled_order = await order_repository.get_by_id(str(order_id))
+                    if cancelled_order:
+                        await restore_points_for_cancelled_order(cancelled_order)
+                except Exception:
+                    logger.exception("AgriPoints recovery after ambiguous checkout commit failed for order %s", order_id)
                 for product_id, quantity, inventory_id in reserved_items:
                     try:
                         await inventory_repository.atomic_release(product_id, quantity, inventory_id=inventory_id)
@@ -1357,10 +1363,13 @@ class OrderService:
             try:
                 await restore_points_for_cancelled_order(order)
             except Exception:
-                # The cancellation remains visible, but a failed reversal is
-                # logged for reconciliation rather than risking a duplicate
-                # non-transactional balance increment.
+                # Keep a durable marker so support can identify and reconcile a
+                # failed reversal without attempting a second blind increment.
                 logger.exception("AgriPoints cancellation reversal failed for order %s", order_id)
+                await order_repository.update(
+                    {"_id": ObjectId(order_id)},
+                    {"loyaltyReservationStatus": "reversal_pending", "updatedAt": datetime.utcnow()},
+                )
 
         if role == "farmer" and new_status == OrderStatus.CONFIRMED and committed_inventory:
             for product_id, quantity, _inventory_id in committed_inventory:
