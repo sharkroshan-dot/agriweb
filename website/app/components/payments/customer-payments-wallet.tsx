@@ -55,7 +55,7 @@ function Summary({ title, value, hint, icon: Icon, tone }: {
     amber: "bg-amber-50 text-amber-700",
     violet: "bg-violet-50 text-violet-700",
   };
-  return <Card className="border-slate-200/90 shadow-sm"><CardContent className="flex items-center gap-3 p-4">
+  return <Card className="min-h-[126px] border-slate-200/90 shadow-sm"><CardContent className="flex h-full min-h-[126px] items-center gap-3 p-4 sm:p-5">
     <span className={`rounded-xl p-3 ${tones[tone]}`}><Icon className="h-5 w-5"/></span>
     <div className="min-w-0"><p className="text-xs font-medium text-slate-500">{title}</p><p className="mt-1 truncate text-xl font-bold tracking-tight text-slate-950">{value}</p><p className="mt-0.5 text-[11px] text-slate-500">{hint}</p></div>
   </CardContent></Card>;
@@ -168,10 +168,10 @@ export default function CustomerPaymentsWallet() {
     </header>
 
     <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[1.65fr_1fr_1fr_1fr]">
-      <Card className="overflow-hidden border-emerald-700 bg-gradient-to-br from-emerald-700 via-emerald-600 to-green-500 text-white shadow-md">
-        <CardContent className="flex min-h-[126px] items-center justify-between gap-4 p-5">
-          <div><p className="text-sm font-semibold text-emerald-50">Wallet Balance</p><p className="mt-2 text-3xl font-bold tracking-tight">{walletQuery.isLoading ? "Loading…" : formatPrice(balance)}</p><p className="mt-1 text-xs text-emerald-50/90">{wallet.isActive === false ? "Wallet is currently inactive" : "Available for eligible wallet payments"}</p></div>
-          <Wallet className="h-12 w-12 shrink-0 text-white/85"/>
+      <Card className="overflow-hidden border-emerald-800 bg-gradient-to-br from-emerald-700 via-emerald-600 to-green-500 text-white shadow-md">
+        <CardContent className="flex min-h-[150px] items-center justify-between gap-4 p-5 sm:p-7">
+          <div className="flex min-w-0 items-center gap-4"><span className="hidden rounded-2xl bg-white/15 p-3 sm:block"><Wallet className="h-12 w-12 text-white"/></span><div><p className="text-base font-bold text-emerald-50">Wallet Balance <span className="ml-1 text-emerald-100">ⓘ</span></p><p className="mt-2 text-3xl font-extrabold tracking-tight sm:text-4xl">{walletQuery.isLoading ? "Loading…" : formatPrice(balance)}</p><p className="mt-1 text-xs text-emerald-50/90">{wallet.isActive === false ? "Wallet is currently inactive" : "Available for eligible wallet payments"}</p></div></div>
+          <div className="flex shrink-0 flex-col items-center gap-2"><Wallet className="h-10 w-10 text-white/90"/><Button type="button" onClick={() => setShowAddMoney(true)} className="rounded-full bg-white px-5 font-bold text-emerald-800 shadow-sm hover:bg-emerald-50">＋ Add Money</Button></div>
         </CardContent>
       </Card>
       <Summary title="Total Paid" value={formatPrice(paid)} hint="Completed payments" icon={CheckCircle2} tone="green"/>
