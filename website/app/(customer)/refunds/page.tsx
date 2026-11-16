@@ -342,10 +342,6 @@ export default function CustomerRefundsPage() {
               <Button asChild variant="outline" className="mt-3 w-full border-emerald-600 font-bold text-emerald-800 hover:bg-emerald-50"><Link href="/messages"><Headphones className="mr-2 h-4 w-4" />Contact Support</Link></Button>
             </CardContent>
           </Card>
-          <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-3 text-xs leading-5 text-emerald-900">
-            <div className="flex items-center gap-2 font-bold"><ShieldCheck className="h-4 w-4" />Refund tracking is kept up to date</div>
-            <p className="mt-1">Request status and refund amounts are shown from your account records.</p>
-          </div>
         </aside>
       </div>
     </div>
