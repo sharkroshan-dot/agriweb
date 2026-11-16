@@ -347,7 +347,7 @@ function FlowStep({
   detail: string;
 }) {
   return (
-    <div className="relative flex flex-col items-center px-2 py-2 text-center after:absolute after:right-[-8px] after:top-1/2 after:hidden after:-translate-y-1/2 after:text-2xl after:font-bold after:text-green-700 after:content-[\'→\'] last:after:hidden xl:after:block">
+    <div className="relative flex flex-col items-center px-2 py-2 text-center after:absolute after:right-[-8px] after:top-1/2 after:hidden after:-translate-y-1/2 after:text-2xl after:font-bold after:text-green-700 after:content-['→'] last:after:hidden xl:after:block">
       <div className="mb-2 flex h-11 w-11 items-center justify-center rounded-full bg-emerald-50 text-emerald-700 [&>svg]:h-7 [&>svg]:w-7">
         {icon}
       </div>
