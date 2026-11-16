@@ -64,9 +64,22 @@ function extractRows(payload: any): any[] {
   return candidates.find(Array.isArray) || [];
 }
 
+function toTimestamp(value: any): number {
+  if (value == null || value === "") return 0;
+  if (typeof value === "number" || (typeof value === "string" && /^\\d+$/.test(value))) {
+    const numeric = Number(value);
+    return numeric < 1000000000000 ? numeric * 1000 : numeric;
+  }
+  if (typeof value === "object" && value.$date) return toTimestamp(value.$date);
+  const parsed = Date.parse(String(value));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function getRequestType(item: any): "return" | "refund" {
   const value = String(item.requestType || item.request_type || item.requestKind || item.category || item.type || "").toLowerCase();
-  return item.isReturn === true || value.includes("return") ? "return" : "refund";
+  const resolution = String(item.resolution || item.requestedResolution || "").toLowerCase();
+  return item.isReturn === true || item.returnRequested === true ||
+    value.includes("return") || resolution === "replacement" ? "return" : "refund";
 }
 
 function getProduct(item: any): { name: string; quantity?: string } {
@@ -84,10 +97,10 @@ function SummaryCard({ title, value, icon: Icon, tone }: {
   title: string; value: number; icon: any; tone: "green" | "mint" | "amber" | "violet";
 }) {
   const styles = {
-    green: "border-emerald-100 bg-gradient-to-br from-emerald-50 to-green-100/80",
-    mint: "border-teal-100 bg-gradient-to-br from-teal-50 to-emerald-50",
-    amber: "border-amber-100 bg-gradient-to-br from-amber-50 to-orange-50",
-    violet: "border-violet-100 bg-gradient-to-br from-violet-50 to-indigo-50",
+    green: "border-emerald-100 !bg-gradient-to-br !from-emerald-50 !to-green-100",
+    mint: "border-teal-100 !bg-gradient-to-br !from-teal-50 !to-emerald-50",
+    amber: "border-amber-100 !bg-gradient-to-br !from-amber-50 !to-orange-50",
+    violet: "border-violet-100 !bg-gradient-to-br !from-violet-50 !to-indigo-50",
   };
   const iconStyles = {
     green: "bg-green-100 text-green-700",
@@ -162,7 +175,7 @@ export default function CustomerRefundsPage() {
       const matchesSearch = !query || [
         item.refundId, item.orderNumber, item.product, item.requestType, item.status, item.reason,
       ].join(" ").toLowerCase().includes(query);
-      const dateValue = item.requestedAt ? new Date(item.requestedAt).getTime() : 0;
+      const dateValue = toTimestamp(item.requestedAt);
       const matchesPeriod = !cutoff || !dateValue || dateValue >= cutoff;
       return matchesTab && matchesSearch && matchesPeriod;
     });
@@ -206,7 +219,7 @@ export default function CustomerRefundsPage() {
           <SummaryCard title="Refunds in Progress" value={counts.inProgress} icon={CircleDollarSign} tone="amber" />
           <SummaryCard title="Completed" value={counts.completed} icon={CheckCircle2} tone="violet" />
         </div>
-        <Card className="border-slate-200/80 shadow-sm">
+        <Card className="border-slate-200/80 !bg-gradient-to-br !from-white !to-emerald-50/70 shadow-sm">
           <CardContent className="flex h-full flex-col justify-center p-4">
             <div className="flex items-center gap-2">
               <span className="rounded-full bg-emerald-100 p-2 text-emerald-700"><PackageCheck className="h-5 w-5" /></span>
@@ -269,17 +282,17 @@ export default function CustomerRefundsPage() {
             ) : (
               <>
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[1000px] border-collapse text-left text-xs">
+                  <table className="w-full min-w-[980px] border-collapse text-left text-xs sm:text-[13px]">
                     <thead><tr className="bg-slate-100 text-slate-800">
                       {["Request ID", "Order ID", "Product", "Request Type", "Amount", "Request Date", "Status", "Actions"].map(label =>
-                        <th key={label} className="whitespace-nowrap px-3 py-3 font-extrabold">{label}</th>
+                        <th key={label} className="whitespace-nowrap px-3 py-3.5 font-extrabold text-slate-800">{label}</th>
                       )}
                     </tr></thead>
                     <tbody>
                       {visible.map(item => {
                         const meta = statusMeta[item.status] || statusMeta.requested;
                         return (
-                          <tr key={item.id} className="border-b border-slate-100 transition hover:bg-emerald-50/40">
+                          <tr key={item.id} className="border-b border-slate-100 transition-colors hover:bg-emerald-50/50">
                             <td className="whitespace-nowrap px-3 py-3 font-bold text-slate-800">{item.refundId}</td>
                             <td className="whitespace-nowrap px-3 py-3">
                               {item.orderId ? <Link href={`/orders/${item.orderId}`} className="font-bold text-blue-900 hover:text-emerald-700">{item.orderNumber}</Link> : <span className="font-semibold text-slate-700">{item.orderNumber}</span>}
