@@ -3,9 +3,6 @@
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import {
-  ArrowDownRight,
-  ArrowRight,
-  ArrowUpRight,
   BadgePercent,
   CheckCircle2,
   Gift,
@@ -81,7 +78,7 @@ export default function AgriPointsPage() {
   return (
     <main className="min-w-0 space-y-5 pb-8">
       <div className="flex flex-wrap items-center gap-2 text-sm text-slate-500">
-        <Link href="/customer" className="font-medium text-blue-700 hover:underline">
+        <Link href="/" className="font-medium text-blue-700 hover:underline">
           Home
         </Link>
         <span aria-hidden="true">›</span>
