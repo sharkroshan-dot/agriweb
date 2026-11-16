@@ -24,7 +24,7 @@ export default function AgriPointsPage() {
   const d = pointsData?.data ?? {};
   const rules = d.rules ?? {};
   const txns = d.transactions ?? [];
-  const totalPointsUsed = txns.reduce((sum: number, txn: any) => sum + Math.max(0, -Number(txn.points || 0)), 0);
+  const totalPointsUsed = Number(d.lifetimeSpent ?? txns.reduce((sum: number, txn: any) => sum + Math.max(0, -Number(txn.points || 0)), 0));
 
   return (
     <div className="space-y-6">
