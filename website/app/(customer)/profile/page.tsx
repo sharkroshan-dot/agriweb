@@ -349,7 +349,7 @@ export default function CustomerProfilePage() {
             <div className="flex items-center justify-between rounded-lg border p-3"><div><p className="text-sm font-medium">Phone number</p><p className="text-xs text-slate-500">{getField(user, "phone") || "Add a phone number"}</p></div><Badge variant="outline">{getField(user, "phone") ? "On file" : "Not added"}</Badge></div>
             {memberSince && <p className="text-xs text-slate-500">Member since {memberSince}</p>}
           </CardContent>
-        </Card>>
+        </Card>
       </div>
 
       <section className="space-y-3">
