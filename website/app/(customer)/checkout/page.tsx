@@ -421,6 +421,7 @@ export default function CheckoutPage() {
   const deliveryFeeValue = deliveryQuote?.fee ?? 0;
   const platformFeeValue = Math.max(0, (displayTotal - couponDiscount) * 0.05);
   const maxAgriPointsForOrder = Math.min(
+    10000,
     availableAgriPoints,
     Math.floor(Math.max(0, displayTotal - couponDiscount) * 100)
   );
@@ -1419,7 +1420,7 @@ export default function CheckoutPage() {
                   <Input
                     type="number"
                     min={0}
-                    max={maxAgriPointsForOrder}
+                    max={Math.floor(maxAgriPointsForOrder / 100) * 100}
                     step={100}
                     value={agripointsToUse || ""}
                     onChange={(e) => setAgripointsToUse(Math.min(Math.floor(maxAgriPointsForOrder / 100) * 100, Math.floor(Math.max(0, Number(e.target.value) || 0) / 100) * 100))}
@@ -1439,7 +1440,7 @@ export default function CheckoutPage() {
                   )}
                 </div>
                 <p className="mt-2 text-xs text-slate-500">
-                  Points are applied to this order and deducted only after the server verifies your available balance.
+                  100 points = ₹1. You can use up to 10,000 points per order. Points are reserved with the order and restored if the order is cancelled.
                 </p>
               </div>
               <div className="space-y-2">
