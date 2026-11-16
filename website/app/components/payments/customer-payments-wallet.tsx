@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity, ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Banknote, CalendarDays,
@@ -66,6 +66,10 @@ export default function CustomerPaymentsWallet() {
   const [search, setSearch] = useState("");
   const [period, setPeriod] = useState("30");
   const [showAddMoney, setShowAddMoney] = useState(false);
+  const [topUpAmount, setTopUpAmount] = useState("500");
+  const [topUpMethod, setTopUpMethod] = useState("upi");
+  const [topUpBusy, setTopUpBusy] = useState(false);
+  const [topUpError, setTopUpError] = useState("");
   const ledgerQuery = useQuery({
     queryKey: ["customer-payment-ledger"],
     queryFn: () => api.get("/customers/me/payments", { params: { page: 1, limit: 100 } }),
@@ -142,6 +146,64 @@ export default function CustomerPaymentsWallet() {
   const pending = paymentRows.filter(r => ["pending", "processing"].includes(r.status)).reduce((sum, r) => sum + r.amount, 0);
   const refunded = paymentRows.filter(r => r.type === "Refund" || ["refunded", "partially_refunded"].includes(r.status)).reduce((sum, r) => sum + r.amount, 0);
   const refresh = () => { void ledgerQuery.refetch(); void walletQuery.refetch(); void walletTransactionsQuery.refetch(); };
+  useEffect(() => {
+    if (typeof window === "undefined" || (window as any).Razorpay) return;
+    const script = document.createElement("script");
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.async = true;
+    document.body.appendChild(script);
+    return () => { script.remove(); };
+  }, []);
+  const startWalletTopUp = async () => {
+    const amount = Number(topUpAmount);
+    if (!Number.isFinite(amount) || amount < 1 || amount > 100000) {
+      setTopUpError("Enter an amount between ₹1 and ₹1,00,000.");
+      return;
+    }
+    setTopUpBusy(true);
+    setTopUpError("");
+    try {
+      const response: any = await api.post("/payments/wallet/add-funds", { amount, paymentMethod: topUpMethod });
+      const payment = response?.data?.data || response?.data || response;
+      if (!payment?.payment_id) throw new Error("Unable to start wallet top-up.");
+      const verify = async (result: any) => {
+        await api.post("/payments/wallet/verify-topup", {
+          payment_id: payment.payment_id,
+          razorpay_order_id: result.razorpay_order_id || payment.order_id,
+          razorpay_payment_id: result.razorpay_payment_id || "simulated_payment",
+          razorpay_signature: result.razorpay_signature || "simulated_signature",
+        });
+        setShowAddMoney(false);
+        refresh();
+      };
+      if (payment.simulated) {
+        await verify({});
+        setTopUpBusy(false);
+        return;
+      }
+      const Razorpay = (window as any).Razorpay;
+      if (!Razorpay) throw new Error("Payment checkout is loading. Please try again.");
+      const checkout = new Razorpay({
+        key: payment.key_id, amount: payment.amount, currency: payment.currency || "INR",
+        name: payment.name || "AgriConnect", description: payment.description || "Wallet top-up",
+        order_id: payment.order_id,
+        handler: async (result: any) => {
+          try { await verify(result); }
+          catch (error: any) { setTopUpError(error?.response?.data?.detail || error?.message || "Payment verification failed."); }
+          finally { setTopUpBusy(false); }
+        },
+        theme: payment.theme || { color: "#059669" },
+      });
+      checkout.on("payment.failed", (event: any) => {
+        setTopUpError(event?.error?.description || "Payment was not completed.");
+        setTopUpBusy(false);
+      });
+      checkout.open();
+    } catch (error: any) {
+      setTopUpError(error?.response?.data?.detail || error?.message || "Unable to add money.");
+      setTopUpBusy(false);
+    }
+  };
   const exportRows = () => {
     const columns = ["Date", "Type", "Description", "Reference", "Amount", "Direction", "Status", "Method"];
     const cell = (v: unknown) => '"' + String(v ?? "").replace(/"/g, '""') + '"';
@@ -214,8 +276,10 @@ export default function CustomerPaymentsWallet() {
     {showAddMoney && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/45 p-4" role="dialog" aria-modal="true" aria-labelledby="wallet-topup-title">
       <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
         <div className="flex items-start justify-between gap-4"><div><h2 id="wallet-topup-title" className="text-xl font-extrabold text-slate-950">Add Money to Wallet</h2><p className="mt-1 text-sm text-slate-500">Wallet top-up is available through the payment gateway.</p></div><button type="button" onClick={() => setShowAddMoney(false)} className="rounded-full px-3 py-1 text-xl text-slate-500 hover:bg-slate-100" aria-label="Close">×</button></div>
-        <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">The reference layout includes Add Money. Payment initiation and verification must be enabled and tested with your configured payment gateway before accepting real top-ups.</p>
-        <div className="mt-6 flex justify-end"><Button variant="outline" onClick={() => setShowAddMoney(false)}>Close</Button></div>
+        <label className="mt-5 block text-sm font-semibold text-slate-700">Amount (₹)</label><Input type="number" min="1" max="100000" value={topUpAmount} onChange={e => setTopUpAmount(e.target.value)} className="mt-2 h-12 text-lg font-semibold"/>
+        <label className="mt-4 block text-sm font-semibold text-slate-700">Payment Method</label><select value={topUpMethod} onChange={e => setTopUpMethod(e.target.value)} className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"><option value="upi">UPI</option><option value="card">Credit / Debit Card</option><option value="netbanking">Net Banking</option></select>
+        {topUpError && <p className="mt-3 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{topUpError}</p>}
+        <div className="mt-6 flex justify-end gap-3"><Button variant="outline" onClick={() => setShowAddMoney(false)} disabled={topUpBusy}>Cancel</Button><Button onClick={startWalletTopUp} disabled={topUpBusy} className="bg-emerald-700 hover:bg-emerald-800">{topUpBusy ? "Processing…" : "Continue to Pay"}</Button></div>
       </div>
     </div>}
   </div>;
