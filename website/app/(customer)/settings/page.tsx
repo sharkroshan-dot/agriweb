@@ -247,6 +247,7 @@ export default function CustomerSettingsPage() {
           </CardContent>
         </Card>
 
+        <Card className="lg:col-span-2"><CardHeader><CardTitle>Application Preferences</CardTitle><CardDescription>Choose your preferred language and appearance.</CardDescription></CardHeader><CardContent className="grid gap-4 sm:grid-cols-2"><div><label htmlFor="customer-language" className="text-sm font-medium">Language</label><select id="customer-language" value={language} onChange={(e) => setLanguage(e.target.value)} className="mt-1 h-10 w-full rounded-md border bg-white px-3 text-sm"><option value="en">English</option><option value="ta">Tamil</option><option value="hi">Hindi</option></select></div><div><label htmlFor="customer-theme" className="text-sm font-medium">Appearance</label><select id="customer-theme" value={theme} onChange={(e) => setTheme(e.target.value)} className="mt-1 h-10 w-full rounded-md border bg-white px-3 text-sm"><option value="system">Use device setting</option><option value="light">Light</option><option value="dark">Dark</option></select></div><div className="sm:col-span-2 flex justify-end"><Button onClick={saveNotifications} disabled={savingNotifications}>Save preferences</Button></div></CardContent></Card>
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
