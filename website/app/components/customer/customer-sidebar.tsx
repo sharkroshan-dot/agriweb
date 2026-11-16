@@ -28,7 +28,6 @@ import {
   Sparkles,
   ShieldCheck,
   CalendarClock,
-  Wallet,
   ChevronDown,
   ChevronRight,
 } from "lucide-react";
@@ -143,13 +142,6 @@ export function CustomerSidebar() {
   const pickupCount = customerOrders.filter((o: any) => (o.deliveryType || "").toLowerCase() === "pickup").length;
   const deliveryCount = customerOrders.filter((o: any) => (o.deliveryType || "delivery").toLowerCase() !== "pickup").length;
 
-  const { data: walletData } = useQuery({
-    queryKey: ["customerSidebarWallet"],
-    queryFn: () => api.get("/payments/wallet/info"),
-    enabled: Boolean(session?.user?.role === "customer"),
-  });
-  const walletBalance = Number((walletData as any)?.data?.balance || 0);
-
   return (
     <aside className="role-sidebar hidden w-64 shrink-0 border-r border-slate-200/80 bg-white md:block">
       <div className="sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto p-4 lg:p-5">
@@ -200,7 +192,7 @@ export function CustomerSidebar() {
                 {group.items.map((item) => {
                   const isMarketplaceRoute = item.href === "/marketplace" && (pathname === "/marketplace" || pathname?.startsWith("/marketplace/") || pathname === "/nearby");
                   const isActive = isMarketplaceRoute || pathname === item.href || pathname?.startsWith(item.href + "/");
-                  const badge = item.name === "Cart" ? cartCount : item.name === "Wishlist" ? wishlistItems.length : item.name === "Farm Pickup" ? pickupCount : item.name === "Deliveries" ? deliveryCount : item.name === "Payments & Wallet" && walletBalance > 0 ? "₹" + walletBalance : 0;
+                  const badge = item.name === "Cart" ? cartCount : item.name === "Wishlist" ? wishlistItems.length : item.name === "Farm Pickup" ? pickupCount : item.name === "Deliveries" ? deliveryCount : 0;
                   return (
                     <Link
                       key={item.name}
