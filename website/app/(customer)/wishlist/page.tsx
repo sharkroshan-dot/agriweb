@@ -104,14 +104,14 @@ export default function WishlistPage() {
       pickupAvailable: false,
       farmAddress: item.farmAddress || "",
     });
-    toast.success(\`\${item.name || "Product"} added to cart!\`);
+    toast.success(`${item.name || "Product"} added to cart!`);
   };
 
   return (
     <div className="customer-retail-shell space-y-5">
       <CustomerPageHeader
         eyebrow="Home  /  Wishlist"
-        title={\`My Wishlist (\${items.length} \${items.length === 1 ? "Item" : "Items"})\`}
+        title={`My Wishlist (${items.length} ${items.length === 1 ? "Item" : "Items"})`}
         description="Your saved products for later. Add to cart anytime."
       />
 
@@ -195,7 +195,7 @@ export default function WishlistPage() {
                 <CardContent className="p-3.5">
                   <div className="flex gap-4">
                     <Link
-                      href={\`/product/\${item.id}\`}
+                      href={`/product/${item.id}`}
                       className="h-36 w-32 shrink-0 overflow-hidden rounded-xl bg-slate-100 sm:h-40 sm:w-36"
                     >
                       <img
@@ -210,7 +210,7 @@ export default function WishlistPage() {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
-                          <Link href={\`/product/\${item.id}\`} className="line-clamp-1 text-base font-bold text-slate-950 hover:text-emerald-700">
+                          <Link href={`/product/${item.id}`} className="line-clamp-1 text-base font-bold text-slate-950 hover:text-emerald-700">
                             {item.name || "Product"}
                           </Link>
                           <p className="mt-1 truncate text-sm text-slate-500">
@@ -226,7 +226,7 @@ export default function WishlistPage() {
                         <button
                           type="button"
                           onClick={() => handleRemove(item)}
-                          aria-label={\`Remove \${item.name || "product"} from wishlist\`}
+                          aria-label={`Remove ${item.name || "product"} from wishlist`}
                           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-rose-50 text-rose-600 transition hover:bg-rose-100"
                         >
                           <Heart className="h-4 w-4 fill-current" />
@@ -299,7 +299,7 @@ export default function WishlistPage() {
                   <Button
                     key={pageNumber}
                     size="icon"
-                    aria-label={\`Page \${pageNumber}\`}
+                    aria-label={`Page ${pageNumber}`}
                     aria-current={page === pageNumber ? "page" : undefined}
                     onClick={() => setPage(pageNumber)}
                     className={page === pageNumber ? "h-10 w-10 rounded-xl bg-emerald-700 text-white hover:bg-emerald-800" : "h-10 w-10 rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}
