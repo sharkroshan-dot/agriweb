@@ -15,12 +15,10 @@ import {
   Globe,
   ShoppingCart,
   Package,
-  Heart,
   CreditCard,
   ArrowUpLeft,
   Ticket,
   MessageSquare,
-  User,
   Settings,
   Truck,
   Leaf,
@@ -31,8 +29,6 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
-import { useWishlist } from "../../lib/hooks/use-wishlist";
-import { useCartStore } from "../../lib/store/cart-store";
 import { api } from "../../lib/api/client";
 
 const navGroups = [
@@ -61,8 +57,6 @@ const navGroups = [
   {
     label: "Shopping & Benefits",
     items: [
-      { name: "Cart", href: "/cart", icon: ShoppingCart },
-      { name: "Wishlist", href: "/wishlist", icon: Heart },
       { name: "Farm Basket Subscriptions", href: "/subscriptions", icon: CalendarClock },
       { name: "AgriPoints", href: "/agripoints", icon: Leaf },
       { name: "Coupons", href: "/coupons", icon: Ticket },
@@ -79,7 +73,6 @@ const navGroups = [
   {
     label: "Account",
     items: [
-      { name: "Profile", href: "/profile", icon: User },
       { name: "Settings", href: "/settings", icon: Settings },
     ],
   },
@@ -92,8 +85,6 @@ export function CustomerSidebar() {
   const userName = (session?.user as any)?.name || (session?.user as any)?.email || "Customer";
   const userEmail = (session?.user as any)?.email || "";
   const userImage = (session?.user as any)?.image;
-  const { items: wishlistItems } = useWishlist();
-  const cartCount = useCartStore((s: any) => s.items.reduce((sum: number, i: any) => sum + (i.quantity || 0), 0));
   const initial = (userName || "C").charAt(0).toUpperCase();
 
   const { data: profileData } = useQuery({
@@ -183,7 +174,7 @@ export function CustomerSidebar() {
                 {group.items.filter((item) => !["Reviews", "Notifications"].includes(item.name)).map((item) => {
                   const isMarketplaceRoute = item.href === "/marketplace" && (pathname === "/marketplace" || pathname?.startsWith("/marketplace/") || pathname === "/nearby");
                   const isActive = isMarketplaceRoute || pathname === item.href || pathname?.startsWith(item.href + "/");
-                  const badge = item.name === "Cart" ? cartCount : item.name === "Wishlist" ? wishlistItems.length : item.name === "Farm Pickup" ? pickupCount : item.name === "Deliveries" ? deliveryCount : 0;
+                  const badge = item.name === "Farm Pickup" ? pickupCount : item.name === "Deliveries" ? deliveryCount : 0;
                   return (
                     <Link
                       key={item.name}
