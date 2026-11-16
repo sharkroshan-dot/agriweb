@@ -162,7 +162,7 @@ export default function CustomerRefundsPage() {
     returns: refunds.filter(item => item.requestType === "return").length,
     refunds: refunds.filter(item => item.requestType === "refund" && item.status !== "refunded").length,
     completed: refunds.filter(item => item.status === "refunded").length,
-    inProgress: refunds.filter(item => ["requested", "under_review", "approved", "refund_processing"].includes(item.status)).length,
+    inProgress: refunds.filter(item => ["requested", "under_review", "approved", "refund_processing", "refund_in_progress"].includes(item.status)).length,
   }), [refunds]);
 
   const filtered = useMemo(() => {
