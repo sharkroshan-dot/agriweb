@@ -763,7 +763,7 @@ class OrderService:
                 raise OrderCreationError("No AgriPoints balance is available for this account.")
             debit_result = await loyalty_account_repo.collection.update_one(
                 {"_id": loyalty_account["_id"], "balance": {"$gte": loyalty_points_used}},
-                {"$inc": {"balance": -loyalty_points_used}},
+                {"$inc": {"balance": -loyalty_points_used, "lifetimeSpent": loyalty_points_used}},
             )
             if not getattr(debit_result, "modified_count", 0):
                 for product_id, quantity, inventory_id in reserved_items:
@@ -780,7 +780,7 @@ class OrderService:
             if loyalty_debit_applied and loyalty_account:
                 await loyalty_account_repo.collection.update_one(
                     {"_id": loyalty_account["_id"]},
-                    {"$inc": {"balance": loyalty_points_used}},
+                    {"$inc": {"balance": loyalty_points_used, "lifetimeSpent": -loyalty_points_used}},
                 )
             logger.error(f"Failed to create order in database. order_data keys: {list(order_data.keys())}")
             for product_id, quantity, inventory_id in reserved_items:
@@ -1352,6 +1352,34 @@ class OrderService:
                     except Exception:
                         logger.exception("Failed to roll back inventory after status update failure for order %s", order_id)
             return None
+
+        if new_status == OrderStatus.CANCELLED and int(order.get("loyaltyPointsUsed") or 0) > 0:
+            points_to_restore = int(order.get("loyaltyPointsUsed") or 0)
+            existing_reversal = await loyalty_txn_repo.find_one({
+                "orderId": ObjectId(order_id),
+                "reason": "order_cancel_reversal",
+                "deletedAt": None,
+            })
+            if not existing_reversal:
+                loyalty_account = await loyalty_account_repo.find_one({
+                    "userId": ObjectId(str(order.get("customerId"))),
+                    "deletedAt": None,
+                })
+                if loyalty_account:
+                    restored = await loyalty_account_repo.collection.update_one(
+                        {"_id": loyalty_account["_id"]},
+                        {"$inc": {"balance": points_to_restore, "lifetimeSpent": -points_to_restore}},
+                    )
+                    if getattr(restored, "modified_count", 0):
+                        await loyalty_txn_repo.create({
+                            "userId": ObjectId(str(order.get("customerId"))),
+                            "orderId": ObjectId(order_id),
+                            "type": "reversal",
+                            "points": points_to_restore,
+                            "balanceAfter": int(loyalty_account.get("balance") or 0) + points_to_restore,
+                            "reason": "order_cancel_reversal",
+                            "description": "AgriPoints restored because the order was cancelled",
+                        })
 
         if role == "farmer" and new_status == OrderStatus.CONFIRMED and committed_inventory:
             for product_id, quantity, _inventory_id in committed_inventory:
