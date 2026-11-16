@@ -219,15 +219,20 @@ export default function CustomerPaymentsWallet() {
   return <div className="space-y-5 pb-8">
     <div className="mb-2 flex items-center gap-2 text-sm text-slate-600"><span className="font-medium text-emerald-700">⌂ Home</span><span className="text-slate-300">›</span><span className="font-semibold text-slate-900">Payments &amp; Wallet</span></div>
     <header className="relative isolate flex min-h-[190px] items-center overflow-hidden rounded-2xl border border-slate-100 bg-white px-5 py-6 sm:px-7">
-      <div className="pointer-events-none absolute inset-y-0 right-0 z-0 flex w-[62%] items-center justify-end overflow-hidden" aria-hidden="true">
-        <img src="/images/payments-wallet-banner.svg" alt="" className="h-auto max-h-[180px] w-full object-contain object-right opacity-100 contrast-125 saturate-150"/>
+      <div className="pointer-events-none absolute inset-0 z-0" aria-hidden="true">
+        <img src="/images/payments-wallet-banner.svg" alt="" className="h-full w-full object-cover object-center opacity-100"/>
+        <div className="absolute inset-0 bg-gradient-to-r from-white via-white/95 via-[34%] to-white/5 to-[72%]"/>
       </div>
       <div className="relative z-10 flex w-full items-center gap-5">
-        <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><Wallet className="h-9 w-9"/></span>
-        <div className="min-w-0 max-w-[62%] rounded-xl bg-white py-2 pr-3"><p className="text-xs font-bold uppercase tracking-wide text-emerald-700">Account</p><h1 className="mt-1 text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl">Payments &amp; Wallet</h1><p className="mt-2 max-w-2xl text-sm font-medium text-slate-800 sm:text-base">Manage your wallet balance, payments, refunds and transaction history in one place.</p></div>
-        <Button variant="outline" size="sm" className="ml-auto shrink-0 bg-white/90" onClick={refresh}> <RefreshCw className="mr-2 h-4 w-4"/>Refresh</Button>
+        <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 shadow-sm"><Wallet className="h-9 w-9"/></span>
+        <div className="min-w-0 max-w-[68%] py-2">
+          <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">Account</p>
+          <h1 className="mt-1 text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl">Payments &amp; Wallet</h1>
+          <p className="mt-2 max-w-2xl text-sm font-semibold text-slate-900 sm:text-base">Manage your wallet balance, payments, refunds and transaction history in one place.</p>
+        </div>
+        <Button variant="outline" size="sm" className="ml-auto shrink-0 bg-white/95 shadow-sm" onClick={refresh}><RefreshCw className="mr-2 h-4 w-4"/>Refresh</Button>
       </div>
-    </header>
+    </header>>
 
     <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[1.65fr_1fr_1fr_1fr]">
       <Card className="overflow-hidden border-emerald-800 bg-gradient-to-br from-emerald-700 via-emerald-600 to-green-500 text-white shadow-md">
