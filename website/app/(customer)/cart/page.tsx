@@ -170,7 +170,7 @@ export default function CartPage() {
                     const checked = selectedKeys.includes(key);
                     return (
                       <div key={key} className="grid grid-cols-[24px_76px_minmax(0,1fr)_auto] items-center gap-3 py-4 sm:grid-cols-[28px_112px_minmax(180px,1fr)_auto_auto_auto_36px] sm:gap-4">
-                        <button type="button" role="checkbox" aria-checked={checked} aria-label={`Select ${item.name}`} onClick={() => toggleSelected(key)} className={cn("flex h-7 w-7 items-center justify-center rounded-md border-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2", checked ? "border-emerald-700 bg-emerald-700 text-white shadow-sm" : "border-slate-300 bg-white hover:border-emerald-500")}>{checked && <Check className="h-4 w-4" />}</button>
+                        <button type="button" role="checkbox" aria-checked={checked} aria-label={`Select ${item.name}`} onClick={() => toggleSelected(key)} className={cn("!h-7 !w-7 !min-w-7 !max-w-7 !shrink-0 !aspect-square !p-0 inline-flex items-center justify-center box-border rounded-md border-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2", checked ? "border-emerald-700 bg-emerald-700 text-white shadow-sm" : "border-slate-300 bg-white hover:border-emerald-500")}>{checked && <Check className="h-4 w-4" />}</button>
                         <div className="relative h-[68px] w-[76px] overflow-hidden rounded-xl bg-slate-50 sm:h-[88px] sm:w-28">
                           <Image src={imageFor(item.image)} alt={item.name} fill sizes="(max-width: 640px) 76px, 112px" className="object-contain p-1" unoptimized />
                         </div>
@@ -196,7 +196,7 @@ export default function CartPage() {
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 sm:px-5">
                   <button type="button" role="checkbox" aria-checked={allSelected} onClick={() => setSelectedKeys(allSelected ? [] : cartKeys)} className="inline-flex items-center gap-2 text-sm font-bold text-slate-900">
-                    <span className={cn("flex h-7 w-7 items-center justify-center rounded-md border-2 transition", allSelected ? "border-emerald-700 bg-emerald-700 text-white shadow-sm" : "border-slate-300 bg-white")}>{allSelected && <Check className="h-4 w-4" />}</span>
+                    <span className={cn("!h-7 !w-7 !min-w-7 !max-w-7 !shrink-0 !aspect-square !p-0 inline-flex items-center justify-center box-border rounded-md border-2 transition", allSelected ? "border-emerald-700 bg-emerald-700 text-white shadow-sm" : "border-slate-300 bg-white")}>{allSelected && <Check className="h-4 w-4" />}</span>
                     Select All ({items.length})
                   </button>
                   <Button variant="outline" disabled={selectedCount === 0} onClick={removeSelected} className="rounded-xl border-red-300 font-semibold text-red-600 hover:bg-red-50"><Trash2 className="mr-2 h-4 w-4" />Remove Selected</Button>
