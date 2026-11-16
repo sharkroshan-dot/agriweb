@@ -77,6 +77,7 @@ class OrderBase(BaseModel):
     specialInstructions: Optional[str] = None
     paymentMethod: PaymentMethod
     couponCode: Optional[str] = None
+    agripointsToUse: int = Field(0, ge=0, le=10000)
     deliveryType: DeliveryType = DeliveryType.DELIVERY
     fulfillmentMethod: Optional[FulfillmentMethod] = None
     fulfillmentStage: FulfillmentStage = FulfillmentStage.PENDING
