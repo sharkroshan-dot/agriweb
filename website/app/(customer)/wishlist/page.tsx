@@ -12,6 +12,8 @@ import {
   Leaf,
   FlaskConical,
   Grid2X2,
+  Home,
+  ChevronRight,
 } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent } from "../../components/ui/card";
@@ -21,7 +23,6 @@ import { formatPrice } from "../../lib/utils";
 import { useWishlist } from "../../lib/hooks/use-wishlist";
 import { useCartStore } from "../../lib/store/cart-store";
 import toast from "react-hot-toast";
-import { CustomerPageHeader } from "../../components/customer/customer-page-header";
 
 type WishlistProduct = {
   id: string;
@@ -95,11 +96,29 @@ export default function WishlistPage() {
 
   return (
     <div className="customer-retail-shell space-y-5">
-      <CustomerPageHeader
-        eyebrow="Home  /  Wishlist"
-        title={`My Wishlist (${items.length} ${items.length === 1 ? "Item" : "Items"})`}
-        description="Your saved products for later. Add to cart anytime."
-      />
+      <div className="space-y-4">
+        <nav aria-label="Breadcrumb" className="flex items-center gap-2 px-1 text-sm font-medium text-slate-600">
+          <Link href="/" className="inline-flex items-center gap-1.5 text-emerald-700 hover:text-emerald-800">
+            <Home className="h-4 w-4" />
+            Home
+          </Link>
+          <ChevronRight className="h-4 w-4 text-slate-400" />
+          <span className="text-slate-900">Wishlist</span>
+        </nav>
+        <div className="flex items-center gap-4 sm:gap-5">
+          <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-emerald-100 sm:h-20 sm:w-20">
+            <Heart className="h-9 w-9 text-emerald-900 sm:h-11 sm:w-11" strokeWidth={1.8} />
+          </div>
+          <div className="min-w-0">
+            <h1 className="text-2xl font-extrabold tracking-tight text-slate-950 sm:text-3xl">
+              My Wishlist <span className="text-xl font-bold sm:text-2xl">({items.length} {items.length === 1 ? "Item" : "Items"})</span>
+            </h1>
+            <p className="mt-1 text-base font-semibold text-blue-950 sm:text-lg">
+              Your saved products for later. Add to cart anytime.
+            </p>
+          </div>
+        </div>
+      </div>
 
       <section className="rounded-2xl border border-emerald-100 bg-gradient-to-r from-emerald-50 to-green-50 p-3 shadow-sm">
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(280px,1.5fr)_minmax(190px,.8fr)_minmax(230px,.9fr)]">
