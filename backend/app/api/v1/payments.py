@@ -279,9 +279,6 @@ async def process_refund(
     if payment and payment.get("refundId"):
         try:
             from app.services.loyalty_service import restore_points_for_refund
-            order_for_points = await OrderService.get_order(
-                order_id, str(current_user["_id"]), current_user.get("role")
-            )
             refund_amount = float(refund_data.amount or payment.get("refundAmount") or payment.get("amount") or 0)
             await restore_points_for_refund(
                 order_id,
