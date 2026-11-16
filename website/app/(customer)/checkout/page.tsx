@@ -111,6 +111,7 @@ export default function CheckoutPage() {
   const [selectedDeliverySpeed, setSelectedDeliverySpeed] = useState<"fastest_30m" | "standard">("standard");
   const [couponCode, setCouponCode] = useState("");
   const [couponDiscount, setCouponDiscount] = useState(0);
+  const [agripointsToUse, setAgripointsToUse] = useState(0);
   const [couponAppliedCode, setCouponAppliedCode] = useState("");
   const [couponError, setCouponError] = useState("");
   const [applyingCoupon, setApplyingCoupon] = useState(false);
@@ -138,6 +139,16 @@ export default function CheckoutPage() {
   const walletInfo = walletInfoData?.data || walletInfoData || {};
   const walletBalance = Number(
     walletInfo?.balance ?? walletInfo?.availableBalance ?? walletInfo?.wallet?.balance ?? 0
+  );
+
+  const { data: loyaltyPointsData } = useQuery({
+    queryKey: ["loyalty", "me"],
+    queryFn: () => api.get("/loyalty/me"),
+    enabled: status === "authenticated" && items.length > 0,
+    retry: false,
+  });
+  const availableAgriPoints = Number(
+    loyaltyPointsData?.data?.balance ?? loyaltyPointsData?.balance ?? 0
   );
 
   const addresses: Address[] = useMemo(() => {
@@ -409,7 +420,16 @@ export default function CheckoutPage() {
 
   const deliveryFeeValue = deliveryQuote?.fee ?? 0;
   const platformFeeValue = Math.max(0, (displayTotal - couponDiscount) * 0.05);
-  const estimatedTotal = Math.max(0, displayTotal - couponDiscount + deliveryFeeValue + platformFeeValue);
+  const maxAgriPointsForOrder = Math.min(
+    availableAgriPoints,
+    Math.floor(Math.max(0, displayTotal - couponDiscount) * 100)
+  );
+  const effectiveAgriPoints = Math.min(
+    Math.floor(Math.max(0, agripointsToUse) / 100) * 100,
+    Math.floor(maxAgriPointsForOrder / 100) * 100
+  );
+  const agripointsDiscount = effectiveAgriPoints / 100;
+  const estimatedTotal = Math.max(0, displayTotal - couponDiscount - agripointsDiscount + deliveryFeeValue + platformFeeValue);
 
   const handlePlaceOrder = async (quantityOverrides?: Record<string, number>) => {
     const addressId = selectedAddressId || defaultAddress?.id;
@@ -474,6 +494,9 @@ export default function CheckoutPage() {
 
       if (couponAppliedCode) {
         payload.couponCode = couponAppliedCode;
+      }
+      if (effectiveAgriPoints > 0) {
+        payload.agripointsToUse = effectiveAgriPoints;
       }
 
       const res = await api.post("/orders/", payload);
@@ -1378,6 +1401,47 @@ export default function CheckoutPage() {
                   </div>
                 </div>
               ))}
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="flex items-center gap-2 text-sm font-semibold text-emerald-900">
+                      <Leaf className="h-4 w-4" /> Use AgriPoints
+                    </p>
+                    <p className="mt-1 text-xs text-emerald-800">
+                      {availableAgriPoints.toLocaleString()} points available · 100 points = ₹1 order discount
+                    </p>
+                  </div>
+                  <span className="whitespace-nowrap text-xs font-semibold text-emerald-700">
+                    {agripointsDiscount > 0 ? `-${formatPrice(agripointsDiscount)}` : "No discount"}
+                  </span>
+                </div>
+                <div className="mt-3 flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={0}
+                    max={maxAgriPointsForOrder}
+                    step={100}
+                    value={agripointsToUse || ""}
+                    onChange={(e) => setAgripointsToUse(Math.max(0, Number(e.target.value) || 0))}
+                    placeholder="Points to use (multiples of 100)"
+                    disabled={availableAgriPoints < 100 || maxAgriPointsForOrder < 100}
+                    className="bg-white"
+                  />
+                  <Button type="button" variant="outline" size="sm"
+                    disabled={availableAgriPoints < 100 || maxAgriPointsForOrder < 100}
+                    onClick={() => setAgripointsToUse(Math.floor(maxAgriPointsForOrder / 100) * 100)}>
+                    Use max
+                  </Button>
+                  {agripointsToUse > 0 && (
+                    <Button type="button" variant="ghost" size="sm" onClick={() => setAgripointsToUse(0)}>
+                      Clear
+                    </Button>
+                  )}
+                </div>
+                <p className="mt-2 text-xs text-slate-500">
+                  Points are applied to this order and deducted only after the server verifies your available balance.
+                </p>
+              </div>
               <div className="space-y-2">
                 {couponAppliedCode ? (
                   <div className="flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm">
@@ -1418,6 +1482,12 @@ export default function CheckoutPage() {
                   <div className="flex justify-between text-sm text-emerald-600">
                     <span>Coupon discount</span>
                     <span>-{formatPrice(couponDiscount)}</span>
+                  </div>
+                )}
+                {agripointsDiscount > 0 && (
+                  <div className="flex justify-between text-sm text-emerald-700">
+                    <span>AgriPoints discount ({effectiveAgriPoints} pts)</span>
+                    <span>-{formatPrice(agripointsDiscount)}</span>
                   </div>
                 )}
                 <div className="flex justify-between text-sm">
