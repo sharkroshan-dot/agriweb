@@ -137,6 +137,7 @@ async def get_my_points(current_user: dict = Depends(get_current_user)):
         "data": {
             "balance": int(account.get("balance") or 0),
             "lifetimeEarned": int(account.get("lifetimeEarned") or 0),
+            "lifetimeSpent": int(account.get("lifetimeSpent") or 0),
             "rewardValueRs": reward_rs,
             "redeemablePoints": int(account.get("balance") or 0),
             "rules": {
