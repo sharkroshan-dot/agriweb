@@ -10,6 +10,7 @@ import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { api } from "../../lib/api/client";
+import AddressesPage from "./addresses/page";
 
 function getField(obj: any, ...keys: string[]) {
   for (const key of keys) {
@@ -352,12 +353,6 @@ export default function CustomerProfilePage() {
               <Button variant="outline" size="sm">Enabled</Button>
             </div>
             <div className="flex items-center justify-between rounded-lg border p-3 text-sm">
-              Saved addresses
-              <Button variant="outline" size="sm" asChild>
-                <Link href="/profile/addresses">Manage</Link>
-              </Button>
-            </div>
-            <div className="flex items-center justify-between rounded-lg border p-3 text-sm">
               Settings
               <Button variant="outline" size="sm" asChild>
                 <Link href="/settings">Open</Link>
@@ -367,6 +362,13 @@ export default function CustomerProfilePage() {
         </Card>
       </div>
 
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900">Saved Addresses</h2>
+          <p className="text-sm text-slate-600">Add, update and manage the addresses used for your deliveries.</p>
+        </div>
+        <AddressesPage />
+      </section>
     </div>
   );
 }
