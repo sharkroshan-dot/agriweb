@@ -73,8 +73,7 @@ const navGroups = [
   {
     label: "Payments & Refunds",
     items: [
-      { name: "Wallet", href: "/wallet", icon: Wallet },
-      { name: "Payments", href: "/payments", icon: CreditCard },
+      { name: "Payments & Wallet", href: "/payments", icon: CreditCard },
       { name: "Refunds & Returns", href: "/refunds", icon: ArrowUpLeft },
     ],
   },
@@ -201,7 +200,7 @@ export function CustomerSidebar() {
                 {group.items.map((item) => {
                   const isMarketplaceRoute = item.href === "/marketplace" && (pathname === "/marketplace" || pathname?.startsWith("/marketplace/") || pathname === "/nearby");
                   const isActive = isMarketplaceRoute || pathname === item.href || pathname?.startsWith(item.href + "/");
-                  const badge = item.name === "Cart" ? cartCount : item.name === "Wishlist" ? wishlistItems.length : item.name === "Farm Pickup" ? pickupCount : item.name === "Deliveries" ? deliveryCount : item.name === "Wallet" && walletBalance > 0 ? "₹" + walletBalance : 0;
+                  const badge = item.name === "Cart" ? cartCount : item.name === "Wishlist" ? wishlistItems.length : item.name === "Farm Pickup" ? pickupCount : item.name === "Deliveries" ? deliveryCount : item.name === "Payments & Wallet" && walletBalance > 0 ? "₹" + walletBalance : 0;
                   return (
                     <Link
                       key={item.name}
