@@ -179,8 +179,8 @@ export function Header() {
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild>
-                    <Link href="/profile/addresses" className="flex items-center gap-2">
-                      <Settings className="h-4 w-4" /> Addresses
+                    <Link href={role === "customer" ? "/settings" : "/profile/addresses"} className="flex items-center gap-2">
+                      <Settings className="h-4 w-4" /> {role === "customer" ? "Settings" : "Addresses"}
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
