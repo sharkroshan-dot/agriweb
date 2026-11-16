@@ -1,34 +1,38 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="2880" height="320" viewBox="0 0 2880 320">
 <defs>
- <linearGradient id="sky" x2="0" y2="1"><stop stop-color="#dff4ff"/><stop offset=".58" stop-color="#f5fbff"/><stop offset="1" stop-color="#e6f6dc"/></linearGradient>
- <linearGradient id="mount" x2=".2" y2="1"><stop stop-color="#a9ddeb"/><stop offset="1" stop-color="#4b9fbd"/></linearGradient>
- <linearGradient id="field" x2="0" y2="1"><stop stop-color="#c7ee65"/><stop offset="1" stop-color="#269b25"/></linearGradient>
- <linearGradient id="box" x2="0" y2="1"><stop stop-color="#e9b66f"/><stop offset="1" stop-color="#b87536"/></linearGradient>
- <linearGradient id="coin" x2="0" y2="1"><stop stop-color="#fff5a0"/><stop offset=".5" stop-color="#ffc72e"/><stop offset="1" stop-color="#e28b00"/></linearGradient>
- <pattern id="rows" width="110" height="34" patternUnits="userSpaceOnUse"><path d="M-30 35Q35 -8 140 35" fill="none" stroke="#edff9c" stroke-width="5" opacity=".7"/><path d="M-30 28Q35 -15 140 28" fill="none" stroke="#278c1d" stroke-width="2" opacity=".55"/></pattern>
- <linearGradient id="fade" x2="1" y2="0"><stop stop-color="#fff" stop-opacity="1"/><stop offset=".32" stop-color="#fff" stop-opacity=".96"/><stop offset=".55" stop-color="#fff" stop-opacity=".48"/><stop offset=".72" stop-color="#fff" stop-opacity="0"/></linearGradient>
- <filter id="shadow" x="-20%" y="-20%" width="150%" height="160%"><feDropShadow dx="0" dy="7" stdDeviation="7" flood-color="#285a30" flood-opacity=".22"/></filter>
+  <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#d9f2ff"/><stop offset=".56" stop-color="#f8fcff"/><stop offset="1" stop-color="#eaf8e4"/></linearGradient>
+  <linearGradient id="mountain" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#8ed0e5"/><stop offset="1" stop-color="#3d9dbb"/></linearGradient>
+  <linearGradient id="field" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#c9ed65"/><stop offset=".48" stop-color="#72c832"/><stop offset="1" stop-color="#16852b"/></linearGradient>
+  <linearGradient id="parcel" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#f5c987"/><stop offset="1" stop-color="#c47d3c"/></linearGradient>
+  <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#fff4a5"/><stop offset=".45" stop-color="#ffc629"/><stop offset="1" stop-color="#e58b00"/></linearGradient>
+  <linearGradient id="fade" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#fff" stop-opacity="1"/><stop offset=".28" stop-color="#fff" stop-opacity=".98"/><stop offset=".48" stop-color="#fff" stop-opacity=".75"/><stop offset=".67" stop-color="#fff" stop-opacity=".08"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+  <pattern id="cropRows" width="120" height="38" patternUnits="userSpaceOnUse"><path d="M-35 40Q38 -12 155 40" fill="none" stroke="#eaff9c" stroke-width="5" opacity=".7"/><path d="M-35 32Q38 -20 155 32" fill="none" stroke="#258b25" stroke-width="3" opacity=".55"/></pattern>
+  <filter id="shadow" x="-30%" y="-30%" width="170%" height="180%"><feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#24552a" flood-opacity=".25"/></filter>
 </defs>
 <rect width="2880" height="320" fill="url(#sky)"/>
-<path d="M0 220L160 174 280 211 430 132 570 207 720 144 860 214 1020 135 1170 213 1330 120 1480 210 1630 145 1780 213 1940 132 2100 210 2260 146 2420 212 2580 145 2740 212 2880 174V320H0Z" fill="url(#mount)"/>
-<path d="M0 232Q220 190 440 224T880 220T1320 221T1760 218T2200 218T2640 214T2880 220V320H0Z" fill="#3e9e43"/>
-<g fill="#218b37"><circle cx="630" cy="216" r="21"/><circle cx="665" cy="210" r="26"/><circle cx="705" cy="218" r="18"/><circle cx="1120" cy="212" r="23"/><circle cx="1155" cy="205" r="27"/><circle cx="1195" cy="215" r="18"/><circle cx="1600" cy="211" r="22"/><circle cx="1635" cy="204" r="27"/><circle cx="1675" cy="214" r="18"/><circle cx="2090" cy="209" r="23"/><circle cx="2125" cy="202" r="27"/><circle cx="2165" cy="213" r="18"/></g>
-<path d="M0 246Q450 216 900 246T1800 240T2700 230T2880 236V320H0Z" fill="#a9df48"/>
-<path d="M0 270Q450 232 900 268T1800 258T2700 248T2880 250V320H0Z" fill="url(#field)"/>
-<path d="M0 270Q450 232 900 268T1800 258T2700 248T2880 250V320H0Z" fill="url(#rows)"/>
-<path d="M0 306Q500 266 1000 300T2000 284T2880 278V320H0Z" fill="#299723"/>
-<path d="M0 306Q500 266 1000 300T2000 284T2880 278V320H0Z" fill="url(#rows)" opacity=".75"/>
+<g fill="#fff" opacity=".72"><ellipse cx="1080" cy="55" rx="100" ry="17"/><ellipse cx="1145" cy="48" rx="65" ry="22"/><ellipse cx="1740" cy="40" rx="115" ry="18"/><ellipse cx="1810" cy="35" rx="65" ry="22"/><ellipse cx="2210" cy="57" rx="105" ry="16"/></g>
+<path d="M0 220L150 167 265 210 410 124 555 210 690 148 830 214 980 112 1130 211 1285 132 1435 214 1585 121 1745 215 1895 140 2040 215 2195 124 2350 211 2505 142 2660 211 2800 162 2880 190V320H0Z" fill="url(#mountain)"/>
+<path d="M0 224L150 167 265 210 410 124 555 210 690 148 830 214 980 112 1130 211 1285 132 1435 214 1585 121 1745 215 1895 140 2040 215 2195 124 2350 211 2505 142 2660 211 2800 162 2880 190" fill="none" stroke="#d8f5fb" stroke-width="9" opacity=".8"/>
+<path d="M0 230Q240 194 480 225T960 224T1440 220T1920 220T2400 217T2880 215V320H0Z" fill="#287f37"/>
+<g fill="#1c8a3b"><circle cx="680" cy="214" r="24"/><circle cx="715" cy="208" r="30"/><circle cx="755" cy="218" r="22"/><circle cx="1040" cy="215" r="24"/><circle cx="1075" cy="205" r="30"/><circle cx="1118" cy="216" r="22"/><circle cx="1440" cy="213" r="24"/><circle cx="1478" cy="204" r="30"/><circle cx="1518" cy="215" r="21"/><circle cx="1840" cy="211" r="25"/><circle cx="1878" cy="203" r="30"/><circle cx="1920" cy="214" r="21"/><circle cx="2200" cy="210" r="24"/><circle cx="2238" cy="202" r="30"/><circle cx="2280" cy="213" r="22"/></g>
+<path d="M0 245Q450 207 900 245T1800 236T2700 226T2880 230V320H0Z" fill="#a8dc43"/>
+<path d="M0 270Q450 228 900 267T1800 255T2700 244T2880 246V320H0Z" fill="url(#field)"/>
+<path d="M0 270Q450 228 900 267T1800 255T2700 244T2880 246V320H0Z" fill="url(#cropRows)"/>
+<path d="M0 307Q520 258 1040 298T2080 278T2880 270V320H0Z" fill="#258f25"/>
+<path d="M0 307Q520 258 1040 298T2080 278T2880 270V320H0Z" fill="url(#cropRows)" opacity=".75"/>
 <g filter="url(#shadow)">
- <g fill="#28a82a" stroke="#168c27" stroke-width="3"><path d="M2560 135Q2525 54 2595 14Q2626 86 2560 135Z"/><path d="M2640 120Q2655 34 2735 10Q2740 82 2640 120Z"/><path d="M2730 150Q2790 58 2865 72Q2828 136 2730 150Z"/><path d="M2690 175Q2635 106 2670 60Q2725 119 2690 175Z"/></g>
- <path d="M2470 105L2630 82 2785 112 2770 270 2480 280Z" fill="url(#box)" stroke="#995a2b" stroke-width="7"/>
- <path d="M2470 105L2625 130 2785 112 2630 86Z" fill="#f0c080" stroke="#a96835" stroke-width="5"/>
- <path d="M2620 91L2610 129 2645 135 2660 95" fill="#d69a57" stroke="#a96835" stroke-width="4"/>
- <path d="M2510 173H2715" stroke="#f5d3a5" stroke-width="4" stroke-dasharray="8 9" opacity=".8"/>
- <path d="M2630 194a45 45 0 1 0 34 75" fill="none" stroke="#078b3b" stroke-width="16" stroke-linecap="round"/>
- <path d="M2654 251l15 20-25 5" fill="none" stroke="#078b3b" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
- <circle cx="2750" cy="229" r="67" fill="url(#coin)" stroke="#d88b00" stroke-width="7"/>
- <circle cx="2750" cy="229" r="54" fill="none" stroke="#fff1a0" stroke-width="5"/>
- <text x="2750" y="253" font-family="Arial,sans-serif" font-size="65" font-weight="700" text-anchor="middle" fill="#b97800">₹</text>
+  <g fill="#28a82d" stroke="#16852a" stroke-width="4">
+    <path d="M2520 125Q2468 46 2538 8Q2584 79 2520 125Z"/><path d="M2610 112Q2625 25 2708 5Q2712 80 2610 112Z"/><path d="M2700 135Q2770 42 2850 59Q2812 125 2700 135Z"/><path d="M2668 165Q2598 100 2632 43Q2694 102 2668 165Z"/>
+  </g>
+  <path d="M2460 105L2600 82 2790 105 2780 270 2470 282Z" fill="url(#parcel)" stroke="#a96731" stroke-width="7"/>
+  <path d="M2460 105L2600 130 2790 105 2640 82Z" fill="#f8d49a" stroke="#b9773b" stroke-width="5"/>
+  <path d="M2600 84L2587 128 2632 135 2652 91" fill="#dca05b" stroke="#a96731" stroke-width="5"/>
+  <path d="M2490 174H2740" stroke="#f9dfb6" stroke-width="4" stroke-dasharray="9 10" opacity=".85"/>
+  <path d="M2600 199c-18-22-9-49 14-59 17-8 38-1 46 14" fill="none" stroke="#168c36" stroke-width="16" stroke-linecap="round"/>
+  <path d="M2644 135l25 18-29 15" fill="none" stroke="#168c36" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="2790" cy="218" r="67" fill="url(#gold)" stroke="#f4b31b" stroke-width="9"/>
+  <circle cx="2790" cy="218" r="54" fill="none" stroke="#fff2a0" stroke-width="5" opacity=".9"/>
+  <text x="2790" y="241" text-anchor="middle" font-family="Arial,sans-serif" font-size="68" font-weight="700" fill="#a96a00">₹</text>
 </g>
 <rect width="2880" height="320" fill="url(#fade)"/>
 </svg>
