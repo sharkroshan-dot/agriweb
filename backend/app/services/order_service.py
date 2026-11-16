@@ -28,6 +28,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 harvest_preorder_repository = BaseRepository("harvest_preorders")
+loyalty_account_repo = BaseRepository("loyalty_accounts")
+loyalty_txn_repo = BaseRepository("loyalty_transactions")
 
 # Approximate city-centre fallback for legacy orders that contain only text
 # addresses. This keeps radius filtering usable when public geocoders throttle
@@ -541,6 +543,18 @@ class OrderService:
                         data.couponCode,
                         subtotal
                     )
+
+        coupon_discount = discount
+        loyalty_points_used = int(data.agripointsToUse or 0)
+        loyalty_discount = 0.0
+        if loyalty_points_used:
+            if loyalty_points_used % 100 != 0:
+                raise OrderCreationError("AgriPoints must be redeemed in multiples of 100.")
+            loyalty_discount = round(loyalty_points_used / 100, 2)
+            remaining_product_value = max(0.0, subtotal - coupon_discount)
+            if loyalty_discount > remaining_product_value + 0.001:
+                raise OrderCreationError("AgriPoints discount cannot exceed the remaining product subtotal.")
+            discount = round(coupon_discount + loyalty_discount, 2)
         
         is_pickup = data.deliveryType == DeliveryType.PICKUP
         delivery_charge = 0
@@ -664,6 +678,9 @@ class OrderService:
             "platformFee": platform_fee,
             "platformCommission": platform_commission,
             "discount": discount,
+            "couponDiscount": coupon_discount,
+            "loyaltyPointsUsed": loyalty_points_used,
+            "loyaltyDiscount": loyalty_discount,
             "totalAmount": total_amount,
             "paymentMethod": data.paymentMethod.value,
             "paymentStatus": PaymentStatus.PENDING.value,
@@ -733,10 +750,38 @@ class OrderService:
                     logger.exception("Failed to release checkout reservation for %s", product_id)
             raise
 
-        order_id = await order_repository.create_order(order_data)
+        loyalty_debit_applied = False
+        loyalty_account = None
+        if loyalty_points_used:
+            loyalty_account = await loyalty_account_repo.find_one({
+                "userId": ObjectId(customer_id),
+                "deletedAt": None,
+            })
+            if not loyalty_account:
+                for product_id, quantity, inventory_id in reserved_items:
+                    await inventory_repository.atomic_release(product_id, quantity, inventory_id=inventory_id)
+                raise OrderCreationError("No AgriPoints balance is available for this account.")
+            debit_result = await loyalty_account_repo.collection.update_one(
+                {"_id": loyalty_account["_id"], "balance": {"$gte": loyalty_points_used}},
+                {"$inc": {"balance": -loyalty_points_used}},
+            )
+            if not getattr(debit_result, "modified_count", 0):
+                for product_id, quantity, inventory_id in reserved_items:
+                    await inventory_repository.atomic_release(product_id, quantity, inventory_id=inventory_id)
+                raise OrderCreationError("Insufficient AgriPoints balance. Refresh your points and try again.")
+            loyalty_debit_applied = True
+
+        try:
+            order_id = await order_repository.create_order(order_data)
+        except Exception:
+            order_id = None
+            logger.exception("Order creation failed after AgriPoints reservation")
         if not order_id:
-            import logging
-            logger = logging.getLogger(__name__)
+            if loyalty_debit_applied and loyalty_account:
+                await loyalty_account_repo.collection.update_one(
+                    {"_id": loyalty_account["_id"]},
+                    {"$inc": {"balance": loyalty_points_used}},
+                )
             logger.error(f"Failed to create order in database. order_data keys: {list(order_data.keys())}")
             for product_id, quantity, inventory_id in reserved_items:
                 try:
@@ -744,6 +789,20 @@ class OrderService:
                 except Exception:
                     logger.exception("Failed to release checkout reservation for %s", product_id)
             raise OrderCreationError("Failed to save order to database")
+
+        if loyalty_debit_applied:
+            try:
+                await loyalty_txn_repo.create({
+                    "userId": ObjectId(customer_id),
+                    "orderId": ObjectId(order_id),
+                    "type": "spend",
+                    "points": -loyalty_points_used,
+                    "balanceAfter": int(loyalty_account.get("balance") or 0) - loyalty_points_used,
+                    "reason": "checkout_discount",
+                    "description": f"Used {loyalty_points_used} AgriPoints for Rs {loyalty_discount:g} order discount",
+                })
+            except Exception:
+                logger.exception("Order %s created but AgriPoints ledger write failed", order_id)
 
         if selected_delivery_slot:
             # Link the confirmed checkout record to the published delivery batch.
