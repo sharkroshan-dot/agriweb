@@ -248,7 +248,7 @@ export default function CustomerRefundsPage() {
       </div>
 
       <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-        <Card className="min-w-0 overflow-hidden rounded-2xl border-slate-200/90 shadow-sm">
+        <Card className="min-w-0 overflow-hidden rounded-2xl border-slate-200/90 shadow-sm xl:-mt-[82px]">
           <CardContent className="p-0">
             <div className="flex flex-col gap-3 border-b border-slate-100 bg-slate-50/70 p-3 sm:flex-row sm:items-center sm:justify-between sm:px-4">
               <div className="flex flex-wrap items-center gap-1 rounded-full border border-slate-200 bg-white p-1 shadow-sm">
