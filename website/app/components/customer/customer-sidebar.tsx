@@ -21,6 +21,7 @@ import {
   Ticket,
   MessageSquare,
   User,
+  Settings,
   Truck,
   Leaf,
   Sparkles,
@@ -79,7 +80,7 @@ const navGroups = [
     label: "Account",
     items: [
       { name: "Profile", href: "/profile", icon: User },
-      { name: "Saved Addresses", href: "/profile/addresses", icon: MapPin },
+      { name: "Settings", href: "/settings", icon: Settings },
     ],
   },
 ];
