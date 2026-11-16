@@ -74,6 +74,12 @@ async def restore_points_for_cancelled_order(order: Dict[str, Any]) -> int:
 
     async with await MongoDB.client.start_session() as session:
         async with session.start_transaction():
+            spend = await txn_collection.find_one(
+                {"orderId": order_oid, "reason": "checkout_discount", "type": "spend"},
+                session=session,
+            )
+            if not spend:
+                return 0
             existing = await txn_collection.find_one(
                 {"orderId": order_oid, "reason": "order_cancel_reversal", "type": "reversal"},
                 session=session,
