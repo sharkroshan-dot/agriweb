@@ -43,7 +43,6 @@ export default function CartPage() {
   const total = useCartStore((state) => state.getTotal());
 
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
-  const [selectionInitialized, setSelectionInitialized] = useState(false);
   const [suggestions, setSuggestions] = useState<SuggestedProduct[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
 
@@ -56,13 +55,9 @@ export default function CartPage() {
   );
 
   useEffect(() => {
-    if (!selectionInitialized) {
-      setSelectedKeys(cartKeys);
-      setSelectionInitialized(true);
-      return;
-    }
+    // Keep existing selections only; newly added cart items remain unchecked.
     setSelectedKeys((current) => current.filter((key) => cartKeys.includes(key)));
-  }, [cartKeys, selectionInitialized]);
+  }, [cartKeys]);
 
   useEffect(() => {
     let active = true;
