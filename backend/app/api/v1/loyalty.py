@@ -1,7 +1,7 @@
 """Loyalty / AgriPoints program.
 
 Points are earned on delivered orders and behavior that improves logistics
-(pickup, community delivery, nearby farmer). Points can be redeemed for wallet
+(pickup, community delivery, nearby farmer). Customers apply points as discounts at checkout; they are not converted into wallet
 credit. All movements are recorded in an immutable-style ledger.
 
 Collections:
@@ -33,7 +33,7 @@ BASE_POINTS_PER_ORDER = 5
 BONUS_PICKUP = 10
 BONUS_COMMUNITY = 20
 BONUS_NEARBY = 5
-POINTS_PER_RS_REWARD = 100       # 500 points -> ₹5 wallet credit
+POINTS_PER_RS_REWARD = 100       # 100 points -> ₹1 checkout discount
 MAX_REDEEM_POINTS = 10000
 
 
@@ -138,15 +138,12 @@ async def get_my_points(current_user: dict = Depends(get_current_user)):
             "balance": int(account.get("balance") or 0),
             "lifetimeEarned": int(account.get("lifetimeEarned") or 0),
             "lifetimeSpent": int(account.get("lifetimeSpent") or 0),
-            "rewardValueRs": reward_rs,
-            "redeemablePoints": int(account.get("balance") or 0),
             "rules": {
                 "pointsPerRupee": POINTS_PER_RUPEE,
                 "basePointsPerOrder": BASE_POINTS_PER_ORDER,
                 "bonusPickup": BONUS_PICKUP,
                 "bonusCommunity": BONUS_COMMUNITY,
                 "bonusNearby": BONUS_NEARBY,
-                "pointsPerRsReward": POINTS_PER_RS_REWARD,
             },
             "transactions": txns,
             "count": len(txns),
@@ -163,6 +160,11 @@ async def redeem_points(
     data: RedeemRequest,
     current_user: dict = Depends(get_current_user),
 ):
+    raise HTTPException(
+        status_code=410,
+        detail="Wallet-credit redemption is no longer supported. Apply AgriPoints directly at checkout.",
+    )
+
     """Redeem AgriPoints for wallet credit."""
     if current_user.get("role") != "customer":
         raise HTTPException(status_code=403, detail="Only customers can redeem points")
