@@ -10,8 +10,6 @@ import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard,
   Search,
-  Bell,
-  Star,
   MapPin,
   Landmark,
   Globe,
@@ -75,9 +73,6 @@ const navGroups = [
     label: "Community & Support",
     items: [
       { name: "Messages", href: "/customer/messages", icon: MessageSquare },
-      { name: "Reviews", href: "/reviews", icon: Star },
-      { name: "Notifications", href: "/notifications", icon: Bell },
-      { name: "My Impact", href: "/impact", icon: Leaf },
     ],
   },
   {
