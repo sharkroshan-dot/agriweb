@@ -163,7 +163,7 @@ export default function CartPage() {
                     const key = `${item.id}::${item.variantId || "default"}`;
                     const checked = selectedKeys.includes(key);
                     return (
-                      <div key={key} className="grid grid-cols-[24px_76px_minmax(0,1fr)_auto] items-center gap-3 py-4 sm:grid-cols-[28px_112px_minmax(180px,1fr)_auto_auto_36px] sm:gap-4">
+                      <div key={key} className="grid grid-cols-[24px_76px_minmax(0,1fr)_auto] items-center gap-3 py-4 sm:grid-cols-[28px_112px_minmax(180px,1fr)_auto_auto_auto_36px] sm:gap-4">
                         <button type="button" role="checkbox" aria-checked={checked} aria-label={`Select ${item.name}`} onClick={() => toggleSelected(key)} className={cn("flex h-6 w-6 items-center justify-center rounded-md border-2 transition", checked ? "border-emerald-700 bg-emerald-700 text-white" : "border-slate-300 bg-white")}>{checked && <Check className="h-4 w-4" />}</button>
                         <div className="relative h-[68px] w-[76px] overflow-hidden rounded-xl bg-slate-50 sm:h-[88px] sm:w-28">
                           <Image src={imageFor(item.image)} alt={item.name} fill sizes="(max-width: 640px) 76px, 112px" className="object-contain p-1" unoptimized />
