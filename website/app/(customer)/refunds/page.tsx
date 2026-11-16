@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -180,6 +180,18 @@ export default function CustomerRefundsPage() {
       return matchesTab && matchesSearch && matchesPeriod;
     });
   }, [refunds, search, tab, period]);
+
+  useEffect(() => {
+    if (isLoading || period === "all" || refunds.length === 0) return;
+    const cutoff = Date.now() - Number(period) * 86400000;
+    const hasRequestsInRange = refunds.some(item => {
+      const timestamp = toTimestamp(item.requestedAt);
+      return !timestamp || timestamp >= cutoff;
+    });
+    // If the account has history but none falls inside the selected range,
+    // switch to All Time rather than leaving the transaction table misleadingly empty.
+    if (!hasRequestsInRange) setPeriod("all");
+  }, [isLoading, period, refunds]);
 
   const totalRefunded = refunds.filter(item => item.status === "refunded").reduce((sum, item) => sum + item.amount, 0);
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
