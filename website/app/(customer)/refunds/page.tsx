@@ -175,7 +175,7 @@ export default function CustomerRefundsPage() {
   ];
 
   return (
-    <div className="space-y-4 p-4 sm:space-y-5 sm:p-5 lg:p-6">
+    <div className="space-y-4 p-3 sm:space-y-5 sm:p-4 lg:p-5">
       <header className="relative isolate flex min-h-[150px] items-center overflow-hidden rounded-2xl border border-slate-100 bg-white px-5 py-5 shadow-sm sm:min-h-[158px] sm:px-7">
         <div className="pointer-events-none absolute inset-0 z-0" aria-hidden="true">
           <img src="/images/refunds-returns-banner.svg" alt="" className="h-full w-full object-cover object-center" />
@@ -263,7 +263,7 @@ export default function CustomerRefundsPage() {
             ) : (
               <>
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[980px] border-collapse text-left text-xs">
+                  <table className="w-full min-w-[1000px] border-collapse text-left text-xs">
                     <thead><tr className="bg-slate-100 text-slate-800">
                       {["Request ID", "Order ID", "Product", "Request Type", "Amount", "Request Date", "Status", "Actions"].map(label =>
                         <th key={label} className="whitespace-nowrap px-3 py-3 font-extrabold">{label}</th>
@@ -278,8 +278,13 @@ export default function CustomerRefundsPage() {
                             <td className="whitespace-nowrap px-3 py-3">
                               {item.orderId ? <Link href={`/orders/${item.orderId}`} className="font-bold text-blue-900 hover:text-emerald-700">{item.orderNumber}</Link> : <span className="font-semibold text-slate-700">{item.orderNumber}</span>}
                             </td>
-                            <td className="px-3 py-3">
-                              <div className="max-w-[155px]"><p className="truncate font-bold text-slate-900">{item.product}</p>{item.quantity && <p className="text-slate-500">Qty: {item.quantity}</p>}</div>
+                            <td className="px-3 py-2.5">
+                              <div className="flex min-w-[125px] items-center gap-2">
+                                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-xl" aria-hidden="true">
+                                  {/(tomato)/i.test(item.product) ? "🍅" : /(spinach|greens|leaf)/i.test(item.product) ? "🥬" : /(carrot)/i.test(item.product) ? "🥕" : /(potato)/i.test(item.product) ? "🥔" : /(onion)/i.test(item.product) ? "🧅" : "🥦"}
+                                </span>
+                                <span className="min-w-0"><p className="max-w-[110px] truncate font-bold text-slate-900">{item.product}</p>{item.quantity && <p className="text-slate-500">({item.quantity})</p>}</span>
+                              </div>
                             </td>
                             <td className="whitespace-nowrap px-3 py-3">
                               <span className="inline-flex items-center gap-2 font-semibold text-slate-800">
@@ -322,7 +327,7 @@ export default function CustomerRefundsPage() {
               <div className="flex items-center gap-2"><span className="rounded-full bg-emerald-100 p-2 text-emerald-700"><ArrowLeftRight className="h-5 w-5" /></span><h2 className="font-extrabold text-slate-950">Return &amp; Refund Process</h2></div>
               <div className="mt-4 space-y-4">
                 <div className="flex gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><Package className="h-5 w-5" /></span><div><p className="text-sm font-bold text-slate-900">Raise Request</p><p className="text-xs leading-4 text-slate-600">Select the order and reason for return or refund.</p></div></div>
-                <div className="ml-4 h-3 border-l-2 border-dashed border-emerald-300" />
+                <div className="ml-[17px] h-3 border-l-2 border-emerald-300" />
                 <div className="flex gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><Truck className="h-5 w-5" /></span><div><p className="text-sm font-bold text-slate-900">Pickup / Verification</p><p className="text-xs leading-4 text-slate-600">Product pickup (if required) and quality check.</p></div></div>
                 <div className="ml-4 h-3 border-l-2 border-dashed border-emerald-300" />
                 <div className="flex gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><CircleDollarSign className="h-5 w-5" /></span><div><p className="text-sm font-bold text-slate-900">Refund Processing</p><p className="text-xs leading-4 text-slate-600">Approved refunds are credited to the original payment method or wallet.</p></div></div>
