@@ -36,10 +36,12 @@ const statusMeta: Record<string, { label: string; className: string }> = {
   requested: { label: "Requested", className: "border-slate-200 bg-slate-100 text-slate-700" },
   under_review: { label: "Under Review", className: "border-amber-200 bg-amber-100 text-amber-800" },
   approved: { label: "Approved", className: "border-emerald-200 bg-emerald-100 text-emerald-800" },
-  refund_processing: { label: "Refund in Progress", className: "border-amber-200 bg-amber-100 text-amber-800" },\n  refund_in_progress: { label: "Refund in Progress", className: "border-amber-200 bg-amber-100 text-amber-800" },
+  refund_processing: { label: "Refund in Progress", className: "border-amber-200 bg-amber-100 text-amber-800" },
+  refund_in_progress: { label: "Refund in Progress", className: "border-amber-200 bg-amber-100 text-amber-800" },
   refunded: { label: "Refunded", className: "border-emerald-200 bg-emerald-100 text-emerald-800" },
   rejected: { label: "Rejected", className: "border-rose-200 bg-rose-100 text-rose-800" },
-  return_received: { label: "Return Received", className: "border-sky-200 bg-sky-100 text-sky-800" },\n  returned: { label: "Return Received", className: "border-sky-200 bg-sky-100 text-sky-800" },
+  return_received: { label: "Return Received", className: "border-sky-200 bg-sky-100 text-sky-800" },
+  returned: { label: "Return Received", className: "border-sky-200 bg-sky-100 text-sky-800" },
   not_applicable: { label: "Not Applicable", className: "border-slate-200 bg-slate-100 text-slate-600" },
 };
 
