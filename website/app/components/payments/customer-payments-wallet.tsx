@@ -232,7 +232,7 @@ export default function CustomerPaymentsWallet() {
         </div>
         <Button variant="outline" size="sm" className="ml-auto shrink-0 bg-white/95 shadow-sm" onClick={refresh}><RefreshCw className="mr-2 h-4 w-4"/>Refresh</Button>
       </div>
-    </header>>
+    </header>
 
     <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[1.65fr_1fr_1fr_1fr]">
       <Card className="overflow-hidden border-emerald-800 bg-gradient-to-br from-emerald-700 via-emerald-600 to-green-500 text-white shadow-md">
