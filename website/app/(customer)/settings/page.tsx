@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import {
-  Bell, ShieldCheck, LockKeyhole, SlidersHorizontal, CreditCard, UserRound,
+  Bell, ShieldCheck, LockKeyhole, SlidersHorizontal, CreditCard, User,
   ChevronRight, Loader2, Save, KeyRound, Package, Truck, WalletCards,
   RotateCcw, Tag, MessageSquare, Mail, Smartphone, Sun, Moon, Monitor,
   Send, Database, Eye, Download, PauseCircle, Trash2, Settings2, CheckCircle2,
@@ -128,7 +128,7 @@ export default function CustomerSettingsPage() {
             { href: "#privacy", label: "Privacy", icon: LockKeyhole },
             { href: "#preferences", label: "Preferences", icon: SlidersHorizontal },
             { href: "#payments", label: "Payment Settings", icon: CreditCard },
-            { href: "#account", label: "Account Management", icon: UserRound },
+            { href: "#account", label: "Account Management", icon: User },
           ].map(({ href, label, icon: Icon }, index) => (
             <a key={href} href={href} className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold transition hover:bg-emerald-50 hover:text-emerald-800 ${index === 0 ? "bg-emerald-100 text-emerald-800" : "text-slate-700"}`}>
               <Icon className="h-5 w-5" />{label}
@@ -207,9 +207,9 @@ export default function CustomerSettingsPage() {
         </section>
 
         <section id="account" className={panelClass + " scroll-mt-5 p-4"}>
-          <div className="mb-3 flex items-center gap-3 border-b border-slate-100 pb-3"><div className={iconBubble}><UserRound className="h-5 w-5" /></div><div><h2 className="text-lg font-bold text-slate-950">Account Management</h2><p className="text-xs text-slate-600">Manage your account and related services.</p></div></div>
+          <div className="mb-3 flex items-center gap-3 border-b border-slate-100 pb-3"><div className={iconBubble}><User className="h-5 w-5" /></div><div><h2 className="text-lg font-bold text-slate-950">Account Management</h2><p className="text-xs text-slate-600">Manage your account and related services.</p></div></div>
           <div className="space-y-3">
-            <Link href="/profile" className="flex items-center gap-3"><div className={iconBubble}><UserRound className="h-5 w-5" /></div><div className="flex-1"><p className="text-sm font-bold">Personal Information</p><p className="text-xs text-slate-600">Update your profile and saved addresses.</p></div><ChevronRight className="h-4 w-4 text-slate-400" /></Link>
+            <Link href="/profile" className="flex items-center gap-3"><div className={iconBubble}><User className="h-5 w-5" /></div><div className="flex-1"><p className="text-sm font-bold">Personal Information</p><p className="text-xs text-slate-600">Update your profile and saved addresses.</p></div><ChevronRight className="h-4 w-4 text-slate-400" /></Link>
             <Link href="/payments" className="flex items-center gap-3 border-t border-slate-100 pt-3"><div className={iconBubble}><CreditCard className="h-5 w-5" /></div><div className="flex-1"><p className="text-sm font-bold">Payment Settings</p><p className="text-xs text-slate-600">View payments, wallet and transaction history.</p></div><ChevronRight className="h-4 w-4 text-slate-400" /></Link>
             <div className="flex items-center gap-3 border-t border-slate-100 pt-3"><div className={iconBubble}><PauseCircle className="h-5 w-5" /></div><div className="flex-1"><p className="text-sm font-bold">Deactivate / Delete Account</p><p className="text-xs text-slate-600">Contact support to request account closure.</p></div><span className="text-[10px] text-slate-500">Support</span></div>
           </div>
