@@ -65,6 +65,8 @@ export default function CustomerSettingsPage() {
     const saved = settingsData?.data;
     if (saved?.notifications) {
       setNotifications((current) => ({ ...current, ...saved.notifications }));
+      setLanguage(saved.preferences?.language || "en");
+      setTheme(saved.preferences?.theme || "system");
     }
   }, [settingsData?.data]);
 
