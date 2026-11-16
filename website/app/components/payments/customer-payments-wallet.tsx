@@ -222,11 +222,6 @@ export default function CustomerPaymentsWallet() {
         <img src="/images/payments-wallet-banner.svg" alt="" className="h-full w-full object-cover object-center opacity-100"/>
         <div className="absolute inset-0 bg-gradient-to-r from-white via-white/95 via-[35%] to-white/0 to-[66%]"/>
       </div>
-      <div className="absolute left-5 top-3 z-10 flex items-center gap-2 text-sm text-slate-700 sm:left-7">
-        <span className="inline-flex items-center gap-2 font-semibold text-blue-700"><span className="text-lg">⌂</span>Home</span>
-        <span className="text-blue-500">›</span>
-        <span className="font-bold text-slate-950">Payments &amp; Wallet</span>
-      </div>
       <div className="relative z-10 flex w-full items-center gap-4 sm:gap-5">
         <span className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
           <Wallet className="h-11 w-11"/>
