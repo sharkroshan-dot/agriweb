@@ -32,7 +32,6 @@ BASE_POINTS_PER_ORDER = 5
 BONUS_PICKUP = 10
 BONUS_COMMUNITY = 20
 BONUS_NEARBY = 5
-POINTS_PER_RS_REWARD = 100       # 100 points -> ₹1 checkout discount
 MAX_REDEEM_POINTS = 10000
 
 
@@ -130,7 +129,6 @@ async def get_my_points(current_user: dict = Depends(get_current_user)):
     for t in txns:
         _serialize_txn(t)
 
-    reward_rs = int((account.get("balance") or 0) / POINTS_PER_RS_REWARD)
     return {
         "success": True,
         "data": {
