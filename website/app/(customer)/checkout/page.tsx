@@ -320,7 +320,7 @@ export default function CheckoutPage() {
 
   const handleAddAddress = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!addrForm.address_line1.trim() || !addrForm.city.trim() || !addrForm.state.trim() || !/^\\d{6}$/.test(addrForm.zip_code.trim())) {
+    if (!addrForm.address_line1.trim() || !addrForm.city.trim() || !addrForm.state.trim() || !/^\d{6}$/.test(addrForm.zip_code.trim())) {
       toast.error("Enter the address, city, state and a valid 6-digit PIN code.");
       return;
     }
@@ -501,7 +501,7 @@ export default function CheckoutPage() {
     }
 
     const selectedAddress = addresses.find((a) => a.id === addressId);
-    if (selectedAddress && !/^\\d{6}$/.test(selectedAddress.zip_code.trim())) {
+    if (selectedAddress && !/^\d{6}$/.test(selectedAddress.zip_code.trim())) {
       toast.error("Please select an address with a valid 6-digit PIN code.");
       return;
     }
