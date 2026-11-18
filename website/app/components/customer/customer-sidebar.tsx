@@ -9,7 +9,6 @@ import { useSession } from "next-auth/react";
 import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard,
-  Search,
   MapPin,
   Landmark,
   Globe,
@@ -46,7 +45,6 @@ const navGroups = [
     label: "Discover & Shop",
     items: [
       { name: "Marketplace", href: "/marketplace", icon: ShoppingCart },
-      { name: "Search Products", href: "/search", icon: Search },
       { name: "Trace a Lot", href: "/trace", icon: ShieldCheck },
     ],
   },
