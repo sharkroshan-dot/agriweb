@@ -153,9 +153,23 @@ export default function CheckoutPage() {
     enabled: status === "authenticated",
     staleTime: 60_000,
   });
-  const profile = profileData?.data || profileData || {};
-  const profileUser = profile.user || profile;
-  const profilePhone = String(profileUser.phone || profileUser.phone_number || profileUser.phoneNumber || "").trim();
+  // The /users/me profile endpoint returns the customer record under "user".
+  // Support both the normalized API response and older nested response envelopes.
+  const profilePayload = profileData?.data ?? profileData ?? {};
+  const profileUser =
+    profilePayload?.user ??
+    profileData?.user ??
+    profilePayload?.profile ??
+    profileData?.profile ??
+    profilePayload;
+  const profilePhone = String(
+    profileUser?.phone ??
+    profileUser?.phone_number ??
+    profileUser?.phoneNumber ??
+    profilePayload?.phone ??
+    profileData?.phone ??
+    ""
+  ).trim();
 
 
   const { data: walletInfoData } = useQuery({
@@ -506,8 +520,14 @@ export default function CheckoutPage() {
       return;
     }
     const primaryContact = selectedAddress?.phone_number?.trim() || profilePhone;
-    if (!primaryContact || !/^\\+?[0-9\\s-]{10,15}$/.test(primaryContact)) {
-      toast.error("A valid primary phone number is required. Update it in your profile or delivery address.");
+    const primaryContactDigits = primaryContact.replace(/\\D/g, "");
+    if (
+      !primaryContact ||
+      !/^[+0-9\\s()-]+$/.test(primaryContact) ||
+      primaryContactDigits.length < 10 ||
+      primaryContactDigits.length > 15
+    ) {
+      toast.error("A valid primary phone number is required. Your profile number is filled automatically; you can change it in the delivery address form.");
       return;
     }
     if (selectedAddress && !selectedAddress.phone_number?.trim()) {
