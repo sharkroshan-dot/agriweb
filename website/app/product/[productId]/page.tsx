@@ -342,7 +342,7 @@ export default function ProductDetailPage() {
   ] as const;
 
   return (
-    <div className="role-workspace role-customer mx-auto w-full max-w-screen-2xl space-y-5 px-3 py-4 sm:px-5 lg:px-7">
+    <div className="role-workspace role-customer mx-auto w-full max-w-[1720px] space-y-4 px-3 py-4 sm:px-5 lg:px-6 2xl:px-8">
       <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-2 text-sm text-slate-500">
         <Link href="/" className="font-medium hover:text-emerald-700">Home</Link>
         <span>›</span>
@@ -353,12 +353,12 @@ export default function ProductDetailPage() {
         <span className="max-w-[220px] truncate font-semibold text-slate-800">{product.name}</span>
       </nav>
 
-      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_370px]">
-        <Card className="overflow-hidden rounded-2xl border border-slate-200/80 shadow-sm">
+      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_390px] 2xl:gap-5">
+        <Card className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_4px_18px_rgba(15,23,42,0.07)]">
           <CardContent className="p-3 sm:p-4 lg:p-5">
-            <div className="grid gap-6 xl:grid-cols-[minmax(0,1.08fr)_minmax(0,.92fr)]">
+            <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.08fr)_minmax(0,.92fr)] 2xl:gap-7">
               <section className="min-w-0">
-                <div className="group relative aspect-[1.12/1] overflow-hidden rounded-2xl bg-slate-100">
+                <div className="group relative aspect-[1.5/1] max-h-[520px] overflow-hidden rounded-2xl bg-slate-100">
                   <img
                     src={displayImages[Math.min(selectedImageIndex, displayImages.length - 1)]}
                     alt={product.name}
@@ -390,9 +390,9 @@ export default function ProductDetailPage() {
                   </span>
                 </div>
                 {displayImages.length > 1 && (
-                  <div className="mt-3 grid grid-cols-5 gap-2">
+                  <div className="mt-3 grid grid-cols-5 gap-2.5">
                     {displayImages.slice(0, 5).map((image, index) => (
-                      <button key={image + index} type="button" onClick={() => setSelectedImageIndex(index)} className={cn("aspect-square overflow-hidden rounded-xl border-2 bg-slate-50 transition", selectedImageIndex === index ? "border-emerald-600 ring-2 ring-emerald-100" : "border-transparent hover:border-emerald-200")}>
+                      <button key={image + index} type="button" onClick={() => setSelectedImageIndex(index)} className={cn("aspect-[1.25/1] overflow-hidden rounded-xl border-2 bg-slate-50 transition", selectedImageIndex === index ? "border-emerald-600 ring-2 ring-emerald-100" : "border-transparent hover:border-emerald-200")}>
                         <img src={image} alt={`${product.name} view ${index + 1}`} className="h-full w-full object-cover" onError={(e) => { (e.currentTarget as HTMLImageElement).src = "/images/placeholder-product.jpg"; }} />
                       </button>
                     ))}
@@ -400,15 +400,15 @@ export default function ProductDetailPage() {
                 )}
               </section>
 
-              <section className="flex min-w-0 flex-col">
+              <section className="flex min-w-0 flex-col xl:pt-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge className="border-0 bg-emerald-100 text-emerald-800 hover:bg-emerald-100">Farm fresh</Badge>
                   {product.isOrganic && <Badge className="border-0 bg-green-100 text-green-800 hover:bg-green-100">Organic</Badge>}
                   {product.isPesticideFree && <Badge className="border-0 bg-green-100 text-green-800 hover:bg-green-100">Pesticide free</Badge>}
                   {product.isChemicalFree && <Badge className="border-0 bg-green-100 text-green-800 hover:bg-green-100">Chemical free</Badge>}
                 </div>
-                <h1 className="mt-3 text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">{product.name}</h1>
-                <p className="mt-2 text-sm leading-6 text-slate-600">{product.description}</p>
+                <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl">{product.name}</h1>
+                <p className="mt-2 text-sm leading-6 text-slate-600 sm:text-base">{product.description}</p>
 
                 <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
                   <span className="inline-flex items-center gap-1.5 font-semibold text-slate-900">
@@ -419,7 +419,7 @@ export default function ProductDetailPage() {
                   {product.purchaseCount ? <span className="text-slate-500">{Number(product.purchaseCount).toLocaleString()}+ bought</span> : null}
                 </div>
 
-                <div className="mt-5 rounded-2xl border border-emerald-100 bg-gradient-to-r from-emerald-50 to-green-50 p-4">
+                <div className="mt-4 rounded-2xl border border-emerald-100 bg-gradient-to-r from-emerald-50 to-green-50 p-4 sm:p-5">
                   <div className="flex flex-wrap items-center gap-3">
                     <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-white bg-white shadow-sm">
                       {farmerAvatar ? <img src={farmerAvatar} alt={product.farmerName || "Farmer"} className="h-full w-full object-cover" /> : <Store className="h-6 w-6 text-emerald-700" />}
@@ -437,7 +437,7 @@ export default function ProductDetailPage() {
                 </div>
 
                 <div className="mt-5">
-                  <h2 className="text-base font-bold text-slate-900">Product Highlights</h2>
+                  <h2 className="text-lg font-bold text-slate-950">Key Highlights</h2>
                   <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
                     {[
                       ["🌱", "Farm sourced"],
@@ -465,7 +465,7 @@ export default function ProductDetailPage() {
         </Card>
 
         <aside className="space-y-4">
-          <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
+          <Card className="rounded-2xl border border-slate-200/80 bg-white shadow-[0_4px_18px_rgba(15,23,42,0.07)]">
             <CardContent className="space-y-4 p-4 sm:p-5">
               <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
                 <div className="flex items-center justify-between gap-3 text-sm">
@@ -540,11 +540,11 @@ export default function ProductDetailPage() {
           <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
             <CardContent className="p-4">
               <div className="flex items-center justify-between gap-2">
-                <h2 className="text-lg font-bold text-slate-900">Explore More Products</h2>
+                <h2 className="text-lg font-bold text-slate-900">Similar Products</h2>
                 <Link href="/marketplace" className="text-sm font-semibold text-emerald-700 hover:underline">View all →</Link>
               </div>
-              <p className="mt-2 text-sm text-slate-600">Discover seasonal vegetables and fresh produce from farmers in the marketplace.</p>
-              <Link href="/marketplace" className="mt-3 inline-flex w-full items-center justify-center rounded-xl bg-emerald-700 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-800">Browse Marketplace</Link>
+              <p className="mt-2 text-sm text-slate-600">Discover more fresh produce from farmers in the marketplace.</p>
+              <Link href="/marketplace" className="mt-3 inline-flex w-full items-center justify-center rounded-xl bg-emerald-700 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-800">View All Products →</Link>
             </CardContent>
           </Card>
         </aside>
