@@ -524,6 +524,8 @@ class OrderService:
                 "state": address.get("state", ""),
                 "zipCode": address.get("zip_code") or address.get("zipCode", ""),
                 "country": address.get("country", ""),
+                "phoneNumber": address.get("phone_number") or address.get("phoneNumber") or "",
+                "alternativePhoneNumber": address.get("alternative_phone_number") or address.get("alternativePhoneNumber") or "",
                 "location": location
             }
         
