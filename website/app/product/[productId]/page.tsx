@@ -99,6 +99,16 @@ export default function ProductDetailPage() {
     queryFn: () => api.get(`/products/${productId}`),
   });
 
+  // Load marketplace products independently of the current product payload.
+  // The product endpoint does not guarantee an embedded similarProducts array.
+  const { data: relatedProductsData } = useQuery({
+    queryKey: ["productRecommendations", productId],
+    queryFn: () => api.get("/products/search", {
+      params: { limit: 24, sortBy: "createdAt", sortOrder: "desc" },
+    }),
+    staleTime: 60_000,
+  });
+
   useEffect(() => {
     if (typeof window !== "undefined" && navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
@@ -362,9 +372,25 @@ export default function ProductDetailPage() {
   const farmerPhone = product.farmerPhone || product.farmerContactNumber || product.farmerMobile || farmerProfile.phone || farmerProfile.phoneNumber || farmerProfile.mobile || farmerProfile.mobileNumber || farmerProfile.contactNumber || farmerProfile.contact_number || farmProfile.phone || farmProfile.contactNumber || product.contactNumber || product.phone || "";
   const farmerMemberSince = product.farmer?.createdAt || product.farmer?.joinedAt || product.farmer?.memberSince || product.farmerCreatedAt || "";
   const farmerProducts = product.farmer?.products || product.farmerProducts || product.otherProductsFromFarmer || [];
-  const otherFarmerProducts = Array.isArray(farmerProducts)
-    ? farmerProducts.filter((item: any) => String(item.id || item._id || item.productId || "") !== String(product.id || product._id || productId)).slice(0, 3)
-    : [];
+  const currentProductId = String(product.id || product._id || productId);
+  const embeddedFarmerProducts = Array.isArray(farmerProducts) ? farmerProducts : [];
+  const marketplaceProducts = relatedProductsData?.data?.products || relatedProductsData?.products || relatedProductsData?.data?.items || relatedProductsData?.items || [];
+  const recommendationPool = Array.isArray(product.similarProducts) && product.similarProducts.length
+    ? product.similarProducts
+    : [...embeddedFarmerProducts, ...(Array.isArray(marketplaceProducts) ? marketplaceProducts : [])];
+  const uniqueRecommendations = recommendationPool.filter((item: any, index: number, items: any[]) => {
+    const itemId = String(item.id || item._id || item.productId || "");
+    return itemId && itemId !== currentProductId &&
+      items.findIndex((candidate: any) => String(candidate.id || candidate._id || candidate.productId || "") === itemId) === index;
+  });
+  const currentCategory = String(product.category?.name || product.categoryName || product.category || "").toLowerCase();
+  const sameCategoryRecommendations = uniqueRecommendations.filter((item: any) =>
+    String(item.category?.name || item.categoryName || item.category || "").toLowerCase() === currentCategory
+  );
+  const similarProducts = (sameCategoryRecommendations.length ? sameCategoryRecommendations : uniqueRecommendations).slice(0, 3);
+  const otherFarmerProducts = embeddedFarmerProducts
+    .filter((item: any) => String(item.id || item._id || item.productId || "") !== currentProductId)
+    .slice(0, 3);
 
   // If the listing contains GPS only, resolve it to a customer-readable place
   // name. Never render raw latitude/longitude as the farm address.
@@ -868,9 +894,7 @@ export default function ProductDetailPage() {
                 <Link href="/marketplace" className="text-sm font-semibold text-emerald-700 hover:underline">View all →</Link>
               </div>
               <div className="mt-3 space-y-3">
-                {(Array.isArray(product.similarProducts) && product.similarProducts.length
-                  ? product.similarProducts
-                  : otherFarmerProducts).slice(0, 2).map((item: any, index: number) => {
+                {similarProducts.slice(0, 3).map((item: any, index: number) => {
                   const itemId = item.id || item._id || item.productId;
                   const itemImage = item.images?.[0] || item.image || "/images/placeholder-product.jpg";
                   return (
@@ -885,6 +909,13 @@ export default function ProductDetailPage() {
                     </Link>
                   );
                 })}
+                {similarProducts.length === 0 && (
+                  <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-5 text-center">
+                    <Store className="mx-auto h-6 w-6 text-emerald-600" />
+                    <p className="mt-2 text-sm font-semibold text-slate-700">No similar products available yet</p>
+                    <p className="mt-1 text-xs text-slate-500">Explore the marketplace to discover more fresh produce.</p>
+                  </div>
+                )}
                 <Link href="/marketplace" className="inline-flex w-full items-center justify-center rounded-xl border border-emerald-200 px-4 py-2.5 text-sm font-semibold text-emerald-800 hover:bg-emerald-50">View All Products →</Link>
               </div>
             </CardContent>
