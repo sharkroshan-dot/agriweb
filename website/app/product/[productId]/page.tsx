@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 
 
-import { Star, ShoppingCart, ArrowLeft, MapPin, Bell, AlertCircle, Package, Minus, Plus, Store, Truck, LogIn, Heart, Phone, Leaf, ShieldCheck, Layers, RotateCcw, UserRound, CheckCircle2 } from "lucide-react";
+import { Star, ShoppingCart, ArrowLeft, MapPin, Bell, AlertCircle, Package, Minus, Plus, Store, Truck, LogIn, Heart, Phone, Leaf, ShieldCheck, CheckCircle2 } from "lucide-react";
 import Link from "next/link";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent } from "../../components/ui/card";
@@ -542,10 +542,13 @@ export default function ProductDetailPage() {
             <CardContent className="p-4">
               <div className="flex items-center justify-between gap-2">
                 <h2 className="text-lg font-bold text-slate-900">Similar Products</h2>
-                <Link href="/marketplace" className="text-sm font-semibold text-emerald-700 hover:underline">View all →</Link>
-              </div>
-              <p className="mt-2 text-sm text-slate-600">Discover more fresh produce from farmers in the marketplace.</p>
-              <Link href="/marketplace" classNa      <div className="space-y-5">
+                <Link href="/marketplace" className="mt-3 inline-flex w-full items-center justify-center rounded-xl bg-emerald-700 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-800">View All Products →</Link>
+            </CardContent>
+          </Card>
+        </aside>
+      </div>
+
+      <div className="space-y-5">
         <nav aria-label="Product information sections" className="sticky top-2 z-20 grid grid-cols-2 gap-1 rounded-2xl border border-slate-200 bg-white/95 p-1.5 shadow-md backdrop-blur sm:grid-cols-3 lg:grid-cols-5">
           {tabs.map((tab) => (
             <button key={tab.id} type="button" onClick={() => { setActiveTab(tab.id); document.getElementById(`product-section-${tab.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" }); }} className={cn("min-h-11 rounded-xl px-2 py-2 text-xs font-semibold transition sm:text-sm", activeTab === tab.id ? "bg-emerald-700 text-white shadow-sm" : "text-slate-700 hover:bg-emerald-50 hover:text-emerald-800")}>{tab.label}</button>
@@ -578,7 +581,7 @@ export default function ProductDetailPage() {
                 {[
                   ["Product Name", product.name], ["Category", categoryLabel], ["Unit", unit],
                   ["Price", `${formatPrice(effectivePrice)} / ${unit}`], ["Available Quantity", `${available} ${unit}`],
-                  ["Minimum Order", product.minBulkQty ? `${product.minBulkQty} ${unit}` : "1 ${unit}"],
+                  ["Minimum Order", product.minBulkQty ? `${product.minBulkQty} ${unit}` : `1 ${unit}`],
                   ["Harvest Status", product.harvestStatus || (product.isPreHarvest ? "Pre-harvest" : "Harvested")],
                   ["Packaging", product.packagingType || product.packaging || "Farm packed"],
                 ].map(([label, value]) => <div key={label} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] overflow-hidden rounded-lg border border-slate-200 text-sm"><dt className="bg-slate-50 px-3 py-2 font-medium text-slate-600">{label}</dt><dd className="px-3 py-2 font-semibold text-slate-800">{value}</dd></div>)}
