@@ -702,11 +702,6 @@ export default function ProductDetailPage() {
                       {product.pickupAvailable && <div className="rounded-xl bg-amber-50 p-3 text-sm text-amber-800"><p className="font-bold"><Store className="mr-1 inline h-4 w-4" />Farm Pickup Available</p><p className="mt-1">{product.pickupInstructions || "Contact the farmer to confirm pickup arrangements."}</p></div>}
                     </div>
                   </section>
-        </div>
-
-
-
-
                   <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:p-5">
                     <h3 className="flex items-center gap-2 text-lg font-bold text-slate-900"><ShieldCheck className="h-5 w-5 text-emerald-700" />Returns & Refunds</h3>
                     <div className="mt-4 space-y-3 text-sm leading-6 text-slate-600">
