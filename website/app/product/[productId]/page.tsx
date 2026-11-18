@@ -20,6 +20,39 @@ import { isListingPath } from "../../lib/utils/listing-routes";
 import { formatPrice, haversineDistance, cn } from "../../lib/utils";
 import toast from "react-hot-toast";
 
+// Prefer registered farm address fields; never expose raw GPS coordinates as a
+// customer-facing location. Coordinates are useful for maps, not address labels.
+function readableFarmLocation(product: any): string {
+  const farmer = product?.farmer || product?.farmerProfile || {};
+  const farm = product?.farm || product?.farmDetails || {};
+  const candidates = [
+    product?.farmAddress,
+    product?.farmerAddress,
+    product?.location?.address,
+    farmer?.farmAddress,
+    farmer?.address,
+    farm?.address,
+  ];
+  const isCoordinates = (value: unknown) =>
+    typeof value === "string" &&
+    /^\\s*-?\\d{1,3}(?:\\.\\d+)?\\s*,\\s*-?\\d{1,3}(?:\\.\\d+)?\\s*$/.test(value);
+  const address = candidates.find((value) => typeof value === "string" && value.trim() && !isCoordinates(value));
+  if (address) return address.trim();
+
+  const parts = [
+    farmer?.village, farmer?.farmVillage, farm?.village, product?.farmVillage,
+    farmer?.town, farmer?.city, farm?.town, farm?.city, product?.city,
+    farmer?.taluk, farmer?.farmTaluk, farm?.taluk,
+    farmer?.district, farm?.district, product?.district,
+    farmer?.state, farm?.state, product?.state,
+  ].filter((value, index, values) =>
+    typeof value === "string" && value.trim() &&
+    values.findIndex((item) => String(item).trim().toLowerCase() === value.trim().toLowerCase()) === index
+  );
+  return parts.join(", ");
+}
+
+
 const fallbackProducts: Record<string, any> = {
   "tomatoes-01": { name: "Organic Tomatoes", price: 35, unit: "kg", description: "Fresh tomatoes sourced from nearby farms.", rating: 4.7, farmerName: "Annur Fresh Basket", image: "/images/placeholder-product.jpg" },
   "oranges-02": { name: "Sweet Oranges", price: 120, unit: "kg", description: "Juicy oranges picked for same-day delivery.", rating: 4.8, farmerName: "Pollachi Organic Farm", image: "/images/placeholder-product.jpg" },
@@ -318,9 +351,14 @@ export default function ProductDetailPage() {
       : categoryValue && typeof categoryValue === "object"
         ? categoryValue.name || categoryValue.slug || "Not specified"
         : "Not specified";
-  const farmerLocation = product.farmAddress || product.location?.address || product.farmerAddress || "";
+  const farmerLocation = readableFarmLocation(product);
   const farmerAvatar = product.farmerAvatar || product.farmer?.avatar || product.farmer?.profileImage || "";
-  const farmerPhone = product.farmerPhone || product.farmer?.phone || product.farmer?.phoneNumber || product.farmer?.contactNumber || product.contactNumber || product.phone || "";
+  const farmerPhone = product.farmerPhone || product.farmer?.phone || product.farmer?.phoneNumber || product.farmer?.contactNumber || product.farmer?.contact_number || product.contactNumber || product.phone || "";
+  const farmerMemberSince = product.farmer?.createdAt || product.farmer?.joinedAt || product.farmer?.memberSince || product.farmerCreatedAt || "";
+  const farmerProducts = product.farmer?.products || product.farmerProducts || product.otherProductsFromFarmer || [];
+  const otherFarmerProducts = Array.isArray(farmerProducts)
+    ? farmerProducts.filter((item: any) => String(item.id || item._id || item.productId || "") !== String(product.id || product._id || productId)).slice(0, 3)
+    : [];
 
   if (isLoading) {
     return (
@@ -733,37 +771,68 @@ export default function ProductDetailPage() {
               <div>
                 <p className="text-xs font-bold uppercase tracking-[0.16em] text-emerald-700">Meet the grower</p>
                 <h2 className="mt-1 text-2xl font-extrabold text-slate-950">Farmer Details</h2>
-                <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(260px,.9fr)]">
-                  <section className="rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50 to-white p-5">
-                    <div className="flex flex-wrap items-center gap-4">
-                      <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-white bg-white shadow">{farmerAvatar ? <img src={farmerAvatar} alt={product.farmerName || "Farmer"} className="h-full w-full object-cover" /> : <Store className="h-8 w-8 text-emerald-700" />}</div>
+                <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(300px,.85fr)]">
+                  <section className="rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm sm:p-5">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full border border-emerald-100 bg-emerald-50">
+                        {farmerAvatar ? <img src={farmerAvatar} alt={product.farmerName || "Farmer"} className="h-full w-full object-cover" /> : <Store className="h-7 w-7 text-emerald-700" />}
+                      </div>
                       <div className="min-w-0 flex-1">
-                        <p className="text-xl font-extrabold text-slate-950">{product.farmerName || product.farmer?.name || "Local Farmer"}</p>
-                        <p className="mt-1 text-sm font-semibold text-emerald-700">{product.farmerVerified ? "✓ Verified Farmer" : "Farm Supplier"}</p>
-                        {farmerLocation && <p className="mt-2 flex items-start gap-2 text-sm text-slate-600"><MapPin className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />{farmerLocation}</p>}
+                        <p className="text-lg font-extrabold text-slate-950">{product.farmer?.farmName || product.farmName || product.farmerName || product.farmer?.name || "Local Farmer"}</p>
+                        <p className="mt-0.5 text-sm font-semibold text-emerald-700">{product.farmerVerified || product.farmer?.isVerified ? "✓ Verified Farmer" : "Farm Supplier"}</p>
+                        {farmerLocation && <p className="mt-1.5 flex items-start gap-2 text-sm text-slate-600"><MapPin className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" /><span>{farmerLocation}</span></p>}
                       </div>
                     </div>
-                    <div className="mt-5 rounded-xl border border-emerald-200 bg-emerald-100/70 p-4">
-                      <p className="text-xs font-bold uppercase tracking-wide text-emerald-800">Farmer contact</p>
-                      <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
-                        <div className="flex min-w-0 items-center gap-2"><Phone className="h-5 w-5 shrink-0 text-emerald-800" />{farmerPhone ? <a href={"tel:" + farmerPhone} className="break-all text-base font-extrabold text-emerald-900 hover:underline">{farmerPhone}</a> : <span className="text-sm text-slate-600">Contact number not provided</span>}</div>
-                        {farmerPhone && <a href={"tel:" + farmerPhone} className="rounded-lg bg-emerald-700 px-3 py-2 text-sm font-bold text-white hover:bg-emerald-800">Call Farmer</a>}
+                    <div className="mt-4 grid gap-2">
+                      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50/80 px-3 py-3">
+                        <Phone className="h-4 w-4 shrink-0 text-emerald-700" />
+                        <span className="text-xs font-bold uppercase tracking-wide text-emerald-800">Contact Number</span>
+                        {farmerPhone ? <a href={"tel:" + farmerPhone} className="ml-auto font-bold text-emerald-900 hover:underline">{farmerPhone}</a> : <span className="ml-auto text-sm text-slate-500">Not provided in farmer profile</span>}
                       </div>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <div className="rounded-xl bg-slate-50 p-3">
+                          <p className="text-xs text-slate-500">Farming Method</p>
+                          <p className="mt-1 text-sm font-bold text-slate-900">{product.farmingMethod || product.farmer?.farmingMethod || (product.isOrganic ? "Organic" : "Farm grown")}</p>
+                        </div>
+                        <div className="rounded-xl bg-slate-50 p-3">
+                          <p className="text-xs text-slate-500">Product Stock</p>
+                          <p className="mt-1 text-sm font-bold text-emerald-800">{available} {unit} available</p>
+                        </div>
+                      </div>
+                      {farmerMemberSince && <p className="text-xs text-slate-500">Member since: <span className="font-semibold text-slate-700">{new Date(farmerMemberSince).toLocaleDateString(undefined, { month: "short", year: "numeric" })}</span></p>}
                     </div>
-                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                      <div className="rounded-xl bg-white p-3"><p className="text-xs text-slate-500">Farming Method</p><p className="mt-1 font-bold text-slate-900">{product.farmingMethod || (product.isOrganic ? "Organic" : "Farm grown")}</p></div>
-                      <div className="rounded-xl bg-white p-3"><p className="text-xs text-slate-500">Product Stock</p><p className="mt-1 font-bold text-emerald-800">{available} {unit} available</p></div>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {farmerPhone && <a href={"tel:" + farmerPhone} className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-800"><Phone className="h-4 w-4" />Call Farmer</a>}
+                      {product.farmerId && <Link href={"/farmer/" + product.farmerId} className="inline-flex items-center justify-center rounded-xl border border-emerald-600 bg-white px-4 py-2.5 text-sm font-bold text-emerald-800 hover:bg-emerald-50">View Full Farm Profile →</Link>}
                     </div>
-                    {product.farmerId && <Link href={"/farmer/" + product.farmerId} className="mt-4 inline-flex items-center justify-center rounded-xl border border-emerald-600 bg-white px-4 py-2.5 text-sm font-bold text-emerald-800 hover:bg-emerald-50">View Full Farm Profile →</Link>}
                   </section>
-                  <aside className="rounded-2xl border border-slate-200 p-5">
-                    <h3 className="text-lg font-bold text-slate-900">Farm & Product</h3>
-                    <p className="mt-2 text-sm leading-6 text-slate-600">This product is listed by the farmer shown here. Contact details are displayed only when provided in the product or farmer profile.</p>
-                    <div className="mt-4 overflow-hidden rounded-xl border border-slate-100 bg-slate-50">
-                      <img src={displayImages[0]} alt={product.name + " from " + (product.farmerName || "farmer")} className="h-40 w-full object-cover" onError={(e) => { (e.currentTarget as HTMLImageElement).src = "/images/placeholder-product.jpg"; }} />
+                  <aside className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+                    <div className="flex items-center justify-between gap-2">
+                      <h3 className="text-base font-extrabold text-slate-900">Other Products from this Farmer</h3>
+                      {otherFarmerProducts.length > 0 && <span className="text-xs font-semibold text-slate-500">{otherFarmerProducts.length} products</span>}
                     </div>
-                    <p className="mt-3 text-sm font-bold text-slate-900">{product.name}</p>
-                    <p className="mt-1 text-sm font-semibold text-emerald-700">{formatPrice(effectivePrice)} / {unit}</p>
+                    {otherFarmerProducts.length > 0 ? (
+                      <div className="mt-4 grid grid-cols-3 gap-2">
+                        {otherFarmerProducts.map((item: any, index: number) => {
+                          const itemId = item.id || item._id || item.productId;
+                          const itemImage = item.images?.[0] || item.image || "/images/placeholder-product.jpg";
+                          return (
+                            <Link key={itemId || index} href={itemId ? "/product/" + itemId : "/marketplace"} className="min-w-0 rounded-xl border border-slate-100 p-2 transition hover:border-emerald-200 hover:shadow-sm">
+                              <img src={itemImage} alt={item.name || "Farm product"} className="h-20 w-full rounded-lg object-cover" onError={(e) => { (e.currentTarget as HTMLImageElement).src = "/images/placeholder-product.jpg"; }} />
+                              <p className="mt-2 truncate text-xs font-bold text-slate-900">{item.name || "Farm product"}</p>
+                              <p className="mt-0.5 text-xs font-semibold text-emerald-700">{item.price != null ? formatPrice(item.price) + " / " + (item.unit || unit) : "View product"}</p>
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="mt-4 flex min-h-36 flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 text-center">
+                        <Store className="h-7 w-7 text-emerald-600" />
+                        <p className="mt-2 text-sm font-semibold text-slate-700">More farm products</p>
+                        <p className="mt-1 text-xs leading-5 text-slate-500">Other products will appear here when the farmer has additional active listings.</p>
+                      </div>
+                    )}
+                    {farmerLocation && <p className="mt-4 flex items-start gap-2 border-t border-slate-100 pt-3 text-xs leading-5 text-slate-600"><MapPin className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />Farm location: {farmerLocation}</p>}
                   </aside>
                 </div>
               </div>
