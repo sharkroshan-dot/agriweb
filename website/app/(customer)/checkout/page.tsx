@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
-import { ShoppingCart, MapPin, ArrowLeft, Plus, CreditCard, Loader2, X, Truck, CalendarClock, Leaf, ShieldCheck, Smartphone, Landmark, Banknote, WalletCards, CheckCircle2 } from "lucide-react";
+import { ShoppingCart, MapPin, ArrowLeft, Plus, CreditCard, Loader2, X, Truck, CalendarClock, Leaf, ShieldCheck, Smartphone, Landmark, Banknote, WalletCards, CheckCircle2, Home, Building2 } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
@@ -699,10 +699,10 @@ export default function CheckoutPage() {
                   {addresses.map((addr) => (
                     <label
                       key={addr.id}
-                      className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition ${
+                      className={`flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3.5 transition-all ${
                         (selectedAddressId || defaultAddress?.id) === addr.id
-                          ? "border-emerald-500 bg-emerald-50"
-                          : "hover:bg-gray-50"
+                          ? "border-emerald-500 bg-emerald-50/90 shadow-sm ring-1 ring-emerald-100"
+                          : "border-slate-200 bg-white hover:border-emerald-300 hover:bg-slate-50/70"
                       }`}
                     >
                       <input
@@ -711,18 +711,27 @@ export default function CheckoutPage() {
                         value={addr.id}
                         checked={(selectedAddressId || defaultAddress?.id) === addr.id}
                         onChange={(e) => setSelectedAddressId(e.target.value)}
-                        className="mt-1"
+                        className="h-4 w-4 shrink-0 accent-emerald-700"
                       />
-                      <div className="text-sm">
-                        <p className="font-medium">
-                          {addr.address_line1}
-                          {addr.address_line2 && `, ${addr.address_line2}`}
-                        </p>
-                        <p className="text-muted-foreground">
-                          {addr.city}, {addr.state} - {addr.zip_code}
-                        </p>
-                        <p className="text-xs capitalize text-muted-foreground">{addr.address_type}</p>
-                      </div>
+                      <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${
+                        (selectedAddressId || defaultAddress?.id) === addr.id
+                          ? "bg-white text-emerald-700"
+                          : "bg-slate-100 text-slate-600"
+                      }`}>
+                        {addr.address_type?.toLowerCase() === "work" ? <Building2 className="h-5 w-5" /> : addr.address_type?.toLowerCase() === "home" ? <Home className="h-5 w-5" /> : <MapPin className="h-5 w-5" />}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-bold capitalize text-slate-950">{addr.address_type || "Delivery"}{addr.is_default ? " (Default)" : ""}</span>
+                          {addr.is_default && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-800">Default</span>}
+                        </span>
+                        <span className="mt-1 block text-sm leading-5 text-slate-800">
+                          {addr.address_line1}{addr.address_line2 ? `, ${addr.address_line2}` : ""}
+                        </span>
+                        <span className="mt-0.5 block text-xs leading-4 text-slate-600">
+                          {addr.city}, {addr.state} – {addr.zip_code}
+                        </span>
+                      </span>
                     </label>
                   ))}
                 </div>
