@@ -409,124 +409,56 @@ async def list_available_slots(
     state: Optional[str] = Query(None),
     postal_code: Optional[str] = Query(None),
 ):
-    """List delivery slots customers can join, optionally geo-filtered."""
+    """List all upcoming, bookable farmer slots for customer checkout.
+
+    Do not make village/district text matching a hard requirement here:
+    farmers often publish a village name while customer addresses contain
+    the parent town/district or PIN. The checkout presents the published
+    service area and the customer can choose the applicable slot.
+    """
     now = datetime.utcnow()
-    match: dict = {
-        "deletedAt": None,
-        "status": {"$ne": SLOT_CANCELLED},
-        "date": {"$gte": now},
-    }
-    # Farmer slots are commonly published against a village/locality while
-    # customer addresses store the parent town/district. Match the customer
-    # city against the slot label and the farmer profile's locality/district
-    # fields, and use PIN code as an additional reliable locality signal.
-    area_pattern = re.escape(area.strip()) if area and area.strip() else None
-    location_conditions = []
-    if area_pattern:
-        for field in (
-            "area",
-            "farm.farmAddress",
-            "farm.address",
-            "farm.farmVillage",
-            "farm.farmTaluk",
-            "farm.village",
-            "farm.town",
-            "farm.locality",
-            "farm.city",
-            "farm.district",
-            "farm.tehsil",
-            "farm.taluk",
-        ):
-            location_conditions.append({field: {"$regex": area_pattern, "$options": "i"}})
-    if postal_code and postal_code.strip():
-        pin_pattern = re.escape(postal_code.strip())
-        for field in ("farm.pincode", "farm.pinCode", "farm.zipCode", "farm.postalCode", "farm.farmAddress"):
-            location_conditions.append({field: {"$regex": pin_pattern, "$options": "i"}})
+    slots = await slot_repo.find_many(
+        {
+            "deletedAt": None,
+            "status": {"$ne": SLOT_CANCELLED},
+            "date": {"$gte": now},
+        },
+        sort=[("date", 1)],
+        limit=200,
+    )
 
-    pipeline = [
-        {"$match": match},
-        {"$lookup": {
-                "from": "farmer_profiles",
-                # Normalize IDs because older profiles may store userId as
-                # a string and newer profiles may store it as an ObjectId.
-                "let": {"slotFarmerId": "$farmerId"},
-                "pipeline": [
-                    {"$match": {"$expr": {
-                        "$eq": [
-                            {"$toString": "$userId"},
-                            {"$toString": "$slotFarmerId"},
-                        ]
-                    }}},
-                    {"$match": {"deletedAt": None}},
-                    {"$limit": 1},
-                ],
-                "as": "farm",
-            }},
-        {"$unwind": {"path": "$farm", "preserveNullAndEmptyArrays": True}},
-        *([{"$match": {"$or": location_conditions}}] if location_conditions else []),
-        {"$addFields": {
-            "useLocation": {
-                "$cond": {
-                    "if": {"$and": [{"$isArray": "$farm.location.coordinates"}, {"$gt": [{"$size": "$farm.location.coordinates"}, 0]}]},
-                    "then": "$farm.location",
-                    "else": "$farm.location",
-                }
-            }
-        }},
-        {"$sort": {"date": 1}},
-        {"$limit": 100},
-    ]
+    available = []
+    for slot in slots:
+        slot_id = slot.get("_id")
+        if not slot_id:
+            continue
 
-    if lat and lng:
-        pipeline = [
-            {"$match": match},
-            {"$lookup": {
-                "from": "farmer_profiles",
-                # Normalize IDs because older profiles may store userId as
-                # a string and newer profiles may store it as an ObjectId.
-                "let": {"slotFarmerId": "$farmerId"},
-                "pipeline": [
-                    {"$match": {"$expr": {
-                        "$eq": [
-                            {"$toString": "$userId"},
-                            {"$toString": "$slotFarmerId"},
-                        ]
-                    }}},
-                    {"$match": {"deletedAt": None}},
-                    {"$limit": 1},
-                ],
-                "as": "farm",
-            }},
-            {"$unwind": {"path": "$farm", "preserveNullAndEmptyArrays": True}},
-            {
-                "$geoNear": {
-                    "near": {"type": "Point", "coordinates": [lng, lat]},
-                    "distanceField": "distance",
-                    "maxDistance": radius * 1000,
-                    "spherical": True,
-                    "query": {"status": {"$ne": SLOT_CANCELLED}, "deletedAt": None, "date": {"$gte": now}},
-                }
-            },
-            {"$sort": {"date": 1}},
-            {"$limit": 100},
-        ]
+        effective_status = await _slot_status(slot)
+        if effective_status != SLOT_OPEN:
+            continue
 
-    slots = await slot_repo.aggregate(pipeline)
-    for s in slots:
-        _serialize_slot(s)
-        s["status"] = await _slot_status(s)
-        s["bookedCapacityKg"] = await _booked_capacity(s["_id"])
-        s["remainingCapacityKg"] = round(max(0.0, float(s.get("maxCapacityKg", 0)) - s["bookedCapacityKg"]), 3)
-        if s.get("distance"):
-            s["distanceKm"] = round(s["distance"] / 1000, 2)
-        farm = s.pop("farm", None) or {}
-        s["farmerInfo"] = {
-            "name": farm.get("farmName") or "Farmer",
-            "farmName": farm.get("farmName"),
-            "rating": farm.get("rating"),
-            "farmAddress": farm.get("farmAddress"),
+        booked_capacity = await _booked_capacity(slot_id)
+        max_capacity = float(slot.get("maxCapacityKg", 0) or 0)
+        remaining_capacity = round(max(0.0, max_capacity - booked_capacity), 3)
+        if remaining_capacity <= 0:
+            continue
+
+        farmer_id = str(slot.get("farmerId") or "")
+        farmer_info = await _farmer_brief(farmer_id) if farmer_id else {
+            "name": "Farmer",
+            "farmName": None,
+            "rating": None,
+            "farmAddress": None,
         }
-    return {"success": True, "data": {"slots": slots, "count": len(slots)}}
+
+        _serialize_slot(slot)
+        slot["status"] = effective_status
+        slot["bookedCapacityKg"] = booked_capacity
+        slot["remainingCapacityKg"] = remaining_capacity
+        slot["farmerInfo"] = farmer_info
+        available.append(slot)
+
+    return {"success": True, "data": {"slots": available, "count": len(available)}}
 
 
 @router.post("/slots/{slot_id}/join")
