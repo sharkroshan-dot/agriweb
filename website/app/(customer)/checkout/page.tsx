@@ -560,7 +560,7 @@ export default function CheckoutPage() {
 
   if (paymentStage === "success") {
     return (
-      <div className="customer-retail-shell space-y-6">
+      <div className="customer-retail-shell space-y-4">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>
             <Link href="/orders"><ArrowLeft className="h-4 w-4" /></Link>
@@ -684,17 +684,16 @@ export default function CheckoutPage() {
         />
       )}
 
-      <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1.45fr)_minmax(340px,0.9fr)] xl:gap-6">
-        <div className="space-y-6">
+      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)] xl:gap-4">
+        <div className="space-y-3">
           {/* Delivery Address */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <MapPin className="h-5 w-5" /> Delivery Address
+          <Card className="overflow-hidden border-slate-200 shadow-sm">
+            <CardHeader className="border-b border-slate-100 bg-white px-5 py-3">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <MapPin className="h-5 w-5 text-emerald-700" /> Delivery Address
               </CardTitle>
-              <CardDescription>Choose where to deliver your order</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
+              </CardHeader>
+            <CardContent className="space-y-3 p-4">
               {addresses.length === 0 && !showAddrForm ? (
                 <p className="text-sm text-muted-foreground">No saved addresses yet.</p>
               ) : (
@@ -813,24 +812,7 @@ export default function CheckoutPage() {
                     </div>
                   </div>
                 </div>
-              ) : (
-                <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
-                  <div className="flex items-start gap-3">
-                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-700">
-                      <Truck className="h-6 w-6" />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="font-bold text-blue-900">Standard Delivery</p>
-                      <p className="mt-1 text-sm leading-5 text-blue-800">
-                        Fastest 30-minute delivery is not feasible for this address right now. Standard delivery is available.
-                      </p>
-                      {deliveryAvailability.message && (
-                        <p className="mt-2 text-xs leading-5 text-blue-700">{deliveryAvailability.message}</p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
+              ) : null}
 
               {deliveryQuote && (
                 <div className="grid gap-3 rounded-xl border border-slate-200 bg-white p-3 sm:grid-cols-3">
@@ -857,96 +839,83 @@ export default function CheckoutPage() {
             </CardContent>
           </Card>
 
-          {/* Farmer-published delivery slot selection */}
-          <Card className="border-slate-200 shadow-sm">
-            <CardHeader className="border-b border-slate-100 bg-white px-5 py-4">
+          {/* Choose Delivery Slot */}
+          <Card className="overflow-hidden border-slate-200 shadow-sm">
+            <CardHeader className="border-b border-slate-100 bg-white px-5 py-3">
               <CardTitle className="flex items-center gap-2 text-lg">
-                <CalendarClock className="h-5 w-5 text-emerald-700" /> Farmer Delivery Slots
+                <CalendarClock className="h-5 w-5 text-emerald-700" /> Choose Delivery Slot
               </CardTitle>
-              <CardDescription>
-                Choose a delivery batch with enough remaining kilogram capacity for your cart.
-              </CardDescription>
+              <CardDescription>Select a convenient date and time for delivery.</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3">
-              {!selectedCheckoutAddress?.city ? (
-                <p className="text-sm text-slate-500">Select a delivery address to find matching delivery slots.</p>
-              ) : checkoutSlotsLoading ? (
-                <div className="flex items-center gap-2 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin"/> Finding available slots…</div>
-              ) : checkoutSlots.length === 0 ? (
-                <div className="rounded-xl border border-dashed p-4 text-sm text-slate-500">
-                  No farmer-published slots are available for {selectedCheckoutAddress.city} on this date. You can continue with standard delivery.
-                </div>
-              ) : (
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {checkoutSlots.map((slot: any) => (
-                    <button
-                      type="button"
-                      key={slot.id}
-                      onClick={() => {
-                        if (checkoutCartWeightKg > Number(slot.remainingCapacityKg ?? slot.maxCapacityKg ?? 0)) {
-                          toast.error("This slot has only " + Number(slot.remainingCapacityKg ?? 0).toFixed(2) + " kg remaining.");
-                          return;
-                        }
-                        setSelectedDeliverySlotId(slot.id);
-                        setDeliveryTimeSlot(slot.startTime);
-                      }}
-                      disabled={checkoutCartWeightKg > Number(slot.remainingCapacityKg ?? slot.maxCapacityKg ?? 0)}
-                      className={`rounded-xl border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${selectedDeliverySlotId === slot.id ? "border-emerald-600 bg-emerald-50 ring-2 ring-emerald-100" : "border-slate-200 hover:border-emerald-300"}`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-semibold text-slate-900">{slot.area}</span>
-                        <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700">{Number(slot.remainingCapacityKg ?? 0).toFixed(2)} kg left</span>
-                      </div>
-                      <p className="mt-2 text-sm text-slate-600">{slot.startTime} – {slot.endTime}</p>
-                      <p className="mt-1 text-xs text-slate-500">{slot.farmerInfo?.farmName || slot.farmerInfo?.name || "Local farmer"} · {slot.distanceKm ? `${slot.distanceKm} km away` : `${slot.radiusKm} km coverage`}</p>
-                      <p className="mt-2 text-sm font-medium text-emerald-700">Delivery fee: ₹{Number(slot.deliveryFee || 0).toFixed(2)}</p>
-                      <p className="mt-1 text-xs text-slate-500">{Number(slot.bookedCapacityKg || 0).toFixed(2)} kg booked of {Number(slot.maxCapacityKg || 0).toFixed(2)} kg · Your cart: {checkoutCartWeightKg.toFixed(2)} kg</p>
-                      {checkoutCartWeightKg > Number(slot.remainingCapacityKg ?? 0) && <p className="mt-1 text-xs font-medium text-rose-600">Not enough capacity for your cart</p>}
+            <CardContent className="space-y-3 p-4">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                {Array.from({ length: 5 }, (_, index) => {
+                  const date = new Date();
+                  date.setDate(date.getDate() + index);
+                  const dateValue = date.toISOString().slice(0, 10);
+                  const selected = deliveryDate === dateValue;
+                  return (
+                    <button key={dateValue} type="button" onClick={() => setDeliveryDate(dateValue)}
+                      className={`flex min-h-[66px] flex-col items-center justify-center rounded-xl border px-2 py-2 text-center transition ${selected ? "border-emerald-600 bg-emerald-50 text-emerald-900 ring-1 ring-emerald-200" : "border-slate-200 bg-white text-slate-700 hover:border-emerald-300"}`}>
+                      <CalendarClock className={`mb-1 h-4 w-4 ${selected ? "text-emerald-700" : "text-slate-500"}`} />
+                      <span className="text-xs font-semibold">{index === 0 ? "Today" : date.toLocaleDateString("en-IN", { weekday: "short" })}</span>
+                      <span className="text-xs">{date.toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}</span>
                     </button>
-                  ))}
-                </div>
-              )}
-              {selectedCheckoutSlot && (
-                <div className="flex items-center justify-between rounded-lg bg-emerald-50 p-3 text-sm">
-                  <span className="text-emerald-800">Selected: {selectedCheckoutSlot.area}, {selectedCheckoutSlot.startTime}–{selectedCheckoutSlot.endTime}</span>
-                  <Button type="button" size="sm" variant="ghost" onClick={() => setSelectedDeliverySlotId("")}>Remove</Button>
-                </div>
-              )}
+                  );
+                })}
+              </div>
+              <div className="grid gap-2 sm:grid-cols-3">
+                {([
+                  ["morning", "Morning", "8:00 AM – 11:00 AM"],
+                  ["afternoon", "Afternoon", "12:00 PM – 4:00 PM"],
+                  ["evening", "Evening", "4:00 PM – 7:00 PM"],
+                ] as const).map(([value, label, time]) => {
+                  const selected = deliveryTimeSlot === value;
+                  return (
+                    <button key={value} type="button" onClick={() => setDeliveryTimeSlot(value)}
+                      className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition ${selected ? "border-emerald-500 bg-emerald-50 ring-1 ring-emerald-100" : "border-slate-200 bg-white hover:border-emerald-300"}`}>
+                      <span className={`h-4 w-4 rounded-full border-2 ${selected ? "border-emerald-600 bg-emerald-600 ring-2 ring-emerald-100" : "border-slate-300"}`} />
+                      <span><span className="block text-sm font-semibold text-slate-900">{label}</span><span className="block text-xs text-slate-600">{time}</span></span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="border-t border-slate-100 pt-3">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Available farmer delivery batches</p>
+                {!selectedCheckoutAddress?.city ? (
+                  <p className="text-sm text-slate-500">Select a delivery address to find matching delivery slots.</p>
+                ) : checkoutSlotsLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> Finding available slots…</div>
+                ) : checkoutSlots.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-sm text-slate-500">No farmer-published slots are available for {selectedCheckoutAddress.city} on this date. You can continue with standard delivery.</div>
+                ) : (
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {checkoutSlots.map((slot: any) => (
+                      <button type="button" key={slot.id}
+                        onClick={() => {
+                          if (checkoutCartWeightKg > Number(slot.remainingCapacityKg ?? slot.maxCapacityKg ?? 0)) {
+                            toast.error("This slot has only " + Number(slot.remainingCapacityKg ?? 0).toFixed(2) + " kg remaining.");
+                            return;
+                          }
+                          setSelectedDeliverySlotId(slot.id);
+                          setDeliveryTimeSlot(slot.startTime);
+                        }}
+                        disabled={checkoutCartWeightKg > Number(slot.remainingCapacityKg ?? slot.maxCapacityKg ?? 0)}
+                        className={`rounded-lg border p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${selectedDeliverySlotId === slot.id ? "border-emerald-600 bg-emerald-50 ring-1 ring-emerald-100" : "border-slate-200 hover:border-emerald-300"}`}>
+                        <div className="flex items-center justify-between gap-2"><span className="text-sm font-semibold text-slate-900">{slot.area}</span><span className="rounded-full bg-emerald-100 px-2 py-1 text-[11px] font-semibold text-emerald-700">{Number(slot.remainingCapacityKg ?? 0).toFixed(2)} kg left</span></div>
+                        <p className="mt-1 text-xs text-slate-600">{slot.startTime} – {slot.endTime}</p>
+                        <p className="mt-1 text-xs text-slate-500">{slot.farmerInfo?.farmName || slot.farmerInfo?.name || "Local farmer"} · {slot.distanceKm ? `${slot.distanceKm} km away` : `${slot.radiusKm} km coverage`}</p>
+                        <p className="mt-1 text-xs font-medium text-emerald-700">Delivery fee: ₹{Number(slot.deliveryFee || 0).toFixed(2)}</p>
+                        {checkoutCartWeightKg > Number(slot.remainingCapacityKg ?? 0) && <p className="mt-1 text-xs font-medium text-rose-600">Not enough capacity for your cart</p>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {selectedCheckoutSlot && <div className="mt-2 flex items-center justify-between rounded-lg bg-emerald-50 p-2.5 text-xs"><span className="text-emerald-800">Selected: {selectedCheckoutSlot.area}, {selectedCheckoutSlot.startTime}–{selectedCheckoutSlot.endTime}</span><Button type="button" size="sm" variant="ghost" onClick={() => setSelectedDeliverySlotId("")}>Remove</Button></div>}
+              </div>
+              <p className="flex items-center gap-2 text-xs text-emerald-800"><Leaf className="h-4 w-4" /> Fresh produce delivered directly from local farmers.</p>
             </CardContent>
           </Card>
-
-            <Card className="border-slate-200 shadow-sm">
-              <CardHeader className="border-b border-slate-100 bg-white px-5 py-4">
-                <CardTitle className="flex items-center gap-2">
-                  <CalendarClock className="h-5 w-5 text-emerald-600" /> Fresh delivery window
-                </CardTitle>
-                <CardDescription>Choose when the farmer&apos;s produce should reach you.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 gap-3">
-                  <label className={`cursor-pointer rounded-lg border p-3 ${deliveryDate === new Date().toISOString().split("T")[0] ? "border-emerald-500 bg-white" : "bg-white/60"}`}>
-                    <input type="radio" name="deliveryDate" className="mr-2" checked={deliveryDate === new Date().toISOString().split("T")[0]} onChange={() => setDeliveryDate(new Date().toISOString().split("T")[0])} />
-                    <span className="text-sm font-medium">Today</span>
-                    <span className="mt-1 block text-xs text-muted-foreground">Best for leafy greens</span>
-                  </label>
-                  <label className={`cursor-pointer rounded-lg border p-3 ${deliveryDate !== new Date().toISOString().split("T")[0] ? "border-emerald-500 bg-white" : "bg-white/60"}`}>
-                    <input type="radio" name="deliveryDate" className="mr-2" checked={deliveryDate !== new Date().toISOString().split("T")[0]} onChange={() => { const d = new Date(); d.setDate(d.getDate() + 1); setDeliveryDate(d.toISOString().split("T")[0]); }} />
-                    <span className="text-sm font-medium">Tomorrow</span>
-                    <span className="mt-1 block text-xs text-muted-foreground">Plan ahead</span>
-                  </label>
-                </div>
-                <div>
-                  <label className="text-sm font-medium">Preferred time</label>
-                  <select value={deliveryTimeSlot} onChange={(e) => setDeliveryTimeSlot(e.target.value)} className="mt-1 w-full rounded-md border bg-white px-3 py-2 text-sm">
-                    <option value="morning">Morning (6AM - 10AM)</option>
-                    <option value="midday">Midday (10AM - 2PM)</option>
-                    <option value="afternoon">Afternoon (2PM - 6PM)</option>
-                    <option value="evening">Evening (6PM - 8PM)</option>
-                  </select>
-                </div>
-                <p className="flex items-center gap-2 text-xs text-emerald-800"><Leaf className="h-4 w-4" /> Same-day delivery helps reduce food waste and keeps produce fresher.</p>
-              </CardContent>
-            </Card>
 
           {/* Payment Method */}
           <Card className="overflow-hidden border-slate-200 shadow-sm">
@@ -960,7 +929,7 @@ export default function CheckoutPage() {
               </CardDescription>
             </CardHeader>
 
-            <CardContent className="space-y-3 p-4 sm:p-5">
+            <CardContent className="space-y-2 p-4 sm:p-5">
               {PAYMENT_METHODS.map((method: any) => {
                 const Icon = method.icon;
                 const selected = paymentMethod === method.value;
@@ -975,11 +944,11 @@ export default function CheckoutPage() {
                     <button
                       type="button"
                       onClick={() => setPaymentMethod(method.value)}
-                      className="flex w-full items-center gap-3 p-4 text-left"
+                      className="flex w-full items-center gap-3 px-3 py-2 text-left"
                       aria-expanded={selected}
                     >
                       <span
-                        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${selected
+                        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${selected
                           ? "bg-emerald-600 text-white"
                           : "bg-slate-100 text-slate-600"}`}
                       >
@@ -1237,8 +1206,8 @@ export default function CheckoutPage() {
         </div>
 
         {/* Order Summary Sidebar */}
-        <div className="space-y-4 lg:sticky lg:top-24">
-          <Card className="h-fit overflow-hidden border-slate-200 shadow-sm">
+        <div className="space-y-3 lg:sticky lg:top-24">
+          <Card className="h-fit overflow-hidden border-slate-200 shadow-md">
             <CardHeader className="border-b border-slate-100 bg-white px-5 py-4">
               <CardTitle className="flex items-center gap-2 text-lg"><ShoppingCart className="h-5 w-5 text-emerald-700" /> Order Summary</CardTitle>
               <CardDescription>{itemCount} item(s) in your cart</CardDescription>
@@ -1246,7 +1215,7 @@ export default function CheckoutPage() {
             <CardContent className="space-y-4 p-4 sm:p-5">
               {items.map((item) => (
                 <div key={item.id} className="flex gap-3 rounded-xl border border-slate-200 bg-white p-3">
-                  <div className="h-16 w-16 flex-shrink-0 overflow-hidden rounded-md bg-slate-100">
+                  <div className="h-20 w-20 flex-shrink-0 overflow-hidden rounded-lg bg-slate-100">
                     <img
                       src={item.image || "/images/placeholder-product.jpg"}
                       alt={item.name}
@@ -1258,7 +1227,7 @@ export default function CheckoutPage() {
                   </div>
                   <div className="flex min-w-0 flex-1 flex-col justify-between">
                     <div>
-                      <p className="text-sm font-medium text-slate-900">{item.name}</p>
+                      <p className="text-base font-bold text-slate-900">{item.name}</p>
                       <p className="text-xs text-muted-foreground">{item.farmerName || "Local Farmer"}</p>
                     </div>
                     <div className="flex items-center justify-between">
@@ -1267,7 +1236,7 @@ export default function CheckoutPage() {
                         <span className="text-slate-300">|</span>
                         <span>Qty: {item.quantity}</span>
                       </div>
-                      <span className="text-sm font-semibold text-emerald-700">{formatPrice((item.originalPrice || item.price) * item.quantity)}</span>
+                      <span className="text-base font-bold text-emerald-700">{formatPrice((item.originalPrice || item.price) * item.quantity)}</span>
                     </div>
                   </div>
                 </div>
@@ -1305,7 +1274,7 @@ export default function CheckoutPage() {
               </div>
               <div className="border-t pt-3 space-y-1.5">
                 <div className="flex justify-between text-sm">
-                  <span>Subtotal</span>
+                  <span>Product total</span>
                   <span>{formatPrice(displayTotal)}</span>
                 </div>
                 {couponDiscount > 0 && (
@@ -1344,11 +1313,6 @@ export default function CheckoutPage() {
                 </div>
               </div>
               <div className="border-t border-slate-100 pt-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-slate-600">Total payable</span>
-                  <span className="text-2xl font-extrabold text-emerald-800">{formatPrice(estimatedTotal)}</span>
-                </div>
-
                 <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
                   <ShieldCheck className="h-4 w-4 shrink-0 text-emerald-600" />
                   <span>
@@ -1360,7 +1324,7 @@ export default function CheckoutPage() {
 
                 {!(paymentMethod === "upi" && selectedUpiApp) && (
                   <Button
-                    className="mt-4 w-full bg-emerald-700 text-white hover:bg-emerald-800"
+                    className="mt-4 h-12 w-full bg-emerald-800 text-base font-bold text-white shadow-sm hover:bg-emerald-900"
                     size="lg"
                     onClick={() => handlePlaceOrder()}
                     disabled={isPlacing || (paymentMethod === "wallet" && walletBalance < estimatedTotal)}
@@ -1371,7 +1335,7 @@ export default function CheckoutPage() {
                         {paymentMethod === "cash" ? "Placing order..." : "Processing payment..."}
                       </>
                     ) : paymentMethod === "cash" ? (
-                      `Place order · ${formatPrice(estimatedTotal)}`
+                      `Place Order (${formatPrice(estimatedTotal)})`
                     ) : paymentMethod === "wallet" ? (
                       `Pay ${formatPrice(estimatedTotal)} from Wallet`
                     ) : (
@@ -1386,6 +1350,21 @@ export default function CheckoutPage() {
 
         </div>
       </div>
+      {!fastestDeliveryAvailable && deliveryAvailability && deliveryQuote && (
+        <div className="grid gap-3 rounded-2xl border border-blue-200 bg-white p-3 shadow-sm sm:grid-cols-[minmax(180px,0.28fr)_minmax(0,1fr)] sm:items-center">
+          <div className="rounded-xl bg-blue-50 px-4 py-3">
+            <p className="text-sm font-bold text-blue-900">Alternate delivery</p>
+            <p className="mt-1 text-xs text-blue-800">When fastest delivery is not possible</p>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-300 bg-blue-50/70 px-4 py-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <Truck className="h-7 w-7 shrink-0 text-blue-700" />
+              <div><p className="font-bold text-blue-900">Standard Delivery</p><p className="text-xs leading-5 text-blue-800">Fastest 30-minute delivery is not feasible for this address right now. Standard delivery is available.</p></div>
+            </div>
+            <div className="border-l border-blue-200 pl-4 text-sm text-blue-900"><p className="text-xs text-blue-700">Estimated delivery</p><p className="font-bold">{deliveryAvailability.estimatedDeliveryLabel || "Standard delivery window"}</p></div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
