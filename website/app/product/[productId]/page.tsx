@@ -329,7 +329,7 @@ export default function ProductDetailPage() {
   const tabs = [
     { id: "description", label: "Description" },
     { id: "specifications", label: "Specifications" },
-    { id: "reviews", label: \`Reviews (\${reviewCount})\` },
+    { id: "reviews", label: `Reviews (${reviewCount})` },
     { id: "delivery", label: "Delivery & Returns" },
     { id: "farmer", label: "Farmer Details" },
   ] as const;
@@ -386,7 +386,7 @@ export default function ProductDetailPage() {
                   <div className="mt-3 grid grid-cols-5 gap-2">
                     {displayImages.slice(0, 5).map((image, index) => (
                       <button key={image + index} type="button" onClick={() => setSelectedImageIndex(index)} className={cn("aspect-square overflow-hidden rounded-xl border-2 bg-slate-50 transition", selectedImageIndex === index ? "border-emerald-600 ring-2 ring-emerald-100" : "border-transparent hover:border-emerald-200")}>
-                        <img src={image} alt={\`\${product.name} view \${index + 1}\`} className="h-full w-full object-cover" onError={(e) => { (e.currentTarget as HTMLImageElement).src = "/images/placeholder-product.jpg"; }} />
+                        <img src={image} alt={`${product.name} view ${index + 1}`} className="h-full w-full object-cover" onError={(e) => { (e.currentTarget as HTMLImageElement).src = "/images/placeholder-product.jpg"; }} />
                       </button>
                     ))}
                   </div>
@@ -425,7 +425,7 @@ export default function ProductDetailPage() {
                       {farmerLocation && <p className="mt-1 flex items-start gap-1 text-sm text-slate-700"><MapPin className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />{farmerLocation}</p>}
                       <p className="mt-1 text-xs font-medium text-emerald-700">Farm supplier</p>
                     </div>
-                    {product.farmerId && <Link href={\`/farmer/\${product.farmerId}\`} className="rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm font-semibold text-emerald-800 shadow-sm hover:bg-emerald-50">View Farm Profile →</Link>}
+                    {product.farmerId && <Link href={`/farmer/${product.farmerId}`} className="rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm font-semibold text-emerald-800 shadow-sm hover:bg-emerald-50">View Farm Profile →</Link>}
                   </div>
                 </div>
 
@@ -463,9 +463,9 @@ export default function ProductDetailPage() {
               <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
                 <div className="flex items-center justify-between gap-3 text-sm">
                   <span className="inline-flex items-center gap-2 font-medium text-slate-700"><Package className="h-5 w-5 text-emerald-700" />Available Stock</span>
-                  <span className={cn("font-bold", isOutOfStock ? "text-rose-600" : "text-emerald-700")}>{isOutOfStock ? "Out of stock" : \`\${available} \${unit}\`}</span>
+                  <span className={cn("font-bold", isOutOfStock ? "text-rose-600" : "text-emerald-700")}>{isOutOfStock ? "Out of stock" : `${available} ${unit}`}</span>
                 </div>
-                {totalStock > 0 && <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200"><div className={cn("h-full rounded-full", isOutOfStock ? "bg-rose-500" : "bg-emerald-600")} style={{ width: \`\${Math.min(100, (available / totalStock) * 100)}%\` }} /></div>}
+                {totalStock > 0 && <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200"><div className={cn("h-full rounded-full", isOutOfStock ? "bg-rose-500" : "bg-emerald-600")} style={{ width: `${Math.min(100, (available / totalStock) * 100)}%` }} /></div>}
                 {!isOutOfStock && available > 0 && available <= 5 && <p className="mt-2 text-xs font-medium text-amber-700">Only {available} left in stock</p>}
               </div>
 
@@ -481,9 +481,9 @@ export default function ProductDetailPage() {
                   <h2 className="font-bold text-slate-900">Product Location</h2>
                   <p className="flex items-center gap-1.5 text-sm text-slate-600"><MapPin className="h-4 w-4 text-emerald-700" />{product.location.address || farmerLocation || "Farm location"}</p>
                   <div className="h-36 overflow-hidden rounded-xl border bg-slate-100">
-                    <iframe title="Product location map" width="100%" height="100%" loading="lazy" frameBorder="0" src={\`https://www.openstreetmap.org/export/embed.html?bbox=\${Number(product.location.coordinates[0]) - 0.01}%2C\${Number(product.location.coordinates[1]) - 0.01}%2C\${Number(product.location.coordinates[0]) + 0.01}%2C\${Number(product.location.coordinates[1]) + 0.01}&layer=mapnik&marker=\${product.location.coordinates[1]}%2C\${product.location.coordinates[0]}\`} />
+                    <iframe title="Product location map" width="100%" height="100%" loading="lazy" frameBorder="0" src={`https://www.openstreetmap.org/export/embed.html?bbox=${Number(product.location.coordinates[0]) - 0.01}%2C${Number(product.location.coordinates[1]) - 0.01}%2C${Number(product.location.coordinates[0]) + 0.01}%2C${Number(product.location.coordinates[1]) + 0.01}&layer=mapnik&marker=${product.location.coordinates[1]}%2C${product.location.coordinates[0]}`} />
                   </div>
-                  <a href={\`https://www.openstreetmap.org/?mlat=\${product.location.coordinates[1]}&mlon=\${product.location.coordinates[0]}&zoom=14\`} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-emerald-700 hover:underline">Open in OpenStreetMap →</a>
+                  <a href={`https://www.openstreetmap.org/?mlat=${product.location.coordinates[1]}&mlon=${product.location.coordinates[0]}&zoom=14`} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-emerald-700 hover:underline">Open in OpenStreetMap →</a>
                 </div>
               )}
 
@@ -518,7 +518,7 @@ export default function ProductDetailPage() {
                   {alertOpen && <div className="space-y-3 rounded-xl border p-3"><p className="text-sm font-semibold">Notify me when:</p><label className="flex items-center gap-2 text-sm"><input type="radio" checked={alertType === "back_in_stock"} onChange={() => setAlertType("back_in_stock")} />Back in stock</label><label className="flex items-center gap-2 text-sm"><input type="radio" checked={alertType === "price_drop"} onChange={() => setAlertType("price_drop")} />Price drops to {alertType === "price_drop" && <input type="number" value={targetPrice} onChange={(e) => setTargetPrice(e.target.value)} placeholder="₹ amount" className="w-24 rounded border px-2 py-1" />}</label><Button className="w-full" size="sm" onClick={subscribeAlert} disabled={alertSubmitting}>{alertSubmitting ? "Setting..." : "Set Alert"}</Button></div>}
                 </div>
               ) : !isAuthenticated ? (
-                <Button className="w-full rounded-xl" onClick={() => router.push(\`/login?callbackUrl=\${encodeURIComponent(window.location.pathname)}\`)}><LogIn className="mr-2 h-4 w-4" />Sign in to Buy</Button>
+                <Button className="w-full rounded-xl" onClick={() => router.push(`/login?callbackUrl=${encodeURIComponent(window.location.pathname)}`)}><LogIn className="mr-2 h-4 w-4" />Sign in to Buy</Button>
               ) : (
                 <div className="grid grid-cols-2 gap-2">
                   <Button variant="outline" className="h-12 rounded-xl border-slate-300 font-semibold" onClick={handleAddToCart}><ShoppingCart className="mr-2 h-4 w-4" />Add to Cart</Button>
@@ -559,12 +559,12 @@ export default function ProductDetailPage() {
             </div>
           )}
           {activeTab === "specifications" && (
-            <div><h2 className="text-xl font-bold text-slate-900">Product Specifications</h2><dl className="mt-4 grid gap-3 sm:grid-cols-2">{[["Product", product.name], ["Category", product.category || product.categoryName || "Not specified"], ["Unit", unit], ["Price", \`\${formatPrice(effectivePrice)} / \${unit}\`], ["Available quantity", \`\${available} \${unit}\`], ["Minimum bulk quantity", product.minBulkQty ? \`\${product.minBulkQty} \${unit}\` : "No bulk minimum"]].map(([label, value]) => <div key={label} className="rounded-lg border border-slate-100 bg-slate-50 p-3"><dt className="text-xs font-medium text-slate-500">{label}</dt><dd className="mt-1 text-sm font-semibold text-slate-800">{value}</dd></div>)}</dl></div>
+            <div><h2 className="text-xl font-bold text-slate-900">Product Specifications</h2><dl className="mt-4 grid gap-3 sm:grid-cols-2">{[["Product", product.name], ["Category", product.category || product.categoryName || "Not specified"], ["Unit", unit], ["Price", `${formatPrice(effectivePrice)} / ${unit}`], ["Available quantity", `${available} ${unit}`], ["Minimum bulk quantity", product.minBulkQty ? `${product.minBulkQty} ${unit}` : "No bulk minimum"]].map(([label, value]) => <div key={label} className="rounded-lg border border-slate-100 bg-slate-50 p-3"><dt className="text-xs font-medium text-slate-500">{label}</dt><dd className="mt-1 text-sm font-semibold text-slate-800">{value}</dd></div>)}</dl></div>
           )}
           {activeTab === "reviews" && (
             <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
               <section><h2 className="text-xl font-bold text-slate-900">Customer Reviews</h2>{reviews.length === 0 ? <p className="mt-3 text-sm text-slate-500">No reviews yet. Be the first to rate this product.</p> : <div className="mt-4 space-y-4">{reviews.map((r: any) => <div key={r.id} className="border-b border-slate-100 pb-3 last:border-0"><div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-slate-900">{r.userName || "Customer"}</span><span className="text-sm text-amber-500">{"★".repeat(Math.min(5, r.rating))}{"☆".repeat(Math.max(0, 5 - Math.min(5, r.rating)))}</span></div><p className="mt-1 text-sm text-slate-600">{r.comment}</p>{r.createdAt && <p className="mt-1 text-xs text-slate-400">{new Date(r.createdAt).toLocaleDateString()}</p>}</div>)}</div>}</section>
-              <section className="rounded-xl bg-slate-50 p-4"><h3 className="font-bold text-slate-900">Rate this product</h3><div className="mt-2 flex gap-1">{[1,2,3,4,5].map((s) => <button key={s} type="button" onClick={() => setReviewRating(s)} aria-label={\`\${s} stars\`} className={\`text-2xl \${s <= reviewRating ? "text-amber-500" : "text-slate-300"}\`}>★</button>)}</div><textarea value={reviewComment} onChange={(e) => setReviewComment(e.target.value)} rows={3} placeholder="Share your experience..." className="mt-3 w-full rounded-lg border border-slate-200 bg-white p-3 text-sm outline-none focus:border-emerald-500" />{reviewError && <p className="mt-2 text-sm text-rose-600">{reviewError}</p>}<Button className="mt-3 w-full bg-emerald-700 hover:bg-emerald-800" onClick={handleSubmitReview} disabled={reviewLoading}>{reviewLoading ? "Submitting..." : "Submit Review"}</Button><p className="mt-2 text-xs text-slate-500">Reviews are subject to purchase eligibility.</p></section>
+              <section className="rounded-xl bg-slate-50 p-4"><h3 className="font-bold text-slate-900">Rate this product</h3><div className="mt-2 flex gap-1">{[1,2,3,4,5].map((s) => <button key={s} type="button" onClick={() => setReviewRating(s)} aria-label={`${s} stars`} className={`text-2xl ${s <= reviewRating ? "text-amber-500" : "text-slate-300"}`}>★</button>)}</div><textarea value={reviewComment} onChange={(e) => setReviewComment(e.target.value)} rows={3} placeholder="Share your experience..." className="mt-3 w-full rounded-lg border border-slate-200 bg-white p-3 text-sm outline-none focus:border-emerald-500" />{reviewError && <p className="mt-2 text-sm text-rose-600">{reviewError}</p>}<Button className="mt-3 w-full bg-emerald-700 hover:bg-emerald-800" onClick={handleSubmitReview} disabled={reviewLoading}>{reviewLoading ? "Submitting..." : "Submit Review"}</Button><p className="mt-2 text-xs text-slate-500">Reviews are subject to purchase eligibility.</p></section>
             </div>
           )}
           {activeTab === "delivery" && <div><h2 className="text-xl font-bold text-slate-900">Delivery & Returns</h2><p className="mt-2 text-sm leading-6 text-slate-600">Delivery availability and estimated timing are confirmed during checkout based on your saved delivery address and the product’s fulfillment location. For eligible products, farm pickup may also be available.</p>{product.pickupAvailable && <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">Farm pickup is available. {product.pickupInstructions || "Please confirm pickup arrangements before visiting."}</p>}<p className="mt-3 text-sm text-slate-600">Return and refund eligibility is governed by the AgriConnect return policy and the condition of the produce received.</p><Link href="/refunds" className="mt-3 inline-block text-sm font-semibold text-emerald-700 hover:underline">View Returns & Refunds →</Link></div>}
