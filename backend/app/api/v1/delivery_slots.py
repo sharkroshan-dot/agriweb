@@ -162,7 +162,13 @@ async def get_farmer_slots(
     for s in slots:
         _serialize_slot(s)
         s["status"] = await _slot_status(s)
-        s["bookedCapacityKg"] = await _booked_capacity(s["_id"])
+        active_bookings = await booking_repo.find_many({
+            "slotId": s["_id"],
+            "status": {"$in": ["joined", "order_linked"]},
+            "deletedAt": None,
+        }, limit=10000)
+        s["bookingCount"] = len(active_bookings)
+        s["bookedCapacityKg"] = round(sum(float(row.get("capacityKg", 0) or 0) for row in active_bookings), 3)
         s["remainingCapacityKg"] = round(max(0.0, float(s.get("maxCapacityKg", 0)) - s["bookedCapacityKg"]), 3)
     return {"success": True, "data": {"slots": slots, "count": len(slots)}}
 
@@ -226,15 +232,34 @@ async def update_delivery_slot(
     if current_user.get("role") != "farmer":
         raise HTTPException(status_code=403, detail="Only farmers can update delivery slots")
 
+    if not ObjectId.is_valid(slot_id):
+        raise HTTPException(status_code=404, detail="Delivery slot not found")
     slot = await slot_repo.find_one({"_id": ObjectId(slot_id), "deletedAt": None})
     if not slot:
         raise HTTPException(status_code=404, detail="Delivery slot not found")
     if str(slot.get("farmerId")) != str(current_user["_id"]):
         raise HTTPException(status_code=403, detail="Not your delivery slot")
 
+    # Once a customer has joined or linked an order to this slot, its
+    # published delivery promise must remain unchanged.
+    active_bookings = await booking_repo.find_many({
+        "slotId": ObjectId(slot_id),
+        "status": {"$in": ["joined", "order_linked"]},
+        "deletedAt": None,
+    }, limit=1)
+    if active_bookings:
+        raise HTTPException(
+            status_code=409,
+            detail="This delivery slot already has customer bookings and can no longer be edited.",
+        )
+
+    slot_date = _as_utc_naive(data.date)
+    if slot_date is None or slot_date < datetime.utcnow():
+        raise HTTPException(status_code=400, detail="Slot date must be in the future")
+
     updates = {
         "area": data.area.strip(),
-        "date": data.date,
+        "date": slot_date,
         "startTime": data.startTime,
         "endTime": data.endTime,
         "radiusKm": data.radiusKm,
