@@ -121,8 +121,32 @@ async def award_points_for_delivered_order(order: dict) -> Optional[dict]:
 
 @router.get("/me")
 async def get_my_points(current_user: dict = Depends(get_current_user)):
-    """Get the customer's AgriPoints balance and recent history."""
-    account = await _get_account(str(current_user["_id"]))
+    """Get the customer's AgriPoints balance and recent history.
+
+    Reconcile recent completed orders as well as awarding points on the live
+    delivery transition. This safely backfills orders completed before the
+    loyalty award hook was enabled; the award function is idempotent per order.
+    """
+    user_id = str(current_user["_id"])
+    completed_orders = []
+    for completed_status in ("delivered", "picked_up"):
+        completed_orders.extend(
+            await order_repository.get_by_customer(
+                user_id,
+                limit=100,
+                status=completed_status,
+            )
+        )
+    for completed_order in completed_orders:
+        try:
+            await award_points_for_delivered_order(completed_order)
+        except Exception:
+            logger.exception(
+                "Failed to reconcile AgriPoints for completed order %s",
+                completed_order.get("_id"),
+            )
+
+    account = await _get_account(user_id)
     txns = await txn_repo.find_many(
         {"userId": ObjectId(current_user["_id"]), "deletedAt": None},
         sort=[("createdAt", -1)],
