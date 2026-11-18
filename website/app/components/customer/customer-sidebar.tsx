@@ -26,7 +26,7 @@ import {
   CalendarClock,
   ChevronDown,
   ChevronRight,
-  UserRound,
+  User,
   Phone,
   Mail,
   CheckCircle2,
@@ -138,7 +138,7 @@ export function CustomerSidebar() {
               {userImage ? (
                 <img src={userImage} alt={userName} className="h-full w-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
               ) : (
-                <div className="flex h-full w-full items-center justify-center text-emerald-700"><UserRound className="h-9 w-9" /></div>
+                <div className="flex h-full w-full items-center justify-center text-emerald-700"><User className="h-9 w-9" /></div>
               )}
             </div>
             <Link href="/profile" aria-label="Edit profile photo" title="Edit profile" className="absolute bottom-0 right-0 flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-emerald-700 text-white shadow-sm transition-colors hover:bg-emerald-800">
@@ -148,7 +148,7 @@ export function CustomerSidebar() {
           <div className="text-center">
             <p className="truncate text-[15px] font-bold leading-5 text-slate-900" title={userName}>{userName}</p>
             <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-semibold text-emerald-800">
-              <UserRound className="h-3 w-3" /> Customer
+              <User className="h-3 w-3" /> Customer
             </span>
           </div>
           <div className="mt-3 space-y-2 border-t border-emerald-100 pt-3">
