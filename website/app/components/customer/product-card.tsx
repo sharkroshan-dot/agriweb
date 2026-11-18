@@ -12,10 +12,10 @@ import toast from "react-hot-toast";
 
 interface ProductCardProps {
 	product: any;
-	compact?: boolean;
+	compact?: boolean;\n\tlist?: boolean;
 }
 
-export function ProductCard({ product, compact = false }: ProductCardProps) {
+export function ProductCard({ product, compact = false, list = false }: ProductCardProps) {
 	const addItem = useCartStore((s: any) => s.addItem);
 	const { isWishlisted, toggle } = useWishlist();
 	const productId = product.id || product._id;
@@ -49,6 +49,34 @@ export function ProductCard({ product, compact = false }: ProductCardProps) {
 
 	const vStatus = product.verificationStatus;
 	const verified = vStatus === "verified" || vStatus === "buyer_verified";
+	if (list) {
+		return (
+			<div className="group flex min-w-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:border-emerald-200 hover:shadow-md sm:flex-row">
+				<Link href={`/product/${productId}`} className="relative block aspect-[4/3] w-full shrink-0 overflow-hidden bg-slate-100 sm:aspect-square sm:w-40 md:w-44">
+					<Image src={image} alt={product.name || "Fresh produce"} fill sizes="(max-width: 640px) 100vw, 176px" className="object-cover transition-transform duration-300 group-hover:scale-105" />
+				</Link>
+				<div className="flex min-w-0 flex-1 flex-col justify-between gap-3 p-4 sm:flex-row sm:items-center">
+					<div className="min-w-0">
+						<div className="mb-1 flex flex-wrap items-center gap-2">
+							<span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-700">Farm fresh</span>
+							{verified && <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700"><CheckCircle2 className="h-3 w-3"/>Verified farmer</span>}
+						</div>
+						<Link href={`/product/${productId}`}><h3 className="truncate text-base font-semibold text-slate-900 group-hover:text-emerald-700">{product.name}</h3></Link>
+						<p className="mt-1 truncate text-sm text-slate-500">{product.farmerName || "Local Farmer"}</p>
+						<div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+							<span className="inline-flex items-center gap-1"><Star className="h-3 w-3 text-yellow-500"/>{product.rating || 4.5}</span>
+							<span>{availableQuantity > 0 ? `${availableQuantity} ${product.unit || "kg"} available` : isAvailable ? "In stock" : "Out of stock"}</span>
+						</div>
+					</div>
+					<div className="flex shrink-0 items-center justify-between gap-4 sm:flex-col sm:items-end">
+						<div className="text-right"><p className="text-lg font-bold text-emerald-700">{formatPrice(product.price) ?? "N/A"}</p><p className="text-xs text-slate-500">per {product.unit || "kg"}</p></div>
+						<Button size="sm" className="rounded-full bg-emerald-700 hover:bg-emerald-800" onClick={handleAddToCart} disabled={!isAvailable}><ShoppingCart className="mr-1.5 h-4 w-4"/>Add to Cart</Button>
+					</div>
+				</div>
+			</div>
+		);
+	}
+
 	if (compact) {
 		return (
 			<Link href={`/product/${productId}`} className="group">
