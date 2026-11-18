@@ -426,6 +426,7 @@ export default function ProductDetailPage() {
       </nav>
 
       <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_390px] 2xl:gap-5">
+        <div className="min-w-0 space-y-4">
         <Card className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_4px_18px_rgba(15,23,42,0.07)]">
           <CardContent className="p-3 sm:p-4 lg:p-5">
             <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.08fr)_minmax(0,.92fr)] 2xl:gap-7">
@@ -536,92 +537,7 @@ export default function ProductDetailPage() {
           </CardContent>
         </Card>
 
-        <aside className="space-y-4">
-          <Card className="rounded-2xl border border-slate-200/80 bg-white shadow-[0_4px_18px_rgba(15,23,42,0.07)]">
-            <CardContent className="space-y-4 p-4 sm:p-5">
-              <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
-                <div className="flex items-center justify-between gap-3 text-sm">
-                  <span className="inline-flex items-center gap-2 font-medium text-slate-700"><Package className="h-5 w-5 text-emerald-700" />Available Stock</span>
-                  <span className={cn("font-bold", isOutOfStock ? "text-rose-600" : "text-emerald-700")}>{isOutOfStock ? "Out of stock" : `${available} ${unit}`}</span>
-                </div>
-                {totalStock > 0 && <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200"><div className={cn("h-full rounded-full", isOutOfStock ? "bg-rose-500" : "bg-emerald-600")} style={{ width: `${Math.min(100, (available / totalStock) * 100)}%` }} /></div>}
-                {!isOutOfStock && available > 0 && available <= 5 && <p className="mt-2 text-xs font-medium text-amber-700">Only {available} left in stock</p>}
-              </div>
-
-              {Number(product.farmDistanceKm) > 0 && (
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
-                  <p className="flex items-center gap-2 text-sm font-medium text-emerald-800"><MapPin className="h-4 w-4" />Farm Distance</p>
-                  <p className="mt-1 text-lg font-bold text-emerald-800">{Number(product.farmDistanceKm).toFixed(1)} km from your location</p>
-                </div>
-              )}
-
-              {product.location?.coordinates && (
-                <div className="space-y-2">
-                  <h2 className="font-bold text-slate-900">Product Location</h2>
-                  <p className="flex items-center gap-1.5 text-sm text-slate-600"><MapPin className="h-4 w-4 text-emerald-700" />{product.location.address || farmerLocation || "Farm location"}</p>
-                  <div className="h-36 overflow-hidden rounded-xl border bg-slate-100">
-                    <iframe title="Product location map" width="100%" height="100%" loading="lazy" frameBorder="0" src={`https://www.openstreetmap.org/export/embed.html?bbox=${Number(product.location.coordinates[0]) - 0.01}%2C${Number(product.location.coordinates[1]) - 0.01}%2C${Number(product.location.coordinates[0]) + 0.01}%2C${Number(product.location.coordinates[1]) + 0.01}&layer=mapnik&marker=${product.location.coordinates[1]}%2C${product.location.coordinates[0]}`} />
-                  </div>
-                  <a href={`https://www.openstreetmap.org/?mlat=${product.location.coordinates[1]}&mlon=${product.location.coordinates[0]}&zoom=14`} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-emerald-700 hover:underline">Open in OpenStreetMap →</a>
-                </div>
-              )}
-
-              <div className="border-t pt-4">
-                <div className="flex flex-wrap items-end gap-2">
-                  <span className="text-3xl font-extrabold tracking-tight text-emerald-700">{formatPrice(effectivePrice)}</span>
-                  <span className="pb-1 text-sm text-slate-500">/ {unit}</span>
-                  {effectivePrice < Number(product.price || 0) && <span className="pb-1 text-sm text-slate-400 line-through">{formatPrice(Number(product.price || 0))}</span>}
-                  {product.bulkDiscountPercent > 0 && <Badge className="mb-1 border-0 bg-rose-100 text-rose-700 hover:bg-rose-100">{product.bulkDiscountPercent}% off</Badge>}
-                </div>
-                {product.minBulkQty > 0 && <p className="mt-1 text-xs text-blue-700">Bulk price applies from {product.minBulkQty} {unit}</p>}
-                {!isOutOfStock && (
-                  <div className="mt-4 flex flex-wrap items-center gap-3">
-                    <span className="text-sm font-semibold text-slate-800">Quantity:</span>
-                    <div className="flex h-10 items-center overflow-hidden rounded-xl border border-slate-200">
-                      <button type="button" onClick={() => handleQuantityChange(-1)} disabled={quantity <= 1} className="flex h-full w-10 items-center justify-center text-slate-700 hover:bg-slate-50 disabled:opacity-30"><Minus className="h-4 w-4" /></button>
-                      <input type="number" aria-label="Product quantity" value={quantity} min={1} max={maxQty} onChange={(e) => { const val = parseInt(e.target.value, 10); if (isNaN(val) || val < 1) setQuantity(1); else setQuantity(Math.min(val, maxQty)); }} className="h-full w-12 border-x text-center text-sm font-semibold outline-none" />
-                      <button type="button" onClick={() => handleQuantityChange(1)} disabled={quantity >= maxQty} className="flex h-full w-10 items-center justify-center text-slate-700 hover:bg-slate-50 disabled:opacity-30"><Plus className="h-4 w-4" /></button>
-                    </div>
-                    <span className="text-xs text-slate-500">Max {available} {unit}</span>
-                  </div>
-                )}
-                <p className="mt-2 text-xs text-slate-500">Order total: <span className="font-semibold text-slate-800">{formatPrice(effectivePrice * quantity)}</span></p>
-              </div>
-
-              {product.pickupAvailable && <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800"><p className="font-semibold"><Store className="mr-1 inline h-4 w-4" />Farm pickup available</p><p className="mt-1 text-xs">{product.pickupInstructions || "Collect directly from the farm, subject to confirmation."}</p></div>}
-
-              {isOutOfStock ? (
-                <div className="space-y-2">
-                  <Button className="w-full rounded-xl" variant="outline" onClick={activeAlert ? removeAlert : () => openAlertPanel("back_in_stock")}><Bell className="mr-2 h-4 w-4" />{activeAlert ? "Alert On" : "Notify Me When Available"}</Button>
-                  {activeAlert && <p className="text-center text-xs text-slate-500">{activeAlert.alertType === "price_drop" ? "Price-drop alert is active" : "Back-in-stock alert is active"}</p>}
-                  {alertOpen && <div className="space-y-3 rounded-xl border p-3"><p className="text-sm font-semibold">Notify me when:</p><label className="flex items-center gap-2 text-sm"><input type="radio" checked={alertType === "back_in_stock"} onChange={() => setAlertType("back_in_stock")} />Back in stock</label><label className="flex items-center gap-2 text-sm"><input type="radio" checked={alertType === "price_drop"} onChange={() => setAlertType("price_drop")} />Price drops to {alertType === "price_drop" && <input type="number" value={targetPrice} onChange={(e) => setTargetPrice(e.target.value)} placeholder="₹ amount" className="w-24 rounded border px-2 py-1" />}</label><Button className="w-full" size="sm" onClick={subscribeAlert} disabled={alertSubmitting}>{alertSubmitting ? "Setting..." : "Set Alert"}</Button></div>}
-                </div>
-              ) : !isAuthenticated ? (
-                <Button className="w-full rounded-xl" onClick={() => router.push(`/login?callbackUrl=${encodeURIComponent(window.location.pathname)}`)}><LogIn className="mr-2 h-4 w-4" />Sign in to Buy</Button>
-              ) : (
-                <div className="grid grid-cols-2 gap-2">
-                  <Button variant="outline" className="h-12 rounded-xl border-slate-300 font-semibold" onClick={handleAddToCart}><ShoppingCart className="mr-2 h-4 w-4" />Add to Cart</Button>
-                  <Button className="h-12 rounded-xl bg-emerald-700 font-semibold hover:bg-emerald-800" onClick={handleBuyNow}><span className="mr-2">ϟ</span>Buy Now</Button>
-                </div>
-              )}
-              {!isOutOfStock && <button type="button" onClick={activeAlert ? removeAlert : () => openAlertPanel("price_drop")} className="flex w-full items-center justify-center gap-2 rounded-lg py-2 text-xs font-medium text-emerald-700 hover:bg-emerald-50"><Bell className="h-3.5 w-3.5" />{activeAlert ? "Price alert on — remove alert" : "Track price and get notified"}</button>}
-              {available <= 0 && totalStock > 0 && <div className="flex items-center gap-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-800"><AlertCircle className="h-4 w-4" />Temporarily out of stock — check back soon.</div>}
-            </CardContent>
-          </Card>
-
-          <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between gap-2">
-                <h2 className="text-lg font-bold text-slate-900">Similar Products</h2>
-                <Link href="/marketplace" className="text-sm font-semibold text-emerald-700 hover:underline">View all →</Link>
-              </div>
-              <p className="mt-2 text-sm text-slate-600">Discover more fresh produce from farmers in the marketplace.</p>
-              <Link href="/marketplace" className="mt-3 inline-flex w-full items-center justify-center rounded-xl bg-emerald-700 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-800">View All Products →</Link>
-            </CardContent>
-          </Card>
-        </aside>
-      </div>
-
+        </Card>
       <section id="product-information" className="scroll-mt-24 space-y-4">
         <nav aria-label="Product information sections" className="grid grid-cols-2 gap-1 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-[0_4px_16px_rgba(15,23,42,0.06)] sm:grid-cols-3 lg:grid-cols-5">
           {tabs.map((tab) => (
@@ -788,6 +704,95 @@ export default function ProductDetailPage() {
                       {product.pickupAvailable && <div className="rounded-xl bg-amber-50 p-3 text-sm text-amber-800"><p className="font-bold"><Store className="mr-1 inline h-4 w-4" />Farm Pickup Available</p><p className="mt-1">{product.pickupInstructions || "Contact the farmer to confirm pickup arrangements."}</p></div>}
                     </div>
                   </section>
+        </div>
+
+        <aside className="space-y-4">
+          <Card className="rounded-2xl border border-slate-200/80 bg-white shadow-[0_4px_18px_rgba(15,23,42,0.07)]">
+            <CardContent className="space-y-4 p-4 sm:p-5">
+              <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span className="inline-flex items-center gap-2 font-medium text-slate-700"><Package className="h-5 w-5 text-emerald-700" />Available Stock</span>
+                  <span className={cn("font-bold", isOutOfStock ? "text-rose-600" : "text-emerald-700")}>{isOutOfStock ? "Out of stock" : `${available} ${unit}`}</span>
+                </div>
+                {totalStock > 0 && <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200"><div className={cn("h-full rounded-full", isOutOfStock ? "bg-rose-500" : "bg-emerald-600")} style={{ width: `${Math.min(100, (available / totalStock) * 100)}%` }} /></div>}
+                {!isOutOfStock && available > 0 && available <= 5 && <p className="mt-2 text-xs font-medium text-amber-700">Only {available} left in stock</p>}
+              </div>
+
+              {Number(product.farmDistanceKm) > 0 && (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                  <p className="flex items-center gap-2 text-sm font-medium text-emerald-800"><MapPin className="h-4 w-4" />Farm Distance</p>
+                  <p className="mt-1 text-lg font-bold text-emerald-800">{Number(product.farmDistanceKm).toFixed(1)} km from your location</p>
+                </div>
+              )}
+
+              {product.location?.coordinates && (
+                <div className="space-y-2">
+                  <h2 className="font-bold text-slate-900">Product Location</h2>
+                  <p className="flex items-center gap-1.5 text-sm text-slate-600"><MapPin className="h-4 w-4 text-emerald-700" />{product.location.address || farmerLocation || "Farm location"}</p>
+                  <div className="h-36 overflow-hidden rounded-xl border bg-slate-100">
+                    <iframe title="Product location map" width="100%" height="100%" loading="lazy" frameBorder="0" src={`https://www.openstreetmap.org/export/embed.html?bbox=${Number(product.location.coordinates[0]) - 0.01}%2C${Number(product.location.coordinates[1]) - 0.01}%2C${Number(product.location.coordinates[0]) + 0.01}%2C${Number(product.location.coordinates[1]) + 0.01}&layer=mapnik&marker=${product.location.coordinates[1]}%2C${product.location.coordinates[0]}`} />
+                  </div>
+                  <a href={`https://www.openstreetmap.org/?mlat=${product.location.coordinates[1]}&mlon=${product.location.coordinates[0]}&zoom=14`} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-emerald-700 hover:underline">Open in OpenStreetMap →</a>
+                </div>
+              )}
+
+              <div className="border-t pt-4">
+                <div className="flex flex-wrap items-end gap-2">
+                  <span className="text-3xl font-extrabold tracking-tight text-emerald-700">{formatPrice(effectivePrice)}</span>
+                  <span className="pb-1 text-sm text-slate-500">/ {unit}</span>
+                  {effectivePrice < Number(product.price || 0) && <span className="pb-1 text-sm text-slate-400 line-through">{formatPrice(Number(product.price || 0))}</span>}
+                  {product.bulkDiscountPercent > 0 && <Badge className="mb-1 border-0 bg-rose-100 text-rose-700 hover:bg-rose-100">{product.bulkDiscountPercent}% off</Badge>}
+                </div>
+                {product.minBulkQty > 0 && <p className="mt-1 text-xs text-blue-700">Bulk price applies from {product.minBulkQty} {unit}</p>}
+                {!isOutOfStock && (
+                  <div className="mt-4 flex flex-wrap items-center gap-3">
+                    <span className="text-sm font-semibold text-slate-800">Quantity:</span>
+                    <div className="flex h-10 items-center overflow-hidden rounded-xl border border-slate-200">
+                      <button type="button" onClick={() => handleQuantityChange(-1)} disabled={quantity <= 1} className="flex h-full w-10 items-center justify-center text-slate-700 hover:bg-slate-50 disabled:opacity-30"><Minus className="h-4 w-4" /></button>
+                      <input type="number" aria-label="Product quantity" value={quantity} min={1} max={maxQty} onChange={(e) => { const val = parseInt(e.target.value, 10); if (isNaN(val) || val < 1) setQuantity(1); else setQuantity(Math.min(val, maxQty)); }} className="h-full w-12 border-x text-center text-sm font-semibold outline-none" />
+                      <button type="button" onClick={() => handleQuantityChange(1)} disabled={quantity >= maxQty} className="flex h-full w-10 items-center justify-center text-slate-700 hover:bg-slate-50 disabled:opacity-30"><Plus className="h-4 w-4" /></button>
+                    </div>
+                    <span className="text-xs text-slate-500">Max {available} {unit}</span>
+                  </div>
+                )}
+                <p className="mt-2 text-xs text-slate-500">Order total: <span className="font-semibold text-slate-800">{formatPrice(effectivePrice * quantity)}</span></p>
+              </div>
+
+              {product.pickupAvailable && <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800"><p className="font-semibold"><Store className="mr-1 inline h-4 w-4" />Farm pickup available</p><p className="mt-1 text-xs">{product.pickupInstructions || "Collect directly from the farm, subject to confirmation."}</p></div>}
+
+              {isOutOfStock ? (
+                <div className="space-y-2">
+                  <Button className="w-full rounded-xl" variant="outline" onClick={activeAlert ? removeAlert : () => openAlertPanel("back_in_stock")}><Bell className="mr-2 h-4 w-4" />{activeAlert ? "Alert On" : "Notify Me When Available"}</Button>
+                  {activeAlert && <p className="text-center text-xs text-slate-500">{activeAlert.alertType === "price_drop" ? "Price-drop alert is active" : "Back-in-stock alert is active"}</p>}
+                  {alertOpen && <div className="space-y-3 rounded-xl border p-3"><p className="text-sm font-semibold">Notify me when:</p><label className="flex items-center gap-2 text-sm"><input type="radio" checked={alertType === "back_in_stock"} onChange={() => setAlertType("back_in_stock")} />Back in stock</label><label className="flex items-center gap-2 text-sm"><input type="radio" checked={alertType === "price_drop"} onChange={() => setAlertType("price_drop")} />Price drops to {alertType === "price_drop" && <input type="number" value={targetPrice} onChange={(e) => setTargetPrice(e.target.value)} placeholder="₹ amount" className="w-24 rounded border px-2 py-1" />}</label><Button className="w-full" size="sm" onClick={subscribeAlert} disabled={alertSubmitting}>{alertSubmitting ? "Setting..." : "Set Alert"}</Button></div>}
+                </div>
+              ) : !isAuthenticated ? (
+                <Button className="w-full rounded-xl" onClick={() => router.push(`/login?callbackUrl=${encodeURIComponent(window.location.pathname)}`)}><LogIn className="mr-2 h-4 w-4" />Sign in to Buy</Button>
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  <Button variant="outline" className="h-12 rounded-xl border-slate-300 font-semibold" onClick={handleAddToCart}><ShoppingCart className="mr-2 h-4 w-4" />Add to Cart</Button>
+                  <Button className="h-12 rounded-xl bg-emerald-700 font-semibold hover:bg-emerald-800" onClick={handleBuyNow}><span className="mr-2">ϟ</span>Buy Now</Button>
+                </div>
+              )}
+              {!isOutOfStock && <button type="button" onClick={activeAlert ? removeAlert : () => openAlertPanel("price_drop")} className="flex w-full items-center justify-center gap-2 rounded-lg py-2 text-xs font-medium text-emerald-700 hover:bg-emerald-50"><Bell className="h-3.5 w-3.5" />{activeAlert ? "Price alert on — remove alert" : "Track price and get notified"}</button>}
+              {available <= 0 && totalStock > 0 && <div className="flex items-center gap-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-800"><AlertCircle className="h-4 w-4" />Temporarily out of stock — check back soon.</div>}
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-lg font-bold text-slate-900">Similar Products</h2>
+                <Link href="/marketplace" className="text-sm font-semibold text-emerald-700 hover:underline">View all →</Link>
+              </div>
+              <p className="mt-2 text-sm text-slate-600">Discover more fresh produce from farmers in the marketplace.</p>
+              <Link href="/marketplace" className="mt-3 inline-flex w-full items-center justify-center rounded-xl bg-emerald-700 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-800">View All Products →</Link>
+            </CardContent>
+          </Card>
+        </aside>
+      </div>
+
+
                   <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:p-5">
                     <h3 className="flex items-center gap-2 text-lg font-bold text-slate-900"><ShieldCheck className="h-5 w-5 text-emerald-700" />Returns & Refunds</h3>
                     <div className="mt-4 space-y-3 text-sm leading-6 text-slate-600">
