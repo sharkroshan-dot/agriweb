@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from pydantic import BaseModel, Field
 from bson import ObjectId
 import logging
+import re
 
 from app.api.v1.auth import get_current_user
 from app.repositories.base_repository import BaseRepository
@@ -362,8 +363,11 @@ async def list_available_slots(
         "status": {"$ne": SLOT_CANCELLED},
         "date": {"$gte": now},
     }
-    if area:
-        match["area"] = {"$regex": f"^{area}"}
+    # A farmer's slot area is often a village/locality, while a customer's
+    # saved address city is commonly the parent town or district. Match either
+    # the published coverage label OR the farmer's registered farm address.
+    # A strict prefix match on slot.area alone hides valid nearby slots.
+    area_pattern = re.escape(area.strip()) if area and area.strip() else None
 
     pipeline = [
         {"$match": match},
@@ -374,6 +378,10 @@ async def list_available_slots(
             "as": "farm",
         }},
         {"$unwind": {"path": "$farm", "preserveNullAndEmptyArrays": True}},
+        *([{"$match": {"$or": [
+            {"area": {"$regex": area_pattern, "$options": "i"}},
+            {"farm.farmAddress": {"$regex": area_pattern, "$options": "i"}},
+        ]}}] if area_pattern else []),
         {"$addFields": {
             "useLocation": {
                 "$cond": {
