@@ -446,11 +446,22 @@ async def list_available_slots(
     pipeline = [
         {"$match": match},
         {"$lookup": {
-            "from": "farmer_profiles",
-            "localField": "farmerId",
-            "foreignField": "userId",
-            "as": "farm",
-        }},
+                "from": "farmer_profiles",
+                # Normalize IDs because older profiles may store userId as
+                # a string and newer profiles may store it as an ObjectId.
+                "let": {"slotFarmerId": "$farmerId"},
+                "pipeline": [
+                    {"$match": {"$expr": {
+                        "$eq": [
+                            {"$toString": "$userId"},
+                            {"$toString": "$slotFarmerId"},
+                        ]
+                    }}},
+                    {"$match": {"deletedAt": None}},
+                    {"$limit": 1},
+                ],
+                "as": "farm",
+            }},
         {"$unwind": {"path": "$farm", "preserveNullAndEmptyArrays": True}},
         *([{"$match": {"$or": location_conditions}}] if location_conditions else []),
         {"$addFields": {
@@ -471,8 +482,19 @@ async def list_available_slots(
             {"$match": match},
             {"$lookup": {
                 "from": "farmer_profiles",
-                "localField": "farmerId",
-                "foreignField": "userId",
+                # Normalize IDs because older profiles may store userId as
+                # a string and newer profiles may store it as an ObjectId.
+                "let": {"slotFarmerId": "$farmerId"},
+                "pipeline": [
+                    {"$match": {"$expr": {
+                        "$eq": [
+                            {"$toString": "$userId"},
+                            {"$toString": "$slotFarmerId"},
+                        ]
+                    }}},
+                    {"$match": {"deletedAt": None}},
+                    {"$limit": 1},
+                ],
                 "as": "farm",
             }},
             {"$unwind": {"path": "$farm", "preserveNullAndEmptyArrays": True}},
