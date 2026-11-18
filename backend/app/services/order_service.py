@@ -1,8 +1,7 @@
 from typing import Optional, Dict, Any, List
 from app.services.delivery_priority_service import calculate_order_delivery_priority
 from bson import ObjectId
-from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
+from datetime import datetime
 from app.repositories.order_repository import order_repository
 from app.repositories.product_repository import product_repository
 from app.repositories.inventory_repository import inventory_repository
@@ -29,20 +28,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 harvest_preorder_repository = BaseRepository("harvest_preorders")
-
-
-def _delivery_calendar_date(value: Optional[datetime]):
-    """Return a datetime's calendar date in the delivery timezone (India).
-
-    Slot dates are stored as naive UTC in MongoDB, while checkout sends an
-    ISO timestamp. Compare both as Asia/Kolkata dates, not raw UTC dates.
-    """
-    if value is None:
-        return None
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
-    return value.astimezone(ZoneInfo("Asia/Kolkata")).date()
-
 # Approximate city-centre fallback for legacy orders that contain only text
 # addresses. This keeps radius filtering usable when public geocoders throttle
 # requests or are unavailable. New addresses should still save exact GeoJSON.
