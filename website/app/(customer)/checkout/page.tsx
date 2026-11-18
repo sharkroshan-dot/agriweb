@@ -720,8 +720,12 @@ export default function CheckoutPage() {
       }
     } catch (err: any) {
       setPaymentStage("failed");
-      setPaymentMessage("Payment could not be completed. Your order can be retried safely.");
       const msg = err?.message || "";
+      setPaymentMessage(
+        paymentMethod === "cash"
+          ? (msg ? `Order could not be placed: ${msg}` : "Order could not be placed. Please review the checkout details and try again.")
+          : (msg || "Checkout could not be completed. Please review the details and try again.")
+      );
       const shortageMatch = msg.match(/STOCK_SHORTAGE\|([a-f0-9]{24})\|([0-9.]+)\|([0-9.]+)/i);
       let detail = err?.response?.data?.detail ?? err?.detail;
       if (!detail && typeof msg === "string" && msg.trim().startsWith("{")) {
@@ -991,7 +995,7 @@ if (!cartHydrated) {
         <Card className={`border-2 ${paymentStage==="failed"?"border-red-200 bg-red-50/60":"border-blue-200 bg-blue-50/60"}`}>
           <CardContent className="flex items-center gap-3 p-4">
             {paymentStage==="failed" ? <X className="h-5 w-5 text-red-600"/> : <Loader2 className="h-5 w-5 animate-spin text-blue-600"/>}
-            <div><p className="font-semibold text-slate-900">{paymentStage==="creating"?"Preparing payment":paymentStage==="processing"?"Payment processing":"Payment needs attention"}</p><p className="text-xs text-slate-600">{paymentMessage}</p></div>
+            <div><p className="font-semibold text-slate-900">{paymentStage==="creating"?(paymentMethod==="cash"?"Placing your order":"Preparing payment"):paymentStage==="processing"?"Payment processing":paymentMethod==="cash"?"Order placement needs attention":"Checkout needs attention"}</p><p className="text-xs text-slate-600">{paymentMessage}</p></div>
           </CardContent>
         </Card>
       )}
@@ -1403,9 +1407,9 @@ if (!cartHydrated) {
 
                                 {paymentStage === "failed" && (
                                   <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800">
-                                    <p className="font-semibold">Payment was not completed</p>
+                                    <p className="font-semibold">{paymentMethod === "cash" ? "Order placement needs attention" : "Payment was not completed"}</p>
                                     <p className="mt-1">
-                                      Your order is not marked paid. Check the Razorpay checkout and try again.
+                                      {paymentMethod === "cash" ? "No payment is due now for Cash on Delivery. Review the message above and try placing the order again." : "Your order is not marked paid. Check the Razorpay checkout and try again."}
                                     </p>
                                   </div>
                                 )}
