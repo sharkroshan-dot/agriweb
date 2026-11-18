@@ -26,6 +26,11 @@ import {
   CalendarClock,
   ChevronDown,
   ChevronRight,
+  UserRound,
+  Phone,
+  Mail,
+  CheckCircle2,
+  Pencil,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { api } from "../../lib/api/client";
@@ -75,10 +80,9 @@ export function CustomerSidebar() {
   const pathname = usePathname();
   const [collapsedGroups, setCollapsedGroups] = useState<string[]>([]);
   const { data: session } = useSession();
-  const userName = (session?.user as any)?.name || (session?.user as any)?.email || "Customer";
-  const userEmail = (session?.user as any)?.email || "";
-  const userImage = (session?.user as any)?.image;
-  const initial = (userName || "C").charAt(0).toUpperCase();
+  const sessionUser = session?.user as any;
+  const sessionName = sessionUser?.name || sessionUser?.email || "Customer";
+  const sessionEmail = sessionUser?.email || "";
 
   const { data: profileData } = useQuery({
     queryKey: ["customerSidebarProfile"],
@@ -87,8 +91,16 @@ export function CustomerSidebar() {
   });
 
   const profile = profileData?.data || profileData;
-  const userPhone = (session?.user as any)?.phone || profile?.user?.phone || "";
-  const addresses = Array.isArray(profile?.addresses) ? profile.addresses : [];
+  const profileUser = profile?.user || profile;
+  const profileName = [profileUser?.first_name || profileUser?.firstName, profileUser?.last_name || profileUser?.lastName].filter(Boolean).join(" ");
+  const userName = profileName || sessionName;
+  const userEmail = profileUser?.email || sessionEmail;
+  const userPhone = sessionUser?.phone || profileUser?.phone || "";
+  const userImage = profileUser?.avatar_url || profileUser?.avatarUrl || sessionUser?.image || "";
+  const initial = (userName || "C").charAt(0).toUpperCase();
+  const emailVerified = profileUser?.is_verified === true || profileUser?.isVerified === true || profileUser?.email_verified === true;
+  const phoneVerified = profileUser?.phone_verified === true || profileUser?.is_phone_verified === true || profileUser?.phoneVerified === true;
+  const addresses = Array.isArray(profile?.addresses) ? profile.addresses : Array.isArray(profileUser?.addresses) ? profileUser.addresses : [];
   const homeAddress = useMemo(() => {
     if (addresses.length === 0) return null;
     return (
@@ -120,30 +132,51 @@ export function CustomerSidebar() {
   return (
     <aside className="role-sidebar hidden w-64 shrink-0 border-r border-slate-200/80 bg-white md:block">
       <div className="sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto p-4 lg:p-5">
-        <div className="mb-6 flex min-w-0 items-start gap-3 overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-500 to-teal-600 p-4 text-white shadow-sm">
-          {userImage ? (
-            <img
-              src={userImage}
-              alt={userName}
-              className="h-11 w-11 rounded-full border-2 border-white/60 object-cover"
-              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-            />
-          ) : (
-            <div className="flex h-11 w-11 items-center justify-center rounded-full border-2 border-white/60 bg-white/20 text-lg font-semibold">
-              {initial}
+        <section aria-label="Customer profile" className="mb-5 overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-green-50 p-3.5 shadow-sm">
+          <div className="relative mx-auto mb-2.5 h-[76px] w-[76px]">
+            <div className="h-full w-full overflow-hidden rounded-full border-[3px] border-white bg-emerald-100 shadow-sm ring-1 ring-emerald-100">
+              {userImage ? (
+                <img src={userImage} alt={userName} className="h-full w-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center text-emerald-700"><UserRound className="h-9 w-9" /></div>
+              )}
             </div>
-          )}
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-semibold leading-tight">{userName}</p>
-            <p className="truncate text-xs text-emerald-50/90">{userPhone || userEmail}</p>
+            <Link href="/profile" aria-label="Edit profile photo" title="Edit profile" className="absolute bottom-0 right-0 flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-emerald-700 text-white shadow-sm transition-colors hover:bg-emerald-800">
+              <Pencil className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+          <div className="text-center">
+            <p className="truncate text-[15px] font-bold leading-5 text-slate-900" title={userName}>{userName}</p>
+            <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-semibold text-emerald-800">
+              <UserRound className="h-3 w-3" /> Customer
+            </span>
+          </div>
+          <div className="mt-3 space-y-2 border-t border-emerald-100 pt-3">
+            {userPhone && (
+              <div className="flex min-w-0 items-center gap-2 text-xs text-slate-700">
+                <Phone className="h-3.5 w-3.5 shrink-0 text-slate-600" />
+                <span className="min-w-0 flex-1 truncate">{userPhone}</span>
+                {phoneVerified && <CheckCircle2 className="h-4 w-4 shrink-0 fill-emerald-600 text-white" aria-label="Phone verified" />}
+              </div>
+            )}
+            {userEmail && (
+              <div className="flex min-w-0 items-center gap-2 text-xs text-slate-700">
+                <Mail className="h-3.5 w-3.5 shrink-0 text-slate-600" />
+                <span className="min-w-0 flex-1 truncate" title={userEmail}>{userEmail}</span>
+                {emailVerified && <CheckCircle2 className="h-4 w-4 shrink-0 fill-emerald-600 text-white" aria-label="Email verified" />}
+              </div>
+            )}
             {homeLine && (
-              <p className="mt-0.5 flex items-center gap-1 truncate text-[11px] text-emerald-50/80">
-                <MapPin className="h-3 w-3 shrink-0" />
-                <span className="truncate">{homeLine}</span>
-              </p>
+              <div className="flex min-w-0 items-center gap-2 text-[11px] text-slate-500">
+                <MapPin className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate" title={homeLine}>{homeLine}</span>
+              </div>
             )}
           </div>
-        </div>
+          <Link href="/profile" className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-emerald-700 bg-white px-3 py-2 text-xs font-semibold text-emerald-800 shadow-sm transition-colors hover:bg-emerald-700 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2">
+            <Pencil className="h-3.5 w-3.5" /> Edit Profile
+          </Link>
+        </section>
 
         <nav className="space-y-4">
           {navGroups.filter((group) => group.items.some((item) => !["Reviews", "Notifications"].includes(item.name))).map((group) => {
