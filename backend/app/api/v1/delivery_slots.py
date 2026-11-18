@@ -406,6 +406,8 @@ async def list_available_slots(
     lng: Optional[float] = Query(None),
     radius: int = Query(50, ge=2, le=200),
     area: Optional[str] = Query(None),
+    state: Optional[str] = Query(None),
+    postal_code: Optional[str] = Query(None),
 ):
     """List delivery slots customers can join, optionally geo-filtered."""
     now = datetime.utcnow()
@@ -414,11 +416,30 @@ async def list_available_slots(
         "status": {"$ne": SLOT_CANCELLED},
         "date": {"$gte": now},
     }
-    # A farmer's slot area is often a village/locality, while a customer's
-    # saved address city is commonly the parent town or district. Match either
-    # the published coverage label OR the farmer's registered farm address.
-    # A strict prefix match on slot.area alone hides valid nearby slots.
+    # Farmer slots are commonly published against a village/locality while
+    # customer addresses store the parent town/district. Match the customer
+    # city against the slot label and the farmer profile's locality/district
+    # fields, and use PIN code as an additional reliable locality signal.
     area_pattern = re.escape(area.strip()) if area and area.strip() else None
+    location_conditions = []
+    if area_pattern:
+        for field in (
+            "area",
+            "farm.farmAddress",
+            "farm.address",
+            "farm.village",
+            "farm.town",
+            "farm.locality",
+            "farm.city",
+            "farm.district",
+            "farm.tehsil",
+            "farm.taluk",
+        ):
+            location_conditions.append({field: {"$regex": area_pattern, "$options": "i"}})
+    if postal_code and postal_code.strip():
+        pin_pattern = re.escape(postal_code.strip())
+        for field in ("farm.pincode", "farm.pinCode", "farm.zipCode", "farm.postalCode", "farm.farmAddress"):
+            location_conditions.append({field: {"$regex": pin_pattern, "$options": "i"}})
 
     pipeline = [
         {"$match": match},
@@ -429,10 +450,7 @@ async def list_available_slots(
             "as": "farm",
         }},
         {"$unwind": {"path": "$farm", "preserveNullAndEmptyArrays": True}},
-        *([{"$match": {"$or": [
-            {"area": {"$regex": area_pattern, "$options": "i"}},
-            {"farm.farmAddress": {"$regex": area_pattern, "$options": "i"}},
-        ]}}] if area_pattern else []),
+        *([{"$match": {"$or": location_conditions}}] if location_conditions else []),
         {"$addFields": {
             "useLocation": {
                 "$cond": {
