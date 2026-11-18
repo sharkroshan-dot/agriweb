@@ -551,111 +551,102 @@ export default function ProductDetailPage() {
         </aside>
       </div>
 
-      <div className="space-y-5">
-        <nav aria-label="Product information sections" className="sticky top-2 z-20 grid grid-cols-2 gap-1 rounded-2xl border border-slate-200 bg-white/95 p-1.5 shadow-md backdrop-blur sm:grid-cols-3 lg:grid-cols-5">
+      <section className="space-y-4">
+        <nav aria-label="Product information sections" className="grid grid-cols-2 gap-1 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm sm:grid-cols-3 lg:grid-cols-5">
           {tabs.map((tab) => (
-            <button key={tab.id} type="button" onClick={() => { setActiveTab(tab.id); document.getElementById(`product-section-${tab.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" }); }} className={cn("min-h-11 rounded-xl px-2 py-2 text-xs font-semibold transition sm:text-sm", activeTab === tab.id ? "bg-emerald-700 text-white shadow-sm" : "text-slate-700 hover:bg-emerald-50 hover:text-emerald-800")}>{tab.label}</button>
+            <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)} aria-pressed={activeTab === tab.id} className={cn("min-h-11 rounded-xl px-2 py-2 text-xs font-semibold transition sm:text-sm", activeTab === tab.id ? "bg-emerald-700 text-white shadow-sm" : "text-slate-700 hover:bg-emerald-50 hover:text-emerald-800")}>{tab.label}</button>
           ))}
         </nav>
 
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-6">
-          <Card id="product-section-description" className="scroll-mt-24 overflow-hidden rounded-2xl border border-emerald-100 shadow-sm xl:col-span-3">
-            <div className="grid grid-cols-2 gap-1 border-b bg-slate-50/90 p-1">
-              {tabs.map((tab) => <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)} className={cn("rounded-lg px-1.5 py-2 text-[10px] font-semibold sm:text-xs", tab.id === "description" ? "bg-emerald-700 text-white" : "text-slate-600 hover:bg-emerald-50")}>{tab.label}</button>)}
-            </div>
-            <CardContent className="p-4 sm:p-5">
-              <h2 className="text-lg font-bold text-slate-950">Product Description</h2>
-              <div className="mt-3 grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(180px,.8fr)]">
-                <p className="whitespace-pre-line text-sm leading-6 text-slate-600">{product.description || "No product description has been provided yet."}</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {[[Leaf, "Farm Fresh"], [ShieldCheck, "Quality Assured"], [Truck, "Safe Delivery"], [CheckCircle2, "Naturally Grown"]].map(([Icon, label]: any) => <div key={label} className="flex flex-col items-center justify-center rounded-xl bg-emerald-50 p-3 text-center"><Icon className="h-6 w-6 text-emerald-700" /><span className="mt-2 text-xs font-semibold text-slate-700">{label}</span></div>)}
+        <Card className="overflow-hidden rounded-2xl border border-emerald-100 bg-white shadow-sm">
+          <CardContent className="min-h-[280px] p-4 sm:p-6 lg:p-7">
+            {activeTab === "description" && (
+              <div>
+                <h2 className="text-xl font-bold text-slate-950">Product Description</h2>
+                <div className="mt-4 grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(260px,.8fr)]">
+                  <p className="whitespace-pre-line text-sm leading-7 text-slate-600">{product.description || "No product description has been provided yet."}</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    {[[Leaf, "Farm Fresh"], [ShieldCheck, "Quality Assured"], [Truck, "Safe Delivery"], [CheckCircle2, "Naturally Grown"]].map(([Icon, label]: any) => <div key={label} className="flex flex-col items-center justify-center rounded-xl bg-emerald-50 p-4 text-center"><Icon className="h-7 w-7 text-emerald-700" /><span className="mt-2 text-sm font-semibold text-slate-700">{label}</span></div>)}
+                  </div>
                 </div>
               </div>
-            </CardContent>
-          </Card>
+            )}
 
-          <Card id="product-section-specifications" className="scroll-mt-24 overflow-hidden rounded-2xl border border-emerald-100 shadow-sm xl:col-span-3">
-            <div className="grid grid-cols-2 gap-1 border-b bg-slate-50/90 p-1">
-              {tabs.map((tab) => <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)} className={cn("rounded-lg px-1.5 py-2 text-[10px] font-semibold sm:text-xs", tab.id === "specifications" ? "bg-emerald-700 text-white" : "text-slate-600 hover:bg-emerald-50")}>{tab.label}</button>)}
-            </div>
-            <CardContent className="p-4 sm:p-5">
-              <h2 className="text-lg font-bold text-slate-950">Product Specifications</h2>
-              <dl className="mt-3 grid gap-2 sm:grid-cols-2">
-                {[
-                  ["Product Name", product.name], ["Category", categoryLabel], ["Unit", unit],
-                  ["Price", `${formatPrice(effectivePrice)} / ${unit}`], ["Available Quantity", `${available} ${unit}`],
-                  ["Minimum Order", product.minBulkQty ? `${product.minBulkQty} ${unit}` : `1 ${unit}`],
-                  ["Harvest Status", product.harvestStatus || (product.isPreHarvest ? "Pre-harvest" : "Harvested")],
-                  ["Packaging", product.packagingType || product.packaging || "Farm packed"],
-                ].map(([label, value]) => <div key={label} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] overflow-hidden rounded-lg border border-slate-200 text-sm"><dt className="bg-slate-50 px-3 py-2 font-medium text-slate-600">{label}</dt><dd className="px-3 py-2 font-semibold text-slate-800">{value}</dd></div>)}
-              </dl>
-            </CardContent>
-          </Card>
+            {activeTab === "specifications" && (
+              <div>
+                <h2 className="text-xl font-bold text-slate-950">Product Specifications</h2>
+                <dl className="mt-4 grid gap-2 sm:grid-cols-2">
+                  {[
+                    ["Product Name", product.name], ["Category", categoryLabel], ["Unit", unit],
+                    ["Price", `${formatPrice(effectivePrice)} / ${unit}`], ["Available Quantity", `${available} ${unit}`],
+                    ["Minimum Order", product.minBulkQty ? `${product.minBulkQty} ${unit}` : `1 ${unit}`],
+                    ["Harvest Status", product.harvestStatus || (product.isPreHarvest ? "Pre-harvest" : "Harvested")],
+                    ["Packaging", product.packagingType || product.packaging || "Farm packed"],
+                  ].map(([label, value]) => <div key={label} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] overflow-hidden rounded-lg border border-slate-200 text-sm"><dt className="bg-slate-50 px-3 py-3 font-medium text-slate-600">{label}</dt><dd className="px-3 py-3 font-semibold text-slate-800">{value}</dd></div>)}
+                </dl>
+              </div>
+            )}
 
-          <Card id="product-section-reviews" className="scroll-mt-24 overflow-hidden rounded-2xl border border-emerald-100 shadow-sm xl:col-span-2">
-            <div className="grid grid-cols-2 gap-1 border-b bg-slate-50/90 p-1">
-              {tabs.map((tab) => <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)} className={cn("rounded-lg px-1 py-2 text-[9px] font-semibold sm:text-[10px]", tab.id === "reviews" ? "bg-emerald-700 text-white" : "text-slate-600 hover:bg-emerald-50")}>{tab.label}</button>)}
-            </div>
-            <CardContent className="p-4">
-              <h2 className="text-lg font-bold text-slate-950">Customer Reviews</h2>
-              <div className="mt-3 flex items-center gap-3 rounded-xl bg-slate-50 p-3">
-                <div className="text-3xl font-extrabold text-slate-900">{product.rating ? Number(product.rating).toFixed(1) : "New"}</div>
-                <div><div className="text-amber-500">{"★".repeat(Math.max(0, Math.min(5, Math.round(Number(product.rating) || 0))))}{"☆".repeat(Math.max(0, 5 - Math.min(5, Math.round(Number(product.rating) || 0))))}</div><p className="text-xs text-slate-500">Based on {reviewCount} reviews</p></div>
+            {activeTab === "reviews" && (
+              <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+                <section>
+                  <h2 className="text-xl font-bold text-slate-950">Customer Reviews</h2>
+                  <div className="mt-4 flex items-center gap-4 rounded-xl bg-slate-50 p-4">
+                    <div className="text-4xl font-extrabold text-slate-900">{product.rating ? Number(product.rating).toFixed(1) : "New"}</div>
+                    <div><div className="text-lg text-amber-500">{"★".repeat(Math.max(0, Math.min(5, Math.round(Number(product.rating) || 0))))}{"☆".repeat(Math.max(0, 5 - Math.min(5, Math.round(Number(product.rating) || 0))))}</div><p className="text-sm text-slate-500">Based on {reviewCount} reviews</p></div>
+                  </div>
+                  {reviews.length === 0 ? <p className="mt-4 text-sm text-slate-500">No reviews yet. Be the first to rate this product.</p> : <div className="mt-4 space-y-4">{reviews.map((r: any, index: number) => <div key={r.id || r._id || index} className="border-b border-slate-100 pb-3 last:border-0"><div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-slate-900">{r.userName || "Customer"}</span><span className="text-sm text-amber-500">{"★".repeat(Math.min(5, r.rating || 0))}{"☆".repeat(Math.max(0, 5 - Math.min(5, r.rating || 0)))}</span></div><p className="mt-1 text-sm text-slate-600">{r.comment}</p>{r.createdAt && <p className="mt-1 text-xs text-slate-400">{new Date(r.createdAt).toLocaleDateString()}</p>}</div>)}</div>}
+                </section>
+                <section className="rounded-xl bg-slate-50 p-4">
+                  <h3 className="font-bold text-slate-900">Write a Review</h3>
+                  <div className="mt-2 flex gap-1">{[1,2,3,4,5].map((s) => <button key={s} type="button" onClick={() => setReviewRating(s)} aria-label={`${s} stars`} className={cn("text-2xl", s <= reviewRating ? "text-amber-500" : "text-slate-300")}>★</button>)}</div>
+                  <textarea value={reviewComment} onChange={(e) => setReviewComment(e.target.value)} rows={4} placeholder="Share your experience..." className="mt-3 w-full rounded-lg border border-slate-200 bg-white p-3 text-sm outline-none focus:border-emerald-500" />
+                  {reviewError && <p className="mt-2 text-sm text-rose-600">{reviewError}</p>}
+                  <Button className="mt-3 w-full bg-emerald-700 hover:bg-emerald-800" onClick={handleSubmitReview} disabled={reviewLoading}>{reviewLoading ? "Submitting..." : "Submit Review"}</Button>
+                  <p className="mt-2 text-xs text-slate-500">Reviews are subject to purchase eligibility.</p>
+                </section>
               </div>
-              {reviews.length === 0 ? <p className="mt-3 text-sm text-slate-500">No reviews yet. Be the first to review this product.</p> : <div className="mt-3 max-h-52 space-y-3 overflow-y-auto">{reviews.map((r: any, index: number) => <div key={r.id || r._id || index} className="border-b border-slate-100 pb-3 last:border-0"><div className="flex flex-wrap items-center gap-2"><span className="text-sm font-semibold text-slate-900">{r.userName || "Customer"}</span><span className="text-xs text-amber-500">{"★".repeat(Math.min(5, r.rating || 0))}</span></div><p className="mt-1 text-sm text-slate-600">{r.comment}</p></div>)}</div>}
-              <div className="mt-4 border-t pt-3">
-                <h3 className="text-sm font-bold text-slate-900">Write a Review</h3>
-                <div className="mt-2 flex gap-1">{[1,2,3,4,5].map((s) => <button key={s} type="button" onClick={() => setReviewRating(s)} aria-label={`${s} stars`} className={cn("text-xl", s <= reviewRating ? "text-amber-500" : "text-slate-300")}>★</button>)}</div>
-                <textarea value={reviewComment} onChange={(e) => setReviewComment(e.target.value)} rows={2} placeholder="Share your experience..." className="mt-2 w-full rounded-lg border border-slate-200 p-2 text-sm outline-none focus:border-emerald-500" />
-                {reviewError && <p className="mt-1 text-xs text-rose-600">{reviewError}</p>}
-                <Button className="mt-2 w-full bg-emerald-700 hover:bg-emerald-800" size="sm" onClick={handleSubmitReview} disabled={reviewLoading}>{reviewLoading ? "Submitting..." : "Submit Review"}</Button>
-              </div>
-            </CardContent>
-          </Card>
+            )}
 
-          <Card id="product-section-delivery" className="scroll-mt-24 overflow-hidden rounded-2xl border border-emerald-100 shadow-sm xl:col-span-2">
-            <div className="grid grid-cols-2 gap-1 border-b bg-slate-50/90 p-1">
-              {tabs.map((tab) => <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)} className={cn("rounded-lg px-1 py-2 text-[9px] font-semibold sm:text-[10px]", tab.id === "delivery" ? "bg-emerald-700 text-white" : "text-slate-600 hover:bg-emerald-50")}>{tab.label}</button>)}
-            </div>
-            <CardContent className="p-4">
-              <h2 className="text-lg font-bold text-slate-950">Delivery Information</h2>
-              <div className="mt-3 space-y-3 text-sm">
-                <p className="flex items-start gap-2 text-slate-700"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />Estimated delivery: 1–2 days, confirmed at checkout</p>
-                <p className="flex items-start gap-2 text-slate-700"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />Delivery charge is calculated using your address and delivery option</p>
-                <p className="flex items-start gap-2 text-slate-700"><Truck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />Delivery methods are shown at checkout based on availability</p>
-                {product.pickupAvailable && <p className="rounded-lg bg-amber-50 p-3 text-amber-800">Farm pickup available: {product.pickupInstructions || "Contact the farmer to confirm pickup."}</p>}
+            {activeTab === "delivery" && (
+              <div className="grid gap-6 lg:grid-cols-2">
+                <section>
+                  <h2 className="text-xl font-bold text-slate-950">Delivery Information</h2>
+                  <div className="mt-4 space-y-3 text-sm">
+                    <p className="flex items-start gap-2 text-slate-700"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />Estimated delivery: 1–2 days, confirmed at checkout</p>
+                    <p className="flex items-start gap-2 text-slate-700"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />Delivery charge is calculated using your address and delivery option</p>
+                    <p className="flex items-start gap-2 text-slate-700"><Truck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />Delivery methods are shown at checkout based on availability</p>
+                    {product.pickupAvailable && <p className="rounded-lg bg-amber-50 p-3 text-amber-800">Farm pickup available: {product.pickupInstructions || "Contact the farmer to confirm pickup."}</p>}
+                  </div>
+                </section>
+                <section className="rounded-xl bg-slate-50 p-4">
+                  <h3 className="font-bold text-slate-900">Returns & Refunds</h3>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">Eligible return or refund requests are reviewed under the AgriConnect return policy and the condition of the produce received.</p>
+                  <Link href="/refunds" className="mt-3 inline-flex text-sm font-semibold text-emerald-700 hover:underline">View Return Policy →</Link>
+                </section>
               </div>
-              <div className="mt-4 border-t pt-3">
-                <h3 className="font-bold text-slate-900">Returns & Refunds</h3>
-                <p className="mt-2 text-sm text-slate-600">Eligible return or refund requests are reviewed under the AgriConnect return policy.</p>
-                <Link href="/refunds" className="mt-2 inline-flex text-sm font-semibold text-emerald-700 hover:underline">View Return Policy →</Link>
-              </div>
-            </CardContent>
-          </Card>
+            )}
 
-          <Card id="product-section-farmer" className="scroll-mt-24 overflow-hidden rounded-2xl border border-emerald-100 shadow-sm xl:col-span-2">
-            <div className="grid grid-cols-2 gap-1 border-b bg-slate-50/90 p-1">
-              {tabs.map((tab) => <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)} className={cn("rounded-lg px-1 py-2 text-[9px] font-semibold sm:text-[10px]", tab.id === "farmer" ? "bg-emerald-700 text-white" : "text-slate-600 hover:bg-emerald-50")}>{tab.label}</button>)}
-            </div>
-            <CardContent className="p-4">
-              <h2 className="text-lg font-bold text-slate-950">Farmer Details</h2>
-              <div className="mt-3 flex items-center gap-3">
-                <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-emerald-50">{farmerAvatar ? <img src={farmerAvatar} alt={product.farmerName || "Farmer"} className="h-full w-full object-cover" /> : <Store className="h-6 w-6 text-emerald-700" />}</div>
-                <div className="min-w-0"><p className="font-bold text-slate-900">{product.farmerName || product.farmer?.name || "Local Farmer"}</p><p className="mt-1 text-xs font-semibold text-emerald-700">{product.farmerVerified ? "Verified Farmer" : "Farm Supplier"}</p>{farmerLocation && <p className="mt-1 text-xs text-slate-600">{farmerLocation}</p>}</div>
+            {activeTab === "farmer" && (
+              <div>
+                <h2 className="text-xl font-bold text-slate-950">Farmer Details</h2>
+                <div className="mt-4 max-w-2xl rounded-xl border border-emerald-100 bg-emerald-50/60 p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-white bg-white shadow-sm">{farmerAvatar ? <img src={farmerAvatar} alt={product.farmerName || "Farmer"} className="h-full w-full object-cover" /> : <Store className="h-7 w-7 text-emerald-700" />}</div>
+                    <div className="min-w-0"><p className="font-bold text-slate-900">{product.farmerName || product.farmer?.name || "Local Farmer"}</p><p className="mt-1 text-sm font-semibold text-emerald-700">{product.farmerVerified ? "Verified Farmer" : "Farm Supplier"}</p>{farmerLocation && <p className="mt-1 text-sm text-slate-600">{farmerLocation}</p>}</div>
+                  </div>
+                  <div className="mt-4 flex items-center gap-2 rounded-lg bg-white px-3 py-3 text-sm"><Phone className="h-4 w-4 shrink-0 text-emerald-700" />{farmerPhone ? <a href={`tel:${farmerPhone}`} className="font-semibold text-emerald-800 hover:underline">Contact Number: {farmerPhone}</a> : <span className="text-slate-500">Contact number not provided</span>}</div>
+                  <div className="mt-3 space-y-2 text-sm text-slate-600">
+                    <p className="flex items-center gap-2"><Leaf className="h-4 w-4 text-emerald-700" />Farming method: {product.farmingMethod || (product.isOrganic ? "Organic" : "Farm grown")}</p>
+                    <p className="flex items-center gap-2"><Package className="h-4 w-4 text-emerald-700" />Available stock: {available} {unit}</p>
+                  </div>
+                  {product.farmerId && <Link href={`/farmer/${product.farmerId}`} className="mt-4 inline-flex items-center justify-center rounded-xl border border-emerald-600 bg-white px-4 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-50">View Full Farm Profile →</Link>}
+                </div>
               </div>
-              <div className="mt-3 flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm">
-                <Phone className="h-4 w-4 shrink-0 text-emerald-700" />
-                {farmerPhone ? <a href={`tel:${farmerPhone}`} className="font-semibold text-emerald-800 hover:underline">Contact Number: {farmerPhone}</a> : <span className="text-slate-500">Contact number not provided</span>}
-              </div>
-              <div className="mt-3 space-y-2 text-sm text-slate-600">
-                <p className="flex items-center gap-2"><Leaf className="h-4 w-4 text-emerald-700" />Farming method: {product.farmingMethod || (product.isOrganic ? "Organic" : "Farm grown")}</p>
-                <p className="flex items-center gap-2"><Package className="h-4 w-4 text-emerald-700" />Available stock: {available} {unit}</p>
-              </div>
-              {product.farmerId && <Link href={`/farmer/${product.farmerId}`} className="mt-4 inline-flex w-full items-center justify-center rounded-xl border border-emerald-600 px-3 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-50">View Full Farm Profile →</Link>}
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+            )}
+          </CardContent>
+        </Card>
+      </section>
     </div>
   );
 }
