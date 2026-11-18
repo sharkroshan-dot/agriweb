@@ -136,29 +136,39 @@ export default function AgriPointsPage() {
         </div>
       )}
 
-      <section aria-label="AgriPoints summary" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <div className="flex min-h-[112px] items-center gap-4 rounded-2xl bg-gradient-to-r from-emerald-700 to-green-800 p-5 text-white shadow-md shadow-emerald-900/10">
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-amber-400 text-white">
-            <Star className="h-9 w-9" />
+      <section aria-label="AgriPoints summary" className="grid gap-4 xl:grid-cols-[1.45fr_1fr_1fr]">
+        <div className="flex min-h-[116px] items-center rounded-2xl bg-gradient-to-r from-emerald-700 via-emerald-700 to-green-800 p-5 text-white shadow-md shadow-emerald-900/10">
+          <div className="flex w-1/2 items-center gap-3">
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-white/10">
+              <Coins className="h-10 w-10 text-amber-300" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-emerald-100">Available Points</p>
+              <p className="mt-1 text-3xl font-extrabold tabular-nums">{balance.toLocaleString("en-IN")} pts</p>
+            </div>
           </div>
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-emerald-100">My AgriPoints</p>
-            <p className="mt-1 text-3xl font-extrabold tabular-nums">{balance.toLocaleString("en-IN")} pts</p>
-            <p className="text-xs text-emerald-100">Available to use at checkout</p>
+          <div className="mx-4 h-16 w-px bg-white/40" />
+          <div className="min-w-0 flex-1">
+            <p className="flex items-center gap-1.5 text-sm font-semibold text-emerald-100">
+              Equivalent Value
+              <span title="100 AgriPoints = ₹1 discount">
+                <Info className="h-4 w-4" />
+              </span>
+            </p>
+            <p className="mt-1 text-3xl font-extrabold tabular-nums">{formatRupees(equivalentValue)}</p>
           </div>
         </div>
-        <SummaryCard icon={<Trophy className="h-9 w-9 text-emerald-600" />} label="Total Earned" value={lifetimeEarned} />
-        <SummaryCard icon={<Gift className="h-9 w-9 text-red-500" />} label="Total Used" value={totalPointsUsed} />
-        <div className="flex min-h-[112px] items-center gap-4 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-700">
-            <ShoppingBasket className="h-9 w-9" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-sm font-bold text-slate-700">Redeem Value</p>
-            <p className="mt-1 text-3xl font-extrabold tabular-nums text-slate-950">{formatRupees(equivalentValue)}</p>
-            <p className="text-xs text-slate-500">(100 pts = ₹1)</p>
-          </div>
-        </div>
+
+        <SummaryCard
+          icon={<Trophy className="h-10 w-10 text-amber-500" />}
+          label="Total Points Earned"
+          value={lifetimeEarned}
+        />
+        <SummaryCard
+          icon={<Gift className="h-10 w-10 text-emerald-600" />}
+          label="Total Points Used"
+          value={totalPointsUsed}
+        />
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[1.8fr_1fr]">
