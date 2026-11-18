@@ -12,7 +12,8 @@ import toast from "react-hot-toast";
 
 interface ProductCardProps {
 	product: any;
-	compact?: boolean;\n\tlist?: boolean;
+	compact?: boolean;
+	list?: boolean;
 }
 
 export function ProductCard({ product, compact = false, list = false }: ProductCardProps) {
