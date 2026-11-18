@@ -23,19 +23,21 @@ import toast from "react-hot-toast";
 // Prefer registered farm address fields; never expose raw GPS coordinates as a
 // customer-facing location. Coordinates are useful for maps, not address labels.
 function readableFarmLocation(product: any): string {
-  const farmer = product?.farmer || product?.farmerProfile || {};
-  const farm = product?.farm || product?.farmDetails || {};
+  const farmer = product?.farmer || product?.farmerProfile || product?.farmerDetails || {};
+  const farm = product?.farm || product?.farmDetails || product?.farmProfile || {};
   const candidates = [
     product?.farmAddress,
     product?.farmerAddress,
     product?.location?.address,
     farmer?.farmAddress,
     farmer?.address,
+    farmer?.location?.address,
     farm?.address,
+    farm?.location?.address,
   ];
   const isCoordinates = (value: unknown) =>
     typeof value === "string" &&
-    /^\\s*-?\\d{1,3}(?:\\.\\d+)?\\s*,\\s*-?\\d{1,3}(?:\\.\\d+)?\\s*$/.test(value);
+    /^\s*-?\d{1,3}(?:\.\d+)?\s*,\s*-?\d{1,3}(?:\.\d+)?\s*$/.test(value);
   const address = candidates.find((value) => typeof value === "string" && value.trim() && !isCoordinates(value));
   if (address) return address.trim();
 
@@ -351,14 +353,45 @@ export default function ProductDetailPage() {
       : categoryValue && typeof categoryValue === "object"
         ? categoryValue.name || categoryValue.slug || "Not specified"
         : "Not specified";
-  const farmerLocation = readableFarmLocation(product);
-  const farmerAvatar = product.farmerAvatar || product.farmer?.avatar || product.farmer?.profileImage || "";
-  const farmerPhone = product.farmerPhone || product.farmer?.phone || product.farmer?.phoneNumber || product.farmer?.contactNumber || product.farmer?.contact_number || product.contactNumber || product.phone || "";
+  const directFarmerLocation = readableFarmLocation(product);
+  const [reverseGeocodedLocation, setReverseGeocodedLocation] = useState("");
+  const farmerLocation = directFarmerLocation || reverseGeocodedLocation;
+  const farmerProfile = product.farmer || product.farmerProfile || product.farmerDetails || {};
+  const farmProfile = product.farm || product.farmDetails || product.farmProfile || {};
+  const farmerAvatar = product.farmerAvatar || farmerProfile.avatar || farmerProfile.profileImage || farmerProfile.photo || "";
+  const farmerPhone = product.farmerPhone || product.farmerContactNumber || product.farmerMobile || farmerProfile.phone || farmerProfile.phoneNumber || farmerProfile.mobile || farmerProfile.mobileNumber || farmerProfile.contactNumber || farmerProfile.contact_number || farmProfile.phone || farmProfile.contactNumber || product.contactNumber || product.phone || "";
   const farmerMemberSince = product.farmer?.createdAt || product.farmer?.joinedAt || product.farmer?.memberSince || product.farmerCreatedAt || "";
   const farmerProducts = product.farmer?.products || product.farmerProducts || product.otherProductsFromFarmer || [];
   const otherFarmerProducts = Array.isArray(farmerProducts)
     ? farmerProducts.filter((item: any) => String(item.id || item._id || item.productId || "") !== String(product.id || product._id || productId)).slice(0, 3)
     : [];
+
+  // If the listing contains GPS only, resolve it to a customer-readable place
+  // name. Never render raw latitude/longitude as the farm address.
+  useEffect(() => {
+    setReverseGeocodedLocation("");
+    if (directFarmerLocation) return;
+    const coordinates = product?.location?.coordinates;
+    const latitude = Array.isArray(coordinates) ? Number(coordinates[1]) : Number(product?.location?.latitude ?? product?.latitude);
+    const longitude = Array.isArray(coordinates) ? Number(coordinates[0]) : Number(product?.location?.longitude ?? product?.longitude);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
+    if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return;
+    const controller = new AbortController();
+    const params = new URLSearchParams({ format: "jsonv2", lat: String(latitude), lon: String(longitude), zoom: "10", addressdetails: "1" });
+    fetch("https://nominatim.openstreetmap.org/reverse?" + params.toString(), { signal: controller.signal, headers: { Accept: "application/json" } })
+      .then((response) => response.ok ? response.json() : null)
+      .then((result) => {
+        const address = result?.address || {};
+        const place = [
+          address.village || address.hamlet || address.suburb || address.town || address.city || address.municipality,
+          address.county || address.state_district || address.district,
+          address.state,
+        ].filter((value, index, values) => value && values.findIndex((item) => String(item).toLowerCase() === String(value).toLowerCase()) === index);
+        if (place.length) setReverseGeocodedLocation(place.join(", "));
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [productId, directFarmerLocation, product?.location?.coordinates, product?.location?.latitude, product?.location?.longitude, product?.latitude, product?.longitude]);
 
   if (isLoading) {
     return (
