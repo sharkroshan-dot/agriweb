@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   BadgePercent,
@@ -24,6 +25,7 @@ import { api } from "../../lib/api/client";
 const POINTS_PER_RUPEE = 100;
 
 export default function AgriPointsPage() {
+  const [historyFilter, setHistoryFilter] = useState<"all" | "earned" | "used">("all");
   const { data: pointsData, isLoading, isError, refetch } = useQuery({
     queryKey: ["loyalty", "me"],
     queryFn: () => api.get("/loyalty/me"),
@@ -43,7 +45,17 @@ export default function AgriPointsPage() {
 
   const d = pointsData?.data ?? {};
   const rules = d.rules ?? {};
-  const transactions = Array.isArray(d.transactions) ? d.transactions : [];
+  const transactions = (Array.isArray(d.transactions) ? d.transactions : []).slice().sort(
+    (a: any, b: any) =>
+      new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime(),
+  );
+  const filteredTransactions = transactions.filter((txn: any) => {
+    const points = Number(txn.points ?? 0);
+    if (historyFilter === "earned") return points > 0;
+    if (historyFilter === "used") return points < 0;
+    return true;
+  });
+  const recentTransactions = filteredTransactions.slice(0, 5);
   const balance = Number(d.balance ?? 0);
   const lifetimeEarned = Number(d.lifetimeEarned ?? 0);
   const totalPointsUsed = Number(
@@ -124,39 +136,29 @@ export default function AgriPointsPage() {
         </div>
       )}
 
-      <section aria-label="AgriPoints summary" className="grid gap-4 xl:grid-cols-[1.45fr_1fr_1fr]">
-        <div className="flex min-h-[116px] items-center rounded-2xl bg-gradient-to-r from-emerald-700 via-emerald-700 to-green-800 p-5 text-white shadow-md shadow-emerald-900/10">
-          <div className="flex w-1/2 items-center gap-3">
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-white/10">
-              <Coins className="h-10 w-10 text-amber-300" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-emerald-100">Available Points</p>
-              <p className="mt-1 text-3xl font-extrabold tabular-nums">{balance.toLocaleString("en-IN")} pts</p>
-            </div>
+      <section aria-label="AgriPoints summary" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="flex min-h-[112px] items-center gap-4 rounded-2xl bg-gradient-to-r from-emerald-700 to-green-800 p-5 text-white shadow-md shadow-emerald-900/10">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-amber-400 text-white">
+            <Star className="h-9 w-9" />
           </div>
-          <div className="mx-4 h-16 w-px bg-white/40" />
-          <div className="min-w-0 flex-1">
-            <p className="flex items-center gap-1.5 text-sm font-semibold text-emerald-100">
-              Equivalent Value
-              <span title="100 AgriPoints = ₹1 discount">
-                <Info className="h-4 w-4" />
-              </span>
-            </p>
-            <p className="mt-1 text-3xl font-extrabold tabular-nums">{formatRupees(equivalentValue)}</p>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-emerald-100">My AgriPoints</p>
+            <p className="mt-1 text-3xl font-extrabold tabular-nums">{balance.toLocaleString("en-IN")} pts</p>
+            <p className="text-xs text-emerald-100">Available to use at checkout</p>
           </div>
         </div>
-
-        <SummaryCard
-          icon={<Trophy className="h-10 w-10 text-amber-500" />}
-          label="Total Points Earned"
-          value={lifetimeEarned}
-        />
-        <SummaryCard
-          icon={<Gift className="h-10 w-10 text-emerald-600" />}
-          label="Total Points Used"
-          value={totalPointsUsed}
-        />
+        <SummaryCard icon={<Trophy className="h-9 w-9 text-emerald-600" />} label="Total Earned" value={lifetimeEarned} />
+        <SummaryCard icon={<Gift className="h-9 w-9 text-red-500" />} label="Total Used" value={totalPointsUsed} />
+        <div className="flex min-h-[112px] items-center gap-4 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-700">
+            <ShoppingBasket className="h-9 w-9" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-slate-700">Redeem Value</p>
+            <p className="mt-1 text-3xl font-extrabold tabular-nums text-slate-950">{formatRupees(equivalentValue)}</p>
+            <p className="text-xs text-slate-500">(100 pts = ₹1)</p>
+          </div>
+        </div>
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[1.8fr_1fr]">
@@ -195,57 +197,70 @@ export default function AgriPointsPage() {
 
       <section className="grid gap-4 xl:grid-cols-[1.8fr_1fr]">
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-3 px-5 pb-3 pt-4">
-            <h2 className="flex items-center gap-2 text-xl font-extrabold text-slate-950">
-              <History className="h-6 w-6 text-slate-700" />
-              Points History
-            </h2>
-            <span className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-xs font-semibold text-slate-700">
-              All Activities
-            </span>
+          <div className="flex flex-wrap items-start justify-between gap-3 px-5 pb-3 pt-4">
+            <div>
+              <h2 className="flex items-center gap-2 text-xl font-extrabold text-slate-950">
+                <History className="h-6 w-6 text-slate-700" />
+                Points History
+              </h2>
+              <p className="mt-1 text-sm text-slate-600">Your latest AgriPoints transactions</p>
+            </div>
+            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-bold text-emerald-800">Recent Activity</span>
           </div>
-          {transactions.length === 0 ? (
-            <div className="mx-4 mb-4 rounded-xl bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
-              No points activity yet. Complete eligible orders to start earning AgriPoints.
+          <div className="flex gap-2 px-5 pb-3" role="group" aria-label="Filter points history">
+            {([
+              ["all", "All"],
+              ["earned", "Earned"],
+              ["used", "Used"],
+            ] as const).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setHistoryFilter(value)}
+                aria-pressed={historyFilter === value}
+                className={`min-w-[82px] rounded-full border px-5 py-2 text-sm font-bold transition ${historyFilter === value ? "border-emerald-700 bg-emerald-700 text-white shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:border-emerald-300 hover:bg-emerald-50"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {recentTransactions.length === 0 ? (
+            <div className="mx-5 mb-4 rounded-xl bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
+              No {historyFilter === "all" ? "points" : historyFilter} transactions found.
             </div>
           ) : (
-            <div className="overflow-x-auto px-4 pb-4">
-              <table className="w-full min-w-[700px] border-collapse text-left text-xs sm:text-sm">
-                <thead>
-                  <tr className="bg-slate-100 text-slate-800">
-                    <th className="rounded-l-lg px-3 py-2 font-bold">Date &amp; Time</th>
-                    <th className="px-3 py-2 font-bold">Activity</th>
-                    <th className="px-3 py-2 font-bold">Order ID</th>
-                    <th className="px-3 py-2 text-right font-bold">Points</th>
-                    <th className="px-3 py-2 text-right font-bold">Value (₹)</th>
-                    <th className="rounded-r-lg px-3 py-2 text-center font-bold">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {transactions.map((txn: any, index: number) => {
-                    const points = Number(txn.points ?? 0);
-                    const used = points < 0;
-                    return (
-                      <tr key={txn.id ?? txn._id ?? `${txn.createdAt ?? "txn"}-${index}`} className="border-b border-slate-100 last:border-0">
-                        <td className="whitespace-nowrap px-3 py-3 text-slate-600">{formatDateTime(txn.createdAt)}</td>
-                        <td className="px-3 py-3 font-medium text-slate-800">{txn.description || txn.reason || (used ? "Used at Checkout (Discount)" : "Order Purchase")}</td>
-                        <td className="whitespace-nowrap px-3 py-3 text-slate-600">{txn.orderId || txn.referenceId || "—"}</td>
-                        <td className={`whitespace-nowrap px-3 py-3 text-right font-extrabold ${used ? "text-red-600" : "text-emerald-700"}`}>
-                          {used ? "" : "+"}{points.toLocaleString("en-IN")} pts
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-3 text-right font-semibold text-slate-700">{formatRupees(Math.abs(points) / POINTS_PER_RUPEE)}</td>
-                        <td className="px-3 py-3 text-center">
-                          <span className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${used ? "bg-blue-100 text-blue-700" : "bg-green-100 text-green-800"}`}>
-                            {used ? "Used" : "Earned"}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            <div className="mx-5 mb-4 overflow-hidden rounded-xl border border-slate-200">
+              {recentTransactions.map((txn: any, index: number) => {
+                const points = Number(txn.points ?? 0);
+                const used = points < 0;
+                return (
+                  <div key={txn.id ?? txn._id ?? `${txn.createdAt ?? "txn"}-${index}`} className="flex items-center gap-3 border-b border-slate-200 px-3 py-2.5 last:border-0 sm:px-4">
+                    <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${used ? "bg-red-50 text-red-600" : "bg-emerald-50 text-emerald-700"}`}>
+                      {used ? <BadgePercent className="h-5 w-5" /> : <ShoppingBasket className="h-5 w-5" />}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-bold text-slate-900">
+                        {txn.description || txn.reason || (used ? "Points used at checkout" : "Points earned for order")}
+                        {txn.orderId || txn.referenceId ? ` #${String(txn.orderId || txn.referenceId).replace(/^#/, "")}` : ""}
+                      </p>
+                      <p className="mt-0.5 text-xs text-slate-500">{formatDateTime(txn.createdAt)}</p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <span className={`inline-flex rounded-full px-3 py-1 text-sm font-extrabold tabular-nums ${used ? "bg-red-100 text-red-700" : "bg-green-100 text-green-800"}`}>
+                        {used ? "−" : "+"}{Math.abs(points).toLocaleString("en-IN")} pts
+                      </span>
+                      <p className={`mt-0.5 text-[11px] font-bold ${used ? "text-red-600" : "text-emerald-700"}`}>{used ? "Used" : "Earned"}</p>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
+          <div className="px-5 pb-5">
+            <Link href="/agripoints/history" className="flex min-h-11 w-full items-center justify-center gap-2 rounded-full border-2 border-emerald-700 bg-gradient-to-r from-white to-emerald-50 px-4 text-sm font-extrabold text-emerald-800 transition hover:bg-emerald-700 hover:text-white">
+              View All Transactions <span aria-hidden="true">→</span>
+            </Link>
+          </div>
         </div>
 
         <div className="rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50 to-white p-4 shadow-sm">
