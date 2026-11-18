@@ -253,7 +253,13 @@ async def update_delivery_slot(
             detail="This delivery slot already has customer bookings and can no longer be edited.",
         )
 
+    if not data.area or not data.area.strip():
+        raise HTTPException(status_code=422, detail="Delivery area is required")
+    if data.startTime >= data.endTime:
+        raise HTTPException(status_code=422, detail="End time must be later than start time")
+
     slot_date = _as_utc_naive(data.date)
+    cutoff_time = _as_utc_naive(data.cutoffTime)
     if slot_date is None or slot_date < datetime.utcnow():
         raise HTTPException(status_code=400, detail="Slot date must be in the future")
 
@@ -264,14 +270,34 @@ async def update_delivery_slot(
         "endTime": data.endTime,
         "radiusKm": data.radiusKm,
         "maxCapacityKg": data.maxCapacityKg,
-        "cutoffTime": data.cutoffTime,
+        "cutoffTime": cutoff_time,
         "deliveryFee": data.deliveryFee,
         "notes": data.notes,
+        "updatedAt": datetime.utcnow(),
     }
-    ok = await slot_repo.update({"_id": ObjectId(slot_id)}, updates)
-    if not ok:
-        raise HTTPException(status_code=400, detail="Failed to update delivery slot")
-    updated = await slot_repo.find_one({"_id": ObjectId(slot_id)})
+
+    # Update atomically against both the selected slot ID and its owner.
+    # Use matched_count rather than modified_count: MongoDB reports
+    # modified_count=0 when the submitted values are unchanged, even though
+    # the selected slot exists and the request is valid.
+    result = await slot_repo.collection.update_one(
+        {
+            "_id": ObjectId(slot_id),
+            "farmerId": ObjectId(current_user["_id"]),
+            "deletedAt": None,
+        },
+        {"$set": updates},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Delivery slot not found or no longer belongs to this farmer")
+
+    updated = await slot_repo.find_one({
+        "_id": ObjectId(slot_id),
+        "farmerId": ObjectId(current_user["_id"]),
+        "deletedAt": None,
+    })
+    if not updated:
+        raise HTTPException(status_code=500, detail="Delivery slot was updated but could not be reloaded")
     return {"success": True, "data": _serialize_slot(updated)}
 
 
