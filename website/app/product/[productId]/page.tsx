@@ -551,96 +551,220 @@ export default function ProductDetailPage() {
         </aside>
       </div>
 
-      <section className="space-y-4">
-        <nav aria-label="Product information sections" className="grid grid-cols-2 gap-1 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm sm:grid-cols-3 lg:grid-cols-5">
+      <section id="product-information" className="scroll-mt-24 space-y-4">
+        <nav aria-label="Product information sections" className="grid grid-cols-2 gap-1 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-[0_4px_16px_rgba(15,23,42,0.06)] sm:grid-cols-3 lg:grid-cols-5">
           {tabs.map((tab) => (
-            <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)} aria-pressed={activeTab === tab.id} className={cn("min-h-11 rounded-xl px-2 py-2 text-xs font-semibold transition sm:text-sm", activeTab === tab.id ? "bg-emerald-700 text-white shadow-sm" : "text-slate-700 hover:bg-emerald-50 hover:text-emerald-800")}>{tab.label}</button>
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              aria-pressed={activeTab === tab.id}
+              className={cn(
+                "min-h-12 rounded-xl px-2 py-2.5 text-xs font-bold transition sm:text-sm",
+                activeTab === tab.id
+                  ? "bg-emerald-700 text-white shadow-md"
+                  : "text-slate-700 hover:bg-emerald-50 hover:text-emerald-800"
+              )}
+            >
+              {tab.label}
+            </button>
           ))}
         </nav>
 
-        <Card className="overflow-hidden rounded-2xl border border-emerald-100 bg-white shadow-sm">
-          <CardContent className="min-h-[280px] p-4 sm:p-6 lg:p-7">
+        <Card className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_4px_18px_rgba(15,23,42,0.06)]">
+          <CardContent className="min-h-[320px] p-4 sm:p-6 lg:p-7">
             {activeTab === "description" && (
-              <div>
-                <h2 className="text-xl font-bold text-slate-950">Product Description</h2>
-                <div className="mt-4 grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(260px,.8fr)]">
-                  <p className="whitespace-pre-line text-sm leading-7 text-slate-600">{product.description || "No product description has been provided yet."}</p>
-                  <div className="grid grid-cols-2 gap-3">
-                    {[[Leaf, "Farm Fresh"], [ShieldCheck, "Quality Assured"], [Truck, "Safe Delivery"], [CheckCircle2, "Naturally Grown"]].map(([Icon, label]: any) => <div key={label} className="flex flex-col items-center justify-center rounded-xl bg-emerald-50 p-4 text-center"><Icon className="h-7 w-7 text-emerald-700" /><span className="mt-2 text-sm font-semibold text-slate-700">{label}</span></div>)}
+              <div className="grid items-center gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(260px,.85fr)]">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-emerald-700">About this product</p>
+                  <h2 className="mt-1 text-2xl font-extrabold text-slate-950">Product Description</h2>
+                  <p className="mt-3 whitespace-pre-line text-sm leading-7 text-slate-600">
+                    {product.description || "No product description has been provided yet."}
+                  </p>
+                  <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    {[
+                      [Leaf, "Farm Fresh"],
+                      [ShieldCheck, "Quality Assured"],
+                      [Truck, "Safe Delivery"],
+                      [CheckCircle2, "Naturally Grown"],
+                    ].map(([Icon, label]: any) => (
+                      <div key={label} className="flex min-h-[88px] flex-col items-center justify-center rounded-xl border border-emerald-100 bg-emerald-50/70 p-3 text-center">
+                        <Icon className="h-7 w-7 text-emerald-700" />
+                        <span className="mt-2 text-xs font-bold text-slate-700">{label}</span>
+                      </div>
+                    ))}
                   </div>
+                </div>
+                <div className="overflow-hidden rounded-2xl border border-emerald-100 bg-emerald-50">
+                  <img
+                    src={displayImages[0]}
+                    alt={product.name + " product"}
+                    className="h-64 w-full object-cover sm:h-72"
+                    onError={(e) => { (e.currentTarget as HTMLImageElement).src = "/images/placeholder-product.jpg"; }}
+                  />
                 </div>
               </div>
             )}
 
             {activeTab === "specifications" && (
               <div>
-                <h2 className="text-xl font-bold text-slate-950">Product Specifications</h2>
-                <dl className="mt-4 grid gap-2 sm:grid-cols-2">
+                <div className="flex flex-wrap items-end justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[0.16em] text-emerald-700">Product information</p>
+                    <h2 className="mt-1 text-2xl font-extrabold text-slate-950">Product Specifications</h2>
+                  </div>
+                  <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">Live product details</span>
+                </div>
+                <dl className="mt-5 grid gap-3 lg:grid-cols-2">
                   {[
-                    ["Product Name", product.name], ["Category", categoryLabel], ["Unit", unit],
-                    ["Price", `${formatPrice(effectivePrice)} / ${unit}`], ["Available Quantity", `${available} ${unit}`],
-                    ["Minimum Order", product.minBulkQty ? `${product.minBulkQty} ${unit}` : `1 ${unit}`],
-                    ["Harvest Status", product.harvestStatus || (product.isPreHarvest ? "Pre-harvest" : "Harvested")],
-                    ["Packaging", product.packagingType || product.packaging || "Farm packed"],
-                  ].map(([label, value]) => <div key={label} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] overflow-hidden rounded-lg border border-slate-200 text-sm"><dt className="bg-slate-50 px-3 py-3 font-medium text-slate-600">{label}</dt><dd className="px-3 py-3 font-semibold text-slate-800">{value}</dd></div>)}
+                    [Package, "Product Name", product.name || "—"],
+                    [Leaf, "Category", categoryLabel],
+                    [Package, "Unit", unit],
+                    [ShoppingCart, "Price", formatPrice(effectivePrice) + " / " + unit],
+                    [Package, "Available Quantity", available + " " + unit],
+                    [ShoppingCart, "Minimum Order", (product.minBulkQty || 1) + " " + unit],
+                    [CheckCircle2, "Harvest Status", product.harvestStatus || (product.isPreHarvest ? "Pre-harvest" : "Harvested")],
+                    [ShieldCheck, "Packaging", product.packagingType || product.packaging || "Farm packed"],
+                  ].map(([Icon, label, value]: any) => (
+                    <div key={label} className="grid min-w-0 grid-cols-[minmax(0,.9fr)_minmax(0,1.1fr)] overflow-hidden rounded-xl border border-slate-200">
+                      <dt className="flex items-center gap-2 bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-600 sm:px-4">
+                        <Icon className="h-4 w-4 shrink-0 text-emerald-700" />
+                        {label}
+                      </dt>
+                      <dd className="flex items-center break-words px-3 py-3 text-sm font-bold text-slate-900 sm:px-4">{String(value ?? "—")}</dd>
+                    </div>
+                  ))}
                 </dl>
               </div>
             )}
 
             {activeTab === "reviews" && (
-              <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
-                <section>
-                  <h2 className="text-xl font-bold text-slate-950">Customer Reviews</h2>
-                  <div className="mt-4 flex items-center gap-4 rounded-xl bg-slate-50 p-4">
-                    <div className="text-4xl font-extrabold text-slate-900">{product.rating ? Number(product.rating).toFixed(1) : "New"}</div>
-                    <div><div className="text-lg text-amber-500">{"★".repeat(Math.max(0, Math.min(5, Math.round(Number(product.rating) || 0))))}{"☆".repeat(Math.max(0, 5 - Math.min(5, Math.round(Number(product.rating) || 0))))}</div><p className="text-sm text-slate-500">Based on {reviewCount} reviews</p></div>
+              <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-emerald-700">Customer feedback</p>
+                  <h2 className="mt-1 text-2xl font-extrabold text-slate-950">Customer Reviews</h2>
+                  <div className="mt-4 grid gap-4 rounded-2xl border border-slate-100 bg-slate-50 p-4 sm:grid-cols-[150px_minmax(0,1fr)]">
+                    <div className="flex flex-col justify-center">
+                      <span className="text-5xl font-extrabold tracking-tight text-slate-950">{product.rating ? Number(product.rating).toFixed(1) : "New"}</span>
+                      <span className="mt-1 text-xl tracking-wider text-amber-500">{"★".repeat(Math.max(0, Math.min(5, Math.round(Number(product.rating) || 0))))}{"☆".repeat(Math.max(0, 5 - Math.min(5, Math.round(Number(product.rating) || 0))))}</span>
+                      <span className="mt-1 text-xs text-slate-500">Based on {reviewCount} reviews</span>
+                    </div>
+                    <div className="space-y-2">
+                      {[5, 4, 3, 2, 1].map((rating) => {
+                        const count = reviews.filter((review: any) => Number(review.rating) === rating).length;
+                        const percent = reviewCount ? (count / reviewCount) * 100 : 0;
+                        return (
+                          <div key={rating} className="grid grid-cols-[34px_minmax(0,1fr)_34px] items-center gap-2 text-xs">
+                            <span className="font-semibold text-slate-600">{rating} ★</span>
+                            <div className="h-2 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-emerald-600" style={{ width: percent + "%" }} /></div>
+                            <span className="text-right text-slate-500">{Math.round(percent)}%</span>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
-                  {reviews.length === 0 ? <p className="mt-4 text-sm text-slate-500">No reviews yet. Be the first to rate this product.</p> : <div className="mt-4 space-y-4">{reviews.map((r: any, index: number) => <div key={r.id || r._id || index} className="border-b border-slate-100 pb-3 last:border-0"><div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-slate-900">{r.userName || "Customer"}</span><span className="text-sm text-amber-500">{"★".repeat(Math.min(5, r.rating || 0))}{"☆".repeat(Math.max(0, 5 - Math.min(5, r.rating || 0)))}</span></div><p className="mt-1 text-sm text-slate-600">{r.comment}</p>{r.createdAt && <p className="mt-1 text-xs text-slate-400">{new Date(r.createdAt).toLocaleDateString()}</p>}</div>)}</div>}
-                </section>
-                <section className="rounded-xl bg-slate-50 p-4">
-                  <h3 className="font-bold text-slate-900">Write a Review</h3>
-                  <div className="mt-2 flex gap-1">{[1,2,3,4,5].map((s) => <button key={s} type="button" onClick={() => setReviewRating(s)} aria-label={`${s} stars`} className={cn("text-2xl", s <= reviewRating ? "text-amber-500" : "text-slate-300")}>★</button>)}</div>
-                  <textarea value={reviewComment} onChange={(e) => setReviewComment(e.target.value)} rows={4} placeholder="Share your experience..." className="mt-3 w-full rounded-lg border border-slate-200 bg-white p-3 text-sm outline-none focus:border-emerald-500" />
+                  {reviews.length === 0 ? (
+                    <div className="mt-4 rounded-xl border border-dashed border-slate-300 p-6 text-center">
+                      <Star className="mx-auto h-8 w-8 text-amber-400" />
+                      <p className="mt-2 font-semibold text-slate-800">No reviews yet</p>
+                      <p className="mt-1 text-sm text-slate-500">Be the first customer to share feedback about this product.</p>
+                    </div>
+                  ) : (
+                    <div className="mt-4 space-y-3">
+                      {reviews.map((review: any, index: number) => (
+                        <article key={review.id || review._id || index} className="rounded-xl border border-slate-200 p-4">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="font-bold text-slate-900">{review.userName || "Customer"}</span>
+                            <span className="text-sm tracking-wider text-amber-500">{"★".repeat(Math.min(5, Number(review.rating) || 0))}{"☆".repeat(Math.max(0, 5 - Math.min(5, Number(review.rating) || 0)))}</span>
+                          </div>
+                          <p className="mt-2 text-sm leading-6 text-slate-600">{review.comment}</p>
+                          {review.createdAt && <p className="mt-2 text-xs text-slate-400">{new Date(review.createdAt).toLocaleDateString()}</p>}
+                        </article>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <aside className="h-fit rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4">
+                  <h3 className="text-lg font-bold text-slate-900">Write a Review</h3>
+                  <p className="mt-1 text-sm text-slate-600">Share your experience with other customers.</p>
+                  <div className="mt-3 flex gap-1">{[1, 2, 3, 4, 5].map((star) => <button key={star} type="button" onClick={() => setReviewRating(star)} aria-label={star + " stars"} className={cn("text-3xl transition", star <= reviewRating ? "text-amber-500" : "text-slate-300")}>★</button>)}</div>
+                  <textarea value={reviewComment} onChange={(e) => setReviewComment(e.target.value)} rows={5} placeholder="Share your experience..." className="mt-3 w-full rounded-xl border border-slate-200 bg-white p-3 text-sm outline-none focus:border-emerald-500" />
                   {reviewError && <p className="mt-2 text-sm text-rose-600">{reviewError}</p>}
-                  <Button className="mt-3 w-full bg-emerald-700 hover:bg-emerald-800" onClick={handleSubmitReview} disabled={reviewLoading}>{reviewLoading ? "Submitting..." : "Submit Review"}</Button>
-                  <p className="mt-2 text-xs text-slate-500">Reviews are subject to purchase eligibility.</p>
-                </section>
+                  <Button className="mt-3 w-full rounded-xl bg-emerald-700 hover:bg-emerald-800" onClick={handleSubmitReview} disabled={reviewLoading}>{reviewLoading ? "Submitting..." : "Submit Review"}</Button>
+                  <p className="mt-2 text-xs leading-5 text-slate-500">Review submission may require a verified purchase.</p>
+                </aside>
               </div>
             )}
 
             {activeTab === "delivery" && (
-              <div className="grid gap-6 lg:grid-cols-2">
-                <section>
-                  <h2 className="text-xl font-bold text-slate-950">Delivery Information</h2>
-                  <div className="mt-4 space-y-3 text-sm">
-                    <p className="flex items-start gap-2 text-slate-700"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />Estimated delivery: 1–2 days, confirmed at checkout</p>
-                    <p className="flex items-start gap-2 text-slate-700"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />Delivery charge is calculated using your address and delivery option</p>
-                    <p className="flex items-start gap-2 text-slate-700"><Truck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />Delivery methods are shown at checkout based on availability</p>
-                    {product.pickupAvailable && <p className="rounded-lg bg-amber-50 p-3 text-amber-800">Farm pickup available: {product.pickupInstructions || "Contact the farmer to confirm pickup."}</p>}
-                  </div>
-                </section>
-                <section className="rounded-xl bg-slate-50 p-4">
-                  <h3 className="font-bold text-slate-900">Returns & Refunds</h3>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">Eligible return or refund requests are reviewed under the AgriConnect return policy and the condition of the produce received.</p>
-                  <Link href="/refunds" className="mt-3 inline-flex text-sm font-semibold text-emerald-700 hover:underline">View Return Policy →</Link>
-                </section>
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-emerald-700">Order information</p>
+                <h2 className="mt-1 text-2xl font-extrabold text-slate-950">Delivery & Returns</h2>
+                <div className="mt-5 grid gap-4 lg:grid-cols-2">
+                  <section className="rounded-2xl border border-slate-200 p-4 sm:p-5">
+                    <h3 className="flex items-center gap-2 text-lg font-bold text-slate-900"><Truck className="h-5 w-5 text-emerald-700" />Delivery Information</h3>
+                    <div className="mt-4 space-y-4">
+                      {[
+                        ["Estimated Delivery", "Delivery estimate is confirmed at checkout for your address."],
+                        ["Delivery Charge", "Calculated at checkout based on delivery address and available service."],
+                        ["Delivery Method", "Available delivery options are shown during checkout."],
+                      ].map(([label, value]) => (
+                        <div key={label} className="flex gap-3 border-b border-slate-100 pb-3 last:border-0 last:pb-0">
+                          <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
+                          <div><p className="text-sm font-bold text-slate-800">{label}</p><p className="mt-1 text-sm leading-5 text-slate-600">{value}</p></div>
+                        </div>
+                      ))}
+                      {product.pickupAvailable && <div className="rounded-xl bg-amber-50 p-3 text-sm text-amber-800"><p className="font-bold"><Store className="mr-1 inline h-4 w-4" />Farm Pickup Available</p><p className="mt-1">{product.pickupInstructions || "Contact the farmer to confirm pickup arrangements."}</p></div>}
+                    </div>
+                  </section>
+                  <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:p-5">
+                    <h3 className="flex items-center gap-2 text-lg font-bold text-slate-900"><ShieldCheck className="h-5 w-5 text-emerald-700" />Returns & Refunds</h3>
+                    <div className="mt-4 space-y-3 text-sm leading-6 text-slate-600">
+                      <p>If the produce arrives damaged, incorrect, or does not meet the applicable quality requirements, you can submit a return or refund request for review.</p>
+                      <p>Requests are assessed according to the AgriConnect return policy and the order details.</p>
+                    </div>
+                    <Link href="/refunds" className="mt-5 inline-flex items-center rounded-xl border border-emerald-600 bg-white px-4 py-2.5 text-sm font-bold text-emerald-800 hover:bg-emerald-50">View Return & Refund Policy →</Link>
+                  </section>
+                </div>
               </div>
             )}
 
             {activeTab === "farmer" && (
               <div>
-                <h2 className="text-xl font-bold text-slate-950">Farmer Details</h2>
-                <div className="mt-4 max-w-2xl rounded-xl border border-emerald-100 bg-emerald-50/60 p-4">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-white bg-white shadow-sm">{farmerAvatar ? <img src={farmerAvatar} alt={product.farmerName || "Farmer"} className="h-full w-full object-cover" /> : <Store className="h-7 w-7 text-emerald-700" />}</div>
-                    <div className="min-w-0"><p className="font-bold text-slate-900">{product.farmerName || product.farmer?.name || "Local Farmer"}</p><p className="mt-1 text-sm font-semibold text-emerald-700">{product.farmerVerified ? "Verified Farmer" : "Farm Supplier"}</p>{farmerLocation && <p className="mt-1 text-sm text-slate-600">{farmerLocation}</p>}</div>
-                  </div>
-                  <div className="mt-4 flex items-center gap-2 rounded-lg bg-white px-3 py-3 text-sm"><Phone className="h-4 w-4 shrink-0 text-emerald-700" />{farmerPhone ? <a href={`tel:${farmerPhone}`} className="font-semibold text-emerald-800 hover:underline">Contact Number: {farmerPhone}</a> : <span className="text-slate-500">Contact number not provided</span>}</div>
-                  <div className="mt-3 space-y-2 text-sm text-slate-600">
-                    <p className="flex items-center gap-2"><Leaf className="h-4 w-4 text-emerald-700" />Farming method: {product.farmingMethod || (product.isOrganic ? "Organic" : "Farm grown")}</p>
-                    <p className="flex items-center gap-2"><Package className="h-4 w-4 text-emerald-700" />Available stock: {available} {unit}</p>
-                  </div>
-                  {product.farmerId && <Link href={`/farmer/${product.farmerId}`} className="mt-4 inline-flex items-center justify-center rounded-xl border border-emerald-600 bg-white px-4 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-50">View Full Farm Profile →</Link>}
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-emerald-700">Meet the grower</p>
+                <h2 className="mt-1 text-2xl font-extrabold text-slate-950">Farmer Details</h2>
+                <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(260px,.9fr)]">
+                  <section className="rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50 to-white p-5">
+                    <div className="flex flex-wrap items-center gap-4">
+                      <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-white bg-white shadow">{farmerAvatar ? <img src={farmerAvatar} alt={product.farmerName || "Farmer"} className="h-full w-full object-cover" /> : <Store className="h-8 w-8 text-emerald-700" />}</div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xl font-extrabold text-slate-950">{product.farmerName || product.farmer?.name || "Local Farmer"}</p>
+                        <p className="mt-1 text-sm font-semibold text-emerald-700">{product.farmerVerified ? "✓ Verified Farmer" : "Farm Supplier"}</p>
+                        {farmerLocation && <p className="mt-2 flex items-start gap-2 text-sm text-slate-600"><MapPin className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />{farmerLocation}</p>}
+                      </div>
+                    </div>
+                    <div className="mt-5 rounded-xl border border-emerald-200 bg-emerald-100/70 p-4">
+                      <p className="text-xs font-bold uppercase tracking-wide text-emerald-800">Farmer contact</p>
+                      <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex min-w-0 items-center gap-2"><Phone className="h-5 w-5 shrink-0 text-emerald-800" />{farmerPhone ? <a href={"tel:" + farmerPhone} className="break-all text-base font-extrabold text-emerald-900 hover:underline">{farmerPhone}</a> : <span className="text-sm text-slate-600">Contact number not provided</span>}</div>
+                        {farmerPhone && <a href={"tel:" + farmerPhone} className="rounded-lg bg-emerald-700 px-3 py-2 text-sm font-bold text-white hover:bg-emerald-800">Call Farmer</a>}
+                      </div>
+                    </div>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      <div className="rounded-xl bg-white p-3"><p className="text-xs text-slate-500">Farming Method</p><p className="mt-1 font-bold text-slate-900">{product.farmingMethod || (product.isOrganic ? "Organic" : "Farm grown")}</p></div>
+                      <div className="rounded-xl bg-white p-3"><p className="text-xs text-slate-500">Product Stock</p><p className="mt-1 font-bold text-emerald-800">{available} {unit} available</p></div>
+                    </div>
+                    {product.farmerId && <Link href={"/farmer/" + product.farmerId} className="mt-4 inline-flex items-center justify-center rounded-xl border border-emerald-600 bg-white px-4 py-2.5 text-sm font-bold text-emerald-800 hover:bg-emerald-50">View Full Farm Profile →</Link>}
+                  </section>
+                  <aside className="rounded-2xl border border-slate-200 p-5">
+                    <h3 className="text-lg font-bold text-slate-900">Farm & Product</h3>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">This product is listed by the farmer shown here. Contact details are displayed only when provided in the product or farmer profile.</p>
+                    <div className="mt-4 overflow-hidden rounded-xl border border-slate-100 bg-slate-50">
+                      <img src={displayImages[0]} alt={product.name + " from " + (product.farmerName || "farmer")} className="h-40 w-full object-cover" onError={(e) => { (e.currentTarget as HTMLImageElement).src = "/images/placeholder-product.jpg"; }} />
+                    </div>
+                    <p className="mt-3 text-sm font-bold text-slate-900">{product.name}</p>
+                    <p className="mt-1 text-sm font-semibold text-emerald-700">{formatPrice(effectivePrice)} / {unit}</p>
+                  </aside>
                 </div>
               </div>
             )}
