@@ -427,6 +427,8 @@ async def list_available_slots(
             "area",
             "farm.farmAddress",
             "farm.address",
+            "farm.farmVillage",
+            "farm.farmTaluk",
             "farm.village",
             "farm.town",
             "farm.locality",
