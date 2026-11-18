@@ -24,9 +24,13 @@ import { api } from "../../lib/api/client";
 const POINTS_PER_RUPEE = 100;
 
 export default function AgriPointsPage() {
-  const { data: pointsData, isLoading, isError } = useQuery({
+  const { data: pointsData, isLoading, isError, refetch } = useQuery({
     queryKey: ["loyalty", "me"],
     queryFn: () => api.get("/loyalty/me"),
+    retry: 2,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    staleTime: 0,
   });
 
   if (isLoading) {
@@ -112,8 +116,11 @@ export default function AgriPointsPage() {
       </section>
 
       {isError && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          We couldn’t refresh your AgriPoints right now. The values below may be unavailable; please try again shortly.
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <span>AgriPoints could not be loaded. Your balance has not been changed.</span>
+          <button type="button" onClick={() => void refetch()} className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 font-semibold hover:bg-amber-100">
+            Retry
+          </button>
         </div>
       )}
 
