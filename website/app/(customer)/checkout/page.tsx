@@ -109,7 +109,7 @@ export default function CheckoutPage() {
   const [deliveryQuote, setDeliveryQuote] = useState<DeliveryQuote | null>(null);
   const [deliveryAvailability, setDeliveryAvailability] = useState<DeliveryAvailability | null>(null);
   const [isEstimatingFee, setIsEstimatingFee] = useState(false);
-  const [deliveryDate, setDeliveryDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [deliveryDate, setDeliveryDate] = useState(() => new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" }));
   const [deliveryTimeSlot, setDeliveryTimeSlot] = useState("morning");
   const [selectedDeliverySlotId, setSelectedDeliverySlotId] = useState("");
   const [selectedDeliverySpeed, setSelectedDeliverySpeed] = useState<"fastest_30m" | "standard">("standard");
@@ -257,34 +257,34 @@ export default function CheckoutPage() {
   const { data: checkoutSlotsData, isLoading: checkoutSlotsLoading, isError: checkoutSlotsError, refetch: refetchCheckoutSlots } = useQuery({
     queryKey: [
       "checkout-delivery-slots",
-      selectedCheckoutAddress?.city,
-      selectedCheckoutAddress?.state,
-      selectedCheckoutAddress?.zip_code,
+      estimatedDeliveryAddressId,
       deliveryDate,
     ],
     queryFn: () => api.get("/delivery-slots/available", {
-      // A customer's city is often the district while a farmer publishes a
-      // village/locality. Send the complete address so the API can match using
-      // locality, district, farm address and PIN code.
-      params: {
-        area: selectedCheckoutAddress?.city || "",
-        state: selectedCheckoutAddress?.state || "",
-        postal_code: selectedCheckoutAddress?.zip_code || "",
-        radius: 100,
-      },
+      // Fetch all upcoming farmer-published slots first. The previous strict
+      // city/PIN regex hid valid village-level slots when the customer address
+      // used its parent town or district (for example, village vs. district).
+      // Each result still shows the farmer's published service area and radius.
+      params: { radius: 100 },
     }),
-    enabled: Boolean(selectedCheckoutAddress?.city || selectedCheckoutAddress?.zip_code) && items.length > 0 && status === "authenticated",
-    staleTime: 15_000,
+    enabled: Boolean(estimatedDeliveryAddressId) && items.length > 0 && status === "authenticated",
+    staleTime: 0,
+    refetchOnMount: "always",
     refetchOnWindowFocus: true,
+    refetchInterval: 30_000,
+    retry: 2,
   });
   const checkoutCartWeightKg = items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
-  const checkoutSlots = (checkoutSlotsData?.data?.slots || checkoutSlotsData?.slots || []).filter((slot: any) => {
-    if (slot.status !== "open" || Number(slot.remainingCapacityKg ?? slot.maxCapacityKg ?? 0) <= 0) return false;
-    // Slot dates are stored in UTC; compare using the delivery location's
-    // India-local calendar date rather than the browser's UTC date.
-    const slotDate = new Date(slot.date).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
-    return slotDate === deliveryDate;
-  });
+  const checkoutSlots = (checkoutSlotsData?.data?.slots || checkoutSlotsData?.slots || [])
+    .filter((slot: any) => {
+      if (slot.status !== "open" || Number(slot.remainingCapacityKg ?? slot.maxCapacityKg ?? 0) <= 0) return false;
+      // Farmer slot timestamps are UTC; checkout dates are India-local.
+      const parsedDate = new Date(slot.date);
+      if (Number.isNaN(parsedDate.getTime())) return false;
+      const slotDate = parsedDate.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+      return slotDate === deliveryDate;
+    })
+    .sort((a: any, b: any) => String(a.startTime || "").localeCompare(String(b.startTime || "")));
   const selectedCheckoutSlot = checkoutSlots.find((slot: any) => slot.id === selectedDeliverySlotId);
 
   useEffect(() => {
@@ -1254,7 +1254,7 @@ if (!cartHydrated) {
                     Could not load farmer delivery slots. <button type="button" className="font-semibold underline" onClick={() => refetchCheckoutSlots()}>Try again</button>
                   </div>
                 ) : checkoutSlots.length === 0 ? (
-                  <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-sm text-slate-500">No open farmer-published slots match {selectedCheckoutAddress.city} ({selectedCheckoutAddress.zip_code}) on this date. Choose another date or continue with standard delivery.</div>
+                  <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-sm text-slate-500">No open farmer-published slots are available on this date. Choose another date or continue with standard delivery. New slots are checked automatically.</div>
                 ) : (
                   <div className="grid gap-2 sm:grid-cols-2">
                     {checkoutSlots.map((slot: any) => (
@@ -1271,7 +1271,7 @@ if (!cartHydrated) {
                         className={`rounded-lg border p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${selectedDeliverySlotId === slot.id ? "border-emerald-600 bg-emerald-50 ring-1 ring-emerald-100" : "border-slate-200 hover:border-emerald-300"}`}>
                         <div className="flex items-center justify-between gap-2"><span className="text-sm font-semibold text-slate-900">{slot.area}</span><span className="rounded-full bg-emerald-100 px-2 py-1 text-[11px] font-semibold text-emerald-700">{Number(slot.remainingCapacityKg ?? 0).toFixed(2)} kg left</span></div>
                         <p className="mt-1 text-xs text-slate-600">{slot.startTime} – {slot.endTime}</p>
-                        <p className="mt-1 text-xs text-slate-500">{slot.farmerInfo?.farmName || slot.farmerInfo?.name || "Local farmer"} · {slot.distanceKm ? `${slot.distanceKm} km away` : `${slot.radiusKm} km coverage`}</p>
+                        <p className="mt-1 text-xs text-slate-500">{slot.farmerInfo?.farmName || slot.farmerInfo?.name || "Local farmer"} · Service area: {slot.area} · {slot.distanceKm ? `${slot.distanceKm} km away` : `${slot.radiusKm} km coverage`}</p>
                         <p className="mt-1 text-xs font-medium text-emerald-700">Delivery fee: ₹{Number(slot.deliveryFee || 0).toFixed(2)}</p>
                         {checkoutCartWeightKg > Number(slot.remainingCapacityKg ?? 0) && <p className="mt-1 text-xs font-medium text-rose-600">Not enough capacity for your cart</p>}
                       </button>
