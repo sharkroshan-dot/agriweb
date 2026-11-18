@@ -73,8 +73,12 @@ export default function FarmerDeliverySlotsPage() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ slotId, payload }: { slotId: string; payload: any }) =>
-      api.put(`/delivery-slots/slots/${slotId}`, payload),
+    mutationFn: ({ slotId, payload }: { slotId: string; payload: any }) => {
+      if (!/^[a-f0-9]{24}$/i.test(slotId)) {
+        throw new Error("The selected delivery slot ID is invalid. Close the form and select the slot again.");
+      }
+      return api.put(`/delivery-slots/slots/${encodeURIComponent(slotId)}`, payload);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["farmerDeliverySlots"] });
       setShowForm(false);
@@ -102,7 +106,12 @@ export default function FarmerDeliverySlotsPage() {
     },
   });
 
-  const slots: DeliverySlot[] = (slotsData?.data?.slots || []).map((s: any) => ({ ...s, id: s._id || s.id }));
+  // The API explicitly serializes MongoDB's _id into the canonical string
+  // field "id". Always use that field for React identity and update URLs;
+  // preferring a raw _id can pass a non-string BSON representation.
+  const slots: DeliverySlot[] = (slotsData?.data?.slots || [])
+    .filter((slot: any) => typeof slot.id === "string" && slot.id.length > 0)
+    .map((slot: any) => ({ ...slot, id: slot.id }));
 
   const [areaCoords, setAreaCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [geocoding, setGeocoding] = useState(false);
@@ -298,7 +307,10 @@ export default function FarmerDeliverySlotsPage() {
                     deliveryFee: Number(form.deliveryFee),
                     notes: form.notes || null,
                   };
-                  if (editingSlotId) updateMutation.mutate({ slotId: editingSlotId, payload });
+                  // Capture the selected slot ID at submit time; never infer it
+                  // from the selected map card or the current form contents.
+                  const targetSlotId = editingSlotId;
+                  if (targetSlotId) updateMutation.mutate({ slotId: targetSlotId, payload });
                   else createMutation.mutate(payload);
                 }}
               >
@@ -393,7 +405,9 @@ export default function FarmerDeliverySlotsPage() {
                         className="flex-1"
                         onClick={(e) => {
                           e.stopPropagation();
-                          setEditingSlotId(slot.id);
+                          // Bind the edit form to this card's canonical MongoDB ID.
+                          const targetSlotId = String(slot.id);
+                          setEditingSlotId(targetSlotId);
                           setForm({
                             area: slot.area || "",
                             date: new Date(slot.date).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" }),
