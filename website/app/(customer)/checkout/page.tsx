@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
-import { ShoppingCart, MapPin, ArrowLeft, Plus, CreditCard, Loader2, X, Truck, CalendarClock, Leaf, ShieldCheck, Smartphone, Landmark, Banknote, WalletCards, CheckCircle2, Home, Building2 } from "lucide-react";
+import { ShoppingCart, MapPin, ArrowLeft, Plus, CreditCard, Loader2, X, Truck, CalendarClock, Leaf, ShieldCheck, Smartphone, Landmark, Banknote, WalletCards, CheckCircle2, Home, Building2, Pencil, Trash2 } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
@@ -98,6 +98,7 @@ export default function CheckoutPage() {
   const [paymentMethod, setPaymentMethod] = useState("upi");
   const [isPlacing, setIsPlacing] = useState(false);
   const [showAddrForm, setShowAddrForm] = useState(false);
+  const [editingAddressId, setEditingAddressId] = useState<string | null>(null);
   const [addrForm, setAddrForm] = useState(initialAddrForm);
   const [razorpayReady, setRazorpayReady] = useState(false);
   const [savingAddr, setSavingAddr] = useState(false);
@@ -240,21 +241,59 @@ export default function CheckoutPage() {
     setAddrForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
+  const resetAddressForm = () => {
+    setAddrForm(initialAddrForm);
+    setEditingAddressId(null);
+    setShowAddrForm(false);
+  };
+
+  const handleEditAddress = (address: Address) => {
+    setEditingAddressId(address.id);
+    setAddrForm({
+      address_line1: address.address_line1 || "",
+      address_line2: address.address_line2 || "",
+      city: address.city || "",
+      state: address.state || "",
+      zip_code: address.zip_code || "",
+      country: address.country || "India",
+      landmark: (address as any).landmark || "",
+      address_type: address.address_type || "home",
+    });
+    setShowAddrForm(true);
+  };
+
+  const handleDeleteAddress = async (address: Address) => {
+    const confirmed = window.confirm(`Delete this ${address.address_type || "saved"} address? This action cannot be undone.`);
+    if (!confirmed) return;
+    try {
+      await api.delete(`/users/me/addresses/${address.id}`);
+      if (selectedAddressId === address.id) setSelectedAddressId("");
+      await queryClient.refetchQueries({ queryKey: ["customerAddresses"] });
+      toast.success("Address deleted successfully");
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to delete address");
+    }
+  };
+
   const handleAddAddress = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!addrForm.address_line1 || !addrForm.city || !addrForm.state || !addrForm.zip_code) {
-      toast.error("Fill in all required fields");
+    if (!addrForm.address_line1.trim() || !addrForm.city.trim() || !addrForm.state.trim() || !/^\\d{6}$/.test(addrForm.zip_code.trim())) {
+      toast.error("Enter the address, city, state and a valid 6-digit PIN code.");
       return;
     }
     setSavingAddr(true);
     try {
-      await api.post("/users/me/addresses", addrForm);
+      if (editingAddressId) {
+        await api.put(`/users/me/addresses/${editingAddressId}`, addrForm);
+        setSelectedAddressId(editingAddressId);
+      } else {
+        await api.post("/users/me/addresses", addrForm);
+      }
       await queryClient.refetchQueries({ queryKey: ["customerAddresses"] });
-      setAddrForm(initialAddrForm);
-      setShowAddrForm(false);
-      toast.success("Address added");
+      resetAddressForm();
+      toast.success(editingAddressId ? "Address updated successfully" : "Address added successfully");
     } catch (err: any) {
-      const message = err?.message || "Failed to add address";
+      const message = err?.message || (editingAddressId ? "Failed to update address" : "Failed to add address");
       const cleaned = message.replace(/^"|"$/g, "");
       toast.error(cleaned.length > 120 ? cleaned.slice(0, 120) + "..." : cleaned);
     } finally {
@@ -697,51 +736,61 @@ export default function CheckoutPage() {
               ) : (
                 <div className="space-y-2">
                   {addresses.map((addr) => (
-                    <label
+                    <div
                       key={addr.id}
-                      className={`flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3.5 transition-all ${
+                      className={`flex items-center gap-3 rounded-xl border px-4 py-3.5 transition-all ${
                         (selectedAddressId || defaultAddress?.id) === addr.id
                           ? "border-emerald-500 bg-emerald-50/90 shadow-sm ring-1 ring-emerald-100"
-                          : "border-slate-200 bg-white hover:border-emerald-300 hover:bg-slate-50/70"
+                          : "border-slate-200 bg-white hover:border-emerald-300"
                       }`}
                     >
-                      <input
-                        type="radio"
-                        name="deliveryAddress"
-                        value={addr.id}
-                        checked={(selectedAddressId || defaultAddress?.id) === addr.id}
-                        onChange={(e) => setSelectedAddressId(e.target.value)}
-                        className="h-4 w-4 shrink-0 accent-emerald-700"
-                      />
-                      <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${
-                        (selectedAddressId || defaultAddress?.id) === addr.id
-                          ? "bg-white text-emerald-700"
-                          : "bg-slate-100 text-slate-600"
-                      }`}>
-                        {addr.address_type?.toLowerCase() === "work" ? <Building2 className="h-5 w-5" /> : addr.address_type?.toLowerCase() === "home" ? <Home className="h-5 w-5" /> : <MapPin className="h-5 w-5" />}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="flex flex-wrap items-center gap-2">
-                          <span className="text-sm font-bold capitalize text-slate-950">{addr.address_type || "Delivery"}{addr.is_default ? " (Default)" : ""}</span>
-                          {addr.is_default && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-800">Default</span>}
+                      <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
+                        <input
+                          type="radio"
+                          name="deliveryAddress"
+                          value={addr.id}
+                          checked={(selectedAddressId || defaultAddress?.id) === addr.id}
+                          onChange={(e) => setSelectedAddressId(e.target.value)}
+                          className="h-4 w-4 shrink-0 accent-emerald-700"
+                        />
+                        <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${
+                          (selectedAddressId || defaultAddress?.id) === addr.id
+                            ? "bg-white text-emerald-700"
+                            : "bg-slate-100 text-slate-600"
+                        }`}>
+                          {addr.address_type?.toLowerCase() === "work" ? <Building2 className="h-5 w-5" /> : addr.address_type?.toLowerCase() === "home" ? <Home className="h-5 w-5" /> : <MapPin className="h-5 w-5" />}
                         </span>
-                        <span className="mt-1 block text-sm leading-5 text-slate-800">
-                          {addr.address_line1}{addr.address_line2 ? `, ${addr.address_line2}` : ""}
+                        <span className="min-w-0 flex-1">
+                          <span className="flex flex-wrap items-center gap-2">
+                            <span className="text-sm font-bold capitalize text-slate-950">{addr.address_type || "Delivery"}</span>
+                            {addr.is_default && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-800">Default</span>}
+                          </span>
+                          <span className="mt-1 block text-sm leading-5 text-slate-800">
+                            {addr.address_line1}{addr.address_line2 ? `, ${addr.address_line2}` : ""}
+                          </span>
+                          <span className="mt-0.5 block text-xs leading-4 text-slate-600">
+                            {addr.city}, {addr.state} – {addr.zip_code}
+                          </span>
                         </span>
-                        <span className="mt-0.5 block text-xs leading-4 text-slate-600">
-                          {addr.city}, {addr.state} – {addr.zip_code}
-                        </span>
-                      </span>
-                    </label>
+                      </label>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <Button type="button" variant="outline" size="sm" onClick={() => handleEditAddress(addr)} className="h-8 px-2 text-xs" aria-label={`Edit ${addr.address_type} address`}>
+                          <Pencil className="mr-1 h-3.5 w-3.5" /> Edit
+                        </Button>
+                        <Button type="button" variant="ghost" size="sm" onClick={() => handleDeleteAddress(addr)} className="h-8 px-2 text-xs text-rose-600 hover:bg-rose-50 hover:text-rose-700" aria-label={`Delete ${addr.address_type} address`}>
+                          <Trash2 className="mr-1 h-3.5 w-3.5" /> Delete
+                        </Button>
+                      </div>
+                    </div>
                   ))}
                 </div>
               )}
 
               {showAddrForm && (
-                <form onSubmit={handleAddAddress} className="space-y-3 rounded-lg border bg-gray-50 p-4">
+                <form onSubmit={handleAddAddress} className="space-y-3 rounded-lg border border-emerald-200 bg-emerald-50/40 p-4">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">New Address</span>
-                    <Button type="button" variant="ghost" size="sm" onClick={() => setShowAddrForm(false)}>
+                    <span className="text-sm font-semibold">{editingAddressId ? "Edit Delivery Address" : "New Address"}</span>
+                    <Button type="button" variant="ghost" size="sm" onClick={resetAddressForm}>
                       <X className="h-4 w-4" />
                     </Button>
                   </div>
@@ -762,7 +811,7 @@ export default function CheckoutPage() {
                     <option value="other">Other</option>
                   </select>
                   <Button type="submit" size="sm" disabled={savingAddr}>
-                    {savingAddr ? "Saving..." : "Save Address"}
+                    {savingAddr ? "Saving..." : editingAddressId ? "Update Address" : "Save Address"}
                   </Button>
                 </form>
               )}
