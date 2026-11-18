@@ -56,6 +56,8 @@ type Address = {
   state: string;
   zip_code: string;
   country: string;
+  phone_number?: string;
+  alternative_phone_number?: string;
   address_type: string;
   is_default: boolean;
 };
@@ -76,6 +78,8 @@ const initialAddrForm = {
   zip_code: "",
   country: "India",
   landmark: "",
+  phone_number: "",
+  alternative_phone_number: "",
   address_type: "home" as string,
 };
 
@@ -257,6 +261,8 @@ export default function CheckoutPage() {
       zip_code: address.zip_code || "",
       country: address.country || "India",
       landmark: (address as any).landmark || "",
+      phone_number: address.phone_number || "",
+      alternative_phone_number: address.alternative_phone_number || "",
       address_type: address.address_type || "home",
     });
     setShowAddrForm(true);
@@ -796,6 +802,18 @@ export default function CheckoutPage() {
                   </div>
                   <Input name="address_line1" value={addrForm.address_line1} onChange={handleAddrChange} placeholder="Address line 1 *" required />
                   <Input name="address_line2" value={addrForm.address_line2} onChange={handleAddrChange} placeholder="Address line 2 (optional)" />
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-slate-700">Primary Phone Number <span className="text-rose-600">*</span></label>
+                      <Input type="tel" name="phone_number" value={addrForm.phone_number} onChange={handleAddrChange} placeholder="10-digit contact number" required />
+                      <p className="text-[11px] text-slate-500">Delivery partner will call this number first.</p>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-slate-700">Alternative Phone Number</label>
+                      <Input type="tel" name="alternative_phone_number" value={addrForm.alternative_phone_number} onChange={handleAddrChange} placeholder="Backup contact number (optional)" />
+                      <p className="text-[11px] text-slate-500">Used if the primary number is unreachable.</p>
+                    </div>
+                  </div>
                   <div className="grid grid-cols-2 gap-3">
                     <Input name="city" value={addrForm.city} onChange={handleAddrChange} placeholder="City *" required />
                     <Input name="state" value={addrForm.state} onChange={handleAddrChange} placeholder="State *" required />
