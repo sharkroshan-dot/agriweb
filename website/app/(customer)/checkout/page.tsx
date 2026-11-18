@@ -4,13 +4,13 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
-import { ShoppingCart, MapPin, ArrowLeft, Plus, CreditCard, Loader2, X, Truck, CalendarClock, Leaf, ShieldCheck, Smartphone, Landmark, Banknote, WalletCards, CheckCircle2, Home, Building2, Pencil, Trash2 } from "lucide-react";
+import { ShoppingCart, MapPin, ArrowLeft, Plus, CreditCard, Loader2, X, Truck, CalendarClock, Leaf, ShieldCheck, Smartphone, Landmark, Banknote, WalletCards, CheckCircle2, Home, Building2, Pencil, Trash2, ClipboardList, Headphones, Phone, Package, Clock3, CalendarDays } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
 import { useCartStore } from "../../lib/store/cart-store";
 import { api } from "../../lib/api/client";
-import { formatPrice } from "../../lib/utils";
+import { formatDate, formatPrice } from "../../lib/utils";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { PageErrorState } from "../../components/common/page-state";
@@ -120,6 +120,7 @@ export default function CheckoutPage() {
   const [applyingCoupon, setApplyingCoupon] = useState(false);
   const [stockAdjustment, setStockAdjustment] = useState<{ productId: string; requested: number; available: number } | null>(null);
   const [completedOrderId, setCompletedOrderId] = useState("");
+  const [completedOrderSnapshot, setCompletedOrderSnapshot] = useState<any>(null);
   const [completedTransactionId, setCompletedTransactionId] = useState("");
   const [paymentStage, setPaymentStage] = useState("idle");
   const [paymentMessage, setPaymentMessage] = useState("");
@@ -138,6 +139,17 @@ export default function CheckoutPage() {
     enabled: status === "authenticated" && paymentMethod === "wallet",
     retry: false,
   });
+
+  const { data: completedOrderResponse } = useQuery({
+    queryKey: ["checkout-completed-order", completedOrderId],
+    queryFn: () => api.get(`/orders/${completedOrderId}`),
+    enabled: Boolean(completedOrderId) && paymentStage === "success",
+    refetchInterval: paymentStage === "success" ? 15000 : false,
+    retry: 1,
+  });
+
+  const completedOrder = completedOrderResponse?.data || completedOrderResponse || completedOrderSnapshot || {};
+
 
   const walletInfo = walletInfoData?.data || walletInfoData || {};
   const walletBalance = Number(
@@ -601,40 +613,141 @@ export default function CheckoutPage() {
     return null;
   }
 
+  
   if (paymentStage === "success") {
+    const order = completedOrder || {};
+    const orderItems = Array.isArray(order.items) ? order.items : [];
+    const address = order.deliveryAddress || order.delivery_address || {};
+    const orderStatus = String(order.status || order.orderStatus || "confirmed").toLowerCase();
+    const paymentMethodLabel = String(order.paymentMethod || paymentMethod || "cash").toLowerCase();
+    const isCashOnDelivery = paymentMethodLabel === "cash" || paymentMethodLabel === "cod";
+    const orderNumber = order.orderNumber || order.order_number || order.id || order._id || completedOrderId;
+    const placedAt = order.createdAt || order.orderDate || order.created_at || new Date().toISOString();
+    const addressLines = [address.addressLine1 || address.address_line1, address.addressLine2 || address.address_line2, address.landmark, address.city, address.state, address.zipCode || address.zip_code || address.postalCode].filter(Boolean);
+    const primaryPhone = address.phoneNumber || address.phone_number || address.phone || "";
+    const alternatePhone = address.alternativePhoneNumber || address.alternative_phone_number || address.alternativePhone || "";
+    const subtotal = Number(order.subtotal ?? order.subTotal ?? order.totalBeforeDelivery ?? orderItems.reduce((sum: number, item: any) => sum + Number(item.totalPrice ?? (Number(item.unitPrice || 0) * Number(item.quantity || 0))), 0));
+    const deliveryCharge = Number(order.deliveryCharge ?? order.deliveryFee ?? 0);
+    const platformFee = Number(order.platformFee ?? 0);
+    const discount = Number(order.discount ?? 0);
+    const total = Number(order.totalAmount ?? order.total ?? (subtotal + deliveryCharge + platformFee - discount));
+    const stages = [
+      { label: "Order placed", keys: ["pending", "placed"], icon: ClipboardList },
+      { label: "Order confirmed", keys: ["confirmed"], icon: CheckCircle2 },
+      { label: "Farmer preparing", keys: ["preparing", "processing", "ready_for_delivery", "packed"], icon: Package },
+      { label: "Out for delivery", keys: ["dispatched", "in_transit", "out_for_delivery", "shipped", "delivered"], icon: Truck },
+    ];
+    const stageIndex = orderStatus === "delivered" ? 3 : ["dispatched", "in_transit", "out_for_delivery", "shipped"].includes(orderStatus) ? 3 : ["preparing", "processing", "ready_for_delivery", "packed"].includes(orderStatus) ? 2 : ["confirmed", "accepted"].includes(orderStatus) ? 1 : 0;
+    const paymentLabel = isCashOnDelivery ? "Cash on Delivery (COD)" : String(order.paymentMethod || paymentMethod).toUpperCase();
+    const totalQuantity = orderItems.reduce((sum: number, item: any) => sum + Number(item.quantity || 0), 0);
+
     return (
-      <div className="customer-retail-shell space-y-4">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" asChild>
-            <Link href="/orders"><ArrowLeft className="h-4 w-4" /></Link>
-          </Button>
-          <div>
-            <h1 className="text-2xl font-semibold">Order confirmation</h1>
-            <p className="text-sm text-muted-foreground">Your payment and order have been processed.</p>
+      <div className="customer-retail-shell space-y-4 pb-8">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 ring-4 ring-emerald-50"><CheckCircle2 className="h-9 w-9" /></div>
+            <div>
+              <div className="mb-1 flex flex-wrap items-center gap-2 text-xs font-medium text-slate-500"><Link href="/" className="hover:text-emerald-700">Home</Link><span>›</span><Link href="/checkout" className="hover:text-emerald-700">Checkout</Link><span>›</span><span className="text-slate-800">Order confirmation</span></div>
+              <h1 className="text-2xl font-extrabold tracking-tight text-slate-950 sm:text-3xl">Order placed successfully!</h1>
+              <p className="text-sm text-slate-600">Thank you for shopping with AgriConnect. Your order is confirmed.</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 rounded-xl border border-emerald-100 bg-emerald-50/70 px-4 py-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-white text-emerald-700"><ClipboardList className="h-6 w-6" /></div>
+            <div><p className="text-sm font-bold text-slate-900">Order <span className="text-emerald-700">#{orderNumber}</span></p><p className="text-xs text-slate-600">Placed on {formatDate(placedAt)}</p></div>
           </div>
         </div>
-        <Card className="border-emerald-200 bg-emerald-50/70">
-          <CardContent className="p-5 sm:p-6">
-            <div className="flex items-start gap-4">
-              <div className="rounded-full bg-emerald-100 p-3"><CheckCircle2 className="h-7 w-7 text-emerald-600" /></div>
-              <div className="min-w-0 flex-1">
-                <h2 className="text-lg font-semibold text-emerald-950">Payment successful</h2>
-                <p className="mt-1 text-sm text-emerald-800">{paymentMessage}</p>
-                {completedTransactionId && <p className="mt-2 text-xs text-emerald-900">Transaction ID: <span className="font-mono font-semibold">{completedTransactionId}</span></p>}
-                <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-                  <Button asChild><Link href={completedOrderId ? `/orders/${completedOrderId}` : "/orders"}>View order</Link></Button>
-                  <Button variant="outline" asChild><Link href="/payments">Payment history</Link></Button>
-                  <Button variant="outline" onClick={() => window.print()}>Print receipt</Button>
+
+        <div className="flex items-center gap-4 rounded-2xl border border-emerald-300 bg-gradient-to-r from-emerald-50 to-green-100 px-5 py-4">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><Truck className="h-7 w-7" /></div>
+          <div className="min-w-0 border-l border-emerald-300 pl-4">
+            <p className="font-extrabold text-emerald-800">{isCashOnDelivery ? "Order confirmed – Cash on Delivery" : "Payment confirmed"}</p>
+            <p className="text-sm text-slate-700">{paymentMessage || (isCashOnDelivery ? "Payment will be collected by the delivery partner when your order arrives." : "Your payment has been verified and your order is confirmed.")}</p>
+            {completedTransactionId && <p className="mt-1 text-xs text-slate-600">Transaction ID: {completedTransactionId}</p>}
+          </div>
+        </div>
+
+        <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(330px,0.9fr)]">
+          <div className="space-y-3">
+            <Card className="rounded-2xl border-slate-200 shadow-sm">
+              <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-lg"><Truck className="h-5 w-5 text-emerald-700" /> Delivery progress</CardTitle></CardHeader>
+              <CardContent className="px-4 pb-5 pt-2">
+                <div className="grid grid-cols-4 gap-1">
+                  {stages.map((stage, index) => {
+                    const Icon = stage.icon;
+                    const complete = index < stageIndex || index === 0;
+                    const active = index === stageIndex;
+                    return <div key={stage.label} className="relative flex flex-col items-center text-center">
+                      {index < stages.length - 1 && <div className={`absolute left-1/2 top-4 h-0.5 w-full ${index < stageIndex ? "bg-emerald-600" : "bg-slate-200"}`} />}
+                      <div className={`relative z-10 flex h-9 w-9 items-center justify-center rounded-full border-2 ${complete ? "border-emerald-600 bg-emerald-600 text-white" : active ? "border-emerald-600 bg-white text-emerald-700" : "border-slate-300 bg-white text-slate-400"}`}>{complete ? <CheckCircle2 className="h-5 w-5" /> : <Icon className="h-4 w-4" />}</div>
+                      <p className={`mt-2 text-xs font-bold sm:text-sm ${active ? "text-emerald-700" : complete ? "text-slate-900" : "text-slate-500"}`}>{stage.label}</p>
+                      {active && <span className="mt-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">Current status</span>}
+                    </div>;
+                  })}
                 </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+                <p className="mt-3 text-center text-xs text-slate-500">Your delivery progress updates as the farmer and delivery partner process your order.</p>
+              </CardContent>
+            </Card>
+
+            <Card className="rounded-2xl border-slate-200 shadow-sm">
+              <CardHeader className="pb-3"><CardTitle className="flex items-center gap-2 text-lg"><MapPin className="h-5 w-5 text-emerald-700" /> Delivery details</CardTitle></CardHeader>
+              <CardContent className="grid gap-4 border-t border-slate-100 p-4 md:grid-cols-[1.2fr_1fr_0.9fr]">
+                <div className="flex gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><Home className="h-5 w-5" /></div><div className="min-w-0"><p className="text-sm font-bold text-slate-900">Delivery address</p><p className="mt-1 text-sm leading-5 text-slate-600">{addressLines.length ? addressLines.join(", ") : "Delivery address will be shown in your order details."}</p></div></div>
+                <div className="flex gap-3 border-slate-200 md:border-l md:pl-4"><Phone className="mt-1 h-5 w-5 shrink-0 text-emerald-700" /><div><p className="text-sm font-bold text-slate-900">Contact numbers</p><p className="mt-1 text-sm text-slate-600">Primary: {primaryPhone || "Not provided"}</p><p className="text-sm text-slate-600">Alternative: {alternatePhone || "Not provided"}</p></div></div>
+                <div className="flex gap-3 border-slate-200 md:border-l md:pl-4"><CalendarDays className="mt-1 h-5 w-5 shrink-0 text-emerald-700" /><div><p className="text-sm font-bold text-slate-900">Delivery window</p><div className="mt-1 rounded-lg bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800">{order.deliveryDate || order.estimatedDeliveryDate ? formatDate(order.deliveryDate || order.estimatedDeliveryDate) : deliveryDate}<br />{order.deliveryTimeSlot || deliveryTimeSlot}</div></div></div>
+              </CardContent>
+            </Card>
+
+            <Card className="rounded-2xl border-slate-200 shadow-sm">
+              <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-lg"><ShoppingCart className="h-5 w-5 text-emerald-700" /> Items in your order ({orderItems.length || items.length})</CardTitle></CardHeader>
+              <CardContent className="p-0">
+                <div className="grid grid-cols-[minmax(0,1fr)_65px_90px] gap-2 border-y border-slate-100 bg-slate-50 px-4 py-2 text-xs font-bold text-slate-500"><span>Product</span><span className="text-center">Qty</span><span className="text-right">Price</span></div>
+                {(orderItems.length ? orderItems : items).map((item: any, index: number) => {
+                  const name = item.productName || item.name || "Product";
+                  const image = item.productImage || item.image;
+                  const quantity = Number(item.quantity || 0);
+                  const lineTotal = Number(item.totalPrice ?? item.total ?? (Number(item.unitPrice || item.price || 0) * quantity));
+                  return <div key={item.productId || item.id || index} className="grid grid-cols-[minmax(0,1fr)_65px_90px] items-center gap-2 border-b border-slate-100 px-4 py-3 last:border-0">
+                    <div className="flex min-w-0 items-center gap-3"><div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-slate-50">{image ? <img src={image} alt={name} className="h-full w-full object-cover" /> : <Package className="m-3 h-6 w-6 text-slate-300" />}</div><div className="min-w-0"><p className="truncate text-sm font-bold text-slate-900">{name}</p><p className="text-xs text-slate-500">{item.farmerName || item.sellerName || ""}</p></div></div>
+                    <span className="text-center text-sm text-slate-700">{quantity} {item.unit || ""}</span><span className="text-right text-sm font-semibold text-slate-900">{formatPrice(lineTotal)}</span>
+                  </div>;
+                })}
+                {!orderItems.length && <p className="p-4 text-xs text-slate-500">Your order items have been saved. Open View order for the complete item breakdown.</p>}
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="space-y-3">
+            <Card className="rounded-2xl border-slate-200 shadow-sm">
+              <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-lg"><ShoppingCart className="h-5 w-5 text-emerald-700" /> Order Summary</CardTitle></CardHeader>
+              <CardContent className="space-y-3 p-4">
+                <div className="flex justify-between text-sm text-slate-600"><span>Subtotal ({totalQuantity || items.reduce((sum, item) => sum + item.quantity, 0)} items)</span><span>{formatPrice(subtotal)}</span></div>
+                <div className="flex justify-between text-sm text-slate-600"><span>Delivery charge</span><span>{formatPrice(deliveryCharge)}</span></div>
+                {platformFee > 0 && <div className="flex justify-between text-sm text-slate-600"><span>Platform fee</span><span>{formatPrice(platformFee)}</span></div>}
+                {discount > 0 && <div className="flex justify-between text-sm font-semibold text-emerald-700"><span>Discount</span><span>−{formatPrice(discount)}</span></div>}
+                <div className="flex justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-base font-extrabold"><span>Total payable</span><span className="text-emerald-800">{formatPrice(total)}</span></div>
+                <div className="border-t border-slate-100 pt-3"><p className="flex items-center gap-2 font-bold text-slate-900"><CreditCard className="h-5 w-5 text-emerald-700" /> Payment Method</p><div className="mt-2 flex items-center justify-between rounded-xl border border-slate-200 p-3"><span className="flex items-center gap-2 text-sm font-semibold"><Banknote className="h-5 w-5 text-emerald-700" /> {paymentLabel}</span><span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-bold text-emerald-800">{isCashOnDelivery ? "Due on delivery" : "Paid"}</span></div></div>
+              </CardContent>
+            </Card>
+
+            <Card className="rounded-2xl border-slate-200 shadow-sm">
+              <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-lg"><Headphones className="h-5 w-5 text-emerald-700" /> Need help?</CardTitle></CardHeader>
+              <CardContent className="space-y-3 p-4"><p className="text-sm leading-5 text-slate-600">If you have any questions about your order, our support team is here to help.</p><Button asChild variant="outline" className="w-full border-emerald-600 font-bold text-emerald-800 hover:bg-emerald-50"><Link href="/contact"><Headphones className="mr-2 h-4 w-4" /> Contact support</Link></Button></CardContent>
+            </Card>
+          </div>
+        </div>
+
+        <div className="mx-auto grid w-full max-w-4xl gap-3 sm:grid-cols-2">
+          <Button asChild className="h-12 bg-emerald-700 text-base font-bold text-white hover:bg-emerald-800"><Link href={completedOrderId ? `/orders/${completedOrderId}/track` : "/orders"}><Truck className="mr-2 h-5 w-5" /> Track your order</Link></Button>
+          <Button asChild variant="outline" className="h-12 border-emerald-700 text-base font-bold text-emerald-800 hover:bg-emerald-50"><Link href="/marketplace"><ShoppingCart className="mr-2 h-5 w-5" /> Continue shopping</Link></Button>
+        </div>
+        <div className="flex flex-wrap items-center justify-center gap-5 text-xs font-medium text-slate-500"><span className="flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-emerald-700" /> Fresh from farms</span><span className="hidden h-4 border-l border-slate-300 sm:block" /><span className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-emerald-700" /> Secure checkout</span><span className="hidden h-4 border-l border-slate-300 sm:block" /><span className="flex items-center gap-2"><Truck className="h-4 w-4 text-emerald-700" /> Delivery updates</span></div>
+        {completedTransactionId && <p className="text-center text-xs text-slate-400">Transaction ID: {completedTransactionId}</p>}
       </div>
     );
   }
 
-  if (items.length === 0) {
+if (items.length === 0) {
     return (
       <div className="customer-retail-shell space-y-6">
         <div className="flex items-center gap-4">
