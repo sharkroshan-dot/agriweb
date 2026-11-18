@@ -542,7 +542,10 @@ export default function ProductDetailPage() {
             <CardContent className="p-4">
               <div className="flex items-center justify-between gap-2">
                 <h2 className="text-lg font-bold text-slate-900">Similar Products</h2>
-                <Link href="/marketplace" className="mt-3 inline-flex w-full items-center justify-center rounded-xl bg-emerald-700 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-800">View All Products →</Link>
+                <Link href="/marketplace" className="text-sm font-semibold text-emerald-700 hover:underline">View all →</Link>
+              </div>
+              <p className="mt-2 text-sm text-slate-600">Discover more fresh produce from farmers in the marketplace.</p>
+              <Link href="/marketplace" className="mt-3 inline-flex w-full items-center justify-center rounded-xl bg-emerald-700 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-800">View All Products →</Link>
             </CardContent>
           </Card>
         </aside>
