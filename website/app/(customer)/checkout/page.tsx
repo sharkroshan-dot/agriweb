@@ -126,20 +126,30 @@ export default function CheckoutPage() {
   const [paymentMessage, setPaymentMessage] = useState("");
   const [selectedUpiApp, setSelectedUpiApp] = useState("");
   const selectedUpiAppLabel = ({ gpay: "GPay", phonepe: "PhonePe", paytm: "Paytm" } as Record<string, string>)[selectedUpiApp] || "UPI";
-  const rememberLastPurchasedProduct = () => {
-    if (typeof window === "undefined" || items.length === 0) return;
-    const lastPurchasedItem = items[items.length - 1] as any;
-    const productId = String(
-      lastPurchasedItem?.id ||
-      lastPurchasedItem?.productId ||
-      lastPurchasedItem?.product_id ||
-      ""
-    ).trim();
-    if (!productId) return;
+  const saveOrderConfirmation = (
+    orderId: string,
+    message: string,
+    transactionId = "",
+    orderSnapshot?: any
+  ) => {
+    if (typeof window === "undefined") return;
     try {
-      window.sessionStorage.setItem("agriconnect:last-purchased-product", productId);
+      let snapshot = orderSnapshot;
+      if (!snapshot) {
+        const pending = window.sessionStorage.getItem("agriconnect:pending-order-snapshot");
+        snapshot = pending ? JSON.parse(pending) : null;
+      }
+      const confirmation = {
+        orderId,
+        message,
+        transactionId,
+        orderSnapshot: snapshot || null,
+        savedAt: new Date().toISOString(),
+      };
+      window.sessionStorage.setItem("agriconnect:completed-order-confirmation", JSON.stringify(confirmation));
+      window.sessionStorage.removeItem("agriconnect:pending-order-snapshot");
     } catch {
-      // If browser storage is unavailable, keep the normal confirmation flow.
+      // Keep the in-memory confirmation available if browser storage is blocked.
     }
   };
 
@@ -157,31 +167,24 @@ export default function CheckoutPage() {
     return unsubscribe;
   }, []);
 
-  // After a completed order the cart is cleared. If the customer refreshes the
-  // confirmation page, send them to the last purchased product instead of
-  // showing checkout's empty-cart state.
+  // Restore the completed order confirmation after normal refresh or hard refresh.
+  // Never redirect customers automatically after a successful order.
   useEffect(() => {
-    // Redirect only on a real browser refresh of checkout. A successful
-    // in-app order submission must always keep the confirmation screen open.
-    if (!cartHydrated || items.length > 0 || typeof window === "undefined") return;
-
-    const navigationEntry = window.performance?.getEntriesByType?.("navigation")?.[0] as
-      | PerformanceNavigationTiming
-      | undefined;
-    if (navigationEntry?.type !== "reload") return;
-
-    let productId = "";
+    if (typeof window === "undefined") return;
     try {
-      productId = window.sessionStorage.getItem("agriconnect:last-purchased-product") || "";
-      if (productId) window.sessionStorage.removeItem("agriconnect:last-purchased-product");
+      const saved = window.sessionStorage.getItem("agriconnect:completed-order-confirmation");
+      if (!saved) return;
+      const confirmation = JSON.parse(saved);
+      if (!confirmation?.orderId) return;
+      setCompletedOrderId(String(confirmation.orderId));
+      setCompletedTransactionId(String(confirmation.transactionId || ""));
+      setPaymentMessage(String(confirmation.message || "Your order is confirmed."));
+      if (confirmation.orderSnapshot) setCompletedOrderSnapshot(confirmation.orderSnapshot);
+      setPaymentStage("success");
     } catch {
-      return;
+      // Ignore invalid or unavailable session data and continue with checkout.
     }
-
-    if (productId) {
-      router.replace(`/product/${encodeURIComponent(productId)}`);
-    }
-  }, [cartHydrated, items.length, router]);
+  }, []);
 
 
   const { data: addressesData, isError: addressesError, refetch: refetchAddresses } = useQuery({
@@ -465,7 +468,7 @@ export default function CheckoutPage() {
             setCompletedTransactionId(response.razorpay_payment_id || intentData.payment_id || "");
             setPaymentStage("success");
             setPaymentMessage("Payment verified successfully. Your order is confirmed.");
-            rememberLastPurchasedProduct();
+            saveOrderConfirmation(orderId, "Payment verified successfully. Your order is confirmed.", response.razorpay_payment_id || intentData.payment_id || "");
             clearCart();
             toast.success("Payment successful! Order placed.");
             resolve();
@@ -644,12 +647,18 @@ export default function CheckoutPage() {
       const order = res?.data || res;
 
       if (!order) throw new Error("Failed to create order");
+      try {
+        window.sessionStorage.setItem("agriconnect:pending-order-snapshot", JSON.stringify(order));
+      } catch {
+        // The server order remains authoritative if browser storage is unavailable.
+      }
 
       if (paymentMethod === "cash") {
         setCompletedOrderId(order.id || order._id);
         setPaymentStage("success");
         setPaymentMessage("Cash on delivery selected. Your order is confirmed and payment will be collected at delivery.");
-        rememberLastPurchasedProduct();
+        setCompletedOrderSnapshot(order);
+        saveOrderConfirmation(order.id || order._id, "Cash on delivery selected. Your order is confirmed and payment will be collected at delivery.", "", order);
         clearCart();
         toast.success("Order placed successfully!");
       } else {
@@ -668,7 +677,8 @@ export default function CheckoutPage() {
           setCompletedOrderId(order.id || order._id);
           setCompletedTransactionId(intentData.payment_id || "");
           setPaymentMessage(intentData.message || "Wallet payment completed successfully. Your order is confirmed.");
-          rememberLastPurchasedProduct();
+          setCompletedOrderSnapshot(order);
+          saveOrderConfirmation(order.id || order._id, intentData.message || "Wallet payment completed successfully. Your order is confirmed.", intentData.payment_id || "", order);
           clearCart();
           toast.success("Wallet payment successful!");
           return;
@@ -854,8 +864,8 @@ export default function CheckoutPage() {
         </div>
 
         <div className="mx-auto grid w-full max-w-4xl gap-3 sm:grid-cols-2">
-          <Button asChild className="h-12 bg-emerald-700 text-base font-bold text-white hover:bg-emerald-800"><Link href={completedOrderId ? `/orders/${completedOrderId}/track` : "/orders"}><Truck className="mr-2 h-5 w-5" /> Track your order</Link></Button>
-          <Button asChild variant="outline" className="h-12 border-emerald-700 text-base font-bold text-emerald-800 hover:bg-emerald-50"><Link href="/marketplace"><ShoppingCart className="mr-2 h-5 w-5" /> Continue shopping</Link></Button>
+          <Button asChild className="h-12 bg-emerald-700 text-base font-bold text-white hover:bg-emerald-800"><Link onClick={() => { try { window.sessionStorage.removeItem("agriconnect:completed-order-confirmation"); } catch {} }} href={completedOrderId ? `/orders/${completedOrderId}/track` : "/orders"}><Truck className="mr-2 h-5 w-5" /> Track your order</Link></Button>
+          <Button asChild variant="outline" className="h-12 border-emerald-700 text-base font-bold text-emerald-800 hover:bg-emerald-50"><Link onClick={() => { try { window.sessionStorage.removeItem("agriconnect:completed-order-confirmation"); } catch {} }} href="/marketplace"><ShoppingCart className="mr-2 h-5 w-5" /> Continue shopping</Link></Button>
         </div>
         <div className="flex flex-wrap items-center justify-center gap-5 text-xs font-medium text-slate-500"><span className="flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-emerald-700" /> Fresh from farms</span><span className="hidden h-4 border-l border-slate-300 sm:block" /><span className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-emerald-700" /> Secure checkout</span><span className="hidden h-4 border-l border-slate-300 sm:block" /><span className="flex items-center gap-2"><Truck className="h-4 w-4 text-emerald-700" /> Delivery updates</span></div>
         {completedTransactionId && <p className="text-center text-xs text-slate-400">Transaction ID: {completedTransactionId}</p>}
