@@ -133,6 +133,17 @@ export default function CheckoutPage() {
     enabled: items.length > 0 && status === "authenticated",
   });
 
+  const { data: profileData } = useQuery({
+    queryKey: ["checkout-customer-profile"],
+    queryFn: () => api.get("/users/me"),
+    enabled: status === "authenticated",
+    staleTime: 60_000,
+  });
+  const profile = profileData?.data || profileData || {};
+  const profileUser = profile.user || profile;
+  const profilePhone = String(profileUser.phone || profileUser.phone_number || profileUser.phoneNumber || "").trim();
+
+
   const { data: walletInfoData } = useQuery({
     queryKey: ["customerCheckoutWallet"],
     queryFn: () => api.get("/payments/wallet/info"),
@@ -273,7 +284,7 @@ export default function CheckoutPage() {
       zip_code: address.zip_code || "",
       country: address.country || "India",
       landmark: (address as any).landmark || "",
-      phone_number: address.phone_number || "",
+      phone_number: address.phone_number || profilePhone,
       alternative_phone_number: address.alternative_phone_number || "",
       address_type: address.address_type || "home",
     });
@@ -476,9 +487,34 @@ export default function CheckoutPage() {
     }
 
     const selectedAddress = addresses.find((a) => a.id === addressId);
-    if (selectedAddress && !/^\d{6}$/.test(selectedAddress.zip_code.trim())) {
+    if (selectedAddress && !/^\\d{6}$/.test(selectedAddress.zip_code.trim())) {
       toast.error("Please select an address with a valid 6-digit PIN code.");
       return;
+    }
+    const primaryContact = selectedAddress?.phone_number?.trim() || profilePhone;
+    if (!primaryContact || !/^\\+?[0-9\\s-]{10,15}$/.test(primaryContact)) {
+      toast.error("A valid primary phone number is required. Update it in your profile or delivery address.");
+      return;
+    }
+    if (selectedAddress && !selectedAddress.phone_number?.trim()) {
+      try {
+        await api.put(`/users/me/addresses/${addressId}`, {
+          address_line1: selectedAddress.address_line1,
+          address_line2: selectedAddress.address_line2 || "",
+          city: selectedAddress.city,
+          state: selectedAddress.state,
+          zip_code: selectedAddress.zip_code,
+          country: selectedAddress.country || "India",
+          landmark: (selectedAddress as any).landmark || "",
+          phone_number: primaryContact,
+          alternative_phone_number: selectedAddress.alternative_phone_number || "",
+          address_type: selectedAddress.address_type || "home",
+        });
+        await queryClient.refetchQueries({ queryKey: ["customerAddresses"] });
+      } catch (error: any) {
+        toast.error(error?.message || "Could not save the profile phone number to this delivery address.");
+        return;
+      }
     }
 
     if (!deliveryQuote) {
@@ -919,7 +955,7 @@ if (items.length === 0) {
                     <div className="space-y-1">
                       <label className="text-xs font-semibold text-slate-700">Primary Phone Number <span className="text-rose-600">*</span></label>
                       <Input type="tel" name="phone_number" value={addrForm.phone_number} onChange={handleAddrChange} placeholder="10-digit contact number" required />
-                      <p className="text-[11px] text-slate-500">Delivery partner will call this number first.</p>
+                      <p className="text-[11px] text-slate-500">{profilePhone ? "Pre-filled from your profile. You can change it for this delivery address." : "Add your phone number to your profile or enter it here. Required for delivery calls."}</p>
                     </div>
                     <div className="space-y-1">
                       <label className="text-xs font-semibold text-slate-700">Alternative Phone Number</label>
@@ -947,7 +983,14 @@ if (items.length === 0) {
                 </form>
               )}
 
-              <Button variant="outline" size="sm" onClick={() => setShowAddrForm(!showAddrForm)} className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => {
+                if (showAddrForm) resetAddressForm();
+                else {
+                  setEditingAddressId(null);
+                  setAddrForm({ ...initialAddrForm, phone_number: profilePhone });
+                  setShowAddrForm(true);
+                }
+              }} className="flex items-center gap-2">
                 <Plus className="h-4 w-4" /> {showAddrForm ? "Cancel" : "Add new address"}
               </Button>
             </CardContent>
