@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Truck,
   Plus,
+  Pencil,
   CalendarDays,
   Clock,
   MapPin,
@@ -37,12 +38,14 @@ interface DeliverySlot {
   deliveryFee: number;
   status: string;
   bookings?: number;
+  bookingCount?: number;
   notes?: string;
 }
 
 export default function FarmerDeliverySlotsPage() {
   const queryClient = useQueryClient();
   const [showForm, setShowForm] = useState(false);
+  const [editingSlotId, setEditingSlotId] = useState<string | null>(null);
   const [form, setForm] = useState({
     area: "",
     date: "",
@@ -67,6 +70,28 @@ export default function FarmerDeliverySlotsPage() {
       toast.success("Delivery slot published!");
     },
     onError: (err: any) => toast.error(err?.message || "Failed to publish slot"),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ slotId, payload }: { slotId: string; payload: any }) =>
+      api.put(`/delivery-slots/slots/${slotId}`, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["farmerDeliverySlots"] });
+      setShowForm(false);
+      setEditingSlotId(null);
+      setForm({
+        area: "",
+        date: "",
+        startTime: "07:00",
+        endTime: "10:00",
+        radiusKm: "10",
+        maxCapacityKg: "5",
+        deliveryFee: "0",
+        notes: "",
+      });
+      toast.success("Delivery slot updated successfully");
+    },
+    onError: (err: any) => toast.error(err?.response?.data?.detail || err?.message || "Failed to update slot"),
   });
 
   const cancelMutation = useMutation({
@@ -169,8 +194,8 @@ export default function FarmerDeliverySlotsPage() {
       {showForm && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Publish a Delivery Slot</CardTitle>
-            <CardDescription>Turn scattered orders into a planned, batched delivery run.</CardDescription>
+            <CardTitle className="text-base">{editingSlotId ? "Edit Delivery Slot" : "Publish a Delivery Slot"}</CardTitle>
+            <CardDescription>{editingSlotId ? "Update the slot details before any customer books this delivery." : "Turn scattered orders into a planned, batched delivery run."}</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1">
@@ -261,9 +286,9 @@ export default function FarmerDeliverySlotsPage() {
             <div className="sm:col-span-2">
               <Button
                 className="w-full sm:w-auto"
-                disabled={!form.area || !form.date || createMutation.isPending}
-                onClick={() =>
-                  createMutation.mutate({
+                disabled={!form.area || !form.date || createMutation.isPending || updateMutation.isPending}
+                onClick={() => {
+                  const payload = {
                     area: form.area,
                     date: new Date(form.date + "T" + (form.startTime || "07:00")).toISOString(),
                     startTime: form.startTime,
@@ -272,11 +297,13 @@ export default function FarmerDeliverySlotsPage() {
                     maxCapacityKg: Number(form.maxCapacityKg),
                     deliveryFee: Number(form.deliveryFee),
                     notes: form.notes || null,
-                  })
-                }
+                  };
+                  if (editingSlotId) updateMutation.mutate({ slotId: editingSlotId, payload });
+                  else createMutation.mutate(payload);
+                }}
               >
-                {createMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
-                Publish Slot
+                {(createMutation.isPending || updateMutation.isPending) ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : editingSlotId ? <Pencil className="mr-2 h-4 w-4" /> : <Plus className="mr-2 h-4 w-4" />}
+                {editingSlotId ? "Save Changes" : "Publish Slot"}
               </Button>
             </div>
           </CardContent>
@@ -358,19 +385,46 @@ export default function FarmerDeliverySlotsPage() {
                       cutoff {(slot as any).cutoffTime ? formatDate((slot as any).cutoffTime) : "none"}
                     </div>
                   </div>
-                  {slot.status !== "cancelled" && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="w-full"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        cancelMutation.mutate(slot.id);
-                      }}
-                    >
-                      Cancel Slot
-                    </Button>
-                  )}
+                  <div className="flex gap-2">
+                    {slot.status === "open" && Number(slot.bookingCount ?? slot.bookings ?? 0) === 0 && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex-1"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingSlotId(slot.id);
+                          setForm({
+                            area: slot.area || "",
+                            date: new Date(slot.date).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" }),
+                            startTime: slot.startTime || "07:00",
+                            endTime: slot.endTime || "10:00",
+                            radiusKm: String(slot.radiusKm ?? 10),
+                            maxCapacityKg: String(slot.maxCapacityKg ?? 5),
+                            deliveryFee: String(slot.deliveryFee ?? 0),
+                            notes: slot.notes || "",
+                          });
+                          setShowForm(true);
+                          window.scrollTo({ top: 0, behavior: "smooth" });
+                        }}
+                      >
+                        <Pencil className="mr-2 h-3.5 w-3.5" /> Edit Slot
+                      </Button>
+                    )}
+                    {slot.status !== "cancelled" && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex-1"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          cancelMutation.mutate(slot.id);
+                        }}
+                      >
+                        Cancel Slot
+                      </Button>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
             ))}
