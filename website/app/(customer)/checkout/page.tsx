@@ -1222,22 +1222,27 @@ if (!cartHydrated) {
                   );
                 })}
               </div>
-              <div className="grid gap-2 sm:grid-cols-3">
-                {([
-                  ["morning", "Morning", "8:00 AM – 11:00 AM"],
-                  ["afternoon", "Afternoon", "12:00 PM – 4:00 PM"],
-                  ["evening", "Evening", "4:00 PM – 7:00 PM"],
-                ] as const).map(([value, label, time]) => {
-                  const selected = deliveryTimeSlot === value;
-                  return (
-                    <button key={value} type="button" onClick={() => setDeliveryTimeSlot(value)}
-                      className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition ${selected ? "border-emerald-500 bg-emerald-50 ring-1 ring-emerald-100" : "border-slate-200 bg-white hover:border-emerald-300"}`}>
-                      <span className={`h-4 w-4 rounded-full border-2 ${selected ? "border-emerald-600 bg-emerald-600 ring-2 ring-emerald-100" : "border-slate-300"}`} />
-                      <span><span className="block text-sm font-semibold text-slate-900">{label}</span><span className="block text-xs text-slate-600">{time}</span></span>
-                    </button>
-                  );
-                })}
-              </div>
+              {checkoutSlots.length === 0 && (
+                <div className="grid gap-2 sm:grid-cols-3">
+                  {([
+                    ["morning", "Morning", "8:00 AM – 11:00 AM"],
+                    ["afternoon", "Afternoon", "12:00 PM – 4:00 PM"],
+                    ["evening", "Evening", "4:00 PM – 7:00 PM"],
+                  ] as const).map(([value, label, time]) => {
+                    const selected = deliveryTimeSlot === value;
+                    return (
+                      <button key={value} type="button" onClick={() => {
+                        setSelectedDeliverySlotId("");
+                        setDeliveryTimeSlot(value);
+                      }}
+                        className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition ${selected ? "border-emerald-500 bg-emerald-50 ring-1 ring-emerald-100" : "border-slate-200 bg-white hover:border-emerald-300"}`}>
+                        <span className={`h-4 w-4 rounded-full border-2 ${selected ? "border-emerald-600 bg-emerald-600 ring-2 ring-emerald-100" : "border-slate-300"}`} />
+                        <span><span className="block text-sm font-semibold text-slate-900">{label}</span><span className="block text-xs text-slate-600">{time}</span></span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
               <div className="border-t border-slate-100 pt-3">
                 <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Available farmer delivery batches</p>
                 {!selectedCheckoutAddress?.city ? (
