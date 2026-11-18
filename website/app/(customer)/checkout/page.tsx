@@ -220,12 +220,6 @@ export default function CheckoutPage() {
   }, [estimatedDeliveryAddressId, items]);
 
   useEffect(() => {
-    setSelectedDeliverySpeed(fastestDeliveryAvailable ? "fastest_30m" : "standard");
-  }, [
-    fastestDeliveryAvailable,
-  ]);
-
-  useEffect(() => {
     const nextServiceAt = deliveryAvailability?.nextServiceAt;
     if (!nextServiceAt) return;
 
@@ -404,6 +398,12 @@ export default function CheckoutPage() {
     Number(deliveryQuote?.estimatedDeliveryMinutes) <= 30 &&
     deliveryAvailability?.serviceAvailable === true &&
     deliveryAvailability?.partnerAvailable === true;
+
+  useEffect(() => {
+    setSelectedDeliverySpeed(fastestDeliveryAvailable ? "fastest_30m" : "standard");
+  }, [
+    fastestDeliveryAvailable,
+  ]);
 
 
   const handlePlaceOrder = async (quantityOverrides?: Record<string, number>) => {
