@@ -126,13 +126,13 @@ export default function CustomerDashboardPage() {
               <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-700">Fresh daily · Farm to home</p>
               <h2 className="max-w-lg text-2xl font-extrabold leading-tight text-slate-950 sm:text-3xl">Fresh from local farmers to your home</h2>
               <p className="mt-2 text-xs font-semibold text-slate-700 sm:text-sm">Fresh Produce <span className="mx-1.5 text-emerald-600">|</span> Verified Farmers <span className="mx-1.5 text-emerald-600">|</span> Safe & Traceable</p>
-              <Button asChild size="sm" className="mt-3 rounded-full bg-emerald-700 px-5 font-semibold hover:bg-emerald-800"><Link href="/nearby">Shop Now <ArrowRight className="ml-1.5 h-3.5 w-3.5" /></Link></Button>
+              <Button asChild size="sm" className="mt-3 rounded-full bg-emerald-700 px-5 font-semibold hover:bg-emerald-800"><Link href="/marketplace">Shop Now <ArrowRight className="ml-1.5 h-3.5 w-3.5" /></Link></Button>
             </div>
           </section>
 
           <section className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {[
-              { label: "Shop Products", href: "/nearby", icon: ShoppingBasket, tone: "bg-emerald-50 text-emerald-700", cardTone: "border-emerald-100 bg-emerald-50/80 hover:bg-emerald-100/80" },
+              { label: "Shop Products", href: "/marketplace", icon: ShoppingBasket, tone: "bg-emerald-50 text-emerald-700", cardTone: "border-emerald-100 bg-emerald-50/80 hover:bg-emerald-100/80" },
               { label: "My Orders", href: "/orders", icon: Package, tone: "bg-blue-50 text-blue-700", cardTone: "border-blue-100 bg-blue-50/80 hover:bg-blue-100/80" },
               { label: "Subscribe Farm Basket", href: "/subscriptions", icon: CalendarDays, tone: "bg-amber-50 text-amber-700", cardTone: "border-amber-100 bg-amber-50/80 hover:bg-amber-100/80" },
               { label: "Bulk & Event Orders", href: "/bulk-orders", icon: Gift, tone: "bg-violet-50 text-violet-700", cardTone: "border-violet-100 bg-violet-50/80 hover:bg-violet-100/80" },
@@ -182,7 +182,7 @@ export default function CustomerDashboardPage() {
 
           <Card className="border-slate-200 shadow-sm">
             <CardContent className="p-4">
-              <div className="mb-3 flex items-center justify-between"><h2 className="flex items-center gap-2 text-lg font-bold text-slate-900"><Leaf className="h-5 w-5 text-emerald-700" />Recommended for You</h2><Button asChild variant="ghost" size="sm" className="text-emerald-700"><Link href="/nearby">View More <ArrowRight className="ml-1 h-4 w-4" /></Link></Button></div>
+              <div className="mb-3 flex items-center justify-between"><h2 className="flex items-center gap-2 text-lg font-bold text-slate-900"><Leaf className="h-5 w-5 text-emerald-700" />Recommended for You</h2><Button asChild variant="ghost" size="sm" className="text-emerald-700"><Link href="/marketplace">View More <ArrowRight className="ml-1 h-4 w-4" /></Link></Button></div>
               {products.length ? <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6">{products.map((product: any) => {
                 const id = product._id || product.id;
                 const name = product.name || product.productName || "Fresh Produce";
