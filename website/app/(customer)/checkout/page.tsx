@@ -161,10 +161,15 @@ export default function CheckoutPage() {
   // confirmation page, send them to the last purchased product instead of
   // showing checkout's empty-cart state.
   useEffect(() => {
-    // Keep the confirmation visible immediately after placing the order.
-    // Only consume the saved product redirect when checkout is re-entered
-    // after a refresh (paymentStage is back to "idle").
-    if (paymentStage === "success" || !cartHydrated || items.length > 0 || typeof window === "undefined") return;
+    // Redirect only on a real browser refresh of checkout. A successful
+    // in-app order submission must always keep the confirmation screen open.
+    if (!cartHydrated || items.length > 0 || typeof window === "undefined") return;
+
+    const navigationEntry = window.performance?.getEntriesByType?.("navigation")?.[0] as
+      | PerformanceNavigationTiming
+      | undefined;
+    if (navigationEntry?.type !== "reload") return;
+
     let productId = "";
     try {
       productId = window.sessionStorage.getItem("agriconnect:last-purchased-product") || "";
@@ -172,10 +177,11 @@ export default function CheckoutPage() {
     } catch {
       return;
     }
+
     if (productId) {
       router.replace(`/product/${encodeURIComponent(productId)}`);
     }
-  }, [cartHydrated, items.length, paymentStage, router]);
+  }, [cartHydrated, items.length, router]);
 
 
   const { data: addressesData, isError: addressesError, refetch: refetchAddresses } = useQuery({
