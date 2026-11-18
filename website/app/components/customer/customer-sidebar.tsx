@@ -132,50 +132,49 @@ export function CustomerSidebar() {
   return (
     <aside className="role-sidebar hidden w-64 shrink-0 border-r border-slate-200/80 bg-white md:block">
       <div className="sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto p-4 lg:p-5">
-        <section aria-label="Customer profile" className="mb-5 overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-green-50 p-3.5 shadow-sm">
-          <div className="relative mx-auto mb-2.5 h-[76px] w-[76px]">
-            <div className="h-full w-full overflow-hidden rounded-full border-[3px] border-white bg-emerald-100 shadow-sm ring-1 ring-emerald-100">
-              {userImage ? (
-                <img src={userImage} alt={userName} className="h-full w-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
-              ) : (
-                <div className="flex h-full w-full items-center justify-center text-emerald-700"><User className="h-9 w-9" /></div>
+        <section aria-label="Customer profile" className="relative mb-5 overflow-hidden rounded-2xl border border-emerald-900/20 bg-gradient-to-br from-emerald-900 via-emerald-800 to-green-700 p-4 text-white shadow-lg shadow-emerald-950/15">
+          <div aria-hidden="true" className="pointer-events-none absolute -right-8 -top-8 h-32 w-32 rounded-full bg-white/[0.06]" />
+          <div aria-hidden="true" className="pointer-events-none absolute -bottom-10 -left-8 h-28 w-28 rounded-full bg-green-300/[0.08]" />
+          <div aria-hidden="true" className="pointer-events-none absolute right-2 top-16 rotate-[-24deg] text-white/[0.07]"><Leaf className="h-24 w-24" /></div>
+          <div className="relative">
+            <div className="relative mx-auto mb-3 h-24 w-24">
+              <div className="h-full w-full overflow-hidden rounded-full border-4 border-white/90 bg-emerald-100 shadow-md ring-2 ring-emerald-300/40">
+                {userImage ? (
+                  <img src={userImage} alt={userName} className="h-full w-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-emerald-700"><User className="h-11 w-11" /></div>
+                )}
+              </div>
+              <Link href="/profile" aria-label="Edit profile photo" title="Edit profile photo" className="absolute bottom-0 right-0 flex h-8 w-8 items-center justify-center rounded-full border-2 border-emerald-800 bg-emerald-500 text-white shadow-md transition-colors hover:bg-emerald-400">
+                <Pencil className="h-4 w-4" />
+              </Link>
+            </div>
+            <div className="text-center">
+              <p className="break-words text-base font-bold leading-5 tracking-tight text-white" title={userName}>{userName}</p>
+              <span className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-emerald-100/80 bg-white px-3 py-1 text-xs font-semibold text-emerald-800 shadow-sm">
+                <User className="h-3.5 w-3.5" /> Customer
+              </span>
+            </div>
+            <div className="mt-4 space-y-2.5 border-t border-white/20 pt-3.5">
+              {userPhone && (
+                <div className="flex min-w-0 items-center gap-2.5 text-xs font-medium text-white/95">
+                  <Phone className="h-4 w-4 shrink-0 text-emerald-200" />
+                  <span className="min-w-0 flex-1 break-all">{userPhone}</span>
+                  {phoneVerified && <CheckCircle2 className="h-4 w-4 shrink-0 fill-emerald-400 text-emerald-950" aria-label="Phone verified" />}
+                </div>
+              )}
+              {userEmail && (
+                <div className="flex min-w-0 items-center gap-2.5 text-xs font-medium text-white/95">
+                  <Mail className="h-4 w-4 shrink-0 text-emerald-200" />
+                  <span className="min-w-0 flex-1 break-all" title={userEmail}>{userEmail}</span>
+                  {emailVerified && <CheckCircle2 className="h-4 w-4 shrink-0 fill-emerald-400 text-emerald-950" aria-label="Email verified" />}
+                </div>
               )}
             </div>
-            <Link href="/profile" aria-label="Edit profile photo" title="Edit profile" className="absolute bottom-0 right-0 flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-emerald-700 text-white shadow-sm transition-colors hover:bg-emerald-800">
-              <Pencil className="h-3.5 w-3.5" />
+            <Link href="/profile" className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-white/80 bg-white px-3 py-2.5 text-sm font-bold text-emerald-900 shadow-sm transition-all hover:-translate-y-0.5 hover:bg-emerald-50 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-emerald-800">
+              <Pencil className="h-4 w-4" /> Edit Profile
             </Link>
           </div>
-          <div className="text-center">
-            <p className="truncate text-[15px] font-bold leading-5 text-slate-900" title={userName}>{userName}</p>
-            <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-semibold text-emerald-800">
-              <User className="h-3 w-3" /> Customer
-            </span>
-          </div>
-          <div className="mt-3 space-y-2 border-t border-emerald-100 pt-3">
-            {userPhone && (
-              <div className="flex min-w-0 items-center gap-2 text-xs text-slate-700">
-                <Phone className="h-3.5 w-3.5 shrink-0 text-slate-600" />
-                <span className="min-w-0 flex-1 truncate">{userPhone}</span>
-                {phoneVerified && <CheckCircle2 className="h-4 w-4 shrink-0 fill-emerald-600 text-white" aria-label="Phone verified" />}
-              </div>
-            )}
-            {userEmail && (
-              <div className="flex min-w-0 items-center gap-2 text-xs text-slate-700">
-                <Mail className="h-3.5 w-3.5 shrink-0 text-slate-600" />
-                <span className="min-w-0 flex-1 truncate" title={userEmail}>{userEmail}</span>
-                {emailVerified && <CheckCircle2 className="h-4 w-4 shrink-0 fill-emerald-600 text-white" aria-label="Email verified" />}
-              </div>
-            )}
-            {homeLine && (
-              <div className="flex min-w-0 items-center gap-2 text-[11px] text-slate-500">
-                <MapPin className="h-3.5 w-3.5 shrink-0" />
-                <span className="truncate" title={homeLine}>{homeLine}</span>
-              </div>
-            )}
-          </div>
-          <Link href="/profile" className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-emerald-700 bg-white px-3 py-2 text-xs font-semibold text-emerald-800 shadow-sm transition-colors hover:bg-emerald-700 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2">
-            <Pencil className="h-3.5 w-3.5" /> Edit Profile
-          </Link>
         </section>
 
         <nav className="space-y-4">
