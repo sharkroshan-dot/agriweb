@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { CheckCircle2, Heart, MapPin, ShoppingCart, Star } from "lucide-react";
+import { CheckCircle2, Heart, MapPin, Package, ShoppingCart, Star } from "lucide-react";
 import { Button } from "../ui/button";
 import { Card, CardContent, CardFooter, CardHeader } from "../ui/card";
 import { cn, formatPrice } from "../../lib/utils";
@@ -22,8 +22,11 @@ export function ProductCard({ product, compact = false, list = false }: ProductC
 	const productId = product.id || product._id;
 	const wishlisted = isWishlisted(productId);
 	const image = product.images?.[0] || product.image || "/images/placeholder-product.jpg";
-	const availableQuantity = Number(product.availableQuantity ?? product.quantity ?? product.stock ?? 0);
-	const isAvailable = availableQuantity > 0 || product.inStock === true;
+	const stockValue = product.availableQuantity ?? product.quantity ?? product.stockQuantity ?? product.stock ?? null;
+	const hasStockValue = stockValue !== null && stockValue !== undefined && Number.isFinite(Number(stockValue));
+	const availableQuantity = hasStockValue ? Math.max(0, Number(stockValue)) : 0;
+	const formattedQuantity = Number.isInteger(availableQuantity) ? String(availableQuantity) : availableQuantity.toFixed(2).replace(/\\.?0+$/, "");
+	const isAvailable = hasStockValue ? availableQuantity > 0 : product.inStock === true;
 
 	const handleAddToCart = (e: React.MouseEvent) => {
 		e.preventDefault();
@@ -93,25 +96,34 @@ export function ProductCard({ product, compact = false, list = false }: ProductC
 					<div className="p-3">
 						<div className="mb-2 flex items-start justify-between gap-2">
 							<span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-700">Farm fresh</span>
-							<span className="text-xs text-slate-500">{product.unit}</span>
+							<span className="text-xs text-slate-500">{product.unit || "kg"}</span>
 						</div>
-						<h3 className="line-clamp-1 text-sm font-medium">{product.name}</h3>
+						<h3 className="line-clamp-1 text-sm font-semibold text-slate-900">{product.name}</h3>
 						<div className="mt-2">
 							<span className="font-bold text-slate-900">{formatPrice(product.price) ?? "N/A"}</span>
+							<span className="ml-1 text-xs text-slate-500">/ {product.unit || "kg"}</span>
 						</div>
-						<div className="mt-1 flex items-center gap-1 text-xs text-gray-500">
-							<Star className="h-3 w-3 text-yellow-500" />
+						<div className="mt-1 flex items-center gap-1 text-xs text-slate-500">
+							<Star className="h-3 w-3 fill-yellow-400 text-yellow-500" />
 							<span>{product.rating || 4.5}</span>
+						</div>
+						<div className={cn(
+							"mt-3 flex min-h-10 items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold",
+							isAvailable ? "bg-emerald-50 text-emerald-800" : "bg-rose-50 text-rose-700"
+						)}>
+							<Package className="h-4 w-4 shrink-0" />
+							<span>{hasStockValue ? `Available: ${formattedQuantity} ${product.unit || "kg"}` : isAvailable ? "In stock" : "Stock unavailable"}</span>
 						</div>
 						<Button
 							size="sm"
 							variant="outline"
-							className="mt-3 h-10 w-full rounded-lg border-emerald-600 bg-white font-semibold text-emerald-700 shadow-none hover:bg-emerald-50 hover:text-emerald-800"
+							className="mt-3 h-10 w-full rounded-lg border-emerald-600 bg-white font-semibold text-emerald-700 shadow-none hover:bg-emerald-50 hover:text-emerald-800 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
 							onClick={handleAddToCart}
-							aria-label={`Add ${product.name} to cart`}
+							disabled={!isAvailable}
+							aria-label={isAvailable ? `Add ${product.name} to cart` : `${product.name} is out of stock`}
 						>
 							<ShoppingCart className="mr-2 h-4 w-4" />
-							Add to Cart
+							{isAvailable ? "Add to Cart" : "Out of Stock"}
 						</Button>
 					</div>
 				</div>
