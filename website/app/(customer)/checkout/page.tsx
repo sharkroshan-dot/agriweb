@@ -96,7 +96,6 @@ export default function CheckoutPage() {
 
   const [selectedAddressId, setSelectedAddressId] = useState<string>("");
   const [paymentMethod, setPaymentMethod] = useState("upi");
-  const [specialInstructions, setSpecialInstructions] = useState("");
   const [isPlacing, setIsPlacing] = useState(false);
   const [showAddrForm, setShowAddrForm] = useState(false);
   const [addrForm, setAddrForm] = useState(initialAddrForm);
@@ -458,7 +457,6 @@ export default function CheckoutPage() {
         })),
         deliveryAddressId: addressId,
         paymentMethod,
-        specialInstructions: specialInstructions || undefined,
         deliveryType: "delivery",
         requestedDeliveryDate: new Date(`${deliveryDate}T00:00:00`).toISOString(),
         idempotencyKey: idempotencyKeyRef.current,
@@ -1188,21 +1186,6 @@ export default function CheckoutPage() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Special Instructions</CardTitle>
-              <CardDescription>Optional notes for the farmer or delivery partner</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <textarea
-                value={specialInstructions}
-                onChange={(e) => setSpecialInstructions(e.target.value)}
-                placeholder="e.g., Leave at the gate, call before delivery"
-                rows={3}
-                className="w-full rounded-md border px-3 py-2 text-sm"
-              />
-            </CardContent>
-          </Card>
         </div>
 
         {/* Order Summary Sidebar */}
