@@ -127,6 +127,20 @@ export default function CheckoutPage() {
   const [selectedUpiApp, setSelectedUpiApp] = useState("");
   const selectedUpiAppLabel = ({ gpay: "GPay", phonepe: "PhonePe", paytm: "Paytm" } as Record<string, string>)[selectedUpiApp] || "UPI";
 
+  // Zustand persist restores the cart from localStorage after the first client render.
+  // Do not interpret its temporary empty SSR state as a genuinely empty cart.
+  const [cartHydrated, setCartHydrated] = useState(false);
+  useEffect(() => {
+    const unsubscribe = useCartStore.persist.onFinishHydration(() => setCartHydrated(true));
+    if (useCartStore.persist.hasHydrated()) {
+      setCartHydrated(true);
+    } else {
+      void useCartStore.persist.rehydrate();
+    }
+    return unsubscribe;
+  }, []);
+
+
   const { data: addressesData, isError: addressesError, refetch: refetchAddresses } = useQuery({
     queryKey: ["customerAddresses"],
     queryFn: () => api.get("/users/me/addresses"),
@@ -783,7 +797,21 @@ export default function CheckoutPage() {
     );
   }
 
-if (items.length === 0) {
+if (!cartHydrated) {
+    return (
+      <div className="customer-retail-shell">
+        <Card className="border-slate-200 shadow-sm">
+          <CardContent className="flex min-h-[260px] flex-col items-center justify-center gap-3 p-8 text-center">
+            <Loader2 className="h-8 w-8 animate-spin text-emerald-700" />
+            <p className="text-sm font-semibold text-slate-800">Restoring your cart…</p>
+            <p className="text-xs text-slate-500">Please wait while we load your saved items.</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (items.length === 0) {
     return (
       <div className="customer-retail-shell space-y-6">
         <div className="flex items-center gap-4">
