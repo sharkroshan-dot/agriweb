@@ -1405,6 +1405,14 @@ class OrderService:
             except Exception as e:
                 logger.warning(f"Failed to send in-transit notification: {e}")
         elif new_status == OrderStatus.DELIVERED and not is_pickup:
+            # Award AgriPoints only after the order has successfully reached
+            # Delivered. The loyalty service is idempotent per order.
+            try:
+                from app.api.v1.loyalty import award_points_for_delivered_order
+                delivered_order = await order_repository.get_by_id(order_id) or order
+                await award_points_for_delivered_order(delivered_order)
+            except Exception:
+                logger.exception("Failed to award AgriPoints for delivered order %s", order_id)
             if order.get("preorderId"):
                 await harvest_preorder_repository.update(
                     {"_id": ObjectId(order["preorderId"])},
@@ -1441,6 +1449,13 @@ class OrderService:
             except Exception as e:
                 logger.warning(f"Failed to send completed notification: {e}")
         elif new_status == OrderStatus.PICKED_UP and is_pickup:
+            # Farm pickup completion is also an eligible loyalty event.
+            try:
+                from app.api.v1.loyalty import award_points_for_delivered_order
+                completed_order = await order_repository.get_by_id(order_id) or order
+                await award_points_for_delivered_order(completed_order)
+            except Exception:
+                logger.exception("Failed to award AgriPoints for picked-up order %s", order_id)
             if order.get("preorderId"):
                 await harvest_preorder_repository.update(
                     {"_id": ObjectId(order["preorderId"])},
