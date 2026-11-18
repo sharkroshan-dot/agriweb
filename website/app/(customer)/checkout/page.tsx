@@ -95,7 +95,7 @@ export default function CheckoutPage() {
   );
 
   const [selectedAddressId, setSelectedAddressId] = useState<string>("");
-  const [paymentMethod, setPaymentMethod] = useState("razorpay");
+  const [paymentMethod, setPaymentMethod] = useState("upi");
   const [specialInstructions, setSpecialInstructions] = useState("");
   const [isPlacing, setIsPlacing] = useState(false);
   const [showAddrForm, setShowAddrForm] = useState(false);
@@ -220,20 +220,9 @@ export default function CheckoutPage() {
   }, [estimatedDeliveryAddressId, items]);
 
   useEffect(() => {
-    const fastestAvailable =
-      deliveryQuote?.fastestEligible === true &&
-      deliveryAvailability?.serviceAvailable === true &&
-      deliveryAvailability?.partnerAvailable === true;
-
-    if (fastestAvailable) {
-      setSelectedDeliverySpeed((current) => current);
-    } else {
-      setSelectedDeliverySpeed("standard");
-    }
+    setSelectedDeliverySpeed(fastestDeliveryAvailable ? "fastest_30m" : "standard");
   }, [
-    deliveryQuote?.fastestEligible,
-    deliveryAvailability?.serviceAvailable,
-    deliveryAvailability?.partnerAvailable,
+    fastestDeliveryAvailable,
   ]);
 
   useEffect(() => {
@@ -410,6 +399,12 @@ export default function CheckoutPage() {
   const deliveryFeeValue = deliveryQuote?.fee ?? 0;
   const platformFeeValue = Math.max(0, (displayTotal - couponDiscount) * 0.05);
   const estimatedTotal = Math.max(0, displayTotal - couponDiscount + deliveryFeeValue + platformFeeValue);
+  const fastestDeliveryAvailable =
+    deliveryQuote?.fastestEligible === true &&
+    Number(deliveryQuote?.estimatedDeliveryMinutes) <= 30 &&
+    deliveryAvailability?.serviceAvailable === true &&
+    deliveryAvailability?.partnerAvailable === true;
+
 
   const handlePlaceOrder = async (quantityOverrides?: Record<string, number>) => {
     const addressId = selectedAddressId || defaultAddress?.id;
@@ -643,20 +638,33 @@ export default function CheckoutPage() {
         </div>
       )}
 
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" asChild>
-          <Link href="/cart"><ArrowLeft className="h-4 w-4" /></Link>
-        </Button>
-        <div>
-          <h1 className="text-2xl font-semibold">Checkout</h1>
-          <p className="text-sm text-muted-foreground">{itemCount} items · {formatPrice(displayTotal)}</p>
+      <div className="flex flex-wrap items-center justify-between gap-5">
+        <div className="flex items-center gap-4">
+          <Button variant="outline" size="icon" className="h-11 w-11 rounded-full border-slate-200 bg-white shadow-sm" asChild>
+            <Link href="/cart"><ArrowLeft className="h-4 w-4" /></Link>
+          </Button>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">Home · Cart · Checkout</p>
+            <h1 className="mt-1 text-2xl font-extrabold tracking-tight text-slate-950">Checkout</h1>
+            <p className="text-sm text-slate-600">Complete your order and get fresh produce from our farmers.</p>
+          </div>
         </div>
-      </div>
-
-      <div className="customer-checkout-steps" aria-label="Checkout progress">
-        <span className="customer-checkout-step customer-checkout-step-active"><b>1</b> Delivery</span>
-        <span className="customer-checkout-step"><b>2</b> Payment</span>
-        <span className="customer-checkout-step"><b>3</b> Confirmation</span>
+        <div className="flex min-w-[280px] flex-1 items-center justify-end gap-2 sm:max-w-[420px]" aria-label="Checkout progress">
+          <div className="flex flex-col items-center gap-1 text-xs font-semibold text-emerald-800">
+            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-700 text-white"><CheckCircle2 className="h-5 w-5" /></span>
+            Cart
+          </div>
+          <span className="h-px flex-1 bg-emerald-500" />
+          <div className="flex flex-col items-center gap-1 text-xs font-semibold text-emerald-800">
+            <span className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-emerald-600 bg-white text-emerald-700"><Truck className="h-5 w-5" /></span>
+            Checkout
+          </div>
+          <span className="h-px flex-1 bg-slate-200" />
+          <div className="flex flex-col items-center gap-1 text-xs font-medium text-slate-500">
+            <span className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-slate-200 bg-white"><CheckCircle2 className="h-5 w-5" /></span>
+            Order Placed
+          </div>
+        </div>
       </div>
 
       {paymentStage !== "idle" && (
@@ -676,234 +684,8 @@ export default function CheckoutPage() {
         />
       )}
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
+      <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1.45fr)_minmax(340px,0.9fr)] xl:gap-6">
         <div className="space-y-6">
-          {/* Delivery Type */}
-          <Card className="border-emerald-200 bg-emerald-50/40">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Truck className="h-5 w-5 text-emerald-600" /> Home Delivery
-              </CardTitle>
-              <CardDescription>Your order will be delivered to your doorstep</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {deliveryQuote && (
-                <div className="rounded-lg border bg-white p-4">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium text-slate-900">Delivery Fee</p>
-                    <span className="text-sm font-semibold text-emerald-700">
-                      {deliveryQuote.fee === 0 && deliveryQuote.freeDelivery ? (
-                        <>
-                          FREE
-                          {deliveryQuote.subsidy && (
-                            <span className="ml-2 text-xs text-emerald-600">(₹{deliveryQuote.subsidy} saved)</span>
-                          )}
-                        </>
-                      ) : (
-                        `₹${deliveryQuote.fee}`
-                      )}
-                    </span>
-                  </div>
-                  {deliveryQuote.distanceKm > 0 && (
-                    <p className="mt-2 text-xs text-slate-500">
-                      {deliveryQuote.distanceKm.toFixed(1)} km from farmer · ~45-60 min
-                    </p>
-                  )}
-                </div>
-              )}
-              {!deliveryQuote && (
-                <div className="rounded-lg border bg-white p-4 text-center">
-                  <p className="text-sm text-slate-500">Select a delivery address to calculate delivery fee</p>
-                </div>
-              )}
-              {deliveryAvailability && (
-                <div className={`mt-3 rounded-lg border p-4 ${deliveryAvailability.status === "available" ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
-                  <div className="flex items-start gap-3">
-                    <Truck className="mt-0.5 h-5 w-5 text-emerald-600" />
-                    <div className="min-w-0">
-                      <p className="font-semibold text-slate-900">
-                        {deliveryAvailability.status === "available"
-                          ? "🟢 Delivery service active"
-                          : deliveryAvailability.status === "scheduled_for_next_service"
-                            ? "🔴 Delivery service closed · 21:30–06:00"
-                            : "🟡 No suitable delivery partner right now"}
-                      </p>
-                      <p className="mt-1 text-sm text-slate-700">{deliveryAvailability.message}</p>
-                      {!deliveryAvailability.serviceAvailable && deliveryAvailability.nextServiceAt && (
-                        <p className="mt-2 text-sm font-semibold text-amber-900">
-                          Next available delivery: {new Date(deliveryAvailability.nextServiceAt).toLocaleString("en-IN", {
-                            timeZone: "Asia/Kolkata",
-                            dateStyle: "medium",
-                            timeStyle: "short",
-                          })}
-                        </p>
-                      )}
-                      {!deliveryAvailability.serviceAvailable && (
-                        <p className="mt-1 text-xs text-amber-800">
-                          Your order can still be placed. Product stock is not blocked by delivery-partner availability.
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-              {deliveryQuote?.fastestEligible &&
-                deliveryAvailability?.serviceAvailable &&
-                deliveryAvailability?.partnerAvailable && (
-                  <div className="mt-4 space-y-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-semibold text-slate-900">Choose your delivery speed</p>
-                        <p className="text-xs text-slate-500">Fastest is available only when the backend confirms the full journey can be completed within 30 minutes.</p>
-                      </div>
-                      <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
-                        Partner available
-                      </span>
-                    </div>
-
-                    <label
-                      className={`block cursor-pointer rounded-xl border-2 p-4 transition ${
-                        selectedDeliverySpeed === "fastest_30m"
-                          ? "border-emerald-500 bg-emerald-50 shadow-sm"
-                          : "border-slate-200 bg-white hover:border-emerald-300"
-                      }`}
-                    >
-                      <div className="flex items-start gap-3">
-                        <input
-                          type="radio"
-                          name="deliverySpeed"
-                          value="fastest_30m"
-                          checked={selectedDeliverySpeed === "fastest_30m"}
-                          onChange={() => setSelectedDeliverySpeed("fastest_30m")}
-                          className="mt-1 h-4 w-4 accent-emerald-600"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center justify-between gap-3">
-                            <div>
-                              <p className="font-bold text-emerald-900">⚡ Fastest Delivery</p>
-                              <p className="mt-0.5 text-sm font-semibold text-slate-900">
-                                Arrives in about {deliveryQuote.estimatedDeliveryMinutes || 30} minutes
-                              </p>
-                            </div>
-                            <span className="rounded-full bg-emerald-600 px-2.5 py-1 text-[11px] font-bold text-white">
-                              ≤ 30 MIN
-                            </span>
-                          </div>
-                          <p className="mt-2 text-xs text-emerald-800">
-                            Stock available · Delivery partner available · Estimated end-to-end time is within 30 minutes.
-                          </p>
-                          <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-medium text-slate-600">
-                            <span className="rounded-full bg-white px-2.5 py-1">✓ Farmer packing</span>
-                            <span className="rounded-full bg-white px-2.5 py-1">✓ Partner pickup</span>
-                            <span className="rounded-full bg-white px-2.5 py-1">✓ Customer delivery</span>
-                          </div>
-                        </div>
-                      </div>
-                    </label>
-
-                    <label
-                      className={`block cursor-pointer rounded-xl border-2 p-4 transition ${
-                        selectedDeliverySpeed === "standard"
-                          ? "border-blue-500 bg-blue-50 shadow-sm"
-                          : "border-slate-200 bg-white hover:border-blue-300"
-                      }`}
-                    >
-                      <div className="flex items-start gap-3">
-                        <input
-                          type="radio"
-                          name="deliverySpeed"
-                          value="standard"
-                          checked={selectedDeliverySpeed === "standard"}
-                          onChange={() => setSelectedDeliverySpeed("standard")}
-                          className="mt-1 h-4 w-4 accent-blue-600"
-                        />
-                        <div>
-                          <p className="font-bold text-blue-900">🚚 Standard Delivery</p>
-                          <p className="mt-0.5 text-sm font-medium text-slate-800">Choose your normal delivery schedule</p>
-                          <p className="mt-1 text-xs text-blue-800">The order follows the normal farmer → delivery partner workflow.</p>
-                        </div>
-                      </div>
-                    </label>
-
-                    <p className="flex items-center gap-2 text-[11px] text-slate-500">
-                      <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
-                      AgriConnect re-checks stock, delivery partner availability and ETA when you place the order.
-                    </p>
-                  </div>
-                )}
-
-              {deliveryQuote &&
-                !deliveryQuote.fastestEligible &&
-                deliveryAvailability?.serviceAvailable &&
-                deliveryAvailability?.partnerAvailable && (
-                  <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-4">
-                    <p className="font-semibold text-blue-900">🚚 Standard Delivery</p>
-                    <p className="mt-1 text-sm text-blue-800">
-                      Fastest 30-minute delivery is not feasible for this address right now. Standard delivery is available.
-                    </p>
-                  </div>
-                )}
-            </CardContent>
-          </Card>
-
-          {/* Farmer-published delivery slot selection */}
-          <Card className="border-emerald-200">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <CalendarClock className="h-5 w-5 text-emerald-600" /> Farmer Delivery Slots
-              </CardTitle>
-              <CardDescription>
-                Choose a delivery batch with enough remaining kilogram capacity for your cart.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {!selectedCheckoutAddress?.city ? (
-                <p className="text-sm text-slate-500">Select a delivery address to find matching delivery slots.</p>
-              ) : checkoutSlotsLoading ? (
-                <div className="flex items-center gap-2 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin"/> Finding available slots…</div>
-              ) : checkoutSlots.length === 0 ? (
-                <div className="rounded-xl border border-dashed p-4 text-sm text-slate-500">
-                  No farmer-published slots are available for {selectedCheckoutAddress.city} on this date. You can continue with standard delivery.
-                </div>
-              ) : (
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {checkoutSlots.map((slot: any) => (
-                    <button
-                      type="button"
-                      key={slot.id}
-                      onClick={() => {
-                        if (checkoutCartWeightKg > Number(slot.remainingCapacityKg ?? slot.maxCapacityKg ?? 0)) {
-                          toast.error("This slot has only " + Number(slot.remainingCapacityKg ?? 0).toFixed(2) + " kg remaining.");
-                          return;
-                        }
-                        setSelectedDeliverySlotId(slot.id);
-                        setDeliveryTimeSlot(slot.startTime);
-                      }}
-                      disabled={checkoutCartWeightKg > Number(slot.remainingCapacityKg ?? slot.maxCapacityKg ?? 0)}
-                      className={`rounded-xl border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${selectedDeliverySlotId === slot.id ? "border-emerald-600 bg-emerald-50 ring-2 ring-emerald-100" : "border-slate-200 hover:border-emerald-300"}`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-semibold text-slate-900">{slot.area}</span>
-                        <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700">{Number(slot.remainingCapacityKg ?? 0).toFixed(2)} kg left</span>
-                      </div>
-                      <p className="mt-2 text-sm text-slate-600">{slot.startTime} – {slot.endTime}</p>
-                      <p className="mt-1 text-xs text-slate-500">{slot.farmerInfo?.farmName || slot.farmerInfo?.name || "Local farmer"} · {slot.distanceKm ? `${slot.distanceKm} km away` : `${slot.radiusKm} km coverage`}</p>
-                      <p className="mt-2 text-sm font-medium text-emerald-700">Delivery fee: ₹{Number(slot.deliveryFee || 0).toFixed(2)}</p>
-                      <p className="mt-1 text-xs text-slate-500">{Number(slot.bookedCapacityKg || 0).toFixed(2)} kg booked of {Number(slot.maxCapacityKg || 0).toFixed(2)} kg · Your cart: {checkoutCartWeightKg.toFixed(2)} kg</p>
-                      {checkoutCartWeightKg > Number(slot.remainingCapacityKg ?? 0) && <p className="mt-1 text-xs font-medium text-rose-600">Not enough capacity for your cart</p>}
-                    </button>
-                  ))}
-                </div>
-              )}
-              {selectedCheckoutSlot && (
-                <div className="flex items-center justify-between rounded-lg bg-emerald-50 p-3 text-sm">
-                  <span className="text-emerald-800">Selected: {selectedCheckoutSlot.area}, {selectedCheckoutSlot.startTime}–{selectedCheckoutSlot.endTime}</span>
-                  <Button type="button" size="sm" variant="ghost" onClick={() => setSelectedDeliverySlotId("")}>Remove</Button>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
           {/* Delivery Address */}
           <Card>
             <CardHeader>
@@ -985,8 +767,156 @@ export default function CheckoutPage() {
             </CardContent>
           </Card>
 
-            <Card className="border-emerald-200 bg-emerald-50/40">
-              <CardHeader>
+          {/* Delivery availability is presented as one backend-driven state. */}
+          <Card className="overflow-hidden border-slate-200 shadow-sm">
+            <CardHeader className="border-b border-slate-100 bg-white px-5 py-4">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Truck className="h-5 w-5 text-emerald-700" /> Delivery Availability
+              </CardTitle>
+              <CardDescription>We check the delivery window and partner availability for your selected address.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3 p-4 sm:p-5">
+              {!estimatedDeliveryAddressId ? (
+                <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600">
+                  Select a delivery address to check the fastest delivery service.
+                </div>
+              ) : !deliveryAvailability || !deliveryQuote ? (
+                <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                  <Loader2 className="h-5 w-5 animate-spin text-emerald-700" />
+                  Checking delivery service, partner availability and estimated delivery time…
+                </div>
+              ) : fastestDeliveryAvailable ? (
+                <div className="rounded-xl border border-emerald-300 bg-gradient-to-r from-emerald-50 to-green-50 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+                        <CheckCircle2 className="h-6 w-6" />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="font-bold text-emerald-900">Delivery service active</p>
+                        <p className="mt-1 text-sm leading-5 text-emerald-800">
+                          {deliveryAvailability.message || "A suitable delivery partner is available for this order."}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-emerald-200 bg-white px-4 py-3 text-left sm:min-w-[190px]">
+                      <p className="flex items-center gap-2 text-sm font-bold text-slate-900">
+                        <CalendarClock className="h-4 w-4 text-emerald-700" /> Fastest Delivery
+                      </p>
+                      <p className="mt-1 text-sm font-semibold text-emerald-800">
+                        Within {deliveryQuote.estimatedDeliveryMinutes} minutes
+                      </p>
+                      <p className="mt-1 flex items-center gap-1 text-xs font-semibold text-emerald-700">
+                        <CheckCircle2 className="h-3.5 w-3.5" /> Partner available
+                        {deliveryAvailability.availablePartnerCount > 0 ? ` · ${deliveryAvailability.availablePartnerCount}` : ""}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+                  <div className="flex items-start gap-3">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-700">
+                      <Truck className="h-6 w-6" />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="font-bold text-blue-900">Standard Delivery</p>
+                      <p className="mt-1 text-sm leading-5 text-blue-800">
+                        Fastest 30-minute delivery is not feasible for this address right now. Standard delivery is available.
+                      </p>
+                      {deliveryAvailability.message && (
+                        <p className="mt-2 text-xs leading-5 text-blue-700">{deliveryAvailability.message}</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {deliveryQuote && (
+                <div className="grid gap-3 rounded-xl border border-slate-200 bg-white p-3 sm:grid-cols-3">
+                  <div>
+                    <p className="text-xs text-slate-500">Delivery fee</p>
+                    <p className="mt-1 text-sm font-bold text-slate-900">
+                      {deliveryQuote.freeDelivery && deliveryQuote.fee === 0 ? "FREE" : formatPrice(deliveryQuote.fee)}
+                    </p>
+                  </div>
+                  <div className="sm:border-l sm:border-slate-200 sm:pl-4">
+                    <p className="text-xs text-slate-500">Distance from farmer</p>
+                    <p className="mt-1 text-sm font-bold text-slate-900">
+                      {deliveryQuote.distanceKm > 0 ? `${deliveryQuote.distanceKm.toFixed(1)} km` : "Calculated by service"}
+                    </p>
+                  </div>
+                  <div className="sm:border-l sm:border-slate-200 sm:pl-4">
+                    <p className="text-xs text-slate-500">Delivery estimate</p>
+                    <p className="mt-1 text-sm font-bold text-slate-900">
+                      {fastestDeliveryAvailable ? `≤ ${deliveryQuote.estimatedDeliveryMinutes} min` : "Standard delivery"}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Farmer-published delivery slot selection */}
+          <Card className="border-slate-200 shadow-sm">
+            <CardHeader className="border-b border-slate-100 bg-white px-5 py-4">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <CalendarClock className="h-5 w-5 text-emerald-700" /> Farmer Delivery Slots
+              </CardTitle>
+              <CardDescription>
+                Choose a delivery batch with enough remaining kilogram capacity for your cart.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {!selectedCheckoutAddress?.city ? (
+                <p className="text-sm text-slate-500">Select a delivery address to find matching delivery slots.</p>
+              ) : checkoutSlotsLoading ? (
+                <div className="flex items-center gap-2 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin"/> Finding available slots…</div>
+              ) : checkoutSlots.length === 0 ? (
+                <div className="rounded-xl border border-dashed p-4 text-sm text-slate-500">
+                  No farmer-published slots are available for {selectedCheckoutAddress.city} on this date. You can continue with standard delivery.
+                </div>
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {checkoutSlots.map((slot: any) => (
+                    <button
+                      type="button"
+                      key={slot.id}
+                      onClick={() => {
+                        if (checkoutCartWeightKg > Number(slot.remainingCapacityKg ?? slot.maxCapacityKg ?? 0)) {
+                          toast.error("This slot has only " + Number(slot.remainingCapacityKg ?? 0).toFixed(2) + " kg remaining.");
+                          return;
+                        }
+                        setSelectedDeliverySlotId(slot.id);
+                        setDeliveryTimeSlot(slot.startTime);
+                      }}
+                      disabled={checkoutCartWeightKg > Number(slot.remainingCapacityKg ?? slot.maxCapacityKg ?? 0)}
+                      className={`rounded-xl border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${selectedDeliverySlotId === slot.id ? "border-emerald-600 bg-emerald-50 ring-2 ring-emerald-100" : "border-slate-200 hover:border-emerald-300"}`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-semibold text-slate-900">{slot.area}</span>
+                        <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700">{Number(slot.remainingCapacityKg ?? 0).toFixed(2)} kg left</span>
+                      </div>
+                      <p className="mt-2 text-sm text-slate-600">{slot.startTime} – {slot.endTime}</p>
+                      <p className="mt-1 text-xs text-slate-500">{slot.farmerInfo?.farmName || slot.farmerInfo?.name || "Local farmer"} · {slot.distanceKm ? `${slot.distanceKm} km away` : `${slot.radiusKm} km coverage`}</p>
+                      <p className="mt-2 text-sm font-medium text-emerald-700">Delivery fee: ₹{Number(slot.deliveryFee || 0).toFixed(2)}</p>
+                      <p className="mt-1 text-xs text-slate-500">{Number(slot.bookedCapacityKg || 0).toFixed(2)} kg booked of {Number(slot.maxCapacityKg || 0).toFixed(2)} kg · Your cart: {checkoutCartWeightKg.toFixed(2)} kg</p>
+                      {checkoutCartWeightKg > Number(slot.remainingCapacityKg ?? 0) && <p className="mt-1 text-xs font-medium text-rose-600">Not enough capacity for your cart</p>}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {selectedCheckoutSlot && (
+                <div className="flex items-center justify-between rounded-lg bg-emerald-50 p-3 text-sm">
+                  <span className="text-emerald-800">Selected: {selectedCheckoutSlot.area}, {selectedCheckoutSlot.startTime}–{selectedCheckoutSlot.endTime}</span>
+                  <Button type="button" size="sm" variant="ghost" onClick={() => setSelectedDeliverySlotId("")}>Remove</Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+            <Card className="border-slate-200 shadow-sm">
+              <CardHeader className="border-b border-slate-100 bg-white px-5 py-4">
                 <CardTitle className="flex items-center gap-2">
                   <CalendarClock className="h-5 w-5 text-emerald-600" /> Fresh delivery window
                 </CardTitle>
@@ -1020,7 +950,7 @@ export default function CheckoutPage() {
 
           {/* Payment Method */}
           <Card className="overflow-hidden border-slate-200 shadow-sm">
-            <CardHeader className="border-b bg-white px-5 py-5">
+            <CardHeader className="border-b border-slate-100 bg-white px-5 py-4">
               <CardTitle className="flex items-center gap-2 text-lg">
                 <CreditCard className="h-5 w-5 text-emerald-600" />
                 Payment Method
@@ -1285,43 +1215,7 @@ export default function CheckoutPage() {
                 );
               })}
 
-              <div className="mt-5 border-t pt-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-slate-600">Total payable</span>
-                  <span className="text-xl font-bold text-slate-950">{formatPrice(estimatedTotal)}</span>
-                </div>
 
-                <div className="mt-4 flex items-center gap-2 text-xs text-slate-500">
-                  <ShieldCheck className="h-4 w-4 shrink-0 text-emerald-600" />
-                  <span>
-                    {paymentMethod === "cash"
-                      ? "No online payment is taken for Cash on Delivery."
-                      : "Payment is verified securely before the order is marked paid."}
-                  </span>
-                </div>
-
-                {!(paymentMethod === "upi" && selectedUpiApp) && (
-                  <Button
-                    className="mt-4 w-full"
-                    size="lg"
-                    onClick={() => handlePlaceOrder()}
-                    disabled={isPlacing || (paymentMethod === "wallet" && walletBalance < estimatedTotal)}
-                  >
-                    {isPlacing ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        {paymentMethod === "cash" ? "Placing order..." : "Processing payment..."}
-                      </>
-                    ) : paymentMethod === "cash" ? (
-                      `Place order · ${formatPrice(estimatedTotal)}`
-                    ) : paymentMethod === "wallet" ? (
-                      `Pay ${formatPrice(estimatedTotal)} from Wallet`
-                    ) : (
-                      `Pay ${formatPrice(estimatedTotal)}`
-                    )}
-                  </Button>
-                )}
-              </div>
             </CardContent>
           </Card>
 
@@ -1343,15 +1237,15 @@ export default function CheckoutPage() {
         </div>
 
         {/* Order Summary Sidebar */}
-        <div className="space-y-6">
-          <Card className="h-fit">
-            <CardHeader>
-              <CardTitle>Order Summary</CardTitle>
+        <div className="space-y-4 lg:sticky lg:top-24">
+          <Card className="h-fit overflow-hidden border-slate-200 shadow-sm">
+            <CardHeader className="border-b border-slate-100 bg-white px-5 py-4">
+              <CardTitle className="flex items-center gap-2 text-lg"><ShoppingCart className="h-5 w-5 text-emerald-700" /> Order Summary</CardTitle>
               <CardDescription>{itemCount} item(s) in your cart</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-4 p-4 sm:p-5">
               {items.map((item) => (
-                <div key={item.id} className="flex gap-3 rounded-lg border p-3">
+                <div key={item.id} className="flex gap-3 rounded-xl border border-slate-200 bg-white p-3">
                   <div className="h-16 w-16 flex-shrink-0 overflow-hidden rounded-md bg-slate-100">
                     <img
                       src={item.image || "/images/placeholder-product.jpg"}
@@ -1436,10 +1330,56 @@ export default function CheckoutPage() {
                   <span>Platform fee</span>
                   <span className="text-muted-foreground">{formatPrice(platformFeeValue)}</span>
                 </div>
-              <div className="flex justify-between border-t pt-2 text-sm font-semibold">
+              <div className="flex justify-between rounded-lg border-t border-emerald-100 bg-emerald-50 px-3 py-3 text-base font-bold">
                   <span>Estimated total</span>
                   <span>{formatPrice(estimatedTotal)}</span>
                 </div>
+
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-4">
+                <p className="flex items-center gap-2 font-bold text-slate-900"><Leaf className="h-5 w-5 text-emerald-700" /> Why buy from AgriConnect?</p>
+                <div className="mt-4 grid grid-cols-3 divide-x divide-emerald-200 text-center">
+                  <div className="px-2"><Leaf className="mx-auto h-5 w-5 text-emerald-700" /><p className="mt-1 text-xs font-medium text-slate-700">Direct from<br/>Farmers</p></div>
+                  <div className="px-2"><ShieldCheck className="mx-auto h-5 w-5 text-emerald-700" /><p className="mt-1 text-xs font-medium text-slate-700">Quality<br/>Assured</p></div>
+                  <div className="px-2"><Truck className="mx-auto h-5 w-5 text-emerald-700" /><p className="mt-1 text-xs font-medium text-slate-700">Fresh & Safe<br/>Delivery</p></div>
+                </div>
+              </div>
+              <div className="border-t border-slate-100 pt-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-slate-600">Total payable</span>
+                  <span className="text-2xl font-extrabold text-emerald-800">{formatPrice(estimatedTotal)}</span>
+                </div>
+
+                <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
+                  <ShieldCheck className="h-4 w-4 shrink-0 text-emerald-600" />
+                  <span>
+                    {paymentMethod === "cash"
+                      ? "No online payment is taken for Cash on Delivery."
+                      : "Payment is verified securely before the order is marked paid."}
+                  </span>
+                </div>
+
+                {!(paymentMethod === "upi" && selectedUpiApp) && (
+                  <Button
+                    className="mt-4 w-full bg-emerald-700 text-white hover:bg-emerald-800"
+                    size="lg"
+                    onClick={() => handlePlaceOrder()}
+                    disabled={isPlacing || (paymentMethod === "wallet" && walletBalance < estimatedTotal)}
+                  >
+                    {isPlacing ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        {paymentMethod === "cash" ? "Placing order..." : "Processing payment..."}
+                      </>
+                    ) : paymentMethod === "cash" ? (
+                      `Place order · ${formatPrice(estimatedTotal)}`
+                    ) : paymentMethod === "wallet" ? (
+                      `Pay ${formatPrice(estimatedTotal)} from Wallet`
+                    ) : (
+                      `Pay ${formatPrice(estimatedTotal)}`
+                    )}
+                  </Button>
+                )}
+              </div>
               </div>
             </CardContent>
           </Card>
