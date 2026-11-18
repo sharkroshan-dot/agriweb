@@ -311,6 +311,13 @@ export default function ProductDetailPage() {
     : [];
   const displayImages = galleryImages.length ? galleryImages : [product.image || "/images/placeholder-product.jpg"];
   const reviewCount = reviews.length;
+  const categoryValue = product.category ?? product.categoryName;
+  const categoryLabel =
+    typeof categoryValue === "string" || typeof categoryValue === "number"
+      ? String(categoryValue)
+      : categoryValue && typeof categoryValue === "object"
+        ? categoryValue.name || categoryValue.slug || "Not specified"
+        : "Not specified";
   const farmerLocation = product.farmAddress || product.location?.address || product.farmerAddress || "";
   const farmerAvatar = product.farmerAvatar || product.farmer?.avatar || product.farmer?.profileImage || "";
 
@@ -559,7 +566,7 @@ export default function ProductDetailPage() {
             </div>
           )}
           {activeTab === "specifications" && (
-            <div><h2 className="text-xl font-bold text-slate-900">Product Specifications</h2><dl className="mt-4 grid gap-3 sm:grid-cols-2">{[["Product", product.name], ["Category", product.category || product.categoryName || "Not specified"], ["Unit", unit], ["Price", `${formatPrice(effectivePrice)} / ${unit}`], ["Available quantity", `${available} ${unit}`], ["Minimum bulk quantity", product.minBulkQty ? `${product.minBulkQty} ${unit}` : "No bulk minimum"]].map(([label, value]) => <div key={label} className="rounded-lg border border-slate-100 bg-slate-50 p-3"><dt className="text-xs font-medium text-slate-500">{label}</dt><dd className="mt-1 text-sm font-semibold text-slate-800">{value}</dd></div>)}</dl></div>
+            <div><h2 className="text-xl font-bold text-slate-900">Product Specifications</h2><dl className="mt-4 grid gap-3 sm:grid-cols-2">{[["Product", product.name], ["Category", categoryLabel], ["Unit", unit], ["Price", `${formatPrice(effectivePrice)} / ${unit}`], ["Available quantity", `${available} ${unit}`], ["Minimum bulk quantity", product.minBulkQty ? `${product.minBulkQty} ${unit}` : "No bulk minimum"]].map(([label, value]) => <div key={label} className="rounded-lg border border-slate-100 bg-slate-50 p-3"><dt className="text-xs font-medium text-slate-500">{label}</dt><dd className="mt-1 text-sm font-semibold text-slate-800">{value}</dd></div>)}</dl></div>
           )}
           {activeTab === "reviews" && (
             <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
