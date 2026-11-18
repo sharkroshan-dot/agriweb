@@ -132,11 +132,10 @@ export function CustomerSidebar() {
   return (
     <aside className="role-sidebar hidden w-64 shrink-0 border-r border-slate-200/80 bg-white md:block">
       <div className="sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto p-4 lg:p-5">
-        <section aria-label="Customer profile" className="relative mb-5 overflow-hidden rounded-2xl border border-emerald-900/20 bg-gradient-to-br from-emerald-900 via-emerald-800 to-green-700 p-4 text-white shadow-lg shadow-emerald-950/15">
+        <section aria-label="Customer profile" className="relative isolate mb-5 overflow-hidden rounded-2xl border border-emerald-900/20 bg-gradient-to-br from-emerald-950 via-emerald-800 to-green-700 p-4 text-white shadow-lg shadow-emerald-950/15">
           <div aria-hidden="true" className="pointer-events-none absolute -right-8 -top-8 h-32 w-32 rounded-full bg-white/[0.06]" />
           <div aria-hidden="true" className="pointer-events-none absolute -bottom-10 -left-8 h-28 w-28 rounded-full bg-green-300/[0.08]" />
-          <div aria-hidden="true" className="pointer-events-none absolute right-2 top-16 rotate-[-24deg] text-white/[0.07]"><Leaf className="h-24 w-24" /></div>
-          <div className="relative">
+          <div className="relative z-10">
             <div className="relative mx-auto mb-3 h-24 w-24">
               <div className="h-full w-full overflow-hidden rounded-full border-4 border-white/90 bg-emerald-100 shadow-md ring-2 ring-emerald-300/40">
                 {userImage ? (
@@ -150,7 +149,7 @@ export function CustomerSidebar() {
               </Link>
             </div>
             <div className="text-center">
-              <p className="break-words text-base font-bold leading-5 tracking-tight text-white" title={userName}>{userName}</p>
+              <p className="relative z-10 break-words text-base font-bold leading-5 tracking-tight text-white" title={userName}>{userName}</p>
               <span className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-emerald-100/80 bg-white px-3 py-1 text-xs font-semibold text-emerald-800 shadow-sm">
                 <User className="h-3.5 w-3.5" /> Customer
               </span>
