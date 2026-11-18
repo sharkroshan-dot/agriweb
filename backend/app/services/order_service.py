@@ -509,14 +509,12 @@ class OrderService:
                 raise OrderCreationError(
                     f"DELIVERY_SLOT_CAPACITY|{remaining_kg:g}|{requested_capacity_kg:g}"
                 )
-            slot_date = selected_delivery_slot.get("date")
-            slot_local_date = _delivery_calendar_date(slot_date)
-            requested_local_date = _delivery_calendar_date(data.requestedDeliveryDate)
-            if slot_local_date and requested_local_date and slot_local_date != requested_local_date:
-                raise OrderCreationError(
-                    "Selected delivery slot date does not match the requested delivery date. "
-                    "Please reselect the delivery date and slot."
-                )
+            # The selected, farmer-published slot is authoritative for the
+            # delivery date. Checkout already filters slots by the customer's
+            # selected India-local date; comparing two independently serialized
+            # midnight timestamps here can introduce a UTC/local-day mismatch.
+            # Persist the actual slot date below instead of rejecting a valid
+            # slot because the redundant requestedDeliveryDate shifted zones.
 
         delivery_address = None
         if data.deliveryType == DeliveryType.DELIVERY:
