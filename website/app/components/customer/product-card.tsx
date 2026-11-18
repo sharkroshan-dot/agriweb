@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { CheckCircle2, Heart, MapPin, Plus, ShoppingCart, Star } from "lucide-react";
+import { CheckCircle2, Heart, MapPin, ShoppingCart, Star } from "lucide-react";
 import { Button } from "../ui/button";
 import { Card, CardContent, CardFooter, CardHeader } from "../ui/card";
 import { cn, formatPrice } from "../../lib/utils";
@@ -96,14 +96,23 @@ export function ProductCard({ product, compact = false, list = false }: ProductC
 							<span className="text-xs text-slate-500">{product.unit}</span>
 						</div>
 						<h3 className="line-clamp-1 text-sm font-medium">{product.name}</h3>
-						<div className="mt-2 flex items-center justify-between gap-2">
+						<div className="mt-2">
 							<span className="font-bold text-slate-900">{formatPrice(product.price) ?? "N/A"}</span>
-							<Button size="icon" className="h-8 w-8 rounded-full" onClick={handleAddToCart} aria-label={`Add ${product.name} to cart`} title="Add to cart"><Plus className="h-4 w-4" /></Button>
 						</div>
 						<div className="mt-1 flex items-center gap-1 text-xs text-gray-500">
 							<Star className="h-3 w-3 text-yellow-500" />
 							<span>{product.rating || 4.5}</span>
 						</div>
+						<Button
+							size="sm"
+							variant="outline"
+							className="mt-3 h-10 w-full rounded-lg border-emerald-600 bg-white font-semibold text-emerald-700 shadow-none hover:bg-emerald-50 hover:text-emerald-800"
+							onClick={handleAddToCart}
+							aria-label={`Add ${product.name} to cart`}
+						>
+							<ShoppingCart className="mr-2 h-4 w-4" />
+							Add to Cart
+						</Button>
 					</div>
 				</div>
 			</Link>
