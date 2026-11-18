@@ -126,6 +126,23 @@ export default function CheckoutPage() {
   const [paymentMessage, setPaymentMessage] = useState("");
   const [selectedUpiApp, setSelectedUpiApp] = useState("");
   const selectedUpiAppLabel = ({ gpay: "GPay", phonepe: "PhonePe", paytm: "Paytm" } as Record<string, string>)[selectedUpiApp] || "UPI";
+  const rememberLastPurchasedProduct = () => {
+    if (typeof window === "undefined" || items.length === 0) return;
+    const lastPurchasedItem = items[items.length - 1] as any;
+    const productId = String(
+      lastPurchasedItem?.id ||
+      lastPurchasedItem?.productId ||
+      lastPurchasedItem?.product_id ||
+      ""
+    ).trim();
+    if (!productId) return;
+    try {
+      window.sessionStorage.setItem("agriconnect:last-purchased-product", productId);
+    } catch {
+      // If browser storage is unavailable, keep the normal confirmation flow.
+    }
+  };
+
 
   // Zustand persist restores the cart from localStorage after the first client render.
   // Do not interpret its temporary empty SSR state as a genuinely empty cart.
@@ -139,6 +156,23 @@ export default function CheckoutPage() {
     }
     return unsubscribe;
   }, []);
+
+  // After a completed order the cart is cleared. If the customer refreshes the
+  // confirmation page, send them to the last purchased product instead of
+  // showing checkout's empty-cart state.
+  useEffect(() => {
+    if (!cartHydrated || items.length > 0 || typeof window === "undefined") return;
+    let productId = "";
+    try {
+      productId = window.sessionStorage.getItem("agriconnect:last-purchased-product") || "";
+      if (productId) window.sessionStorage.removeItem("agriconnect:last-purchased-product");
+    } catch {
+      return;
+    }
+    if (productId) {
+      router.replace(`/product/${encodeURIComponent(productId)}`);
+    }
+  }, [cartHydrated, items.length, router]);
 
 
   const { data: addressesData, isError: addressesError, refetch: refetchAddresses } = useQuery({
@@ -422,6 +456,7 @@ export default function CheckoutPage() {
             setCompletedTransactionId(response.razorpay_payment_id || intentData.payment_id || "");
             setPaymentStage("success");
             setPaymentMessage("Payment verified successfully. Your order is confirmed.");
+            rememberLastPurchasedProduct();
             clearCart();
             toast.success("Payment successful! Order placed.");
             resolve();
@@ -605,6 +640,7 @@ export default function CheckoutPage() {
         setCompletedOrderId(order.id || order._id);
         setPaymentStage("success");
         setPaymentMessage("Cash on delivery selected. Your order is confirmed and payment will be collected at delivery.");
+        rememberLastPurchasedProduct();
         clearCart();
         toast.success("Order placed successfully!");
       } else {
@@ -623,6 +659,7 @@ export default function CheckoutPage() {
           setCompletedOrderId(order.id || order._id);
           setCompletedTransactionId(intentData.payment_id || "");
           setPaymentMessage(intentData.message || "Wallet payment completed successfully. Your order is confirmed.");
+          rememberLastPurchasedProduct();
           clearCart();
           toast.success("Wallet payment successful!");
           return;
