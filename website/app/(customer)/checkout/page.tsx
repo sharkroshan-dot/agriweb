@@ -254,20 +254,44 @@ export default function CheckoutPage() {
   const estimatedDeliveryAddressId = selectedAddressId || defaultAddress?.id;
 
   const selectedCheckoutAddress = addresses.find((address) => address.id === estimatedDeliveryAddressId);
-  const { data: checkoutSlotsData, isLoading: checkoutSlotsLoading } = useQuery({
-    queryKey: ["checkout-delivery-slots", selectedCheckoutAddress?.city, deliveryDate],
+  const { data: checkoutSlotsData, isLoading: checkoutSlotsLoading, isError: checkoutSlotsError, refetch: refetchCheckoutSlots } = useQuery({
+    queryKey: [
+      "checkout-delivery-slots",
+      selectedCheckoutAddress?.city,
+      selectedCheckoutAddress?.state,
+      selectedCheckoutAddress?.zip_code,
+      deliveryDate,
+    ],
     queryFn: () => api.get("/delivery-slots/available", {
-      params: { area: selectedCheckoutAddress?.city || "", radius: 100 },
+      // A customer's city is often the district while a farmer publishes a
+      // village/locality. Send the complete address so the API can match using
+      // locality, district, farm address and PIN code.
+      params: {
+        area: selectedCheckoutAddress?.city || "",
+        state: selectedCheckoutAddress?.state || "",
+        postal_code: selectedCheckoutAddress?.zip_code || "",
+        radius: 100,
+      },
     }),
-    enabled: Boolean(selectedCheckoutAddress?.city) && items.length > 0 && status === "authenticated",
+    enabled: Boolean(selectedCheckoutAddress?.city || selectedCheckoutAddress?.zip_code) && items.length > 0 && status === "authenticated",
+    staleTime: 15_000,
+    refetchOnWindowFocus: true,
   });
   const checkoutCartWeightKg = items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
-  const checkoutSlots = (checkoutSlotsData?.data?.slots || []).filter((slot: any) => {
+  const checkoutSlots = (checkoutSlotsData?.data?.slots || checkoutSlotsData?.slots || []).filter((slot: any) => {
     if (slot.status !== "open" || Number(slot.remainingCapacityKg ?? slot.maxCapacityKg ?? 0) <= 0) return false;
+    // Slot dates are stored in UTC; compare using the delivery location's
+    // India-local calendar date rather than the browser's UTC date.
     const slotDate = new Date(slot.date).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
     return slotDate === deliveryDate;
   });
   const selectedCheckoutSlot = checkoutSlots.find((slot: any) => slot.id === selectedDeliverySlotId);
+
+  useEffect(() => {
+    // A slot selected for another date/address must never remain attached to
+    // this checkout. Customers must choose one of the slots actually shown.
+    setSelectedDeliverySlotId("");
+  }, [deliveryDate, selectedCheckoutAddress?.id]);
 
   useEffect(() => {
     if (!estimatedDeliveryAddressId || items.length === 0) {
@@ -1186,7 +1210,7 @@ if (!cartHydrated) {
                 {Array.from({ length: 5 }, (_, index) => {
                   const date = new Date();
                   date.setDate(date.getDate() + index);
-                  const dateValue = date.toISOString().slice(0, 10);
+                  const dateValue = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
                   const selected = deliveryDate === dateValue;
                   return (
                     <button key={dateValue} type="button" onClick={() => setDeliveryDate(dateValue)}
@@ -1220,8 +1244,12 @@ if (!cartHydrated) {
                   <p className="text-sm text-slate-500">Select a delivery address to find matching delivery slots.</p>
                 ) : checkoutSlotsLoading ? (
                   <div className="flex items-center gap-2 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> Finding available slots…</div>
+                ) : checkoutSlotsError ? (
+                  <div className="rounded-lg border border-dashed border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                    Could not load farmer delivery slots. <button type="button" className="font-semibold underline" onClick={() => refetchCheckoutSlots()}>Try again</button>
+                  </div>
                 ) : checkoutSlots.length === 0 ? (
-                  <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-sm text-slate-500">No farmer-published slots are available for {selectedCheckoutAddress.city} on this date. You can continue with standard delivery.</div>
+                  <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-sm text-slate-500">No open farmer-published slots match {selectedCheckoutAddress.city} ({selectedCheckoutAddress.zip_code}) on this date. Choose another date or continue with standard delivery.</div>
                 ) : (
                   <div className="grid gap-2 sm:grid-cols-2">
                     {checkoutSlots.map((slot: any) => (
@@ -1232,7 +1260,7 @@ if (!cartHydrated) {
                             return;
                           }
                           setSelectedDeliverySlotId(slot.id);
-                          setDeliveryTimeSlot(slot.startTime);
+                          setDeliveryTimeSlot(`${slot.startTime} - ${slot.endTime}`);
                         }}
                         disabled={checkoutCartWeightKg > Number(slot.remainingCapacityKg ?? slot.maxCapacityKg ?? 0)}
                         className={`rounded-lg border p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${selectedDeliverySlotId === slot.id ? "border-emerald-600 bg-emerald-50 ring-1 ring-emerald-100" : "border-slate-200 hover:border-emerald-300"}`}>
