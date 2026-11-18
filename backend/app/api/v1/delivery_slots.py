@@ -8,7 +8,7 @@ Collections:
   - delivery_slots:        farmer-published delivery slot
   - delivery_slot_bookings: customer joins against a slot
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from pydantic import BaseModel, Field
@@ -56,11 +56,20 @@ async def _booked_capacity(slot_id: ObjectId) -> float:
     return round(sum(float(row.get("capacityKg", 0) or 0) for row in rows), 3)
 
 
+def _as_utc_naive(value: Optional[datetime]) -> Optional[datetime]:
+    """Normalize API datetimes to naive UTC for consistent MongoDB comparisons."""
+    if value is None:
+        return None
+    if value.tzinfo is not None:
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value
+
+
 async def _slot_status(slot: dict) -> str:
     """Effective status accounting for cutoff time and booking count."""
     if slot.get("status") == SLOT_CANCELLED:
         return SLOT_CANCELLED
-    cutoff = slot.get("cutoffTime")
+    cutoff = _as_utc_naive(slot.get("cutoffTime"))
     if cutoff and cutoff < datetime.utcnow():
         return "closed"
     capacity = float(slot.get("maxCapacityKg", 0) or 0)
@@ -101,19 +110,29 @@ async def create_delivery_slot(
     if current_user.get("role") != "farmer":
         raise HTTPException(status_code=403, detail="Only farmers can publish delivery slots")
 
-    if data.date < datetime.utcnow():
+    if not data.area.strip():
+        raise HTTPException(status_code=422, detail="Delivery area is required")
+    if data.startTime >= data.endTime:
+        raise HTTPException(status_code=422, detail="End time must be later than start time")
+
+    # The browser sends ISO timestamps with a timezone suffix (for example, Z).
+    # MongoDB slot dates are stored as naive UTC, so normalize before comparing
+    # or persisting to avoid "offset-naive and offset-aware" TypeErrors (500).
+    slot_date = _as_utc_naive(data.date)
+    cutoff_time = _as_utc_naive(data.cutoffTime)
+    if slot_date is None or slot_date < datetime.utcnow():
         raise HTTPException(status_code=400, detail="Slot date must be in the future")
 
     slot = {
         "farmerId": ObjectId(current_user["_id"]),
         "area": data.area.strip(),
-        "date": data.date,
+        "date": slot_date,
         "startTime": data.startTime,
         "endTime": data.endTime,
         "radiusKm": data.radiusKm,
         "maxCapacityKg": data.maxCapacityKg,
         "bookedCapacityKg": 0.0,
-        "cutoffTime": data.cutoffTime,
+        "cutoffTime": cutoff_time,
         "deliveryFee": data.deliveryFee,
         "notes": data.notes,
         "status": SLOT_OPEN,
