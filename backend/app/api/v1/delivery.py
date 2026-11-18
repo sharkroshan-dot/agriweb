@@ -253,7 +253,10 @@ async def _enrich_assignment(assignment: dict) -> dict:
         customer = await UserService.get_user_by_id(str(order["customerId"]))
     if customer:
         assignment["customerName"] = f"{customer.get('firstName', '')} {customer.get('lastName', '')}".strip()
-        assignment["customerPhone"] = customer.get("phone")
+        address_contact = (order.get("deliveryAddress") or {}).get("phoneNumber")
+        address_alternative_contact = (order.get("deliveryAddress") or {}).get("alternativePhoneNumber")
+        assignment["customerPhone"] = address_contact or customer.get("phone")
+        assignment["customerAlternativePhone"] = address_alternative_contact or ""
     return assignment
 
 
