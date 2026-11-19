@@ -301,8 +301,8 @@ export function NotificationBell() {
         )}
       </div>
 
-      <Dialog open={Boolean(selectedNotification)} onOpenChange={(value) => !value && closeDetail()}>
-        <DialogContent className="max-w-xl max-h-[80vh] overflow-y-auto">
+      <Dialog open={Boolean(selectedNotification)} onOpenChange={(value) => !value && closeDetail()} wide contentClassName="!max-w-3xl min-h-[min(680px,calc(100vh-2rem))]">
+        <DialogContent className="overflow-visible">
           <DialogHeader className="pr-8">
             <DialogTitle>{selectedNotification ? notificationTitle(selectedNotification) : "Notification"}</DialogTitle>
           </DialogHeader>
