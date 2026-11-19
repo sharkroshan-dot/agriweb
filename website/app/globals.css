@@ -1303,3 +1303,69 @@ button { -webkit-tap-highlight-color: transparent; }
     text-align: left !important;
   }
 }
+
+
+/* Global appearance preference: next-themes applies .dark to the html element. */
+.dark {
+  color-scheme: dark;
+  --background: #0b1220;
+  --surface: #111c2d;
+  --surface-muted: #172337;
+  --foreground: #e5edf7;
+  --muted-foreground: #9aabc0;
+  --border: #29384d;
+  --muted: #9aabc0;
+}
+.dark body {
+  background: #0b1220 !important;
+  color: #e5edf7;
+}
+.dark .bg-white,
+.dark .bg-card {
+  background-color: #111c2d !important;
+}
+.dark .bg-slate-50,
+.dark .bg-gray-50 {
+  background-color: #0f1a2b !important;
+}
+.dark .bg-slate-100,
+.dark .bg-gray-100 {
+  background-color: #172337 !important;
+}
+.dark .text-slate-950,
+.dark .text-slate-900,
+.dark .text-gray-900,
+.dark .text-slate-800,
+.dark .text-gray-800 {
+  color: #e5edf7 !important;
+}
+.dark .text-slate-700,
+.dark .text-slate-600,
+.dark .text-slate-500,
+.dark .text-gray-700,
+.dark .text-gray-600,
+.dark .text-gray-500 {
+  color: #a8b8cc !important;
+}
+.dark .border-slate-100,
+.dark .border-slate-200,
+.dark .border-gray-100,
+.dark .border-gray-200 {
+  border-color: #29384d !important;
+}
+.dark input,
+.dark textarea,
+.dark select {
+  background-color: #111c2d;
+  color: #e5edf7;
+  border-color: #3a4a60;
+}
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: #8193aa;
+}
+.dark .shadow-sm,
+.dark .shadow,
+.dark .shadow-md {
+  box-shadow: 0 1px 3px rgba(0,0,0,.25);
+}
