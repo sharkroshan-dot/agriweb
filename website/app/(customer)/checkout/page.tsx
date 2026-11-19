@@ -221,7 +221,7 @@ export default function CheckoutPage() {
   ).trim();
 
 
-  const { data: loyaltyPointsResponse, isLoading: loyaltyPointsLoading, refetch: refetchLoyaltyPoints } = useQuery({
+  const { data: loyaltyPointsResponse, isLoading: loyaltyPointsLoading } = useQuery({
     queryKey: ["checkout-agri-points"],
     queryFn: () => api.get("/loyalty/me"),
     enabled: status === "authenticated",
