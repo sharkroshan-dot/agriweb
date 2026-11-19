@@ -410,10 +410,6 @@ export default function NotificationsPage() {
                   </div>}
                 </div>
               </section>}
-              {statusHistory.length > 0 && <section className="overflow-hidden rounded-xl border border-slate-200">
-                <h3 className="flex items-center gap-2 border-b border-slate-100 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800"><Clock className="h-4 w-4 text-emerald-700" />Order Activity</h3>
-                <div className="space-y-3 p-4">{statusHistory.map((entry: any, index: number) => <div key={entry.id || entry._id || index} className="flex gap-3"><span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-600" /><div className="min-w-0"><p className="text-sm font-semibold capitalize text-slate-800">{String(entry.status || entry.label || "Order update").replace(/_/g, " ")}</p>{entry.note && <p className="text-xs text-slate-500">{entry.note}</p>}{(entry.timestamp || entry.createdAt) && <p className="text-xs text-slate-400">{timeLabel(entry.timestamp || entry.createdAt)}</p>}</div></div>)}</div>
-              </section>}
               {otherEntries.length > 0 && <section className="overflow-hidden rounded-xl border border-slate-200">
                 <h3 className="flex items-center gap-2 border-b border-slate-100 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800"><Inbox className="h-4 w-4 text-emerald-700" />Additional Information</h3>
                 <div className="px-4"><DetailRows entries={otherEntries} /></div>
