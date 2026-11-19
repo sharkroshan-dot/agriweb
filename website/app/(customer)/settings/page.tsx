@@ -225,14 +225,24 @@ export default function CustomerSettingsPage() {
           <div className="absolute bottom-3 right-[22%] h-20 w-[55%] -rotate-6 rounded-[50%] bg-gradient-to-b from-sky-200 to-emerald-300 opacity-75" />
           <div className="absolute bottom-0 right-0 h-8 w-full bg-gradient-to-t from-green-500/30 to-transparent" />
         </div>
-        <div className="relative z-10 flex items-center gap-4">
-          <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 ring-4 ring-white/70">
-            <Settings2 className="h-9 w-9" />
+        <div className="relative z-10 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-4">
+            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 ring-4 ring-white/70">
+              <Settings2 className="h-9 w-9" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">{t("Settings")}</p>
+              <p className="mt-1 max-w-xl text-sm font-medium text-slate-700">{t("Manage your account, notifications, security, privacy and preferences.")}</p>
+            </div>
           </div>
-          <div>
-            <p className="text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">{t("Settings")}</p>
-            <p className="mt-1 max-w-xl text-sm font-medium text-slate-700">{t("Manage your account, notifications, security, privacy and preferences.")}</p>
-          </div>
+          <Button
+            onClick={saveSettings}
+            disabled={saving}
+            className="inline-flex shrink-0 items-center justify-center bg-emerald-700 px-5 text-white shadow-sm hover:bg-emerald-800 sm:self-center"
+          >
+            {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+            {t("Save Settings")}
+          </Button>
         </div>
       </header>
 
@@ -332,10 +342,6 @@ export default function CustomerSettingsPage() {
         </section>
       </div>
 
-      <div className="flex flex-col-reverse gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="flex items-center gap-2 text-xs text-emerald-900"><CheckCircle2 className="h-4 w-4 shrink-0" /> {t("Your changes are applied when you save your settings.")}</p>
-        <Button onClick={saveSettings} disabled={saving} className="bg-emerald-700 hover:bg-emerald-800">{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}Save Settings</Button>
-      </div>
     </div>
   );
 }
