@@ -110,6 +110,27 @@ export default function NotificationsPage() {
     refetchOnWindowFocus: true,
   });
 
+  const selectedOrderReference = selectedNotification
+    ? String(
+        selectedNotification.data?.orderNumber ||
+        selectedNotification.data?.orderId ||
+        selectedNotification.data?.order_id ||
+        selectedNotification.message.match(/#?(ORD-[A-Z0-9-]+)/i)?.[1] ||
+        ""
+      ).trim()
+    : "";
+  const { data: relatedOrdersData, isLoading: relatedOrdersLoading, isError: relatedOrdersError } = useQuery({
+    queryKey: ["notificationRelatedOrders", selectedOrderReference],
+    queryFn: () => api.get("/orders", { params: { limit: 100 } }),
+    enabled: Boolean(selectedNotification && selectedOrderReference),
+    staleTime: 30000,
+  });
+  const relatedOrders = (relatedOrdersData as any)?.data?.orders || (relatedOrdersData as any)?.orders || [];
+  const relatedOrder = relatedOrders.find((order: any) => {
+    const refs = [order.orderNumber, order.id, order._id].filter(Boolean).map(String);
+    return refs.some((value) => value === selectedOrderReference || value.includes(selectedOrderReference) || selectedOrderReference.includes(value));
+  });
+
   const notifications: NotificationDetail[] = (data as any)?.data?.notifications ?? [];
   const total = (data as any)?.data?.total ?? notifications.length;
   const unreadCount = (data as any)?.data?.unreadCount ?? notifications.filter((item) => !item.isRead).length;
@@ -332,6 +353,18 @@ export default function NotificationsPage() {
             const orderDate = findValue(/orderDate|purchaseDate/i);
             const amount = findValue(/amount|totalPrice|orderTotal/i);
             const status = findValue(/status/i);
+            const orderItems = Array.isArray(relatedOrder?.items) ? relatedOrder.items : [];
+            const orderStatus = relatedOrder?.orderStatus || relatedOrder?.status || status;
+            const orderTotal = relatedOrder?.totalAmount ?? relatedOrder?.total ?? amount;
+            const orderDateValue = relatedOrder?.orderDate || relatedOrder?.createdAt || orderDate;
+            const deliveryAddress = relatedOrder?.deliveryAddress || relatedOrder?.shippingAddress || {};
+            const addressText = typeof deliveryAddress === "string"
+              ? deliveryAddress
+              : [deliveryAddress.addressLine1, deliveryAddress.addressLine2, deliveryAddress.landmark, deliveryAddress.city, deliveryAddress.state, deliveryAddress.zipCode || deliveryAddress.postalCode].filter(Boolean).join(", ");
+            const paymentMethod = relatedOrder?.paymentMethod || relatedOrder?.payment?.method;
+            const paymentStatus = relatedOrder?.paymentStatus || relatedOrder?.payment?.status;
+            const statusHistory = Array.isArray(relatedOrder?.statusHistory) ? relatedOrder.statusHistory : [];
+
             const product = findValue(/productName|product/i);
             const formatValue = (value: unknown) => typeof value === "object" ? JSON.stringify(value) : String(value);
             const labelFor = (key: string) => key.replace(/([A-Z])/g, " $1").replace(/[_-]/g, " ").replace(/^./, (letter) => letter.toUpperCase());
@@ -359,15 +392,27 @@ export default function NotificationsPage() {
                   {balance !== undefined && <div className="px-2 text-center"><p className="text-xs font-medium text-slate-500">Current Balance</p><p className="mt-1 text-2xl font-bold text-slate-900">{formatValue(balance)} <span className="text-sm font-semibold">pts</span></p></div>}
                 </div>
               </section>}
-              {(orderNumber || orderDate || amount !== undefined || status !== undefined || product !== undefined) && <section className="overflow-hidden rounded-xl border border-slate-200">
+              {(orderNumber || orderDate || amount !== undefined || status !== undefined || product !== undefined || relatedOrdersLoading || relatedOrdersError) && <section className="overflow-hidden rounded-xl border border-slate-200">
                 <h3 className="flex items-center gap-2 border-b border-slate-100 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800"><Package className="h-4 w-4 text-emerald-700" />Related Order Details</h3>
                 <div className="px-4 py-1">
                   {orderNumber && <div className="flex items-center justify-between gap-3 border-b border-slate-100 py-3 text-sm"><span className="text-slate-500">Order Number</span><span className="break-all text-right font-semibold text-slate-800">{formatValue(orderNumber)}</span></div>}
-                  {orderDate && <div className="flex items-center justify-between gap-3 border-b border-slate-100 py-3 text-sm"><span className="text-slate-500">Order Date</span><span className="text-right font-semibold text-slate-800">{formatValue(orderDate)}</span></div>}
-                  {product !== undefined && <div className="flex items-center justify-between gap-3 border-b border-slate-100 py-3 text-sm"><span className="text-slate-500">Product</span><span className="text-right font-semibold text-slate-800">{formatValue(product)}</span></div>}
-                  {amount !== undefined && <div className="flex items-center justify-between gap-3 border-b border-slate-100 py-3 text-sm"><span className="text-slate-500">Order Amount</span><span className="text-right font-semibold text-slate-800">{formatValue(amount)}</span></div>}
-                  {status !== undefined && <div className="flex items-center justify-between gap-3 py-3 text-sm"><span className="text-slate-500">Order Status</span><span className="rounded-full bg-emerald-100 px-3 py-1 font-semibold text-emerald-800">{formatValue(status)}</span></div>}
+                  {orderDateValue && <div className="flex items-center justify-between gap-3 border-b border-slate-100 py-3 text-sm"><span className="text-slate-500">Order Date</span><span className="text-right font-semibold text-slate-800">{formatValue(orderDateValue)}</span></div>}
+                  {orderStatus && <div className="flex items-center justify-between gap-3 border-b border-slate-100 py-3 text-sm"><span className="text-slate-500">Order Status</span><span className="rounded-full bg-emerald-100 px-3 py-1 font-semibold text-emerald-800">{formatValue(orderStatus)}</span></div>}
+                  {orderTotal !== undefined && <div className="flex items-center justify-between gap-3 border-b border-slate-100 py-3 text-sm"><span className="text-slate-500">Order Total</span><span className="text-right font-semibold text-slate-800">₹{Number(orderTotal).toLocaleString("en-IN")}</span></div>}
+                  {paymentMethod && <div className="flex items-center justify-between gap-3 border-b border-slate-100 py-3 text-sm"><span className="text-slate-500">Payment Method</span><span className="text-right font-semibold capitalize text-slate-800">{formatValue(paymentMethod)}</span></div>}
+                  {paymentStatus && <div className="flex items-center justify-between gap-3 border-b border-slate-100 py-3 text-sm"><span className="text-slate-500">Payment Status</span><span className="text-right font-semibold capitalize text-slate-800">{formatValue(paymentStatus)}</span></div>}
+                  {addressText && <div className="flex items-start justify-between gap-3 border-b border-slate-100 py-3 text-sm"><span className="shrink-0 text-slate-500">Delivery Address</span><span className="text-right font-semibold text-slate-800">{addressText}</span></div>}
+                  {relatedOrdersLoading && <p className="py-3 text-xs text-slate-500">Loading the linked order information…</p>}
+                  {relatedOrdersError && <p className="py-3 text-xs text-amber-700">The linked order information could not be loaded. The notification information is still available above.</p>}
+                  {orderItems.length > 0 && <div className="border-t border-slate-100 py-3">
+                    <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Items in this order ({orderItems.length})</p>
+                    <div className="space-y-2">{orderItems.map((item: any, index: number) => <div key={item.id || item.productId || index} className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2 text-sm"><div className="min-w-0"><p className="truncate font-semibold text-slate-800">{item.productName || item.name || "Product"}</p><p className="text-xs text-slate-500">Quantity: {item.quantity ?? 1}</p></div><span className="shrink-0 font-semibold text-slate-800">₹{Number(item.totalPrice ?? (Number(item.unitPrice || item.price || 0) * Number(item.quantity || 1))).toLocaleString("en-IN")}</span></div>)}</div>
+                  </div>}
                 </div>
+              </section>}
+              {statusHistory.length > 0 && <section className="overflow-hidden rounded-xl border border-slate-200">
+                <h3 className="flex items-center gap-2 border-b border-slate-100 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800"><Clock className="h-4 w-4 text-emerald-700" />Order Activity</h3>
+                <div className="space-y-3 p-4">{statusHistory.map((entry: any, index: number) => <div key={entry.id || entry._id || index} className="flex gap-3"><span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-600" /><div className="min-w-0"><p className="text-sm font-semibold capitalize text-slate-800">{String(entry.status || entry.label || "Order update").replace(/_/g, " ")}</p>{entry.note && <p className="text-xs text-slate-500">{entry.note}</p>}{(entry.timestamp || entry.createdAt) && <p className="text-xs text-slate-400">{timeLabel(entry.timestamp || entry.createdAt)}</p>}</div></div>)}</div>
               </section>}
               {otherEntries.length > 0 && <section className="overflow-hidden rounded-xl border border-slate-200">
                 <h3 className="flex items-center gap-2 border-b border-slate-100 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800"><Inbox className="h-4 w-4 text-emerald-700" />Additional Information</h3>
