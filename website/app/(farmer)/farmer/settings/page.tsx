@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem } from "../../../components/ui/select
 import { Badge } from "../../../components/ui/badge";
 import { Bot, CreditCard, Loader2, Package, Save, Shield, ShoppingBag, Store, Truck, Settings2, CheckCircle2, Camera, UploadCloud } from "lucide-react";
 import { VerificationStatusCard } from "../../../components/security/verification-status";
+import { SecurityCenter } from "../../../components/security/security-center";
 import toast from "react-hot-toast";
 
 function SettingsToggle({ checked, onChange, label }: { checked: boolean; onChange: (value: boolean) => void; label: string }) {
@@ -342,10 +343,18 @@ export default function FarmerSettingsPage() {
           <CardHeader className="border-b border-emerald-100 bg-emerald-50/50 pb-3"><CardTitle className="flex items-center gap-2 text-base"><Shield className="h-5 w-5 text-emerald-700" />Alerts & security</CardTitle><CardDescription>How you hear about orders and account safety.</CardDescription></CardHeader>
           <CardContent className="divide-y divide-slate-100 px-5 py-2">
             {toggleRow("New order alert", "newOrderAlert")}{toggleRow("Order cancelled alert", "orderCancelled")}{toggleRow("Payment received alert", "paymentReceived")}{toggleRow("Low stock alerts", "lowStockAlerts")}{toggleRow("Auto-accept small orders", "autoAcceptSmallOrders")}
-            <div className="my-2 rounded-lg bg-slate-50 p-3"><Badge variant="outline">Two-factor auth off</Badge><p className="mt-2 text-xs text-slate-500">Account recovery and device controls are not available yet.</p></div>
+            <div className="my-2 rounded-lg bg-slate-50 p-3"><Badge variant="outline">Account protection</Badge><p className="mt-2 text-xs text-slate-500">Manage two-factor authentication, password, recovery contacts, active devices and security activity below.</p></div>
           </CardContent>
         </Card>
       </div>
+
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-lg font-bold text-slate-900">Account security & devices</h2>
+          <p className="mt-1 text-sm text-slate-600">Protect your farmer account and manage where you are signed in.</p>
+        </div>
+        <SecurityCenter />
+      </section>
     </div>
   );
 }
