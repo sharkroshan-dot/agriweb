@@ -312,7 +312,6 @@ export default function NotificationsPage() {
             </div>}
           {total > notifications.length && <p className="mt-4 text-center text-xs text-slate-500">Showing the latest {notifications.length} of {total} notifications.</p>}
         </section>
-      </div>
 
         <aside className="min-w-0 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm sm:p-4 xl:sticky xl:top-4">
           <div className="mb-3 flex items-center justify-between gap-3">
