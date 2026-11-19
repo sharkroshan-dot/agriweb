@@ -7,7 +7,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Bell, BellRing, Check, CheckCheck, Clock, ExternalLink, Gift,
   Megaphone, MoreVertical, Package, Trash2, Truck, X, Circle,
-  RefreshCw, Inbox, ShieldCheck, Wallet, MessageSquare, Sprout,
+  RefreshCw, Inbox, Sprout,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
