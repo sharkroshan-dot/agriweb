@@ -97,7 +97,7 @@ export default function NotificationsPage() {
   const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
   const [currentPage, setCurrentPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState("");
-  const pageSize = 10;
+  const pageSize = 5;
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -305,7 +305,7 @@ export default function NotificationsPage() {
 
         <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm sm:p-4">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-            <div><h2 className="text-lg font-bold text-slate-900 sm:text-xl">Recent Notifications</h2><p className="mt-0.5 text-xs text-slate-500">10 notifications per page · Page {currentPage} of {totalPages}</p></div>
+            <div><h2 className="text-lg font-bold text-slate-900 sm:text-xl">Recent Notifications</h2><p className="mt-0.5 text-xs text-slate-500">Showing 5 notifications at a time · Page {currentPage} of {totalPages}</p></div>
             <label className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
               <ArrowUpDown className="h-4 w-4 text-slate-500" /><span className="sr-only">Sort notifications</span>
               <select value={sortOrder} onChange={(event) => { setSortOrder(event.target.value as SortOrder); setCurrentPage(1); }} className="bg-transparent font-semibold outline-none">
