@@ -234,11 +234,11 @@ export default function FarmerSettingsPage() {
       toast.error("Full name and farm name are required.");
       return;
     }
-    if (profile.email && !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(profile.email.trim())) {
+    if (profile.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(profile.email.trim())) {
       toast.error("Enter a valid email address.");
       return;
     }
-    if (profile.phone && !/^[+\\d][\\d\\s()-]{7,17}$/.test(profile.phone.trim())) {
+    if (profile.phone && !/^[+\d][\d\s()-]{7,17}$/.test(profile.phone.trim())) {
       toast.error("Enter a valid contact number.");
       return;
     }
