@@ -331,20 +331,6 @@ export default function CustomerSettingsPage() {
         </section>
       </div>
 
-      <div className="flex flex-col-reverse gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="flex items-center gap-2 text-xs text-emerald-900">
-          <CheckCircle2 className="h-4 w-4 shrink-0" />
-          {t("Your changes are applied when you save your settings.")}
-        </p>
-        <Button
-          onClick={saveSettings}
-          disabled={saving}
-          className="inline-flex items-center justify-center bg-emerald-700 px-5 text-white shadow-sm hover:bg-emerald-800"
-        >
-          {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-          {t("Save Settings")}
-        </Button>
-      </div>
     </div>
   );
 }
