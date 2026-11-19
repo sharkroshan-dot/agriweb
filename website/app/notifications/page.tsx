@@ -205,7 +205,7 @@ export default function NotificationsPage() {
 
   return (
     <main className="w-full max-w-none space-y-5">
-      <section className="relative isolate flex min-h-[104px] items-center overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-r from-white via-[#f2fff8] to-[#00643d] px-5 py-4 shadow-sm sm:min-h-[104px] sm:px-7">
+      <section className="relative isolate flex min-h-[140px] items-center overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-r from-white via-[#f2fff8] to-[#00643d] px-5 py-5 shadow-sm sm:min-h-[140px] sm:px-8">
         <svg aria-hidden="true" viewBox="0 0 1200 150" preserveAspectRatio="xMidYMid slice" className="pointer-events-none absolute inset-0 -z-10 h-full w-full">
           <defs>
             <linearGradient id="notificationSky" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor="#ffffff"/><stop offset="43%" stopColor="#e8fff4"/><stop offset="72%" stopColor="#a9e9c8"/><stop offset="100%" stopColor="#005b37"/></linearGradient>
@@ -213,13 +213,13 @@ export default function NotificationsPage() {
             <linearGradient id="notificationHill" x1="0" y1="0" x2="1" y2="0"><stop stopColor="#d9f7ad"/><stop offset="1" stopColor="#087a45"/></linearGradient>
           </defs>
           <rect width="1200" height="150" fill="url(#notificationSky)"/>
-          <path d="M420 150 Q570 76 710 108 T970 88 T1200 55 V150Z" fill="#8bdc9d" opacity=".38"/>
-          <path d="M350 150 Q540 105 700 119 T980 100 T1200 78 V150Z" fill="url(#notificationHill)" opacity=".7"/>
-          <path d="M285 150 Q470 118 640 132 T930 112 T1200 94 V150Z" fill="url(#notificationField)" opacity=".92"/>
+          <path d="M360 150 Q500 78 650 104 T900 84 T1200 42 V150Z" fill="#a6e8bd" opacity=".42"/>
+          <path d="M300 150 Q465 102 620 119 T900 95 T1200 66 V150Z" fill="url(#notificationHill)" opacity=".78"/><path d="M540 150 Q700 92 850 113 T1080 85 T1200 77 V150Z" fill="#7ccf8e" opacity=".35"/>
+          <path d="M230 150 Q420 112 600 132 T880 112 T1200 92 V150Z" fill="url(#notificationField)" opacity=".94"/><path d="M390 150 Q580 125 760 141 T1030 119 T1200 109" fill="none" stroke="#efffb9" strokeWidth="2" opacity=".65"/><path d="M520 150 Q700 135 850 147 T1120 129" fill="none" stroke="#d7f6a1" strokeWidth="2" opacity=".7"/>
           <path d="M300 150 Q490 125 690 140 T1010 121 T1200 112" fill="none" stroke="#e4f8a9" strokeWidth="3" opacity=".8"/>
           <path d="M430 150 Q590 132 760 145 T1080 130" fill="none" stroke="#d5f59c" strokeWidth="2" opacity=".8"/>
-          <g fill="#168b48"><circle cx="900" cy="100" r="10"/><circle cx="918" cy="94" r="15"/><circle cx="939" cy="102" r="11"/><circle cx="1000" cy="89" r="15"/><circle cx="1021" cy="82" r="22"/><circle cx="1047" cy="94" r="14"/></g>
-          <g fill="#08723d"><rect x="915" y="101" width="5" height="18"/><rect x="1018" y="98" width="6" height="22"/></g>
+          <g fill="#138b49"><circle cx="845" cy="110" r="8"/><circle cx="859" cy="103" r="12"/><circle cx="874" cy="111" r="9"/><circle cx="930" cy="101" r="12"/><circle cx="948" cy="91" r="19"/><circle cx="970" cy="103" r="13"/><circle cx="1018" cy="91" r="17"/><circle cx="1042" cy="78" r="25"/><circle cx="1070" cy="93" r="18"/></g><g fill="#58b96d" opacity=".9"><circle cx="853" cy="105" r="6"/><circle cx="941" cy="84" r="10"/><circle cx="1034" cy="68" r="12"/></g>
+          <g fill="#08723d"><rect x="855" y="108" width="5" height="20"/><rect x="945" y="99" width="6" height="27"/><rect x="1038" y="91" width="7" height="33"/></g>
           <g transform="translate(1080 65)"><path d="M0 25 L30 2 L60 25 V55 H0Z" fill="#f7fff6"/><path d="M-5 25 L30 -2 L65 25" fill="none" stroke="#237b48" strokeWidth="4"/><rect x="23" y="34" width="13" height="21" fill="#77bd82"/><rect x="7" y="31" width="10" height="9" fill="#b5e6c2"/></g>
           <g fill="#0a8545" opacity=".45"><circle cx="850" cy="112" r="8"/><circle cx="866" cy="105" r="12"/><circle cx="880" cy="113" r="8"/></g>
         </svg>
@@ -228,7 +228,7 @@ export default function NotificationsPage() {
           <span className="absolute -top-1 left-1/2 h-3 w-3 -translate-x-1/2 rounded-full border-2 border-white/80"/>
         </div>
         <div className="relative z-10 flex items-center gap-4">
-          <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-[#d7f9e5] text-[#087442] sm:h-[62px] sm:w-[62px]"><Bell className="h-8 w-8 sm:h-9 sm:w-9" /></div>
+          <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-[#d7f9e5] text-[#087442] shadow-sm sm:h-[66px] sm:w-[66px]"><Bell className="h-8 w-8 sm:h-9 sm:w-9" /></div>
           <div className="min-w-0">
             <h1 className="text-2xl font-bold tracking-tight text-slate-950 sm:text-[26px]">Notifications</h1>
             <p className="mt-1 max-w-2xl text-sm text-slate-700 sm:text-[13px]">Stay updated with your orders, deliveries, rewards and important alerts.</p>
@@ -253,7 +253,7 @@ export default function NotificationsPage() {
 
       {feedback && <div role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">{feedback}</div>}
 
-      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[300px_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(240px,0.32fr)_minmax(0,1fr)] 2xl:grid-cols-[minmax(242px,0.32fr)_minmax(0,1fr)]">
         <aside className="h-fit rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
           <h2 className="mb-4 text-lg font-bold text-slate-900">Notifications Overview</h2>
           <div className="space-y-1">
@@ -288,7 +288,7 @@ export default function NotificationsPage() {
 
         <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <div><h2 className="text-lg font-bold text-slate-900 sm:text-xl">Recent Notifications</h2><p className="mt-1 text-xs text-slate-500">{visibleNotifications.length} shown · {unreadCount} unread</p></div>
+            <div><h2 className="text-lg font-bold text-slate-900 sm:text-xl">Recent Notifications</h2></div>
             <label className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
               <ArrowUpDown className="h-4 w-4 text-slate-500" /><span className="sr-only">Sort notifications</span>
               <select value={sortOrder} onChange={(event) => setSortOrder(event.target.value as SortOrder)} className="bg-transparent font-semibold outline-none">
@@ -304,18 +304,18 @@ export default function NotificationsPage() {
               <h3 className="font-semibold text-slate-900">No notifications found</h3><p className="mt-1 max-w-sm text-sm text-slate-500">New updates about your account activity will appear here.</p>
             </div>
           : <div className="divide-y divide-slate-100">
-              {visibleNotifications.map((notification) => {
+              {visibleNotifications.map((notification, notificationIndex) => {
                 const category = getCategory(notification);
                 const unread = !notification.isRead;
                 const Icon = category === "rewards" ? Star : categoryMeta[category].icon;
-                return <article key={notification.id} className={`group relative flex gap-3 rounded-xl px-2 py-4 transition hover:bg-emerald-50/50 sm:gap-4 sm:px-3 sm:py-5 ${unread ? "bg-emerald-50/35" : "bg-white"}`}>
+                return <article key={notification.id} className={`group relative flex gap-3 rounded-xl px-2 py-3 transition hover:bg-emerald-50/40 sm:gap-4 sm:px-3 sm:py-4 ${unread && notificationIndex === 0 ? "bg-emerald-50" : "bg-white"}`}>
                   <div className="flex w-3 shrink-0 items-start justify-center pt-5">{unread ? <span className="h-2.5 w-2.5 rounded-full bg-emerald-700" aria-label="Unread" /> : <span className="h-2.5 w-2.5 rounded-full bg-transparent" />}</div>
                   <button type="button" onClick={() => void openDetail(notification)} className="flex min-w-0 flex-1 items-start gap-3 text-left sm:gap-4">
-                    <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full sm:h-14 sm:w-14 ${category === "rewards" ? "bg-emerald-100 text-emerald-800" : categoryStyles[category]}`}><Icon className="h-6 w-6 sm:h-7 sm:w-7" /></span>
+                    <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full sm:h-14 sm:w-14 ${category === "rewards" ? "bg-gradient-to-br from-emerald-600 to-emerald-800 text-white shadow-sm" : "bg-emerald-100 text-emerald-800"}`}><Icon className={`h-6 w-6 sm:h-7 sm:w-7 ${category === "rewards" ? "fill-current" : ""}`} /></span>
                     <span className="min-w-0 flex-1">
-                      <span className="flex flex-wrap items-center gap-2"><span className="font-bold text-slate-950 sm:text-base">{notification.title || categoryMeta[category].label}</span>{unread && <Badge className="border-0 bg-emerald-100 text-emerald-800 hover:bg-emerald-100">New</Badge>}</span>
+                      <span className="flex flex-wrap items-center gap-2"><span className="font-bold text-slate-950 sm:text-base">{notification.title || categoryMeta[category].label}</span></span>
                       <span className="mt-1 block text-sm leading-5 text-slate-700">{notification.message}</span>
-                      <span className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500"><span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5" />{timeLabel(notification.createdAt)}</span><span>{timeAgo(notification.createdAt)}</span></span>
+                      <span className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500"><span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5" />{timeLabel(notification.createdAt)}</span><span>{timeAgo(notification.createdAt)}</span></span>
                     </span>
                   </button>
                   <div className="relative flex shrink-0 items-center gap-2">
