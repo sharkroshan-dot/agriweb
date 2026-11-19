@@ -531,7 +531,7 @@ class OrderService:
                 "location": location
             }
         
-        discount = 0
+        coupon_discount = 0
         if data.couponCode:
             coupon = await coupon_repository.get_by_code(data.couponCode)
             if coupon and coupon.get("status") == "active":
@@ -541,10 +541,35 @@ class OrderService:
                     subtotal
                 )
                 if is_valid:
-                    discount = await coupon_repository.calculate_discount(
+                    coupon_discount = await coupon_repository.calculate_discount(
                         data.couponCode,
                         subtotal
                     )
+
+        redeem_points = int(data.redeemPoints or 0)
+        points_discount = 0
+        if redeem_points:
+            from app.api.v1.loyalty import _get_account, POINTS_PER_RS_REWARD, MAX_REDEEM_POINTS
+            if redeem_points > MAX_REDEEM_POINTS:
+                raise OrderCreationError(f"Maximum {MAX_REDEEM_POINTS} AgriPoints can be used per order.")
+            if redeem_points % POINTS_PER_RS_REWARD != 0:
+                raise OrderCreationError(
+                    f"AgriPoints must be redeemed in multiples of {POINTS_PER_RS_REWARD} (100 points = ₹1)."
+                )
+            loyalty_account = await _get_account(customer_id)
+            available_points = int(loyalty_account.get("balance") or 0)
+            if redeem_points > available_points:
+                raise OrderCreationError(
+                    f"Insufficient AgriPoints. You have {available_points} points available."
+                )
+            points_discount = redeem_points // POINTS_PER_RS_REWARD
+            eligible_amount = max(0, subtotal - coupon_discount)
+            if points_discount > eligible_amount:
+                raise OrderCreationError(
+                    f"AgriPoints discount cannot exceed the eligible product amount of ₹{eligible_amount:.2f}."
+                )
+
+        discount = coupon_discount + points_discount
         
         is_pickup = data.deliveryType == DeliveryType.PICKUP
         delivery_charge = 0
@@ -668,6 +693,9 @@ class OrderService:
             "platformFee": platform_fee,
             "platformCommission": platform_commission,
             "discount": discount,
+            "couponDiscount": coupon_discount,
+            "pointsRedeemed": redeem_points,
+            "pointsDiscount": points_discount,
             "totalAmount": total_amount,
             "paymentMethod": data.paymentMethod.value,
             "paymentStatus": PaymentStatus.PENDING.value,
@@ -749,6 +777,30 @@ class OrderService:
                     logger.exception("Failed to release checkout reservation for %s", product_id)
             raise OrderCreationError("Failed to save order to database")
 
+        if redeem_points:
+            try:
+                from app.api.v1.loyalty import redeem_points_for_order
+                await redeem_points_for_order(customer_id, redeem_points, order_id)
+                await order_repository.update(
+                    {"_id": ObjectId(order_id)},
+                    {"loyaltyRedemptionStatus": "redeemed", "updatedAt": datetime.utcnow()},
+                )
+            except Exception as exc:
+                # Do not leave an order active when its AgriPoints discount was not debited.
+                try:
+                    await order_repository.update(
+                        {"_id": ObjectId(order_id)},
+                        {"orderStatus": OrderStatus.CANCELLED.value, "loyaltyRedemptionStatus": "failed", "updatedAt": datetime.utcnow()},
+                    )
+                except Exception:
+                    logger.exception("Could not cancel order after AgriPoints redemption failure: %s", order_id)
+                for product_id, quantity, inventory_id in reserved_items:
+                    try:
+                        await inventory_repository.atomic_release(product_id, quantity, inventory_id=inventory_id)
+                    except Exception:
+                        logger.exception("Could not release inventory after AgriPoints redemption failure: %s", product_id)
+                raise OrderCreationError(str(exc))
+
         if selected_delivery_slot:
             # Link the confirmed checkout record to the published delivery batch.
             # Booking rows are tied to the order, so repeated checkout retries do not
@@ -779,7 +831,7 @@ class OrderService:
                 {"lastBookingAt": datetime.utcnow()},
             )
 
-        if data.couponCode and discount > 0:
+        if data.couponCode and coupon_discount > 0:
             try:
                 await coupon_repository.record_usage(data.couponCode, customer_id)
             except Exception as exc:
@@ -1323,6 +1375,13 @@ class OrderService:
                     "updatedAt": datetime.utcnow(),
                 },
             )
+
+        if success and new_status in (OrderStatus.CANCELLED, OrderStatus.REFUNDED) and int(order.get("pointsRedeemed") or 0) > 0:
+            try:
+                from app.api.v1.loyalty import refund_order_points
+                await refund_order_points(str(order.get("customerId")), order_id)
+            except Exception:
+                logger.exception("Failed to restore AgriPoints for cancelled/refunded order %s", order_id)
 
         # Notify the roles affected by every authoritative status transition.
         # The actor is excluded so the user who made the change is not spammed.
