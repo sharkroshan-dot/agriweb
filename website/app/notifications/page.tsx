@@ -6,8 +6,8 @@ import { useSession } from "next-auth/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Bell, BellRing, Check, CheckCheck, Clock, ExternalLink, Gift,
-  Megaphone, MoreVertical, Package, Trash2, Truck, X, Circle,
-  RefreshCw, Inbox, Sprout, Star, ArrowUpDown,
+  Megaphone, MoreVertical, Package, Trash2, Truck, X,
+  Inbox, Sprout, Star, ArrowUpDown,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
@@ -104,7 +104,7 @@ export default function NotificationsPage() {
     }
   }, [router, status]);
 
-  const { data, isLoading, isError, refetch, isFetching } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ["notificationsList"],
     queryFn: () => api.get("/notifications/", { params: { limit: 100 } }),
     enabled: status === "authenticated",
@@ -344,4 +344,3 @@ export default function NotificationsPage() {
       </Dialog>
     </main>
   );
-}}
