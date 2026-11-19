@@ -217,22 +217,12 @@ export default function CustomerSettingsPage() {
 
   return (
     <div className="space-y-4 px-3 py-4 sm:px-5 lg:px-6">
-      <header className="relative isolate flex min-h-[132px] items-center overflow-hidden rounded-[24px] border border-emerald-100 bg-white px-5 py-4 shadow-sm sm:min-h-[140px] sm:px-8 lg:min-h-[150px]">
+      <header className="relative w-full overflow-hidden rounded-[18px] border border-emerald-100 bg-white shadow-sm aspect-[8.63/1] min-h-[92px]">
         <img
-          src="/images/settings-banner.svg"
-          alt=""
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0 h-full w-full object-cover object-center"
+          src="/images/settings-banner-exact.jpg"
+          alt="Settings — Manage your account, notifications, security, privacy and preferences."
+          className="absolute inset-0 h-full w-full object-fill"
         />
-        <div className="relative z-10 flex w-full max-w-[76%] items-center gap-4 sm:gap-6">
-          <div className="flex h-[68px] w-[68px] shrink-0 items-center justify-center rounded-full bg-emerald-100/95 text-emerald-700 ring-4 ring-white/80 sm:h-[88px] sm:w-[88px]">
-            <Settings className="h-9 w-9 sm:h-12 sm:w-12" strokeWidth={2.2} />
-          </div>
-          <div className="min-w-0 border-l-2 border-emerald-700/25 py-1 pl-4 sm:pl-6">
-            <p className="text-[30px] font-extrabold leading-tight tracking-tight text-emerald-950 sm:text-[38px]">{t("Settings")}</p>
-            <p className="mt-2 max-w-2xl text-[13px] font-medium leading-relaxed text-slate-600 sm:text-[16px]">{t("Manage your account, notifications, security, privacy and preferences.")}</p>
-          </div>
-        </div>
       </header>
       <div className="flex justify-end">
         <Button
