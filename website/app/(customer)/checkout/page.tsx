@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
-import { ShoppingCart, MapPin, ArrowLeft, Plus, CreditCard, Loader2, X, Truck, CalendarClock, Leaf, ShieldCheck, Smartphone, Landmark, Banknote, WalletCards, CheckCircle2, Home, Building2, Pencil, Trash2, ClipboardList, Headphones, Phone, Package, Clock3, CalendarDays } from "lucide-react";
+import { ShoppingCart, MapPin, ArrowLeft, Plus, CreditCard, Loader2, X, Truck, CalendarClock, Leaf, ShieldCheck, Smartphone, Landmark, Banknote, WalletCards, CheckCircle2, Home, Building2, Pencil, Trash2, ClipboardList, Headphones, Phone, Package, Clock3, CalendarDays, Coins } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
@@ -878,7 +878,9 @@ export default function CheckoutPage() {
                 <div className="flex justify-between text-sm text-slate-600"><span>Subtotal ({totalQuantity || items.reduce((sum, item) => sum + item.quantity, 0)} items)</span><span>{formatPrice(subtotal)}</span></div>
                 <div className="flex justify-between text-sm text-slate-600"><span>Delivery charge</span><span>{formatPrice(deliveryCharge)}</span></div>
                 {platformFee > 0 && <div className="flex justify-between text-sm text-slate-600"><span>Platform fee</span><span>{formatPrice(platformFee)}</span></div>}
-                {discount > 0 && <div className="flex justify-between text-sm font-semibold text-emerald-700"><span>Discount</span><span>−{formatPrice(discount)}</span></div>}
+                {Number(order.couponDiscount ?? 0) > 0 && <div className="flex justify-between text-sm font-semibold text-emerald-700"><span>Coupon discount</span><span>−{formatPrice(Number(order.couponDiscount))}</span></div>}
+                {Number(order.pointsRedeemed ?? 0) > 0 && <div className="flex justify-between text-sm font-semibold text-emerald-700"><span>AgriPoints used ({Number(order.pointsRedeemed).toLocaleString("en-IN")} pts)</span><span>−{formatPrice(Number(order.pointsDiscount ?? Number(order.pointsRedeemed) / 100))}</span></div>}
+                {discount > 0 && Number(order.couponDiscount ?? 0) === 0 && Number(order.pointsRedeemed ?? 0) === 0 && <div className="flex justify-between text-sm font-semibold text-emerald-700"><span>Discount</span><span>−{formatPrice(discount)}</span></div>}
                 <div className="flex justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-base font-extrabold"><span>Total payable</span><span className="text-emerald-800">{formatPrice(total)}</span></div>
                 <div className="border-t border-slate-100 pt-3"><p className="flex items-center gap-2 font-bold text-slate-900"><CreditCard className="h-5 w-5 text-emerald-700" /> Payment Method</p><div className="mt-2 flex items-center justify-between rounded-xl border border-slate-200 p-3"><span className="flex items-center gap-2 text-sm font-semibold"><Banknote className="h-5 w-5 text-emerald-700" /> {paymentLabel}</span><span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-bold text-emerald-800">{isCashOnDelivery ? "Due on delivery" : "Paid"}</span></div></div>
               </CardContent>
