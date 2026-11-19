@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, CheckCheck, Clock, ExternalLink, X } from "lucide-react";
+import { Bell, CheckCheck, Clock, ExternalLink } from "lucide-react";
 import { api } from "../../lib/api/client";
 import toast from "react-hot-toast";
 import { resolveBackendUrl } from "../../lib/utils";
@@ -272,15 +272,6 @@ export function NotificationBell() {
         <DialogContent className="max-w-xl max-h-[80vh] overflow-y-auto">
           <DialogHeader className="pr-8">
             <DialogTitle>{selectedNotification ? notificationTitle(selectedNotification) : "Notification"}</DialogTitle>
-            <button
-              type="button"
-              onClick={closeDetail}
-              className="absolute right-4 top-4 rounded-full p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
-              aria-label="Close notification details"
-              title="Close"
-            >
-              <X className="h-4 w-4" />
-            </button>
           </DialogHeader>
 
           {selectedNotification && (
