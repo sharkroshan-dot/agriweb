@@ -242,13 +242,36 @@ export default function FarmerSettingsPage() {
   };
 
   const savePrefs = async () => {
+    const numericSettings = [
+      ["Free delivery radius", prefs.delivery.freeDeliveryRadiusKm],
+      ["Base delivery fee", prefs.delivery.baseFee],
+      ["Additional fee per km", prefs.delivery.perKmRate],
+      ["Maximum delivery radius", prefs.delivery.maxRadiusKm],
+      ["Minimum order value", prefs.delivery.minOrderValue],
+      ["Minimum payout", prefs.payouts.minPayout],
+    ] as const;
+    for (const [label, value] of numericSettings) {
+      if (!Number.isFinite(Number(value)) || Number(value) < 0) {
+        toast.error(`${label} must be a valid non-negative number`);
+        return;
+      }
+    }
+    if (Number(prefs.delivery.freeDeliveryRadiusKm) > Number(prefs.delivery.maxRadiusKm)) {
+      toast.error("Free delivery radius cannot exceed the maximum delivery radius");
+      return;
+    }
+    if (prefs.payouts.ifsc && !/^[A-Za-z]{4}0[A-Za-z0-9]{6}$/.test(String(prefs.payouts.ifsc).trim())) {
+      toast.error("Enter a valid 11-character IFSC code");
+      return;
+    }
     setSavingPrefs(true);
     try {
-      await api.put("/settings/mine", prefs);
+      const response: any = await api.put("/settings/mine", prefs);
+      if (response?.success === false) throw new Error(response?.detail || "Settings were not saved");
       setLastSaved(new Date().toLocaleTimeString());
-      toast.success("Settings saved");
+      toast.success("Settings saved successfully");
     } catch (err: any) {
-      toast.error(err?.message || "Failed to save settings");
+      toast.error(err?.response?.data?.detail || err?.message || "Failed to save settings");
     } finally {
       setSavingPrefs(false);
     }
