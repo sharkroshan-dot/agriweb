@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../../lib/api/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
@@ -75,7 +75,8 @@ type ToggleKeys =
   | "monthlyReport";
 
 export default function FarmerSettingsPage() {
-  const { data: session } = useSession();
+  const { data: session, status: sessionStatus } = useSession();
+  const queryClient = useQueryClient();
   const userName = (session?.user as any)?.name || "Farmer";
   const userEmail = (session?.user as any)?.email || "";
   const accessToken = (session as any)?.accessToken;
@@ -136,13 +137,13 @@ export default function FarmerSettingsPage() {
   const [savingPrefs, setSavingPrefs] = useState(false);
   const [lastSaved, setLastSaved] = useState<string | null>(null);
 
-  const { data: profileData, isLoading: profileLoading, isError: profileError } = useQuery({
+  const { data: profileData, isLoading: profileLoading, isError: profileError, refetch: refetchProfile } = useQuery({
     queryKey: ["farmerProfile"],
     queryFn: () => api.get("/farmers/me/profile"),
     enabled: Boolean(accessToken),
   });
 
-  const { data: settingsData, isLoading: settingsLoading, isError: settingsError } = useQuery({
+  const { data: settingsData, isLoading: settingsLoading, isError: settingsError, refetch: refetchSettings } = useQuery({
     queryKey: ["farmerSettings"],
     queryFn: () => api.get("/settings/mine"),
     enabled: Boolean(accessToken),
@@ -225,29 +226,98 @@ export default function FarmerSettingsPage() {
   };
 
   const saveProfile = async () => {
+    if (!accessToken) {
+      toast.error("Your session is not ready. Please sign in again.");
+      return;
+    }
+    if (!profile.ownerName.trim() || !profile.farmName.trim()) {
+      toast.error("Full name and farm name are required.");
+      return;
+    }
+    if (profile.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(profile.email.trim())) {
+      toast.error("Enter a valid email address.");
+      return;
+    }
+    if (profile.phone && !/^[+\d][\d\s()-]{7,17}$/.test(profile.phone.trim())) {
+      toast.error("Enter a valid contact number.");
+      return;
+    }
+
     setSavingProfile(true);
     try {
-      const json = await api.put("/farmers/me/profile", profile);
-      if (json.success) {
-        toast.success("Farm profile saved");
-      } else {
-        toast.error(json.detail || "Failed to save");
-      }
+      const response: any = await api.put("/farmers/me/profile", {
+        ...profile,
+        ownerName: profile.ownerName.trim(),
+        farmName: profile.farmName.trim(),
+        email: profile.email.trim(),
+        phone: profile.phone.trim(),
+      });
+      if (response?.success === false) throw new Error(response?.detail || "Failed to save farm profile.");
+      await queryClient.invalidateQueries({ queryKey: ["farmerProfile"] });
+      await queryClient.refetchQueries({ queryKey: ["farmerProfile"], type: "active" });
+      toast.success("Farm profile saved successfully.");
     } catch (err: any) {
-      toast.error(err?.message || "Unable to save farm profile");
+      toast.error(err?.message || "Unable to save farm profile.");
     } finally {
       setSavingProfile(false);
     }
   };
 
   const savePrefs = async () => {
+    if (!accessToken) {
+      toast.error("Your session is not ready. Please sign in again.");
+      return;
+    }
+    const numericFields: Array<[string, string, number]> = [
+      ["product", "lowStockAlert", prefs.product.lowStockAlert],
+      ["product", "criticalStock", prefs.product.criticalStock],
+      ["orders", "orderTimeout", prefs.orders.orderTimeout],
+      ["orders", "maxOrdersPerDay", prefs.orders.maxOrdersPerDay],
+      ["orders", "minOrderValue", prefs.orders.minOrderValue],
+      ["orders", "deliveryRadius", prefs.orders.deliveryRadius],
+      ["delivery", "freeDeliveryRadiusKm", prefs.delivery.freeDeliveryRadiusKm],
+      ["delivery", "baseFee", prefs.delivery.baseFee],
+      ["delivery", "perKmRate", prefs.delivery.perKmRate],
+      ["delivery", "maxRadiusKm", prefs.delivery.maxRadiusKm],
+      ["delivery", "minOrderValue", prefs.delivery.minOrderValue],
+      ["payouts", "minPayout", prefs.payouts.minPayout],
+    ];
+    const invalidNumber = numericFields.find(([, , value]) => !Number.isFinite(Number(value)) || Number(value) < 0);
+    if (invalidNumber) {
+      toast.error("Delivery and payout values must be valid non-negative numbers.");
+      return;
+    }
+    if (Number(prefs.product.criticalStock) > Number(prefs.product.lowStockAlert)) {
+      toast.error("Critical stock threshold cannot exceed the low-stock threshold.");
+      return;
+    }
+    if (Number(prefs.orders.orderTimeout) <= 0 || Number(prefs.orders.maxOrdersPerDay) <= 0 || Number(prefs.orders.deliveryRadius) <= 0) {
+      toast.error("Order timeout, daily order limit and order delivery radius must be greater than zero.");
+      return;
+    }
+    if (Number(prefs.delivery.freeDeliveryRadiusKm) > Number(prefs.delivery.maxRadiusKm)) {
+      toast.error("Free delivery radius cannot exceed the maximum delivery radius.");
+      return;
+    }
+    if (prefs.payouts.ifsc && !/^[A-Za-z]{4}0[A-Za-z0-9]{6}$/.test(String(prefs.payouts.ifsc).trim())) {
+      toast.error("Enter a valid 11-character IFSC code.");
+      return;
+    }
+    if (prefs.payouts.accountNumber && !/^[0-9]{6,20}$/.test(String(prefs.payouts.accountNumber).trim())) {
+      toast.error("Enter a valid bank account number (6–20 digits).");
+      return;
+    }
+
     setSavingPrefs(true);
     try {
-      await api.put("/settings/mine", prefs);
+      const response: any = await api.put("/settings/mine", prefs);
+      if (response?.success === false) throw new Error(response?.detail || "Failed to save settings.");
+      await queryClient.invalidateQueries({ queryKey: ["farmerSettings"] });
+      await queryClient.refetchQueries({ queryKey: ["farmerSettings"], type: "active" });
       setLastSaved(new Date().toLocaleTimeString());
-      toast.success("Settings saved");
+      toast.success("Farmer preferences saved successfully.");
     } catch (err: any) {
-      toast.error(err?.message || "Failed to save settings");
+      toast.error(err?.message || "Failed to save settings.");
     } finally {
       setSavingPrefs(false);
     }
@@ -268,12 +338,14 @@ export default function FarmerSettingsPage() {
           <div><h1 className="text-2xl font-bold tracking-tight text-slate-900">Farmer Settings</h1><p className="mt-1 text-sm text-slate-600">Manage your profile, preferences and platform settings.</p></div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button onClick={saveProfile} disabled={savingProfile || profileLoading} className="h-10 rounded-xl bg-emerald-700 px-5 hover:bg-emerald-800">{savingProfile ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}Save Profile</Button>
-          <Button variant="outline" onClick={savePrefs} disabled={savingPrefs || settingsLoading} className="h-10 rounded-xl border-emerald-200 px-5 text-emerald-800 hover:bg-emerald-50">{savingPrefs ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}Save Preferences</Button>
+          <Button onClick={saveProfile} disabled={savingProfile || profileLoading || profileError} className="h-10 rounded-xl bg-emerald-700 px-5 hover:bg-emerald-800">{savingProfile ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}Save Profile</Button>
+          <Button variant="outline" onClick={savePrefs} disabled={savingPrefs || settingsLoading || settingsError} className="h-10 rounded-xl border-emerald-200 px-5 text-emerald-800 hover:bg-emerald-50">{savingPrefs ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}Save Preferences</Button>
         </div>
       </div>
+      {sessionStatus === "loading" && <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">Checking your farmer account session…</p>}
+      {sessionStatus === "unauthenticated" && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">Your session has expired. Sign in again to update farmer settings.</p>}
       {lastSaved && <p className="text-right text-xs text-emerald-700">Preferences saved at {lastSaved}</p>}
-      {(profileError || settingsError) && <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">Some saved settings could not be loaded. Check your connection and refresh before making changes.</div>}
+      {(profileError || settingsError) && <div role="alert" className="flex flex-col gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 sm:flex-row sm:items-center sm:justify-between"><span>Some saved settings could not be loaded. Retry before saving so existing values are not overwritten.</span><div className="flex gap-2">{profileError && <Button type="button" size="sm" variant="outline" onClick={() => refetchProfile()}>Reload profile</Button>}{settingsError && <Button type="button" size="sm" variant="outline" onClick={() => refetchSettings()}>Reload preferences</Button>}</div></div>}
 
       <Card className="w-full overflow-hidden rounded-2xl border-slate-200 shadow-sm">
         <CardHeader className="border-b border-emerald-100 bg-emerald-50/60 pb-4"><CardTitle className="flex items-center gap-2 text-slate-900"><Store className="h-5 w-5 text-emerald-700" />Profile Details</CardTitle><CardDescription>Keep your personal and farm information up to date.</CardDescription></CardHeader>
@@ -328,6 +400,25 @@ export default function FarmerSettingsPage() {
             <div><label className="mb-1.5 block text-xs font-semibold text-slate-700">IFSC code</label><Input className="h-10" value={prefs.payouts.ifsc} onChange={(e) => updateNested("payouts", "ifsc", e.target.value)} /></div>
             <div><label className="mb-1.5 block text-xs font-semibold text-slate-700">Payout frequency</label><Select className="h-10" value={prefs.payouts.payoutFrequency} onValueChange={(v) => updateNested("payouts", "payoutFrequency", v)}><SelectContent><SelectItem value="daily">Daily</SelectItem><SelectItem value="weekly">Weekly</SelectItem><SelectItem value="biweekly">Bi-weekly</SelectItem><SelectItem value="monthly">Monthly</SelectItem></SelectContent></Select></div>
             <div><label className="mb-1.5 block text-xs font-semibold text-slate-700">Minimum payout (₹)</label><Input type="number" min="0" className="h-10" value={prefs.payouts.minPayout} onChange={(e) => updateNested("payouts", "minPayout", Number(e.target.value))} /></div>
+          </CardContent>
+        </Card>
+
+        <Card className="min-w-0 overflow-hidden rounded-2xl border-slate-200 shadow-sm">
+          <CardHeader className="border-b border-emerald-100 bg-emerald-50/50 pb-3"><CardTitle className="flex items-center gap-2 text-base"><Package className="h-5 w-5 text-emerald-700" />Product & inventory</CardTitle><CardDescription>Configure stock thresholds and the preferred alert channel.</CardDescription></CardHeader>
+          <CardContent className="grid gap-3 p-5 sm:grid-cols-2">
+            <div><label className="mb-1.5 block text-xs font-semibold text-slate-700">Low stock alert (units)</label><Input type="number" min="0" step="1" className="h-10" value={prefs.product.lowStockAlert} onChange={(e) => updateNested("product", "lowStockAlert", Number(e.target.value))} /></div>
+            <div><label className="mb-1.5 block text-xs font-semibold text-slate-700">Critical stock (units)</label><Input type="number" min="0" step="1" className="h-10" value={prefs.product.criticalStock} onChange={(e) => updateNested("product", "criticalStock", Number(e.target.value))} /></div>
+            <div className="sm:col-span-2"><label className="mb-1.5 block text-xs font-semibold text-slate-700">Notification method</label><Select className="h-10" value={prefs.product.notificationMethod} onValueChange={(value) => updateNested("product", "notificationMethod", value)}><SelectContent><SelectItem value="email">Email</SelectItem><SelectItem value="sms">SMS</SelectItem><SelectItem value="push">Push notification</SelectItem></SelectContent></Select></div>
+          </CardContent>
+        </Card>
+
+        <Card className="min-w-0 overflow-hidden rounded-2xl border-slate-200 shadow-sm">
+          <CardHeader className="border-b border-emerald-100 bg-emerald-50/50 pb-3"><CardTitle className="flex items-center gap-2 text-base"><ShoppingBag className="h-5 w-5 text-emerald-700" />Order management</CardTitle><CardDescription>Set your order handling defaults and daily capacity.</CardDescription></CardHeader>
+          <CardContent className="grid gap-3 p-5 sm:grid-cols-2">
+            <div><label className="mb-1.5 block text-xs font-semibold text-slate-700">Order timeout (minutes)</label><Input type="number" min="1" step="1" className="h-10" value={prefs.orders.orderTimeout} onChange={(e) => updateNested("orders", "orderTimeout", Number(e.target.value))} /></div>
+            <div><label className="mb-1.5 block text-xs font-semibold text-slate-700">Maximum orders per day</label><Input type="number" min="1" step="1" className="h-10" value={prefs.orders.maxOrdersPerDay} onChange={(e) => updateNested("orders", "maxOrdersPerDay", Number(e.target.value))} /></div>
+            <div><label className="mb-1.5 block text-xs font-semibold text-slate-700">Minimum order value (₹)</label><Input type="number" min="0" step="1" className="h-10" value={prefs.orders.minOrderValue} onChange={(e) => updateNested("orders", "minOrderValue", Number(e.target.value))} /></div>
+            <div><label className="mb-1.5 block text-xs font-semibold text-slate-700">Order delivery radius (km)</label><Input type="number" min="1" step="0.5" className="h-10" value={prefs.orders.deliveryRadius} onChange={(e) => updateNested("orders", "deliveryRadius", Number(e.target.value))} /></div>
           </CardContent>
         </Card>
 
