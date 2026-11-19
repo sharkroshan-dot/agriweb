@@ -267,7 +267,7 @@ export default function AgriPointsPage() {
             </div>
           )}
           <div className="px-5 pb-5">
-            <Link href="/agripoints/history" className="flex min-h-11 w-full items-center justify-center gap-2 rounded-full border-2 border-emerald-700 bg-gradient-to-r from-white to-emerald-50 px-4 text-sm font-extrabold text-emerald-800 transition hover:bg-emerald-700 hover:text-white">
+            <Link href="/agripoints/history" className="flex min-h-11 w-full items-center justify-center gap-2 rounded-full border-2 border-emerald-700 bg-emerald-50 px-4 text-sm font-extrabold text-emerald-800 transition-colors duration-200 hover:border-emerald-800 hover:bg-emerald-100 hover:text-emerald-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2">
               View All Transactions <span aria-hidden="true">→</span>
             </Link>
           </div>
