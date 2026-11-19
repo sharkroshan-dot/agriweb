@@ -219,7 +219,7 @@ export default function CustomerSettingsPage() {
     <div className="space-y-4 px-3 py-4 sm:px-5 lg:px-6">
       <header className="relative w-full overflow-hidden rounded-[18px] border border-emerald-100 bg-white shadow-sm aspect-[8.63/1] min-h-[92px]">
         <img
-          src="/images/settings-banner-exact.jpg"
+          src="/images/settings-banner-exact.webp"
           alt="Settings — Manage your account, notifications, security, privacy and preferences."
           className="absolute inset-0 h-full w-full object-fill"
         />
