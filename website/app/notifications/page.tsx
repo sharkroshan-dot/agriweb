@@ -7,7 +7,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Bell, BellRing, Check, CheckCheck, Clock, ExternalLink, Gift,
   Megaphone, MoreVertical, Package, Trash2, Truck, X,
-  Inbox, Sprout, Star, ArrowUpDown,
+  Inbox, Sprout, Star, ArrowUpDown, Search, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Separator } from "../components/ui/separator";
@@ -95,6 +95,9 @@ export default function NotificationsPage() {
   const [inviteBusy, setInviteBusy] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [searchTerm, setSearchTerm] = useState("");
+  const pageSize = 10;
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -103,8 +106,8 @@ export default function NotificationsPage() {
   }, [router, status]);
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["notificationsList"],
-    queryFn: () => api.get("/notifications/", { params: { limit: 100 } }),
+    queryKey: ["notificationsList", currentPage],
+    queryFn: () => api.get("/notifications/", { params: { limit: pageSize, skip: (currentPage - 1) * pageSize } }),
     enabled: status === "authenticated",
     refetchInterval: 15000,
     refetchOnWindowFocus: true,
@@ -145,11 +148,23 @@ export default function NotificationsPage() {
   const visibleNotifications = useMemo(() => notifications.filter((item) => {
     const categoryMatches = selectedCategory === "all" || getCategory(item) === selectedCategory;
     const statusMatches = statusFilter === "all" || (statusFilter === "unread" ? !item.isRead : item.isRead);
-    return categoryMatches && statusMatches;
+    const needle = searchTerm.trim().toLowerCase();
+    const searchMatches = !needle || [item.title, item.message, item.type, item.data?.orderNumber].some((value) => String(value || "").toLowerCase().includes(needle));
+    return categoryMatches && statusMatches && searchMatches;
   }).sort((a, b) => {
     const difference = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
     return sortOrder === "newest" ? -difference : difference;
-  }), [notifications, selectedCategory, statusFilter, sortOrder]);
+  }), [notifications, selectedCategory, statusFilter, sortOrder, searchTerm]);
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const pageNumbers = Array.from(new Set([1, currentPage - 1, currentPage, currentPage + 1, totalPages].filter((page) => page >= 1 && page <= totalPages))).sort((a, b) => a - b);
+  const dateGroupLabel = (value: string) => {
+    const date = new Date(value);
+    const today = new Date();
+    const yesterday = new Date(); yesterday.setDate(today.getDate() - 1);
+    if (date.toDateString() === today.toDateString()) return "Today";
+    if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
+    return date.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+  };
 
   const refresh = async () => {
     setFeedback("");
