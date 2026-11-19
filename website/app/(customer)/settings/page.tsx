@@ -217,17 +217,16 @@ export default function CustomerSettingsPage() {
 
   return (
     <div className="space-y-4 px-3 py-4 sm:px-5 lg:px-6">
-      <header className="relative isolate min-h-[112px] overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-r from-white via-emerald-50 to-sky-100 px-5 py-5 shadow-sm sm:min-h-[126px] sm:px-7">
-        <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 w-[58%] overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-r from-white via-white/55 to-transparent" />
-          <div className="absolute -bottom-10 right-[-4%] h-28 w-[110%] -rotate-3 rounded-[50%] bg-gradient-to-b from-lime-300 to-emerald-500 opacity-70" />
-          <div className="absolute -bottom-12 right-[12%] h-32 w-[70%] -rotate-6 rounded-[50%] bg-gradient-to-b from-emerald-200 to-green-600 opacity-65" />
-          <div className="absolute bottom-3 right-[22%] h-20 w-[55%] -rotate-6 rounded-[50%] bg-gradient-to-b from-sky-200 to-emerald-300 opacity-75" />
-          <div className="absolute bottom-0 right-0 h-8 w-full bg-gradient-to-t from-green-500/30 to-transparent" />
-        </div>
-        <div className="relative z-10 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <header className="relative isolate min-h-[132px] overflow-hidden rounded-2xl border border-emerald-100 bg-white px-5 py-5 shadow-sm sm:min-h-[148px] sm:px-7">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 bg-cover bg-center"
+          style={{ backgroundImage: "url('/images/settings-banner.svg')" }}
+        />
+        <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-gradient-to-r from-white via-white/95 via-35% to-transparent" />
+        <div className="relative z-10 flex min-h-[88px] flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-center gap-4">
-            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 ring-4 ring-white/70">
+            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-emerald-100/95 text-emerald-700 ring-4 ring-white/80">
               <Settings2 className="h-9 w-9" />
             </div>
             <div className="min-w-0">
