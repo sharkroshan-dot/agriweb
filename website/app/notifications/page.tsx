@@ -276,19 +276,19 @@ export default function NotificationsPage() {
               <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 text-emerald-700"><Inbox className="h-7 w-7" /></div>
               <h3 className="font-semibold text-slate-900">No notifications found</h3><p className="mt-1 max-w-sm text-sm text-slate-500">New updates about your account activity will appear here.</p>
             </div>
-          : <div className="divide-y divide-slate-100">
+          : <div className="divide-y divide-slate-200">
               {visibleNotifications.map((notification, notificationIndex) => {
                 const category = getCategory(notification);
                 const unread = !notification.isRead;
                 const Icon = category === "rewards" ? Star : categoryMeta[category].icon;
-                return <article key={notification.id} className={`group relative flex gap-3 rounded-xl px-2 py-2.5 transition hover:bg-emerald-50/40 sm:gap-4 sm:px-3 sm:py-3 ${unread && notificationIndex === 0 ? "bg-emerald-50" : "bg-white"}`}>
+                return <article key={notification.id} className={`group relative flex gap-3 px-2 py-2.5 transition hover:bg-emerald-50/50 sm:gap-4 sm:px-3 sm:py-3 ${notificationIndex === 0 ? "bg-emerald-50" : "bg-white"}`}>
                   <div className="flex w-3 shrink-0 items-start justify-center pt-5">{unread ? <span className="h-2.5 w-2.5 rounded-full bg-emerald-700" aria-label="Unread" /> : <span className="h-2.5 w-2.5 rounded-full bg-transparent" />}</div>
                   <button type="button" onClick={() => void openDetail(notification)} className="flex min-w-0 flex-1 items-start gap-3 text-left sm:gap-4">
-                    <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full sm:h-11 sm:w-11 ${category === "rewards" ? "bg-gradient-to-br from-emerald-600 to-emerald-800 text-white shadow-sm ring-2 ring-emerald-100" : "bg-emerald-100 text-emerald-800"}`}><Icon className={`h-6 w-6 sm:h-7 sm:w-7 ${category === "rewards" ? "fill-current" : ""}`} /></span>
+                    <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full sm:h-12 sm:w-12 ${category === "rewards" ? "bg-gradient-to-br from-emerald-600 to-emerald-800 text-white shadow-sm ring-2 ring-emerald-100" : "bg-emerald-100 text-emerald-800"}`}><Icon className={`h-6 w-6 sm:h-7 sm:w-7 ${category === "rewards" ? "fill-current" : ""}`} /></span>
                     <span className="min-w-0 flex-1">
-                      <span className="flex flex-wrap items-center gap-2"><span className="font-bold text-slate-950 sm:text-base">{notification.title || categoryMeta[category].label}</span></span>
+                      <span className="flex flex-wrap items-center gap-2"><span className="font-bold text-slate-950 text-sm sm:text-[15px]">{notification.title || categoryMeta[category].label}</span></span>
                       <span className="mt-0.5 block text-xs leading-4 text-slate-700 sm:text-[13px]">{notification.message}</span>
-                      <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500"><span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5" />{timeLabel(notification.createdAt)}</span><span>{timeAgo(notification.createdAt)}</span></span>
+                      <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500"><span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5" />{timeLabel(notification.createdAt)}</span><span>{timeAgo(notification.createdAt)}</span></span>
                     </span>
                   </button>
                   <div className="relative flex shrink-0 items-center gap-2">
