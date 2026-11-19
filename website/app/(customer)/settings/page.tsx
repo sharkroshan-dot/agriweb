@@ -255,7 +255,7 @@ export default function CustomerSettingsPage() {
         <section id="notifications" className={panelClass + " scroll-mt-5 p-4 sm:p-5"}>
           <div className="mb-3 flex items-center gap-3 border-b border-slate-100 pb-3">
             <div className={iconBubble}><Bell className="h-6 w-6" /></div>
-            <div><h2 className="text-lg font-bold text-slate-950">{t("Notification Preferences")}</h2><p className="text-xs text-slate-600">Choose what updates you want to receive from AgriConnect.</p></div>
+            <div><h2 className="text-lg font-bold text-slate-950">{t("Notification Preferences")}</h2><p className="text-xs text-slate-600">{t("Choose what updates you want to receive from AgriConnect.")}</p></div>
           </div>
           <div className="divide-y divide-slate-100">
             {NOTIFICATION_ITEMS.map(({ key, label, description, icon: Icon }) => (
@@ -272,7 +272,7 @@ export default function CustomerSettingsPage() {
           <section className={panelClass + " p-4"}>
             <div className="mb-2 flex items-center gap-3 border-b border-slate-100 pb-3">
               <div className={iconBubble}><Send className="h-5 w-5" /></div>
-              <div><h2 className="text-lg font-bold text-slate-950">{t("Communication Channels")}</h2><p className="text-xs text-slate-600">Choose how you want to receive notifications.</p></div>
+              <div><h2 className="text-lg font-bold text-slate-950">{t("Communication Channels")}</h2><p className="text-xs text-slate-600">{t("Choose how you want to receive notifications.")}</p></div>
             </div>
             {CHANNEL_ITEMS.map(({ key, label, description, icon: Icon }) => (
               <div key={key} className="flex items-center gap-3 border-b border-slate-100 py-2.5 last:border-0">
@@ -284,7 +284,7 @@ export default function CustomerSettingsPage() {
           </section>
 
           <section id="preferences" className={panelClass + " scroll-mt-5 p-4"}>
-            <div className="mb-3 flex items-center gap-3 border-b border-slate-100 pb-3"><div className={iconBubble}><SlidersHorizontal className="h-5 w-5" /></div><h2 className="text-lg font-bold text-slate-950">Preferences</h2></div>
+            <div className="mb-3 flex items-center gap-3 border-b border-slate-100 pb-3"><div className={iconBubble}><SlidersHorizontal className="h-5 w-5" /></div><h2 className="text-lg font-bold text-slate-950">{t("Preferences")}</h2></div>
             <div className="space-y-3">
               <div><p className="mb-2 text-sm font-bold text-slate-900">{t("Language")}</p><div className="grid grid-cols-3 gap-2">
                 {[["en","English"],["ta","தமிழ் (Tamil)"],["hi","हिंदी (Hindi)"]].map(([value,label]) => <button key={value} type="button" onClick={() => chooseLanguage(value)} className={`rounded-lg border px-2 py-2 text-xs font-semibold ${language === value ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-slate-200 text-slate-700 hover:bg-slate-50"}`}>{language === value ? "● " : "○ "}{t(label)}</button>)}
@@ -299,41 +299,41 @@ export default function CustomerSettingsPage() {
 
       <div className="grid gap-3 lg:grid-cols-3">
         <section id="security" className={panelClass + " scroll-mt-5 p-4"}>
-          <div className="mb-3 flex items-center gap-3 border-b border-slate-100 pb-3"><div className={iconBubble}><ShieldCheck className="h-5 w-5" /></div><div><h2 className="text-lg font-bold text-slate-950">{t("Security & Login")}</h2><p className="text-xs text-slate-600">Keep your account safe and secure.</p></div></div>
+          <div className="mb-3 flex items-center gap-3 border-b border-slate-100 pb-3"><div className={iconBubble}><ShieldCheck className="h-5 w-5" /></div><div><h2 className="text-lg font-bold text-slate-950">{t("Security & Login")}</h2><p className="text-xs text-slate-600">{t("Keep your account safe and secure.")}</p></div></div>
           <div className="space-y-3">
-            <div className="flex items-center gap-3"><div className={iconBubble}><KeyRound className="h-5 w-5" /></div><div className="flex-1"><p className="text-sm font-bold">{t("Change Password")}</p><p className="text-xs text-slate-600">Update your account password.</p></div></div>
+            <div className="flex items-center gap-3"><div className={iconBubble}><KeyRound className="h-5 w-5" /></div><div className="flex-1"><p className="text-sm font-bold">{t("Change Password")}</p><p className="text-xs text-slate-600">{t("Update your account password.")}</p></div></div>
             <div className="grid gap-2">
               <Input type="password" value={pwFields.current} onChange={(e) => setPwFields((v) => ({ ...v, current: e.target.value }))} placeholder={t("Current password")} aria-label="Current password" />
               <Input type="password" value={pwFields.next} onChange={(e) => setPwFields((v) => ({ ...v, next: e.target.value }))} placeholder={t("New password (8+ characters)")} aria-label="New password" />
               <Input type="password" value={pwFields.confirm} onChange={(e) => setPwFields((v) => ({ ...v, confirm: e.target.value }))} placeholder={t("Confirm new password")} aria-label="Confirm new password" />
               <Button onClick={changePassword} disabled={changingPassword} size="sm" className="w-fit">{changingPassword && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Update Password</Button>
             </div>
-            <div className="flex items-center justify-between border-t border-slate-100 pt-3"><div><p className="text-sm font-bold">{t("Two-Factor Authentication (2FA)")}</p><p className="text-xs text-slate-600">An extra layer of account security.</p></div><span className="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-700">Not enabled</span></div>
-            <div className="flex items-center justify-between border-t border-slate-100 pt-3"><div><p className="text-sm font-bold">{t("Login Activity")}</p><p className="text-xs text-slate-600">Recent device and login history.</p></div><span className="text-[10px] text-slate-500">Coming soon</span></div>
+            <div className="flex items-center justify-between border-t border-slate-100 pt-3"><div><p className="text-sm font-bold">{t("Two-Factor Authentication (2FA)")}</p><p className="text-xs text-slate-600">{t("An extra layer of account security.")}</p></div><span className="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-700">Not enabled</span></div>
+            <div className="flex items-center justify-between border-t border-slate-100 pt-3"><div><p className="text-sm font-bold">{t("Login Activity")}</p><p className="text-xs text-slate-600">{t("Recent device and login history.")}</p></div><span className="text-[10px] text-slate-500">Coming soon</span></div>
           </div>
         </section>
 
         <section id="privacy" className={panelClass + " scroll-mt-5 p-4"}>
-          <div className="mb-3 flex items-center gap-3 border-b border-slate-100 pb-3"><div className={iconBubble}><LockKeyhole className="h-5 w-5" /></div><div><h2 className="text-lg font-bold text-slate-950">{t("Privacy")}</h2><p className="text-xs text-slate-600">Control your data and privacy.</p></div></div>
+          <div className="mb-3 flex items-center gap-3 border-b border-slate-100 pb-3"><div className={iconBubble}><LockKeyhole className="h-5 w-5" /></div><div><h2 className="text-lg font-bold text-slate-950">{t("Privacy")}</h2><p className="text-xs text-slate-600">{t("Control your data and privacy.")}</p></div></div>
           <div className="space-y-3">
-            <div className="flex items-center gap-3"><div className={iconBubble}><Database className="h-5 w-5" /></div><div className="flex-1"><p className="text-sm font-bold">{t("Data & Privacy")}</p><p className="text-xs text-slate-600">Manage how your account information is used.</p></div><ChevronRight className="h-4 w-4 text-slate-400" /></div>
-            <div className="flex items-center gap-3 border-t border-slate-100 pt-3"><div className={iconBubble}><Eye className="h-5 w-5" /></div><div className="flex-1"><p className="text-sm font-bold">{t("Profile Visibility")}</p><p className="text-xs text-slate-600">Your contact details are shared only when needed for orders.</p></div></div>
-            <div className="flex items-center gap-3 border-t border-slate-100 pt-3"><div className={iconBubble}><Download className="h-5 w-5" /></div><div className="flex-1"><p className="text-sm font-bold">{t("Download My Data")}</p><p className="text-xs text-slate-600">Data export is not available yet.</p></div><span className="text-[10px] text-slate-500">Coming soon</span></div>
+            <div className="flex items-center gap-3"><div className={iconBubble}><Database className="h-5 w-5" /></div><div className="flex-1"><p className="text-sm font-bold">{t("Data & Privacy")}</p><p className="text-xs text-slate-600">{t("Manage how your account information is used.")}</p></div><ChevronRight className="h-4 w-4 text-slate-400" /></div>
+            <div className="flex items-center gap-3 border-t border-slate-100 pt-3"><div className={iconBubble}><Eye className="h-5 w-5" /></div><div className="flex-1"><p className="text-sm font-bold">{t("Profile Visibility")}</p><p className="text-xs text-slate-600">{t("Your contact details are shared only when needed for orders.")}</p></div></div>
+            <div className="flex items-center gap-3 border-t border-slate-100 pt-3"><div className={iconBubble}><Download className="h-5 w-5" /></div><div className="flex-1"><p className="text-sm font-bold">{t("Download My Data")}</p><p className="text-xs text-slate-600">{t("Data export is not available yet.")}</p></div><span className="text-[10px] text-slate-500">Coming soon</span></div>
           </div>
         </section>
 
         <section id="account" className={panelClass + " scroll-mt-5 p-4"}>
-          <div className="mb-3 flex items-center gap-3 border-b border-slate-100 pb-3"><div className={iconBubble}><User className="h-5 w-5" /></div><div><h2 className="text-lg font-bold text-slate-950">{t("Account Management")}</h2><p className="text-xs text-slate-600">Manage your account and related services.</p></div></div>
+          <div className="mb-3 flex items-center gap-3 border-b border-slate-100 pb-3"><div className={iconBubble}><User className="h-5 w-5" /></div><div><h2 className="text-lg font-bold text-slate-950">{t("Account Management")}</h2><p className="text-xs text-slate-600">{t("Manage your account and related services.")}</p></div></div>
           <div className="space-y-3">
-            <Link href="/profile" className="flex items-center gap-3"><div className={iconBubble}><User className="h-5 w-5" /></div><div className="flex-1"><p className="text-sm font-bold">{t("Personal Information")}</p><p className="text-xs text-slate-600">Update your profile and saved addresses.</p></div><ChevronRight className="h-4 w-4 text-slate-400" /></Link>
-            <Link href="/payments" className="flex items-center gap-3 border-t border-slate-100 pt-3"><div className={iconBubble}><CreditCard className="h-5 w-5" /></div><div className="flex-1"><p className="text-sm font-bold">Payment Settings</p><p className="text-xs text-slate-600">View payments, wallet and transaction history.</p></div><ChevronRight className="h-4 w-4 text-slate-400" /></Link>
-            <div className="flex items-center gap-3 border-t border-slate-100 pt-3"><div className={iconBubble}><PauseCircle className="h-5 w-5" /></div><div className="flex-1"><p className="text-sm font-bold">{t("Deactivate / Delete Account")}</p><p className="text-xs text-slate-600">Contact support to request account closure.</p></div><span className="text-[10px] text-slate-500">Support</span></div>
+            <Link href="/profile" className="flex items-center gap-3"><div className={iconBubble}><User className="h-5 w-5" /></div><div className="flex-1"><p className="text-sm font-bold">{t("Personal Information")}</p><p className="text-xs text-slate-600">{t("Update your profile and saved addresses.")}</p></div><ChevronRight className="h-4 w-4 text-slate-400" /></Link>
+            <Link href="/payments" className="flex items-center gap-3 border-t border-slate-100 pt-3"><div className={iconBubble}><CreditCard className="h-5 w-5" /></div><div className="flex-1"><p className="text-sm font-bold">{t("Payment Settings")}</p><p className="text-xs text-slate-600">{t("View payments, wallet and transaction history.")}</p></div><ChevronRight className="h-4 w-4 text-slate-400" /></Link>
+            <div className="flex items-center gap-3 border-t border-slate-100 pt-3"><div className={iconBubble}><PauseCircle className="h-5 w-5" /></div><div className="flex-1"><p className="text-sm font-bold">{t("Deactivate / Delete Account")}</p><p className="text-xs text-slate-600">{t("Contact support to request account closure.")}</p></div><span className="text-[10px] text-slate-500">Support</span></div>
           </div>
         </section>
       </div>
 
       <div className="flex flex-col-reverse gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="flex items-center gap-2 text-xs text-emerald-900"><CheckCircle2 className="h-4 w-4 shrink-0" /> Your changes are applied when you save your settings.</p>
+        <p className="flex items-center gap-2 text-xs text-emerald-900"><CheckCircle2 className="h-4 w-4 shrink-0" /> {t("Your changes are applied when you save your settings.")}</p>
         <Button onClick={saveSettings} disabled={saving} className="bg-emerald-700 hover:bg-emerald-800">{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}Save Settings</Button>
       </div>
     </div>
