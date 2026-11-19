@@ -234,7 +234,7 @@ export default function NotificationsPage() {
 
       {feedback && <div role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">{feedback}</div>}
 
-      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(220px,0.72fr)_minmax(300px,1.05fr)_minmax(340px,1.25fr)] 2xl:grid-cols-[250px_minmax(330px,0.98fr)_minmax(380px,1.2fr)]">
+      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[230px_minmax(340px,0.95fr)_minmax(390px,1.25fr)] 2xl:grid-cols-[250px_minmax(370px,0.95fr)_minmax(440px,1.25fr)]">
         <aside className="h-fit rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm sm:p-4">
           <h2 className="mb-3 text-base font-bold text-slate-900">Notifications Overview</h2>
           <div className="space-y-1">
@@ -313,50 +313,67 @@ export default function NotificationsPage() {
           {total > notifications.length && <p className="mt-4 text-center text-xs text-slate-500">Showing the latest {notifications.length} of {total} notifications.</p>}
         </section>
 
-        <aside className="min-w-0 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm sm:p-4 xl:sticky xl:top-4">
+        <aside className="min-w-0 min-h-[520px] rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
           <div className="mb-3 flex items-center justify-between gap-3">
             <h2 className="flex items-center gap-2 text-lg font-bold text-slate-900"><Inbox className="h-5 w-5 text-emerald-700" />Notification Details</h2>
             {selectedNotification && <button type="button" onClick={() => setSelectedNotification(null)} aria-label="Clear selected notification" className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100"><X className="h-4 w-4" /></button>}
           </div>
           {selectedNotification ? (() => {
             const detailCategory = getCategory(selectedNotification);
-            const detailEntries = Object.entries(selectedNotification.data || {}).filter(([key, value]) =>
+            const data = selectedNotification.data || {};
+            const detailEntries = Object.entries(data).filter(([key, value]) =>
               !["actionurl", "url", "invitationid", "kind", "type"].includes(key.toLowerCase()) &&
               value !== null && value !== undefined && value !== ""
             );
-            const rewardEntries = detailEntries.filter(([key]) => /point|reward|balance/i.test(key));
-            const orderEntries = detailEntries.filter(([key]) => /order|product|amount|quantity|status|delivery|farmer|warehouse|date|slot|tracking/i.test(key));
-            const otherEntries = detailEntries.filter(([key]) => !rewardEntries.some(([rewardKey]) => rewardKey === key) && !orderEntries.some(([orderKey]) => orderKey === key));
+            const findValue = (pattern: RegExp) => detailEntries.find(([key]) => pattern.test(key))?.[1];
+            const points = findValue(/points?Earned|earnedPoints|points/i);
+            const balance = findValue(/balance|totalPoints|availablePoints/i);
+            const orderNumber = findValue(/order(Number|Id)?/i) || selectedNotification.message.match(/#?(ORD-[A-Z0-9-]+)/i)?.[1];
+            const orderDate = findValue(/orderDate|purchaseDate/i);
+            const amount = findValue(/amount|totalPrice|orderTotal/i);
+            const status = findValue(/status/i);
+            const product = findValue(/productName|product/i);
             const formatValue = (value: unknown) => typeof value === "object" ? JSON.stringify(value) : String(value);
             const labelFor = (key: string) => key.replace(/([A-Z])/g, " $1").replace(/[_-]/g, " ").replace(/^./, (letter) => letter.toUpperCase());
-            const DetailRows = ({ entries }: { entries: [string, any][] }) => <div className="divide-y divide-slate-100">{entries.map(([key, value]) => <div key={key} className="grid grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] gap-3 py-2 text-xs sm:text-sm"><span className="font-medium text-slate-500">{labelFor(key)}</span><span className="break-words text-right font-semibold text-slate-800">{formatValue(value)}</span></div>)}</div>;
-            return <div className="space-y-3">
-              <div className="rounded-xl border border-emerald-100 bg-gradient-to-r from-emerald-50 to-white p-3">
+            const excluded = new Set([points, balance, orderNumber, orderDate, amount, status, product].filter((value) => value !== undefined));
+            const otherEntries = detailEntries.filter(([, value]) => !excluded.has(value));
+            const DetailRows = ({ entries }: { entries: [string, any][] }) => <div className="divide-y divide-slate-100">{entries.map(([key, value]) => <div key={key} className="grid grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] gap-3 py-2.5 text-xs sm:text-sm"><span className="font-medium text-slate-500">{labelFor(key)}</span><span className="break-words text-right font-semibold text-slate-800">{formatValue(value)}</span></div>)}</div>;
+            return <div className="space-y-4">
+              <div className="rounded-xl border border-emerald-100 bg-gradient-to-r from-emerald-50 via-white to-emerald-50/60 p-4">
                 <div className="flex items-start gap-3">
-                  <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${detailCategory === "rewards" ? "bg-emerald-700 text-white" : "bg-emerald-100 text-emerald-800"}`}>
-                    <NotificationIcon category={detailCategory} className="h-5 w-5" />
+                  <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${detailCategory === "rewards" ? "bg-emerald-700 text-white" : "bg-emerald-100 text-emerald-800"}`}>
+                    <NotificationIcon category={detailCategory} className="h-6 w-6" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="mb-1 flex flex-wrap items-center gap-2"><Badge className={categoryStyles[detailCategory]}>{categoryMeta[detailCategory].label}</Badge>{!selectedNotification.isRead && <Badge className="bg-emerald-100 text-emerald-800">Unread</Badge>}</div>
-                    <h3 className="text-sm font-bold leading-5 text-slate-950 sm:text-base">{selectedNotification.title || categoryMeta[detailCategory].label}</h3>
-                    <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-slate-700 sm:text-sm">{selectedNotification.message}</p>
-                    <p className="mt-2 flex items-center gap-1.5 text-[11px] text-slate-500"><Clock className="h-3.5 w-3.5" />{timeLabel(selectedNotification.createdAt)}</p>
+                    <div className="mb-2 flex flex-wrap items-center gap-2"><Badge className={categoryStyles[detailCategory]}>{categoryMeta[detailCategory].label}</Badge>{!selectedNotification.isRead && <Badge className="bg-emerald-100 text-emerald-800">Unread</Badge>}</div>
+                    <h3 className="text-base font-bold leading-6 text-slate-950">{selectedNotification.title || categoryMeta[detailCategory].label}</h3>
+                    <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-slate-700">{selectedNotification.message}</p>
+                    <p className="mt-3 flex items-center gap-1.5 text-xs text-slate-500"><Clock className="h-4 w-4" />{timeLabel(selectedNotification.createdAt)}</p>
                   </div>
                 </div>
               </div>
-              {rewardEntries.length > 0 && <div className="overflow-hidden rounded-xl border border-slate-200">
-                <h3 className="flex items-center gap-2 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-800"><Gift className="h-4 w-4 text-emerald-700" />Reward Summary</h3>
-                <div className="px-3"><DetailRows entries={rewardEntries} /></div>
-              </div>}
-              {orderEntries.length > 0 && <div className="overflow-hidden rounded-xl border border-slate-200">
-                <h3 className="flex items-center gap-2 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-800"><Package className="h-4 w-4 text-emerald-700" />Related Details</h3>
-                <div className="px-3"><DetailRows entries={orderEntries} /></div>
-              </div>}
-              {otherEntries.length > 0 && <div className="overflow-hidden rounded-xl border border-slate-200">
-                <h3 className="flex items-center gap-2 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-800"><Inbox className="h-4 w-4 text-emerald-700" />Additional Information</h3>
-                <div className="px-3"><DetailRows entries={otherEntries} /></div>
-              </div>}
-              {detailEntries.length === 0 && <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-center text-xs leading-5 text-slate-500">No additional structured information was provided with this notification. The complete message and received time are shown above.</div>}
+              {detailCategory === "rewards" && (points !== undefined || balance !== undefined) && <section className="overflow-hidden rounded-xl border border-slate-200">
+                <h3 className="flex items-center gap-2 border-b border-slate-100 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800"><Gift className="h-4 w-4 text-emerald-700" />Reward Summary</h3>
+                <div className="grid grid-cols-2 divide-x divide-slate-200 p-4">
+                  {points !== undefined && <div className="px-2 text-center"><p className="text-xs font-medium text-slate-500">Points Earned</p><p className="mt-1 text-2xl font-bold text-emerald-700">{formatValue(points)} <span className="text-sm font-semibold">pts</span></p></div>}
+                  {balance !== undefined && <div className="px-2 text-center"><p className="text-xs font-medium text-slate-500">Current Balance</p><p className="mt-1 text-2xl font-bold text-slate-900">{formatValue(balance)} <span className="text-sm font-semibold">pts</span></p></div>}
+                </div>
+              </section>}
+              {(orderNumber || orderDate || amount !== undefined || status !== undefined || product !== undefined) && <section className="overflow-hidden rounded-xl border border-slate-200">
+                <h3 className="flex items-center gap-2 border-b border-slate-100 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800"><Package className="h-4 w-4 text-emerald-700" />Related Order Details</h3>
+                <div className="px-4 py-1">
+                  {orderNumber && <div className="flex items-center justify-between gap-3 border-b border-slate-100 py-3 text-sm"><span className="text-slate-500">Order Number</span><span className="break-all text-right font-semibold text-slate-800">{formatValue(orderNumber)}</span></div>}
+                  {orderDate && <div className="flex items-center justify-between gap-3 border-b border-slate-100 py-3 text-sm"><span className="text-slate-500">Order Date</span><span className="text-right font-semibold text-slate-800">{formatValue(orderDate)}</span></div>}
+                  {product !== undefined && <div className="flex items-center justify-between gap-3 border-b border-slate-100 py-3 text-sm"><span className="text-slate-500">Product</span><span className="text-right font-semibold text-slate-800">{formatValue(product)}</span></div>}
+                  {amount !== undefined && <div className="flex items-center justify-between gap-3 border-b border-slate-100 py-3 text-sm"><span className="text-slate-500">Order Amount</span><span className="text-right font-semibold text-slate-800">{formatValue(amount)}</span></div>}
+                  {status !== undefined && <div className="flex items-center justify-between gap-3 py-3 text-sm"><span className="text-slate-500">Order Status</span><span className="rounded-full bg-emerald-100 px-3 py-1 font-semibold text-emerald-800">{formatValue(status)}</span></div>}
+                </div>
+              </section>}
+              {otherEntries.length > 0 && <section className="overflow-hidden rounded-xl border border-slate-200">
+                <h3 className="flex items-center gap-2 border-b border-slate-100 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800"><Inbox className="h-4 w-4 text-emerald-700" />Additional Information</h3>
+                <div className="px-4"><DetailRows entries={otherEntries} /></div>
+              </section>}
+              {detailEntries.length === 0 && !orderNumber && <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-500">The full notification message and received time are shown above. No additional structured details were supplied with this notification.</div>}
               {isCooperativeInvitation && <div className="flex gap-2"><Button className="flex-1" disabled={inviteBusy} onClick={() => void respondToCooperativeInvitation(true)}>Accept Invitation</Button><Button variant="outline" className="flex-1" disabled={inviteBusy} onClick={() => void respondToCooperativeInvitation(false)}>Reject</Button></div>}
               {selectedNotification.actionUrl && <Button className="w-full" onClick={() => { const url = selectedNotification.actionUrl!; setSelectedNotification(null); router.push(url); }}><ExternalLink className="mr-2 h-4 w-4" />{selectedNotification.actionLabel || "View Details"}</Button>}
             </div>;
