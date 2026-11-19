@@ -97,6 +97,11 @@ export default function CustomerPaymentsWallet() {
     queryKey: ["customer-payment-ledger"],
     queryFn: () => api.get("/customers/me/payments", { params: { page: 1, limit: 100 } }),
   });
+  const refundsQuery = useQuery({
+    queryKey: ["customer-payment-refunds"],
+    queryFn: () => api.get("/customers/me/refunds", { params: { page: 1, limit: 100 } }),
+    retry: 1,
+  });
   const walletQuery = useQuery({
     queryKey: ["customerWallet", "payments-workspace"],
     queryFn: () => api.get("/payments/wallet/info"),
@@ -129,6 +134,28 @@ export default function CustomerPaymentsWallet() {
     };
   }), [ledgerQuery.data]);
 
+  const refundRows = useMemo<Row[]>(() => rowsFrom(refundsQuery.data).map((item: any, index: number) => {
+    const status = String(item.status || item.refundStatus || item.refund_status || "requested")
+      .toLowerCase().replace(/[\\s-]+/g, "_");
+    const orderNumber = String(item.orderNumber || item.order_number || item.order?.orderNumber || item.orderId || item.order_id || "");
+    const refundId = String(item.refundId || item.refund_id || item.requestId || item.id || item._id || `refund-${index}`);
+    const amount = Number(item.approvedAmount ?? item.refundAmount ?? item.refund_amount ?? item.amount ?? item.requestedAmount ?? item.requested_amount ?? 0) || 0;
+    const reason = String(item.reason || item.description || "").replaceAll("_", " ");
+    const transaction = String(item.refundTransactionId || item.refund_transaction_id || item.transactionId || item.transaction_id || "");
+    const method = paymentMethodLabel(item);
+    return {
+      id: `refund:${refundId}`,
+      date: item.processedAt || item.processed_at || item.refundedAt || item.refunded_at || item.updatedAt || item.updated_at || item.requestedAt || item.requested_at || item.createdAt || item.created_at,
+      type: "Refund",
+      description: `Refund${orderNumber ? ` for order #${orderNumber}` : ""}${reason ? ` · ${reason}` : ""}`,
+      reference: transaction || orderNumber || refundId,
+      amount,
+      direction: "credit",
+      status,
+      method: method === "Payment" ? "Refund" : method,
+    };
+  }), [refundsQuery.data]);
+
   const walletRows = useMemo<Row[]>(() => {
     const transactionPayload = (walletTransactionsQuery.data as any)?.data || walletTransactionsQuery.data || {};
     const raw = rowsFrom(transactionPayload).length ? rowsFrom(transactionPayload) : Array.isArray(wallet.transactions) ? wallet.transactions : [];
@@ -147,13 +174,13 @@ export default function CustomerPaymentsWallet() {
 
   const allRows = useMemo(() => {
     const seen = new Set<string>();
-    return [...paymentRows, ...walletRows].filter(row => {
+    return [...refundRows, ...paymentRows, ...walletRows].filter(row => {
       const key = row.id;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     }).sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
-  }, [paymentRows, walletRows]);
+  }, [refundRows, paymentRows, walletRows]);
 
   const visibleRows = useMemo(() => {
     const cutoff = period === "all" ? 0 : Date.now() - Number(period) * 86400000;
@@ -169,7 +196,7 @@ export default function CustomerPaymentsWallet() {
   const paid = paymentRows.filter(r => ["paid", "success", "completed"].includes(r.status) && r.type === "Payment").reduce((sum, r) => sum + r.amount, 0);
   const pending = paymentRows.filter(r => ["pending", "processing"].includes(r.status)).reduce((sum, r) => sum + r.amount, 0);
   const refunded = paymentRows.filter(r => r.type === "Refund" || ["refunded", "partially_refunded"].includes(r.status)).reduce((sum, r) => sum + r.amount, 0);
-  const refresh = () => { void ledgerQuery.refetch(); void walletQuery.refetch(); void walletTransactionsQuery.refetch(); };
+  const refresh = () => { void ledgerQuery.refetch(); void refundsQuery.refetch(); void walletQuery.refetch(); void walletTransactionsQuery.refetch(); };
   useEffect(() => {
     if (typeof window === "undefined" || (window as any).Razorpay) return;
     const script = document.createElement("script");
@@ -285,8 +312,8 @@ export default function CustomerPaymentsWallet() {
             <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center"><div><h2 className="text-lg font-bold text-slate-950">Transaction History</h2><p className="mt-1 text-sm text-slate-500">Search and review your wallet, payment and refund transactions.</p></div><div className="flex items-center gap-2"><Badge variant="outline">{visibleRows.length} records</Badge><Button size="sm" variant="outline" onClick={exportRows} disabled={!visibleRows.length}><Download className="mr-1.5 h-4 w-4"/>Export</Button></div></div>
             <div className="relative mt-4"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"/><Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by order number, transaction ID or description..." className="h-10 pl-9"/></div>
           </div>
-          {ledgerQuery.isLoading || walletQuery.isLoading || walletTransactionsQuery.isLoading ? <div className="space-y-3 p-5">{[1,2,3].map(i => <div key={i} className="h-12 animate-pulse rounded-lg bg-slate-100"/>)}</div>
-          : ledgerQuery.isError && walletQuery.isError && walletTransactionsQuery.isError ? <div className="p-8 text-center"><XCircle className="mx-auto h-8 w-8 text-rose-500"/><p className="mt-2 font-semibold">Unable to load financial history</p><Button className="mt-3" size="sm" variant="outline" onClick={refresh}>Try again</Button></div>
+          {ledgerQuery.isLoading || refundsQuery.isLoading || walletQuery.isLoading || walletTransactionsQuery.isLoading ? <div className="space-y-3 p-5">{[1,2,3].map(i => <div key={i} className="h-12 animate-pulse rounded-lg bg-slate-100"/>)}</div>
+          : ledgerQuery.isError && refundsQuery.isError && walletQuery.isError && walletTransactionsQuery.isError ? <div className="p-8 text-center"><XCircle className="mx-auto h-8 w-8 text-rose-500"/><p className="mt-2 font-semibold">Unable to load financial history</p><Button className="mt-3" size="sm" variant="outline" onClick={refresh}>Try again</Button></div>
           : visibleRows.length === 0 ? <div className="p-10 text-center"><Wallet className="mx-auto h-8 w-8 text-slate-300"/><p className="mt-2 font-semibold text-slate-800">No transactions found</p><p className="mt-1 text-sm text-slate-500">Try another filter or your transactions will appear here when recorded.</p></div>
           : <><div className="hidden overflow-x-auto md:block"><table className="w-full min-w-[760px] text-sm"><thead className="bg-slate-50 text-left text-xs font-semibold text-slate-500"><tr><th className="px-4 py-3">Date &amp; Time</th><th className="px-3 py-3">Type</th><th className="px-3 py-3">Description</th><th className="px-3 py-3">Order ID / Reference</th><th className="px-3 py-3 text-right">Amount</th><th className="px-4 py-3">Status</th></tr></thead><tbody className="divide-y divide-slate-100">{visibleRows.map(row => <tr key={row.id} className="hover:bg-emerald-50/30"><td className="whitespace-nowrap px-4 py-3 text-xs text-slate-600">{row.date ? formatDate(row.date) : "—"}</td><td className="px-3 py-3"><span className="inline-flex items-center gap-2 font-medium text-slate-800">{row.type === "Wallet" ? <Wallet className="h-4 w-4 text-emerald-600"/> : row.type === "Refund" ? <ArrowDownLeft className="h-4 w-4 text-violet-600"/> : row.type === "AgriPoints Discount" ? <Gift className="h-4 w-4 text-amber-600"/> : <CreditCard className="h-4 w-4 text-sky-700"/>}{row.type}</span></td><td className="max-w-[230px] px-3 py-3 text-slate-700">{row.description}</td><td className="px-3 py-3 font-mono text-xs text-slate-600">{row.reference}</td><td className={`whitespace-nowrap px-3 py-3 text-right font-semibold tabular-nums ${row.direction === "credit" ? "text-emerald-700" : "text-rose-600"}`}>{row.direction === "credit" ? "+" : "−"}{formatPrice(row.amount)}</td><td className="px-4 py-3"><Status value={row.status}/></td></tr>)}</tbody></table></div><div className="divide-y divide-slate-100 md:hidden">{visibleRows.map(row => <div key={row.id} className="space-y-2 p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="font-semibold text-slate-900">{row.description}</p><p className="mt-1 text-xs text-slate-500">{row.type} · {row.reference}</p></div><Status value={row.status}/></div><div className="flex justify-between text-xs text-slate-500"><span>{row.date ? formatDate(row.date) : "—"}</span><strong className={row.direction === "credit" ? "text-emerald-700" : "text-rose-600"}>{row.direction === "credit" ? "+" : "−"}{formatPrice(row.amount)}</strong></div></div>)}</div></>}
         </Card>
