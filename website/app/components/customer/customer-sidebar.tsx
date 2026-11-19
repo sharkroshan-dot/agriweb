@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useMemo } from "react";
 import { usePathname } from "next/navigation";
@@ -76,6 +76,11 @@ const navGroups = [
 
 export function CustomerSidebar() {
   const pathname = usePathname();
+  const sidebarScrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    sidebarScrollRef.current?.scrollTo({ top: 0, behavior: "instant" });
+  }, [pathname]);
   const [collapsedGroups, setCollapsedGroups] = useState<string[]>([]);
   const { data: session } = useSession();
   const sessionUser = session?.user as any;
@@ -129,7 +134,7 @@ export function CustomerSidebar() {
 
   return (
     <aside className="role-sidebar hidden w-64 shrink-0 border-r border-slate-200/80 bg-white md:block">
-      <div className="sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto p-4 lg:p-5">
+      <div ref={sidebarScrollRef} className="sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto p-4 lg:p-5">
         <section aria-label="Customer profile" className="relative isolate mb-5 overflow-hidden rounded-2xl border border-emerald-900/20 bg-gradient-to-br from-emerald-950 via-emerald-800 to-green-700 p-4 text-white shadow-lg shadow-emerald-950/15">
           <div aria-hidden="true" className="pointer-events-none absolute -right-8 -top-8 h-32 w-32 rounded-full bg-white/[0.06]" />
           <div aria-hidden="true" className="pointer-events-none absolute -bottom-10 -left-8 h-28 w-28 rounded-full bg-green-300/[0.08]" />
