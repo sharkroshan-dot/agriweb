@@ -8,7 +8,7 @@ import {
   Bell, ShieldCheck, LockKeyhole, SlidersHorizontal, CreditCard, User,
   ChevronRight, Loader2, Save, KeyRound, Package, Truck, WalletCards,
   RotateCcw, Tag, MessageSquare, Mail, Smartphone, Sun, Moon, Monitor,
-  Send, Database, Eye, Download, PauseCircle, Trash2, Settings2, CheckCircle2,
+  Send, Database, Eye, Download, PauseCircle, Trash2, Settings, CheckCircle2,
 } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -221,15 +221,15 @@ export default function CustomerSettingsPage() {
         <div
           aria-hidden="true"
           className="pointer-events-none absolute inset-0 bg-cover bg-center"
-          style={{ backgroundImage: "url('/images/settings-banner.svg')" }}
+          style={{ backgroundImage: "url('/images/settings-banner.svg')", backgroundSize: "100% 100%" }}
         />
-        <div className="relative z-10 flex max-w-[72%] items-center gap-4 sm:gap-6">
-          <div className="flex h-[76px] w-[76px] shrink-0 items-center justify-center rounded-full bg-emerald-100/95 text-emerald-700 ring-4 ring-white/80 sm:h-[88px] sm:w-[88px]">
-            <Settings2 className="h-10 w-10 sm:h-12 sm:w-12" />
+        <div className="relative z-10 flex w-full max-w-[76%] items-center gap-4 sm:gap-6">
+          <div className="flex h-[68px] w-[68px] shrink-0 items-center justify-center rounded-full bg-emerald-100/95 text-emerald-700 ring-4 ring-white/80 sm:h-[88px] sm:w-[88px]">
+            <Settings className="h-9 w-9 sm:h-12 sm:w-12" strokeWidth={2.2} />
           </div>
-          <div className="min-w-0 border-l-2 border-emerald-700/25 pl-4 sm:pl-6">
-            <p className="text-3xl font-extrabold tracking-tight text-emerald-950 sm:text-4xl">{t("Settings")}</p>
-            <p className="mt-2 max-w-2xl text-sm font-medium leading-relaxed text-slate-600 sm:text-base">{t("Manage your account, notifications, security, privacy and preferences.")}</p>
+          <div className="min-w-0 border-l-2 border-emerald-700/25 py-1 pl-4 sm:pl-6">
+            <p className="text-[30px] font-extrabold leading-tight tracking-tight text-emerald-950 sm:text-[38px]">{t("Settings")}</p>
+            <p className="mt-2 max-w-2xl text-[13px] font-medium leading-relaxed text-slate-600 sm:text-[16px]">{t("Manage your account, notifications, security, privacy and preferences.")}</p>
           </div>
         </div>
       </header>
