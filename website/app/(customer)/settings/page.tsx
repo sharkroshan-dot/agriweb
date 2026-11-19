@@ -219,7 +219,7 @@ export default function CustomerSettingsPage() {
     <div className="space-y-4 px-3 py-4 sm:px-5 lg:px-6">
       <header className="relative isolate flex min-h-[132px] items-center overflow-hidden rounded-[24px] border border-emerald-100 bg-white px-5 py-4 shadow-sm sm:min-h-[140px] sm:px-8 lg:min-h-[150px]">
         <img
-          src="/images/settings-banner.svg"
+          src="/images/settings-banner.png"
           alt=""
           aria-hidden="true"
           className="pointer-events-none absolute inset-0 h-full w-full object-fill"
