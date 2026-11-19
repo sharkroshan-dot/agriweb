@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -305,7 +305,7 @@ export default function NotificationsPage() {
 
         <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm sm:p-4">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-            <div><h2 className="text-lg font-bold text-slate-900 sm:text-xl">Recent Notifications</h2></div>
+            <div><h2 className="text-lg font-bold text-slate-900 sm:text-xl">Recent Notifications</h2><p className="mt-0.5 text-xs text-slate-500">10 notifications per page · Page {currentPage} of {totalPages}</p></div>
             <label className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
               <ArrowUpDown className="h-4 w-4 text-slate-500" /><span className="sr-only">Sort notifications</span>
               <select value={sortOrder} onChange={(event) => setSortOrder(event.target.value as SortOrder)} className="bg-transparent font-semibold outline-none">
@@ -314,18 +314,27 @@ export default function NotificationsPage() {
             </label>
           </div>
 
+          <label className="mb-3 flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 focus-within:border-emerald-400">
+            <Search className="h-4 w-4 shrink-0 text-slate-400" />
+            <input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search this page by title, message or order number..." className="min-w-0 flex-1 bg-transparent text-sm text-slate-800 outline-none placeholder:text-slate-400" />
+            {searchTerm && <button type="button" onClick={() => setSearchTerm("")} className="text-xs font-semibold text-emerald-700">Clear</button>}
+          </label>
           {isLoading ? <div className="flex justify-center py-16"><div className="h-8 w-8 animate-spin rounded-full border-4 border-emerald-600 border-t-transparent" /></div>
           : isError ? <div className="rounded-xl border border-red-200 bg-red-50 p-8 text-center text-sm text-red-700">Unable to load notifications. Please refresh and try again.</div>
           : visibleNotifications.length === 0 ? <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-14 text-center">
               <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 text-emerald-700"><Inbox className="h-7 w-7" /></div>
               <h3 className="font-semibold text-slate-900">No notifications found</h3><p className="mt-1 max-w-sm text-sm text-slate-500">New updates about your account activity will appear here.</p>
             </div>
-          : <div className="divide-y divide-slate-200">
+          : <div className="space-y-2">
               {visibleNotifications.map((notification, notificationIndex) => {
                 const category = getCategory(notification);
                 const unread = !notification.isRead;
                 const Icon = category === "rewards" ? Star : categoryMeta[category].icon;
-                return <article key={notification.id} className={`group relative flex gap-3 rounded-xl px-2 py-3 transition hover:bg-emerald-50/50 sm:gap-3 sm:px-3 sm:py-3 ${selectedNotification?.id === notification.id ? "bg-emerald-50 ring-1 ring-emerald-300" : notificationIndex === 0 && !selectedNotification ? "bg-emerald-50/70" : "bg-white"}`}>
+                const groupLabel = dateGroupLabel(notification.createdAt);
+                const previousGroup = notificationIndex > 0 ? dateGroupLabel(visibleNotifications[notificationIndex - 1].createdAt) : "";
+                return <Fragment key={notification.id}>
+                  {groupLabel !== previousGroup && <div className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700">{groupLabel} · {visibleNotifications.filter((item) => dateGroupLabel(item.createdAt) === groupLabel).length} Notifications</div>}
+                  <article className={`group relative flex gap-3 rounded-xl px-2 py-2 transition hover:bg-emerald-50/50 sm:gap-3 sm:px-3 sm:py-2.5 ${selectedNotification?.id === notification.id ? "bg-emerald-50 ring-1 ring-emerald-300" : notificationIndex === 0 && !selectedNotification ? "bg-emerald-50/70" : "bg-white"}`}>
                   <div className="flex w-3 shrink-0 items-start justify-center pt-5">{unread || notificationIndex === 0 ? <span className="h-2.5 w-2.5 rounded-full bg-emerald-700" aria-label={unread ? "Unread" : "Featured notification"} /> : <span className="h-2.5 w-2.5 rounded-full bg-transparent" />}</div>
                   <button type="button" onClick={() => void openDetail(notification)} className="flex min-w-0 flex-1 items-start gap-3 text-left sm:gap-4">
                     <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full sm:h-12 sm:w-12 ${category === "rewards" ? "bg-gradient-to-br from-emerald-600 to-emerald-800 text-white shadow-sm ring-2 ring-emerald-100" : "bg-emerald-100 text-emerald-800"}`}><Icon className={`h-6 w-6 sm:h-7 sm:w-7 ${category === "rewards" ? "fill-current" : ""}`} /></span>
@@ -343,10 +352,19 @@ export default function NotificationsPage() {
                       <button type="button" onClick={() => void handleDelete(notification.id)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50"><Trash2 className="h-4 w-4" />Delete</button>
                     </div>}
                   </div>
-                </article>;
+                  </article>
+                </Fragment>;
               })}
             </div>}
-          {total > notifications.length && <p className="mt-4 text-center text-xs text-slate-500">Showing the latest {notifications.length} of {total} notifications.</p>}
+          {visibleNotifications.length > 0 && <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
+            <p className="text-xs text-slate-500">Showing {Math.min((currentPage - 1) * pageSize + 1, total)}–{Math.min(currentPage * pageSize, total)} of {total} notifications</p>
+            <div className="flex items-center gap-1">
+              <button type="button" disabled={currentPage === 1 || isLoading} onClick={() => setCurrentPage((page) => Math.max(1, page - 1))} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-2 text-xs font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"><ChevronLeft className="h-3.5 w-3.5" />Previous</button>
+              {pageNumbers.map((page, index) => <Fragment key={page}>{index > 0 && page - pageNumbers[index - 1] > 1 && <span className="px-1 text-xs text-slate-400">…</span>}<button type="button" onClick={() => setCurrentPage(page)} aria-current={currentPage === page ? "page" : undefined} className={`h-8 min-w-8 rounded-lg border px-2 text-xs font-semibold ${currentPage === page ? "border-emerald-700 bg-emerald-700 text-white" : "border-slate-200 text-slate-700 hover:bg-emerald-50"}`}>{page}</button></Fragment>)}
+              <button type="button" disabled={currentPage >= totalPages || isLoading} onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-2 text-xs font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-40">Next<ChevronRight className="h-3.5 w-3.5" /></button>
+            </div>
+          </div>}
+          {searchTerm && <p className="mt-2 text-xs text-slate-500">Search checks the currently loaded page.</p>}
         </section>
 
         <aside className="min-w-0 min-h-[520px] rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
