@@ -281,9 +281,6 @@ export default function NotificationsPage() {
             <DialogTitle className="text-lg font-semibold">
               {selectedNotification ? typeLabels[selectedNotification.type] || "Notification" : "Notification"}
             </DialogTitle>
-            <Button variant="ghost" size="icon" onClick={closeDetail}>
-              <X className="h-5 w-5" />
-            </Button>
           </DialogHeader>
           <ScrollArea className="h-[60vh]">
             {selectedNotification && (
