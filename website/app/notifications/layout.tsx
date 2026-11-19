@@ -47,7 +47,7 @@ export default function NotificationsLayout({ children }: { children: React.Reac
   return (
     <div className="flex min-h-screen flex-col">
       <AppPresence />
-      <RoleMobileNav role={role} />
+      {role !== "customer" && <RoleMobileNav role={role} />}
       <div className="flex flex-1 bg-transparent">
         {sidebar}
         <main className="site-main min-w-0 flex-1 overflow-x-hidden px-3 py-4 sm:px-5 sm:py-5 lg:px-7">
