@@ -217,11 +217,12 @@ export default function CustomerSettingsPage() {
 
   return (
     <div className="space-y-4 px-3 py-4 sm:px-5 lg:px-6">
-      <header className="relative isolate flex min-h-[164px] items-center overflow-hidden rounded-[24px] border border-emerald-100 bg-white px-5 py-6 shadow-sm sm:min-h-[184px] sm:px-8 lg:min-h-[200px]">
-        <div
+      <header className="relative isolate flex min-h-[132px] items-center overflow-hidden rounded-[24px] border border-emerald-100 bg-white px-5 py-4 shadow-sm sm:min-h-[140px] sm:px-8 lg:min-h-[150px]">
+        <img
+          src="/images/settings-banner.svg"
+          alt=""
           aria-hidden="true"
-          className="pointer-events-none absolute inset-0 bg-cover bg-center"
-          style={{ backgroundImage: "url('/images/settings-banner.svg')", backgroundSize: "100% 100%" }}
+          className="pointer-events-none absolute inset-0 h-full w-full object-fill"
         />
         <div className="relative z-10 flex w-full max-w-[76%] items-center gap-4 sm:gap-6">
           <div className="flex h-[68px] w-[68px] shrink-0 items-center justify-center rounded-full bg-emerald-100/95 text-emerald-700 ring-4 ring-white/80 sm:h-[88px] sm:w-[88px]">
