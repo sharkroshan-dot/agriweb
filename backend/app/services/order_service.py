@@ -777,30 +777,6 @@ class OrderService:
                     logger.exception("Failed to release checkout reservation for %s", product_id)
             raise OrderCreationError("Failed to save order to database")
 
-        if redeem_points:
-            try:
-                from app.api.v1.loyalty import redeem_points_for_order
-                await redeem_points_for_order(customer_id, redeem_points, order_id)
-                await order_repository.update(
-                    {"_id": ObjectId(order_id)},
-                    {"loyaltyRedemptionStatus": "redeemed", "updatedAt": datetime.utcnow()},
-                )
-            except Exception as exc:
-                # Do not leave an order active when its AgriPoints discount was not debited.
-                try:
-                    await order_repository.update(
-                        {"_id": ObjectId(order_id)},
-                        {"orderStatus": OrderStatus.CANCELLED.value, "loyaltyRedemptionStatus": "failed", "updatedAt": datetime.utcnow()},
-                    )
-                except Exception:
-                    logger.exception("Could not cancel order after AgriPoints redemption failure: %s", order_id)
-                for product_id, quantity, inventory_id in reserved_items:
-                    try:
-                        await inventory_repository.atomic_release(product_id, quantity, inventory_id=inventory_id)
-                    except Exception:
-                        logger.exception("Could not release inventory after AgriPoints redemption failure: %s", product_id)
-                raise OrderCreationError(str(exc))
-
         if selected_delivery_slot:
             # Link the confirmed checkout record to the published delivery batch.
             # Booking rows are tied to the order, so repeated checkout retries do not
@@ -830,6 +806,42 @@ class OrderService:
                 {"_id": ObjectId(data.deliverySlotId)},
                 {"lastBookingAt": datetime.utcnow()},
             )
+
+        if redeem_points:
+            try:
+                from app.api.v1.loyalty import redeem_points_for_order
+                await redeem_points_for_order(customer_id, redeem_points, order_id)
+                await order_repository.update(
+                    {"_id": ObjectId(order_id)},
+                    {"loyaltyRedemptionStatus": "redeemed", "updatedAt": datetime.utcnow()},
+                )
+            except Exception as exc:
+                # Do not leave an order active when its AgriPoints discount was not debited.
+                try:
+                    await order_repository.update(
+                        {"_id": ObjectId(order_id)},
+                        {"orderStatus": OrderStatus.CANCELLED.value, "loyaltyRedemptionStatus": "failed", "updatedAt": datetime.utcnow()},
+                    )
+                except Exception:
+                    logger.exception("Could not cancel order after AgriPoints redemption failure: %s", order_id)
+                for product_id, quantity, inventory_id in reserved_items:
+                    try:
+                        await inventory_repository.atomic_release(product_id, quantity, inventory_id=inventory_id)
+                    except Exception:
+                        logger.exception("Could not release inventory after AgriPoints redemption failure: %s", product_id)
+                try:
+                    from app.api.v1.loyalty import refund_order_points
+                    await refund_order_points(customer_id, order_id)
+                except Exception:
+                    logger.exception("Could not reverse AgriPoints debit after checkout failure for order %s", order_id)
+                try:
+                    await delivery_slot_booking_repository.update(
+                        {"orderId": ObjectId(order_id), "status": "order_linked"},
+                        {"status": "cancelled", "updatedAt": datetime.utcnow()},
+                    )
+                except Exception:
+                    logger.exception("Could not release delivery-slot booking after AgriPoints failure for order %s", order_id)
+                raise OrderCreationError(str(exc))
 
         if data.couponCode and coupon_discount > 0:
             try:
