@@ -221,7 +221,7 @@ export default function CustomerSettingsPage() {
         <div
           aria-hidden="true"
           className="pointer-events-none absolute inset-0 bg-cover bg-center"
-          style={{ backgroundImage: "url('/images/settings-banner.svg')", backgroundSize: "100% 100%" }}
+          style={{ backgroundImage: "url('/images/settings-banner.png')", backgroundSize: "100% 100%" }}
         />
         <div className="relative z-10 flex w-full max-w-[76%] items-center gap-4 sm:gap-6">
           <div className="flex h-[68px] w-[68px] shrink-0 items-center justify-center rounded-full bg-emerald-100/95 text-emerald-700 ring-4 ring-white/80 sm:h-[88px] sm:w-[88px]">
