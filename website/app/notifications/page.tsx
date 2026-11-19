@@ -258,7 +258,7 @@ export default function NotificationsPage() {
           const Icon = categoryMeta[category].icon;
           const active = selectedCategory === category;
           return (
-            <button key={category} type="button" onClick={() => { setSelectedCategory(category); setStatusFilter("all"); }}
+            <button key={category} type="button" onClick={() => { setSelectedCategory(category); setStatusFilter("all"); setCurrentPage(1); }}
               className={`inline-flex min-h-9 items-center gap-2 rounded-lg border-b-[3px] px-3 py-1.5 text-sm font-semibold transition sm:px-4 ${active ? "border-x-transparent border-t-transparent border-b-emerald-700 bg-emerald-50 text-emerald-900" : "border-x-transparent border-t-transparent border-b-transparent bg-white text-slate-700 hover:bg-emerald-50"}`}>
               <Icon className="h-4 w-4" /><span>{categoryMeta[category].shortLabel}</span>
               <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${active ? "bg-emerald-100 text-emerald-800" : "bg-emerald-100 text-emerald-800"}`}>{counts[category]}</span>
@@ -281,7 +281,7 @@ export default function NotificationsPage() {
             ] as const).map((item) => {
               const active = statusFilter === item.id && selectedCategory === "all";
               const Icon = item.icon;
-              return <button key={item.id} type="button" onClick={() => { setStatusFilter(item.id); setSelectedCategory("all"); }}
+              return <button key={item.id} type="button" onClick={() => { setStatusFilter(item.id); setSelectedCategory("all"); setCurrentPage(1); }}
                 className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition ${active ? "bg-emerald-50 text-emerald-900" : "text-slate-700 hover:bg-slate-50"}`}>
                 <span className="flex items-center gap-3"><Icon className="h-5 w-5" />{item.label}</span>
                 <span className={`rounded-full px-2.5 py-1 text-xs ${active ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-600"}`}>{item.count}</span>
@@ -308,7 +308,7 @@ export default function NotificationsPage() {
             <div><h2 className="text-lg font-bold text-slate-900 sm:text-xl">Recent Notifications</h2><p className="mt-0.5 text-xs text-slate-500">10 notifications per page · Page {currentPage} of {totalPages}</p></div>
             <label className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
               <ArrowUpDown className="h-4 w-4 text-slate-500" /><span className="sr-only">Sort notifications</span>
-              <select value={sortOrder} onChange={(event) => setSortOrder(event.target.value as SortOrder)} className="bg-transparent font-semibold outline-none">
+              <select value={sortOrder} onChange={(event) => { setSortOrder(event.target.value as SortOrder); setCurrentPage(1); }} className="bg-transparent font-semibold outline-none">
                 <option value="newest">Newest First</option><option value="oldest">Oldest First</option>
               </select>
             </label>
