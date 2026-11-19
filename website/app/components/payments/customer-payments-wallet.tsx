@@ -41,6 +41,29 @@ function rowsFrom(payload: any): any[] {
   return candidates.find(Array.isArray) || [];
 }
 
+function paymentMethodLabel(item: any): string {
+  const raw = item.paymentMethod ?? item.payment_method ?? item.method ??
+    item.paymentMode ?? item.payment_mode ?? item.gateway ?? item.provider ??
+    item.metadata?.paymentMethod ?? item.metadata?.payment_method ?? item.metadata?.method;
+  if (!raw || typeof raw !== "string") return "Payment";
+  const normalized = raw.trim().toLowerCase().replace(/[\\s-]+/g, "_");
+  const labels: Record<string, string> = {
+    cod: "Cash on Delivery (COD)",
+    cash: "Cash",
+    cash_on_delivery: "Cash on Delivery (COD)",
+    upi: "UPI",
+    razorpay: "Razorpay",
+    card: "Debit / Credit Card",
+    credit_card: "Credit Card",
+    debit_card: "Debit Card",
+    net_banking: "Net Banking",
+    netbanking: "Net Banking",
+    wallet: "Wallet",
+    agriconnect_wallet: "AgriConnect Wallet",
+  };
+  return labels[normalized] || raw.trim().replaceAll("_", " ").replace(/\\b\\w/g, value => value.toUpperCase());
+}
+
 function Status({ value }: { value: string }) {
   const status = String(value || "completed").toLowerCase();
   const label = status.replaceAll("_", " ").replace(/\b\w/g, x => x.toUpperCase());
@@ -89,19 +112,20 @@ export default function CustomerPaymentsWallet() {
   const balance = Number(wallet.balance || 0);
   const paymentRows = useMemo<Row[]>(() => rowsFrom(ledgerQuery.data).map((item: any, index: number) => {
     const description = String(item.description || item.metadata?.description || item.type || "Payment transaction");
-    const normalizedType = String(item.type || item.transactionType || "").toLowerCase();
+    const normalizedType = String(item.type || item.transactionType || item.transaction_type || "").toLowerCase();
     const isRefund = normalizedType.includes("refund") || String(item.status || "").toLowerCase().includes("refund");
     const isPoints = normalizedType.includes("point") || description.toLowerCase().includes("agripoint");
+    const method = paymentMethodLabel(item);
     return {
       id: String(item.id || item._id || item.reference || item.transactionId || item.paymentId || `payment-${index}`),
-      date: item.paymentDate || item.createdAt || item.date,
-      type: isRefund ? "Refund" : isPoints ? "AgriPoints Discount" : "Payment",
+      date: item.paymentDate || item.payment_date || item.createdAt || item.date,
+      type: isRefund ? "Refund" : isPoints ? "AgriPoints Discount" : method,
       description,
-      reference: String(item.reference || item.transactionId || item.paymentId || item.orderNumber || item.orderId || "—"),
+      reference: String(item.reference || item.transactionId || item.transaction_id || item.paymentId || item.orderNumber || item.orderId || "—"),
       amount: Number(item.amount) || 0,
       direction: String(item.direction || (isRefund ? "credit" : "debit")).toLowerCase() === "credit" ? "credit" : "debit",
       status: String(item.status || "completed").toLowerCase(),
-      method: String(item.paymentMethod || item.method || "—"),
+      method,
     };
   }), [ledgerQuery.data]);
 
