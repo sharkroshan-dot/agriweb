@@ -205,34 +205,35 @@ export default function NotificationsPage() {
 
   return (
     <main className="w-full max-w-none space-y-5">
-      <section className="relative isolate flex min-h-[140px] items-center overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-r from-white via-[#f2fff8] to-[#00643d] px-5 py-5 shadow-sm sm:min-h-[140px] sm:px-8">
+      <section className="relative isolate flex min-h-[128px] items-center overflow-hidden rounded-2xl border border-emerald-100 bg-[#effcf5] px-5 py-5 shadow-sm sm:min-h-[128px] sm:px-7">
         <svg aria-hidden="true" viewBox="0 0 1200 150" preserveAspectRatio="xMidYMid slice" className="pointer-events-none absolute inset-0 -z-10 h-full w-full">
           <defs>
-            <linearGradient id="notificationSky" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor="#ffffff"/><stop offset="43%" stopColor="#e8fff4"/><stop offset="72%" stopColor="#a9e9c8"/><stop offset="100%" stopColor="#005b37"/></linearGradient>
-            <linearGradient id="notificationField" x1="0" y1="0" x2="0" y2="1"><stop stopColor="#b7ed78"/><stop offset="1" stopColor="#159653"/></linearGradient>
-            <linearGradient id="notificationHill" x1="0" y1="0" x2="1" y2="0"><stop stopColor="#d9f7ad"/><stop offset="1" stopColor="#087a45"/></linearGradient>
+            <linearGradient id="notificationSky" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stopColor="#ffffff"/><stop offset=".38" stopColor="#f4fff9"/><stop offset=".68" stopColor="#c9f3df"/><stop offset="1" stopColor="#00623b"/></linearGradient>
+            <linearGradient id="notificationFarHill" x1="0" y1="0" x2="1" y2="1"><stop stopColor="#d5f5e3"/><stop offset="1" stopColor="#75c995"/></linearGradient>
+            <linearGradient id="notificationMidHill" x1="0" y1="0" x2="1" y2="0"><stop stopColor="#b9eaa9"/><stop offset="1" stopColor="#36a965"/></linearGradient>
+            <linearGradient id="notificationField" x1="0" y1="0" x2="0" y2="1"><stop stopColor="#b8e979"/><stop offset="1" stopColor="#4caf50"/></linearGradient>
+            <linearGradient id="notificationDarkField" x1="0" y1="0" x2="1" y2="0"><stop stopColor="#a9df67"/><stop offset="1" stopColor="#087342"/></linearGradient>
           </defs>
           <rect width="1200" height="150" fill="url(#notificationSky)"/>
-          <path d="M360 150 Q500 78 650 104 T900 84 T1200 42 V150Z" fill="#a6e8bd" opacity=".42"/>
-          <path d="M300 150 Q465 102 620 119 T900 95 T1200 66 V150Z" fill="url(#notificationHill)" opacity=".78"/><path d="M540 150 Q700 92 850 113 T1080 85 T1200 77 V150Z" fill="#7ccf8e" opacity=".35"/>
-          <path d="M230 150 Q420 112 600 132 T880 112 T1200 92 V150Z" fill="url(#notificationField)" opacity=".94"/><path d="M390 150 Q580 125 760 141 T1030 119 T1200 109" fill="none" stroke="#efffb9" strokeWidth="2" opacity=".65"/><path d="M520 150 Q700 135 850 147 T1120 129" fill="none" stroke="#d7f6a1" strokeWidth="2" opacity=".7"/>
-          <path d="M300 150 Q490 125 690 140 T1010 121 T1200 112" fill="none" stroke="#e4f8a9" strokeWidth="3" opacity=".8"/>
-          <path d="M430 150 Q590 132 760 145 T1080 130" fill="none" stroke="#d5f59c" strokeWidth="2" opacity=".8"/>
-          <g fill="#138b49"><circle cx="845" cy="110" r="8"/><circle cx="859" cy="103" r="12"/><circle cx="874" cy="111" r="9"/><circle cx="930" cy="101" r="12"/><circle cx="948" cy="91" r="19"/><circle cx="970" cy="103" r="13"/><circle cx="1018" cy="91" r="17"/><circle cx="1042" cy="78" r="25"/><circle cx="1070" cy="93" r="18"/></g><g fill="#58b96d" opacity=".9"><circle cx="853" cy="105" r="6"/><circle cx="941" cy="84" r="10"/><circle cx="1034" cy="68" r="12"/></g>
-          <g fill="#08723d"><rect x="855" y="108" width="5" height="20"/><rect x="945" y="99" width="6" height="27"/><rect x="1038" y="91" width="7" height="33"/></g>
-          <g transform="translate(1080 65)"><path d="M0 25 L30 2 L60 25 V55 H0Z" fill="#f7fff6"/><path d="M-5 25 L30 -2 L65 25" fill="none" stroke="#237b48" strokeWidth="4"/><rect x="23" y="34" width="13" height="21" fill="#77bd82"/><rect x="7" y="31" width="10" height="9" fill="#b5e6c2"/></g>
-          <g fill="#0a8545" opacity=".45"><circle cx="850" cy="112" r="8"/><circle cx="866" cy="105" r="12"/><circle cx="880" cy="113" r="8"/></g>
+          <g fill="#ffffff" opacity=".22"><ellipse cx="665" cy="22" rx="100" ry="24"/><ellipse cx="755" cy="30" rx="86" ry="20"/><ellipse cx="855" cy="12" rx="70" ry="18"/></g>
+          <path d="M390 150 C500 105 565 87 650 105 C735 123 778 78 866 84 C954 91 1002 48 1080 62 C1135 72 1168 51 1200 38 V150Z" fill="url(#notificationFarHill)" opacity=".7"/>
+          <path d="M300 150 C430 113 510 115 610 126 C715 138 780 92 880 103 C985 113 1055 72 1200 76 V150Z" fill="#a4df9a" opacity=".72"/>
+          <path d="M270 150 C420 120 545 132 665 140 C800 149 920 104 1035 112 C1110 118 1155 100 1200 91 V150Z" fill="url(#notificationMidHill)" opacity=".82"/>
+          <path d="M210 150 C370 128 470 131 590 143 C740 157 870 126 1000 130 C1090 133 1150 115 1200 110 V150Z" fill="url(#notificationField)"/>
+          <path d="M245 150 C410 130 535 142 660 148 C790 154 920 137 1050 139 C1110 140 1160 128 1200 123" fill="none" stroke="#e5f8b2" strokeWidth="3" opacity=".8"/>
+          <path d="M360 150 C505 137 625 147 760 150 M520 150 C665 141 795 150 915 150 M700 150 C820 143 930 146 1060 138" fill="none" stroke="#d4f3a0" strokeWidth="2" opacity=".85"/>
+          <path d="M800 150 C920 127 1040 126 1200 105 V150Z" fill="url(#notificationDarkField)" opacity=".62"/>
+          <g fill="#168d4b"><circle cx="875" cy="111" r="9"/><circle cx="889" cy="103" r="14"/><circle cx="905" cy="112" r="10"/><circle cx="945" cy="103" r="11"/><circle cx="961" cy="91" r="18"/><circle cx="981" cy="104" r="12"/><circle cx="1024" cy="94" r="15"/><circle cx="1045" cy="79" r="23"/><circle cx="1070" cy="94" r="17"/></g>
+          <g fill="#08713e"><path d="M885 109h6v22h-6z"/><path d="M958 101h6v30h-6z"/><path d="M1042 92h7v39h-7z"/></g>
+          <g fill="#f8fff9" stroke="#328d54" strokeWidth="2"><path d="M1085 104 L1120 77 L1155 104 V137 H1085Z"/><path d="M1079 104 L1120 72 L1161 104" fill="none" strokeWidth="4"/><rect x="1112" y="115" width="16" height="22" rx="1" fill="#9bd6a8" stroke="none"/><rect x="1094" y="110" width="12" height="11" fill="#c7edcf" stroke="none"/><rect x="1136" y="110" width="11" height="11" fill="#c7edcf" stroke="none"/></g>
+          <g fill="none" stroke="#ffffff" strokeWidth="2.8" strokeLinecap="round" opacity=".9"><path d="M1138 24v-9 M1118 30l-5-7 M1158 30l5-7 M1104 48l-8-3 M1172 48l8-3"/></g>
         </svg>
         <div className="pointer-events-none absolute inset-y-0 right-5 flex items-center sm:right-8">
-          <BellRing className="h-16 w-16 text-white/90 sm:h-[76px] sm:w-[76px]" strokeWidth={1.15}/>
-          <span className="absolute -top-1 left-1/2 h-3 w-3 -translate-x-1/2 rounded-full border-2 border-white/80"/>
+          <svg aria-hidden="true" viewBox="0 0 76 92" className="h-[76px] w-[64px] sm:h-[88px] sm:w-[74px]" fill="none"><g stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M19 39c0-13 8-23 19-23s19 10 19 23v15c0 9 5 14 8 18H11c3-4 8-9 8-18V39Z"/><path d="M31 79c2 7 12 7 14 0M38 7V1M15 14l-5-6M61 14l5-6M5 34H1M75 34h-4"/></g></svg>
         </div>
         <div className="relative z-10 flex items-center gap-4">
           <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-[#d7f9e5] text-[#087442] shadow-sm sm:h-[66px] sm:w-[66px]"><Bell className="h-8 w-8 sm:h-9 sm:w-9" /></div>
-          <div className="min-w-0">
-            <h1 className="text-2xl font-bold tracking-tight text-slate-950 sm:text-[26px]">Notifications</h1>
-            <p className="mt-1 max-w-2xl text-sm text-slate-700 sm:text-[13px]">Stay updated with your orders, deliveries, rewards and important alerts.</p>
-          </div>
+          <div className="min-w-0"><h1 className="text-2xl font-bold tracking-tight text-slate-950 sm:text-[26px]">Notifications</h1><p className="mt-1 max-w-2xl text-sm text-slate-700 sm:text-[13px]">Stay updated with your orders, deliveries, rewards and important alerts.</p></div>
         </div>
       </section>
 
