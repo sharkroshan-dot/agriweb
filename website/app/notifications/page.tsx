@@ -206,7 +206,7 @@ export default function NotificationsPage() {
   return (
     <main className="w-full max-w-none space-y-5">
       <section className="relative isolate flex min-h-[150px] items-center overflow-hidden rounded-2xl border border-emerald-100 bg-[#effcf5] px-5 py-5 shadow-sm sm:min-h-[150px] sm:px-7">
-        <svg aria-hidden="true" viewBox="0 0 1200 150" preserveAspectRatio="xMidYMid slice" className="pointer-events-none absolute inset-0 -z-10 h-full w-full">
+        <svg aria-hidden="true" viewBox="0 0 1200 150" preserveAspectRatio="none" className="pointer-events-none absolute inset-0 -z-10 h-full w-full">
           <defs>
             <linearGradient id="notificationSky" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stopColor="#ffffff"/><stop offset=".38" stopColor="#f4fff9"/><stop offset=".68" stopColor="#c9f3df"/><stop offset="1" stopColor="#00623b"/></linearGradient>
             <linearGradient id="notificationFarHill" x1="0" y1="0" x2="1" y2="1"><stop stopColor="#d5f5e3"/><stop offset="1" stopColor="#75c995"/></linearGradient>
