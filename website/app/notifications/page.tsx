@@ -50,7 +50,7 @@ const categoryStyles: Record<Category, string> = {
 function getCategory(notification: NotificationDetail): Exclude<Category, "all"> {
   const type = String(notification.type || "").toLowerCase();
   const dataType = String(notification.data?.type || notification.data?.kind || "").toLowerCase();
-  const text = \`\${notification.title || ""} \${notification.message || ""}\`.toLowerCase();
+  const text = `${notification.title || ""} ${notification.message || ""}`.toLowerCase();
   if (dataType.includes("loyalty") || dataType.includes("reward") || /agripoints|points earned|points redeemed|reward/.test(text)) return "rewards";
   if (type === "delivery") return "delivery";
   if (type === "order" || type === "payment") return "orders";
@@ -72,11 +72,11 @@ function timeAgo(value: string) {
   if (Number.isNaN(date.getTime())) return "";
   const minutes = Math.max(0, Math.floor((Date.now() - date.getTime()) / 60000));
   if (minutes < 1) return "Just now";
-  if (minutes < 60) return \`\${minutes}m ago\`;
+  if (minutes < 60) return `${minutes}m ago`;
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return \`\${hours}h ago\`;
+  if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
-  if (days < 7) return \`\${days}d ago\`;
+  if (days < 7) return `${days}d ago`;
   return date.toLocaleDateString();
 }
 
@@ -98,7 +98,7 @@ export default function NotificationsPage() {
 
   useEffect(() => {
     if (status === "unauthenticated") {
-      router.push(\`/login?callbackUrl=\${encodeURIComponent("/notifications")}\`);
+      router.push(`/login?callbackUrl=${encodeURIComponent("/notifications")}`);
     }
   }, [router, status]);
 
@@ -135,7 +135,7 @@ export default function NotificationsPage() {
 
   const markRead = async (id: string) => {
     try {
-      await api.put(\`/notifications/\${id}/read\`);
+      await api.put(`/notifications/${id}/read`);
       await refresh();
       setActionMenuId(null);
     } catch {
@@ -156,7 +156,7 @@ export default function NotificationsPage() {
 
   const handleDelete = async (id: string) => {
     try {
-      await api.delete(\`/notifications/\${id}\`);
+      await api.delete(`/notifications/${id}`);
       if (selectedNotification?.id === id) setSelectedNotification(null);
       await refresh();
       setActionMenuId(null);
@@ -184,11 +184,11 @@ export default function NotificationsPage() {
     if (!selectedNotification?.data?.invitationId) return;
     setInviteBusy(true);
     try {
-      await api.post(\`/cooperatives/invitations/\${selectedNotification.data.invitationId}/\${accept ? "accept" : "reject"}\`);
+      await api.post(`/cooperatives/invitations/${selectedNotification.data.invitationId}/${accept ? "accept" : "reject"}`);
       await refresh();
       setSelectedNotification(null);
     } catch (error: any) {
-      window.alert(error?.message || \`Could not \${accept ? "accept" : "reject"} the invitation.\`);
+      window.alert(error?.message || `Could not ${accept ? "accept" : "reject"} the invitation.`);
     } finally {
       setInviteBusy(false);
     }
@@ -227,10 +227,10 @@ export default function NotificationsPage() {
           const active = selectedCategory === category;
           return (
             <button key={category} type="button" onClick={() => setSelectedCategory(category)}
-              className={\`inline-flex min-h-11 items-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition \${active ? "border-emerald-600 bg-emerald-600 text-white shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:border-emerald-300 hover:bg-emerald-50"}\`}>
+              className={`inline-flex min-h-11 items-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition ${active ? "border-emerald-600 bg-emerald-600 text-white shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:border-emerald-300 hover:bg-emerald-50"}`}>
               <Icon className="h-4 w-4" />
               <span>{categoryMeta[category].shortLabel}</span>
-              <span className={\`rounded-full px-2 py-0.5 text-xs \${active ? "bg-white/20 text-white" : "bg-emerald-50 text-emerald-800"}\`}>{counts[category]}</span>
+              <span className={`rounded-full px-2 py-0.5 text-xs ${active ? "bg-white/20 text-white" : "bg-emerald-50 text-emerald-800"}`}>{counts[category]}</span>
             </button>
           );
         })}
@@ -257,9 +257,9 @@ export default function NotificationsPage() {
               const Icon = item.icon;
               return (
                 <button key={item.id} type="button" onClick={() => { setStatusFilter(item.id); setSelectedCategory("all"); }}
-                  className={\`flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-sm font-semibold transition \${active ? "bg-emerald-50 text-emerald-900" : "text-slate-700 hover:bg-slate-50"}\`}>
+                  className={`flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-sm font-semibold transition ${active ? "bg-emerald-50 text-emerald-900" : "text-slate-700 hover:bg-slate-50"}`}>
                   <span className="flex items-center gap-3"><Icon className="h-5 w-5" />{item.label}</span>
-                  <span className={\`rounded-full px-2.5 py-1 text-xs \${active ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-600"}\`}>{item.count}</span>
+                  <span className={`rounded-full px-2.5 py-1 text-xs ${active ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-600"}`}>{item.count}</span>
                 </button>
               );
             })}
@@ -272,7 +272,7 @@ export default function NotificationsPage() {
               const active = selectedCategory === category;
               return (
                 <button key={category} type="button" onClick={() => { setSelectedCategory(category); setStatusFilter("all"); }}
-                  className={\`flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-sm font-medium transition \${active ? "bg-emerald-50 text-emerald-900" : "text-slate-700 hover:bg-slate-50"}\`}>
+                  className={`flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-sm font-medium transition ${active ? "bg-emerald-50 text-emerald-900" : "text-slate-700 hover:bg-slate-50"}`}>
                   <span className="flex items-center gap-3"><Icon className="h-5 w-5" />{categoryMeta[category].label}</span>
                   <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600">{counts[category]}</span>
                 </button>
@@ -289,7 +289,7 @@ export default function NotificationsPage() {
               <p className="mt-1 text-xs text-slate-500">{visibleNotifications.length} shown · {unreadCount} unread</p>
             </div>
             <Button variant="outline" size="sm" onClick={() => { void refetch(); }} disabled={isFetching} className="border-slate-200">
-              <RefreshCw className={\`mr-2 h-3.5 w-3.5 \${isFetching ? "animate-spin" : ""}\`} /> Refresh
+              <RefreshCw className={`mr-2 h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} /> Refresh
             </Button>
           </div>
 
@@ -310,12 +310,12 @@ export default function NotificationsPage() {
                 const unread = !notification.isRead;
                 const Icon = categoryMeta[category].icon;
                 return (
-                  <article key={notification.id} className={\`group relative flex gap-3 rounded-xl px-3 py-4 transition hover:bg-emerald-50/50 sm:gap-4 \${unread ? "bg-emerald-50/35" : "bg-white"}\`}>
+                  <article key={notification.id} className={`group relative flex gap-3 rounded-xl px-3 py-4 transition hover:bg-emerald-50/50 sm:gap-4 ${unread ? "bg-emerald-50/35" : "bg-white"}`}>
                     <div className="flex w-3 shrink-0 items-start justify-center pt-5">
                       {unread ? <span className="h-2.5 w-2.5 rounded-full bg-emerald-700" aria-label="Unread" /> : <span className="h-2.5 w-2.5 rounded-full bg-transparent" />}
                     </div>
                     <button type="button" onClick={() => void openDetail(notification)} className="flex min-w-0 flex-1 items-start gap-3 text-left sm:gap-4">
-                      <span className={\`flex h-12 w-12 shrink-0 items-center justify-center rounded-full \${categoryStyles[category]}\`}><Icon className="h-6 w-6" /></span>
+                      <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${categoryStyles[category]}`}><Icon className="h-6 w-6" /></span>
                       <span className="min-w-0 flex-1">
                         <span className="flex flex-wrap items-center gap-2">
                           <span className="font-bold text-slate-950">{notification.title || categoryMeta[category].label}</span>
@@ -329,7 +329,7 @@ export default function NotificationsPage() {
                       </span>
                     </button>
                     <div className="relative shrink-0">
-                      <span className={\`hidden rounded-full px-3 py-1 text-xs font-semibold sm:inline-flex \${categoryStyles[category]}\`}>{categoryMeta[category].label === "System & Updates" ? "System" : categoryMeta[category].label.replace(/s$/, "")}</span>
+                      <span className={`hidden rounded-full px-3 py-1 text-xs font-semibold sm:inline-flex ${categoryStyles[category]}`}>{categoryMeta[category].label === "System & Updates" ? "System" : categoryMeta[category].label.replace(/s$/, "")}</span>
                       <button type="button" aria-label="Notification actions" title="Notification actions" onClick={() => setActionMenuId(actionMenuId === notification.id ? null : notification.id)}
                         className="ml-2 inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 hover:text-slate-900"><MoreVertical className="h-5 w-5" /></button>
                       {actionMenuId === notification.id && (
@@ -360,7 +360,7 @@ export default function NotificationsPage() {
               return (
                 <div className="space-y-4 pb-4">
                   <div className="flex items-start gap-3">
-                    <div className={\`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl \${categoryStyles[category]}\`}><NotificationIcon category={category} className="h-6 w-6" /></div>
+                    <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${categoryStyles[category]}`}><NotificationIcon category={category} className="h-6 w-6" /></div>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2"><Badge className={categoryStyles[category]}>{categoryMeta[category].label}</Badge>{!selectedNotification.isRead && <Badge className="bg-emerald-100 text-emerald-800">New</Badge>}</div>
                       <h3 className="mt-2 text-lg font-semibold text-slate-900">{selectedNotification.title}</h3>
