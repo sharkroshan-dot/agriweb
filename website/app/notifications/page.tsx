@@ -366,11 +366,67 @@ export default function NotificationsPage() {
             const statusHistory = Array.isArray(relatedOrder?.statusHistory) ? relatedOrder.statusHistory : [];
 
             const product = findValue(/productName|product/i);
-            const formatValue = (value: unknown) => typeof value === "object" ? JSON.stringify(value) : String(value);
-            const labelFor = (key: string) => key.replace(/([A-Z])/g, " $1").replace(/[_-]/g, " ").replace(/^./, (letter) => letter.toUpperCase());
+            const labelFor = (key: string) => {
+              const labels: Record<string, string> = {
+                orderNumber: "Order Number", createdAt: "Order Date", orderDate: "Order Date",
+                orderStatus: "Order Status", status: "Status", paymentStatus: "Payment Status",
+                paymentMethod: "Payment Method", deliveryType: "Delivery Method",
+                totalAmount: "Order Total", totalPrice: "Item Total", unitPrice: "Unit Price",
+                productName: "Product", quantity: "Quantity", discount: "Discount",
+                points: "AgriPoints Earned", balance: "AgriPoints Balance",
+                postalCode: "PIN Code", zipCode: "PIN Code", addressLine1: "Address",
+                addressLine2: "Address Line 2", city: "City", state: "State",
+              };
+              return labels[key] || key.replace(/([A-Z])/g, " $1").replace(/[_-]/g, " ").replace(/^./, (letter) => letter.toUpperCase());
+            };
+            const humanValue = (key: string, value: any): string => {
+              if (value === null || value === undefined || value === "") return "Not provided";
+              if (typeof value === "boolean") return value ? "Yes" : "No";
+              if (/status/i.test(key)) return String(value).replace(/[_-]/g, " ").replace(/\\b\\w/g, (letter) => letter.toUpperCase());
+              if (/paymentMethod/i.test(key)) {
+                const methods: Record<string, string> = { razorpay: "Razorpay", cash: "Cash on Delivery", cod: "Cash on Delivery", upi: "UPI", card: "Card" };
+                return methods[String(value).toLowerCase()] || String(value).replace(/[_-]/g, " ");
+              }
+              if (/deliveryType/i.test(key)) {
+                const methods: Record<string, string> = { pickup: "Customer Pickup", delivery: "Home Delivery" };
+                return methods[String(value).toLowerCase()] || String(value).replace(/[_-]/g, " ");
+              }
+              if (/(createdAt|orderDate|date|timestamp)/i.test(key)) {
+                const date = new Date(value);
+                if (!Number.isNaN(date.getTime())) return date.toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+              }
+              if (/(amount|price|total|discount)/i.test(key) && typeof value === "number") return `₹${value.toLocaleString("en-IN")}`;
+              return String(value).replace(/[_-]/g, " ");
+            };
+            const formatValue = (value: unknown) => typeof value === "object" ? "Details available below" : String(value);
             const excluded = new Set([points, balance, orderNumber, orderDate, amount, status, product].filter((value) => value !== undefined));
-            const otherEntries = detailEntries.filter(([, value]) => !excluded.has(value));
-            const DetailRows = ({ entries }: { entries: [string, any][] }) => <div className="divide-y divide-slate-100">{entries.map(([key, value]) => <div key={key} className="grid grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] gap-3 py-2.5 text-xs sm:text-sm"><span className="font-medium text-slate-500">{labelFor(key)}</span><span className="break-words text-right font-semibold text-slate-800">{formatValue(value)}</span></div>)}</div>;
+            const otherEntries = detailEntries.filter(([key, value]) =>
+              !excluded.has(value) && !["id", "_id", "trackingHistory", "tracking_history"].includes(key)
+            );
+            const flattenHumanEntries = (value: any, prefix = ""): [string, any][] => {
+              if (!value || typeof value !== "object") return prefix ? [[prefix, value]] : [];
+              if (Array.isArray(value)) {
+                if (prefix === "items" || prefix === "orderItems") {
+                  return value.flatMap((item: any, index: number) => {
+                    if (!item || typeof item !== "object") return [[`Item ${index + 1}`, item] as [string, any]];
+                    const name = item.productName || item.name || `Item ${index + 1}`;
+                    const qty = item.quantity ?? 1;
+                    const unit = item.unit || item.unitName || "";
+                    const price = item.totalPrice ?? item.price;
+                    return [[`Product ${index + 1}`, name], [`Quantity ${index + 1}`, `${qty} ${unit}`.trim()], ...(price !== undefined ? [[`Item Total ${index + 1}`, price] as [string, any]] : [])];
+                  });
+                }
+                return [];
+              }
+              return Object.entries(value).flatMap(([key, nested]) => {
+                if (["id", "_id", "trackingHistory", "tracking_history", "statusHistory"].includes(key)) return [];
+                const next = prefix ? `${prefix} — ${key}` : key;
+                if (nested && typeof nested === "object") return flattenHumanEntries(nested, next);
+                return [[next, nested] as [string, any]];
+              });
+            };
+            const humanEntries = otherEntries.flatMap(([key, value]) => flattenHumanEntries(value, key));
+            const DetailRows = ({ entries }: { entries: [string, any][] }) => <div className="divide-y divide-slate-100">{entries.map(([key, value], index) => <div key={`${key}-${index}`} className="grid grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] gap-3 py-2.5 text-xs sm:text-sm"><span className="font-medium text-slate-500">{labelFor(key)}</span><span className="break-words text-right font-semibold capitalize text-slate-800">{humanValue(key, value)}</span></div>)}</div>;
             return <div className="space-y-4">
               <div className="rounded-xl border border-emerald-100 bg-gradient-to-r from-emerald-50 via-white to-emerald-50/60 p-4">
                 <div className="flex items-start gap-3">
@@ -410,9 +466,9 @@ export default function NotificationsPage() {
                   </div>}
                 </div>
               </section>}
-              {otherEntries.length > 0 && <section className="overflow-hidden rounded-xl border border-slate-200">
+              {humanEntries.length > 0 && <section className="overflow-hidden rounded-xl border border-slate-200">
                 <h3 className="flex items-center gap-2 border-b border-slate-100 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800"><Inbox className="h-4 w-4 text-emerald-700" />Additional Information</h3>
-                <div className="px-4"><DetailRows entries={otherEntries} /></div>
+                <div className="px-4"><DetailRows entries={humanEntries} /></div>
               </section>}
               {detailEntries.length === 0 && !orderNumber && <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-500">The full notification message and received time are shown above. No additional structured details were supplied with this notification.</div>}
               {isCooperativeInvitation && <div className="flex gap-2"><Button className="flex-1" disabled={inviteBusy} onClick={() => void respondToCooperativeInvitation(true)}>Accept Invitation</Button><Button variant="outline" className="flex-1" disabled={inviteBusy} onClick={() => void respondToCooperativeInvitation(false)}>Reject</Button></div>}
