@@ -609,7 +609,7 @@ export default function CheckoutPage() {
   };
 
   const deliveryFeeValue = deliveryQuote?.fee ?? 0;
-  const platformFeeValue = Math.max(0, (displayTotal - couponDiscount) * 0.05);
+  const platformFeeValue = Math.max(0, displayTotal * 0.05);
   const estimatedTotal = Math.max(0, displayTotal - couponDiscount - agriPointsDiscount + deliveryFeeValue + platformFeeValue);
   const fastestDeliveryAvailable =
     deliveryQuote?.fastestEligible === true &&
