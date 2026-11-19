@@ -118,6 +118,9 @@ export default function CheckoutPage() {
   const [couponAppliedCode, setCouponAppliedCode] = useState("");
   const [couponError, setCouponError] = useState("");
   const [applyingCoupon, setApplyingCoupon] = useState(false);
+  const [agriPointsInput, setAgriPointsInput] = useState("");
+  const [appliedAgriPoints, setAppliedAgriPoints] = useState(0);
+  const [agriPointsError, setAgriPointsError] = useState("");
   const [stockAdjustment, setStockAdjustment] = useState<{ productId: string; requested: number; available: number } | null>(null);
   const [completedOrderId, setCompletedOrderId] = useState("");
   const [completedOrderSnapshot, setCompletedOrderSnapshot] = useState<any>(null);
@@ -217,6 +220,17 @@ export default function CheckoutPage() {
     ""
   ).trim();
 
+
+  const { data: loyaltyPointsResponse, isLoading: loyaltyPointsLoading, refetch: refetchLoyaltyPoints } = useQuery({
+    queryKey: ["checkout-agri-points"],
+    queryFn: () => api.get("/loyalty/me"),
+    enabled: status === "authenticated",
+    staleTime: 0,
+    refetchOnMount: "always",
+    retry: 1,
+  });
+  const loyaltyPointsPayload = loyaltyPointsResponse?.data ?? loyaltyPointsResponse ?? {};
+  const availableAgriPoints = Math.max(0, Number(loyaltyPointsPayload?.redeemablePoints ?? loyaltyPointsPayload?.balance ?? 0));
 
   const { data: walletInfoData } = useQuery({
     queryKey: ["customerCheckoutWallet"],
@@ -556,9 +570,47 @@ export default function CheckoutPage() {
     setCouponError("");
   };
 
+  const maxAgriPointsByOrder = Math.floor(Math.max(0, displayTotal - couponDiscount)) * 100;
+  const maxAgriPoints = Math.min(Math.floor(availableAgriPoints / 100) * 100, maxAgriPointsByOrder, 10000);
+  const effectiveAgriPoints = Math.min(appliedAgriPoints, maxAgriPoints);
+  const agriPointsDiscount = effectiveAgriPoints / 100;
+
+  const handleApplyAgriPoints = () => {
+    const points = Number(agriPointsInput);
+    setAgriPointsError("");
+    if (!Number.isInteger(points) || points <= 0) {
+      setAgriPointsError("Enter a whole number of points to redeem.");
+      return;
+    }
+    if (points % 100 !== 0) {
+      setAgriPointsError("Points must be in multiples of 100 (100 points = ₹1).");
+      return;
+    }
+    if (points > availableAgriPoints) {
+      setAgriPointsError(`You have only ${availableAgriPoints.toLocaleString("en-IN")} points available.`);
+      return;
+    }
+    if (points > maxAgriPointsByOrder) {
+      setAgriPointsError("The AgriPoints discount cannot exceed your eligible product amount.");
+      return;
+    }
+    if (points > 10000) {
+      setAgriPointsError("You can redeem up to 10,000 points per order.");
+      return;
+    }
+    setAppliedAgriPoints(points);
+    toast.success(`${points.toLocaleString("en-IN")} AgriPoints applied (₹${(points / 100).toFixed(2)} off).`);
+  };
+
+  const handleRemoveAgriPoints = () => {
+    setAppliedAgriPoints(0);
+    setAgriPointsInput("");
+    setAgriPointsError("");
+  };
+
   const deliveryFeeValue = deliveryQuote?.fee ?? 0;
   const platformFeeValue = Math.max(0, (displayTotal - couponDiscount) * 0.05);
-  const estimatedTotal = Math.max(0, displayTotal - couponDiscount + deliveryFeeValue + platformFeeValue);
+  const estimatedTotal = Math.max(0, displayTotal - couponDiscount - agriPointsDiscount + deliveryFeeValue + platformFeeValue);
   const fastestDeliveryAvailable =
     deliveryQuote?.fastestEligible === true &&
     Number(deliveryQuote?.estimatedDeliveryMinutes) <= 30 &&
@@ -665,6 +717,9 @@ export default function CheckoutPage() {
 
       if (couponAppliedCode) {
         payload.couponCode = couponAppliedCode;
+      }
+      if (effectiveAgriPoints > 0) {
+        payload.redeemPoints = effectiveAgriPoints;
       }
 
       const res = await api.post("/orders/", payload);
@@ -1630,6 +1685,38 @@ if (!cartHydrated) {
                 )}
                 {couponError && <p className="text-xs text-red-500">{couponError}</p>}
               </div>
+              <div className="rounded-xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-white p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="flex items-center gap-2 text-sm font-extrabold text-slate-900"><Coins className="h-4 w-4 text-emerald-700" /> Use AgriPoints</p>
+                    <p className="mt-1 text-xs text-slate-600">
+                      {loyaltyPointsLoading ? "Loading your points balance…" : `Available balance: ${availableAgriPoints.toLocaleString("en-IN")} points`}
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-emerald-800">100 pts = ₹1</span>
+                </div>
+                {effectiveAgriPoints > 0 ? (
+                  <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm">
+                    <span className="font-semibold text-emerald-800">{effectiveAgriPoints.toLocaleString("en-IN")} points applied</span>
+                    <span className="flex items-center gap-2 font-bold text-emerald-800">−{formatPrice(agriPointsDiscount)}
+                      <button type="button" onClick={handleRemoveAgriPoints} className="text-xs font-semibold text-slate-500 underline">Remove</button>
+                    </span>
+                  </div>
+                ) : (
+                  <div className="mt-3 flex gap-2">
+                    <Input type="number" min="100" step="100" max={maxAgriPoints}
+                      value={agriPointsInput}
+                      onChange={(event) => { setAgriPointsInput(event.target.value); setAgriPointsError(""); }}
+                      placeholder="Enter points (e.g. 500)" className="min-w-0 flex-1 bg-white"
+                      disabled={loyaltyPointsLoading || availableAgriPoints < 100 || maxAgriPoints < 100} />
+                    <Button type="button" variant="outline" size="sm" onClick={handleApplyAgriPoints}
+                      disabled={loyaltyPointsLoading || availableAgriPoints < 100 || maxAgriPoints < 100}>Apply</Button>
+                  </div>
+                )}
+                <p className="mt-2 text-[11px] text-slate-500">You can redeem up to {maxAgriPoints.toLocaleString("en-IN")} points on this order. Points are deducted only after the order is created successfully.</p>
+                {agriPointsError && <p className="mt-1 text-xs font-medium text-rose-600">{agriPointsError}</p>}
+                {!loyaltyPointsLoading && availableAgriPoints < 100 && <p className="mt-1 text-xs text-slate-500">You need at least 100 points to redeem a ₹1 discount.</p>}
+              </div>
               <div className="border-t pt-3 space-y-1.5">
                 <div className="flex justify-between text-sm">
                   <span>Product total</span>
@@ -1639,6 +1726,12 @@ if (!cartHydrated) {
                   <div className="flex justify-between text-sm text-emerald-600">
                     <span>Coupon discount</span>
                     <span>-{formatPrice(couponDiscount)}</span>
+                  </div>
+                )}
+                {agriPointsDiscount > 0 && (
+                  <div className="flex justify-between text-sm font-semibold text-emerald-700">
+                    <span>AgriPoints discount ({effectiveAgriPoints.toLocaleString("en-IN")} pts)</span>
+                    <span>−{formatPrice(agriPointsDiscount)}</span>
                   </div>
                 )}
                 <div className="flex justify-between text-sm">
