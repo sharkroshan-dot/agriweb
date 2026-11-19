@@ -205,19 +205,33 @@ export default function NotificationsPage() {
 
   return (
     <main className="w-full max-w-none space-y-5">
-      <section className="relative isolate flex min-h-[128px] items-center overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-r from-white via-emerald-50 to-emerald-900 px-5 py-5 shadow-sm sm:min-h-[142px] sm:px-8">
-        <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
-          <div className="absolute inset-y-0 left-[28%] w-[48%] bg-[radial-gradient(ellipse_at_55%_65%,rgba(190,242,100,0.42),transparent_68%)]" />
-          <div className="absolute inset-y-0 right-0 w-[55%] bg-[linear-gradient(90deg,rgba(255,255,255,0)_0%,rgba(16,185,129,0.20)_38%,rgba(0,88,54,0.96)_100%)]" />
-          <div className="absolute bottom-0 right-0 h-12 w-[75%] rounded-tl-[100%] bg-gradient-to-r from-lime-200/20 via-emerald-400/45 to-emerald-950/70" />
-          <Sprout className="absolute bottom-3 right-[29%] h-10 w-10 text-emerald-900/35" />
-          <BellRing className="absolute right-5 top-1/2 hidden h-20 w-20 -translate-y-1/2 text-white/90 sm:block lg:right-8 lg:h-24 lg:w-24" strokeWidth={1.3} />
+      <section className="relative isolate flex min-h-[104px] items-center overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-r from-white via-[#f2fff8] to-[#00643d] px-5 py-4 shadow-sm sm:min-h-[104px] sm:px-7">
+        <svg aria-hidden="true" viewBox="0 0 1200 150" preserveAspectRatio="xMidYMid slice" className="pointer-events-none absolute inset-0 -z-10 h-full w-full">
+          <defs>
+            <linearGradient id="notificationSky" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor="#ffffff"/><stop offset="43%" stopColor="#e8fff4"/><stop offset="72%" stopColor="#a9e9c8"/><stop offset="100%" stopColor="#005b37"/></linearGradient>
+            <linearGradient id="notificationField" x1="0" y1="0" x2="0" y2="1"><stop stopColor="#b7ed78"/><stop offset="1" stopColor="#159653"/></linearGradient>
+            <linearGradient id="notificationHill" x1="0" y1="0" x2="1" y2="0"><stop stopColor="#d9f7ad"/><stop offset="1" stopColor="#087a45"/></linearGradient>
+          </defs>
+          <rect width="1200" height="150" fill="url(#notificationSky)"/>
+          <path d="M420 150 Q570 76 710 108 T970 88 T1200 55 V150Z" fill="#8bdc9d" opacity=".38"/>
+          <path d="M350 150 Q540 105 700 119 T980 100 T1200 78 V150Z" fill="url(#notificationHill)" opacity=".7"/>
+          <path d="M285 150 Q470 118 640 132 T930 112 T1200 94 V150Z" fill="url(#notificationField)" opacity=".92"/>
+          <path d="M300 150 Q490 125 690 140 T1010 121 T1200 112" fill="none" stroke="#e4f8a9" strokeWidth="3" opacity=".8"/>
+          <path d="M430 150 Q590 132 760 145 T1080 130" fill="none" stroke="#d5f59c" strokeWidth="2" opacity=".8"/>
+          <g fill="#168b48"><circle cx="900" cy="100" r="10"/><circle cx="918" cy="94" r="15"/><circle cx="939" cy="102" r="11"/><circle cx="1000" cy="89" r="15"/><circle cx="1021" cy="82" r="22"/><circle cx="1047" cy="94" r="14"/></g>
+          <g fill="#08723d"><rect x="915" y="101" width="5" height="18"/><rect x="1018" y="98" width="6" height="22"/></g>
+          <g transform="translate(1080 65)"><path d="M0 25 L30 2 L60 25 V55 H0Z" fill="#f7fff6"/><path d="M-5 25 L30 -2 L65 25" fill="none" stroke="#237b48" strokeWidth="4"/><rect x="23" y="34" width="13" height="21" fill="#77bd82"/><rect x="7" y="31" width="10" height="9" fill="#b5e6c2"/></g>
+          <g fill="#0a8545" opacity=".45"><circle cx="850" cy="112" r="8"/><circle cx="866" cy="105" r="12"/><circle cx="880" cy="113" r="8"/></g>
+        </svg>
+        <div className="pointer-events-none absolute inset-y-0 right-5 flex items-center sm:right-8">
+          <BellRing className="h-16 w-16 text-white/90 sm:h-[76px] sm:w-[76px]" strokeWidth={1.15}/>
+          <span className="absolute -top-1 left-1/2 h-3 w-3 -translate-x-1/2 rounded-full border-2 border-white/80"/>
         </div>
-        <div className="flex items-center gap-4">
-          <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-800 sm:h-20 sm:w-20"><Bell className="h-8 w-8 sm:h-10 sm:w-10" /></div>
+        <div className="relative z-10 flex items-center gap-4">
+          <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-[#d7f9e5] text-[#087442] sm:h-[62px] sm:w-[62px]"><Bell className="h-8 w-8 sm:h-9 sm:w-9" /></div>
           <div className="min-w-0">
-            <h1 className="text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">Notifications</h1>
-            <p className="mt-1 max-w-2xl text-sm text-slate-700 sm:text-base">Stay updated with your orders, deliveries, rewards and important alerts.</p>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-950 sm:text-[26px]">Notifications</h1>
+            <p className="mt-1 max-w-2xl text-sm text-slate-700 sm:text-[13px]">Stay updated with your orders, deliveries, rewards and important alerts.</p>
           </div>
         </div>
       </section>
