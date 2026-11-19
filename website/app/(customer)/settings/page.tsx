@@ -217,33 +217,32 @@ export default function CustomerSettingsPage() {
 
   return (
     <div className="space-y-4 px-3 py-4 sm:px-5 lg:px-6">
-      <header className="relative isolate min-h-[132px] overflow-hidden rounded-2xl border border-emerald-100 bg-white px-5 py-5 shadow-sm sm:min-h-[148px] sm:px-7">
+      <header className="relative isolate flex min-h-[164px] items-center overflow-hidden rounded-[24px] border border-emerald-100 bg-white px-5 py-6 shadow-sm sm:min-h-[184px] sm:px-8 lg:min-h-[200px]">
         <div
           aria-hidden="true"
           className="pointer-events-none absolute inset-0 bg-cover bg-center"
           style={{ backgroundImage: "url('/images/settings-banner.svg')" }}
         />
-        <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-gradient-to-r from-white via-white/95 via-35% to-transparent" />
-        <div className="relative z-10 flex min-h-[88px] flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 items-center gap-4">
-            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-emerald-100/95 text-emerald-700 ring-4 ring-white/80">
-              <Settings2 className="h-9 w-9" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">{t("Settings")}</p>
-              <p className="mt-1 max-w-xl text-sm font-medium text-slate-700">{t("Manage your account, notifications, security, privacy and preferences.")}</p>
-            </div>
+        <div className="relative z-10 flex max-w-[72%] items-center gap-4 sm:gap-6">
+          <div className="flex h-[76px] w-[76px] shrink-0 items-center justify-center rounded-full bg-emerald-100/95 text-emerald-700 ring-4 ring-white/80 sm:h-[88px] sm:w-[88px]">
+            <Settings2 className="h-10 w-10 sm:h-12 sm:w-12" />
           </div>
-          <Button
-            onClick={saveSettings}
-            disabled={saving}
-            className="inline-flex shrink-0 items-center justify-center bg-emerald-700 px-5 text-white shadow-sm hover:bg-emerald-800 sm:self-center"
-          >
-            {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-            {t("Save Settings")}
-          </Button>
+          <div className="min-w-0 border-l-2 border-emerald-700/25 pl-4 sm:pl-6">
+            <p className="text-3xl font-extrabold tracking-tight text-emerald-950 sm:text-4xl">{t("Settings")}</p>
+            <p className="mt-2 max-w-2xl text-sm font-medium leading-relaxed text-slate-600 sm:text-base">{t("Manage your account, notifications, security, privacy and preferences.")}</p>
+          </div>
         </div>
       </header>
+      <div className="flex justify-end">
+        <Button
+          onClick={saveSettings}
+          disabled={saving}
+          className="inline-flex shrink-0 items-center justify-center bg-emerald-700 px-5 text-white shadow-sm hover:bg-emerald-800"
+        >
+          {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+          {t("Save Settings")}
+        </Button>
+      </div>
 
       <div className="grid gap-3 xl:grid-cols-[220px_minmax(0,1.35fr)_minmax(300px,1fr)]">
         <nav className={panelClass + " h-fit p-2"} aria-label="Settings sections">
