@@ -10,8 +10,6 @@ import {
   Inbox, Sprout, Star, ArrowUpDown,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
-import { ScrollArea } from "../components/ui/scroll-area";
 import { Separator } from "../components/ui/separator";
 import { Badge } from "../components/ui/badge";
 import { api } from "../lib/api/client";
@@ -236,7 +234,7 @@ export default function NotificationsPage() {
 
       {feedback && <div role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">{feedback}</div>}
 
-      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[242px_minmax(0,1fr)] 2xl:grid-cols-[242px_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(220px,0.72fr)_minmax(300px,1.05fr)_minmax(340px,1.25fr)] 2xl:grid-cols-[250px_minmax(330px,0.98fr)_minmax(380px,1.2fr)]">
         <aside className="h-fit rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm sm:p-4">
           <h2 className="mb-3 text-base font-bold text-slate-900">Notifications Overview</h2>
           <div className="space-y-1">
@@ -291,7 +289,7 @@ export default function NotificationsPage() {
                 const category = getCategory(notification);
                 const unread = !notification.isRead;
                 const Icon = category === "rewards" ? Star : categoryMeta[category].icon;
-                return <article key={notification.id} className={`group relative flex gap-3 px-2 py-3 transition hover:bg-emerald-50/50 sm:gap-4 sm:px-3 sm:py-4 ${notificationIndex === 0 ? "bg-emerald-50" : "bg-white"}`}>
+                return <article key={notification.id} className={`group relative flex gap-3 rounded-xl px-2 py-3 transition hover:bg-emerald-50/50 sm:gap-3 sm:px-3 sm:py-3 ${selectedNotification?.id === notification.id ? "bg-emerald-50 ring-1 ring-emerald-300" : notificationIndex === 0 && !selectedNotification ? "bg-emerald-50/70" : "bg-white"}`}>
                   <div className="flex w-3 shrink-0 items-start justify-center pt-5">{unread || notificationIndex === 0 ? <span className="h-2.5 w-2.5 rounded-full bg-emerald-700" aria-label={unread ? "Unread" : "Featured notification"} /> : <span className="h-2.5 w-2.5 rounded-full bg-transparent" />}</div>
                   <button type="button" onClick={() => void openDetail(notification)} className="flex min-w-0 flex-1 items-start gap-3 text-left sm:gap-4">
                     <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full sm:h-12 sm:w-12 ${category === "rewards" ? "bg-gradient-to-br from-emerald-600 to-emerald-800 text-white shadow-sm ring-2 ring-emerald-100" : "bg-emerald-100 text-emerald-800"}`}><Icon className={`h-6 w-6 sm:h-7 sm:w-7 ${category === "rewards" ? "fill-current" : ""}`} /></span>
@@ -316,29 +314,60 @@ export default function NotificationsPage() {
         </section>
       </div>
 
-      <Dialog open={Boolean(selectedNotification)} onOpenChange={(open) => { if (!open) setSelectedNotification(null); }}>
-        <DialogContent className="max-h-[85vh] max-w-2xl overflow-hidden">
-          <DialogHeader className="flex flex-row items-center justify-between gap-3"><DialogTitle className="text-lg font-semibold">Notification Details</DialogTitle>
-            <button type="button" onClick={() => setSelectedNotification(null)} aria-label="Close notification details" className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100"><X className="h-4 w-4" /></button>
-          </DialogHeader>
-          <ScrollArea className="max-h-[70vh] pr-3">
-            {selectedNotification && (() => {
-              const category = getCategory(selectedNotification);
-              return <div className="space-y-4 pb-4">
-                <div className="flex items-start gap-3"><div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${categoryStyles[category]}`}><NotificationIcon category={category} className="h-6 w-6" /></div>
-                  <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><Badge className={categoryStyles[category]}>{categoryMeta[category].label}</Badge>{!selectedNotification.isRead && <Badge className="bg-emerald-100 text-emerald-800">New</Badge>}</div><h3 className="mt-2 text-lg font-semibold text-slate-900">{selectedNotification.title}</h3></div></div>
-                <Separator /><p className="whitespace-pre-wrap text-sm leading-6 text-slate-700">{selectedNotification.message}</p>
-                <div className="flex items-center gap-2 text-sm text-slate-500"><Clock className="h-4 w-4" />Received: {timeLabel(selectedNotification.createdAt)}</div>
-                {selectedNotification.data && Object.keys(selectedNotification.data).length > 0 && <div><h4 className="mb-2 font-semibold text-slate-900">Additional Details</h4><div className="space-y-2 rounded-xl border border-slate-200 p-3">
-                  {Object.entries(selectedNotification.data).map(([key, value]) => <div key={key} className="grid grid-cols-[minmax(100px,140px)_1fr] gap-3 text-sm"><span className="font-medium capitalize text-slate-500">{key.replace(/([A-Z])/g, " $1").replace(/_/g, " ")}</span><span className="break-all text-slate-700">{typeof value === "object" ? JSON.stringify(value) : String(value)}</span></div>)}
-                </div></div>}
-                {isCooperativeInvitation && <div className="flex gap-3 border-t pt-4"><Button className="flex-1" disabled={inviteBusy} onClick={() => void respondToCooperativeInvitation(true)}>Accept Invitation</Button><Button variant="outline" className="flex-1" disabled={inviteBusy} onClick={() => void respondToCooperativeInvitation(false)}>Reject</Button></div>}
-                {selectedNotification.actionUrl && <div className="border-t pt-4"><Button className="w-full" onClick={() => { const url = selectedNotification.actionUrl!; setSelectedNotification(null); router.push(url); }}><ExternalLink className="mr-2 h-4 w-4" />{selectedNotification.actionLabel || "View Details"}</Button></div>}
-              </div>;
-            })()}
-          </ScrollArea>
-        </DialogContent>
-      </Dialog>
+        <aside className="min-w-0 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm sm:p-4 xl:sticky xl:top-4">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h2 className="flex items-center gap-2 text-lg font-bold text-slate-900"><Inbox className="h-5 w-5 text-emerald-700" />Notification Details</h2>
+            {selectedNotification && <button type="button" onClick={() => setSelectedNotification(null)} aria-label="Clear selected notification" className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100"><X className="h-4 w-4" /></button>}
+          </div>
+          {selectedNotification ? (() => {
+            const detailCategory = getCategory(selectedNotification);
+            const detailEntries = Object.entries(selectedNotification.data || {}).filter(([key, value]) =>
+              !["actionurl", "url", "invitationid", "kind", "type"].includes(key.toLowerCase()) &&
+              value !== null && value !== undefined && value !== ""
+            );
+            const rewardEntries = detailEntries.filter(([key]) => /point|reward|balance/i.test(key));
+            const orderEntries = detailEntries.filter(([key]) => /order|product|amount|quantity|status|delivery|farmer|warehouse|date|slot|tracking/i.test(key));
+            const otherEntries = detailEntries.filter(([key]) => !rewardEntries.some(([rewardKey]) => rewardKey === key) && !orderEntries.some(([orderKey]) => orderKey === key));
+            const formatValue = (value: unknown) => typeof value === "object" ? JSON.stringify(value) : String(value);
+            const labelFor = (key: string) => key.replace(/([A-Z])/g, " $1").replace(/[_-]/g, " ").replace(/^./, (letter) => letter.toUpperCase());
+            const DetailRows = ({ entries }: { entries: [string, any][] }) => <div className="divide-y divide-slate-100">{entries.map(([key, value]) => <div key={key} className="grid grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] gap-3 py-2 text-xs sm:text-sm"><span className="font-medium text-slate-500">{labelFor(key)}</span><span className="break-words text-right font-semibold text-slate-800">{formatValue(value)}</span></div>)}</div>;
+            return <div className="space-y-3">
+              <div className="rounded-xl border border-emerald-100 bg-gradient-to-r from-emerald-50 to-white p-3">
+                <div className="flex items-start gap-3">
+                  <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${detailCategory === "rewards" ? "bg-emerald-700 text-white" : "bg-emerald-100 text-emerald-800"}`}>
+                    <NotificationIcon category={detailCategory} className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="mb-1 flex flex-wrap items-center gap-2"><Badge className={categoryStyles[detailCategory]}>{categoryMeta[detailCategory].label}</Badge>{!selectedNotification.isRead && <Badge className="bg-emerald-100 text-emerald-800">Unread</Badge>}</div>
+                    <h3 className="text-sm font-bold leading-5 text-slate-950 sm:text-base">{selectedNotification.title || categoryMeta[detailCategory].label}</h3>
+                    <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-slate-700 sm:text-sm">{selectedNotification.message}</p>
+                    <p className="mt-2 flex items-center gap-1.5 text-[11px] text-slate-500"><Clock className="h-3.5 w-3.5" />{timeLabel(selectedNotification.createdAt)}</p>
+                  </div>
+                </div>
+              </div>
+              {rewardEntries.length > 0 && <div className="overflow-hidden rounded-xl border border-slate-200">
+                <h3 className="flex items-center gap-2 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-800"><Gift className="h-4 w-4 text-emerald-700" />Reward Summary</h3>
+                <div className="px-3"><DetailRows entries={rewardEntries} /></div>
+              </div>}
+              {orderEntries.length > 0 && <div className="overflow-hidden rounded-xl border border-slate-200">
+                <h3 className="flex items-center gap-2 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-800"><Package className="h-4 w-4 text-emerald-700" />Related Details</h3>
+                <div className="px-3"><DetailRows entries={orderEntries} /></div>
+              </div>}
+              {otherEntries.length > 0 && <div className="overflow-hidden rounded-xl border border-slate-200">
+                <h3 className="flex items-center gap-2 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-800"><Inbox className="h-4 w-4 text-emerald-700" />Additional Information</h3>
+                <div className="px-3"><DetailRows entries={otherEntries} /></div>
+              </div>}
+              {detailEntries.length === 0 && <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-center text-xs leading-5 text-slate-500">No additional structured information was provided with this notification. The complete message and received time are shown above.</div>}
+              {isCooperativeInvitation && <div className="flex gap-2"><Button className="flex-1" disabled={inviteBusy} onClick={() => void respondToCooperativeInvitation(true)}>Accept Invitation</Button><Button variant="outline" className="flex-1" disabled={inviteBusy} onClick={() => void respondToCooperativeInvitation(false)}>Reject</Button></div>}
+              {selectedNotification.actionUrl && <Button className="w-full" onClick={() => { const url = selectedNotification.actionUrl!; setSelectedNotification(null); router.push(url); }}><ExternalLink className="mr-2 h-4 w-4" />{selectedNotification.actionLabel || "View Details"}</Button>}
+            </div>;
+          })() : <div className="flex min-h-[320px] flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-5 py-10 text-center">
+            <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><Bell className="h-7 w-7" /></div>
+            <h3 className="font-semibold text-slate-900">Select a notification</h3>
+            <p className="mt-1 max-w-xs text-sm leading-5 text-slate-500">Choose any notification from the list to see its full message and related information here.</p>
+          </div>}
+        </aside>
+      </div>
     </main>
   );
 }
