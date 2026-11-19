@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../../lib/api/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
@@ -75,7 +75,8 @@ type ToggleKeys =
   | "monthlyReport";
 
 export default function FarmerSettingsPage() {
-  const { data: session } = useSession();
+  const { data: session, status: sessionStatus } = useSession();
+  const queryClient = useQueryClient();
   const userName = (session?.user as any)?.name || "Farmer";
   const userEmail = (session?.user as any)?.email || "";
   const accessToken = (session as any)?.accessToken;
@@ -225,29 +226,84 @@ export default function FarmerSettingsPage() {
   };
 
   const saveProfile = async () => {
+    if (!accessToken) {
+      toast.error("Your session is not ready. Please sign in again.");
+      return;
+    }
+    if (!profile.ownerName.trim() || !profile.farmName.trim()) {
+      toast.error("Full name and farm name are required.");
+      return;
+    }
+    if (profile.email && !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(profile.email.trim())) {
+      toast.error("Enter a valid email address.");
+      return;
+    }
+    if (profile.phone && !/^[+\\d][\\d\\s()-]{7,17}$/.test(profile.phone.trim())) {
+      toast.error("Enter a valid contact number.");
+      return;
+    }
+
     setSavingProfile(true);
     try {
-      const json = await api.put("/farmers/me/profile", profile);
-      if (json.success) {
-        toast.success("Farm profile saved");
-      } else {
-        toast.error(json.detail || "Failed to save");
-      }
+      const response: any = await api.put("/farmers/me/profile", {
+        ...profile,
+        ownerName: profile.ownerName.trim(),
+        farmName: profile.farmName.trim(),
+        email: profile.email.trim(),
+        phone: profile.phone.trim(),
+      });
+      if (response?.success === false) throw new Error(response?.detail || "Failed to save farm profile.");
+      await queryClient.invalidateQueries({ queryKey: ["farmerProfile"] });
+      await queryClient.refetchQueries({ queryKey: ["farmerProfile"], type: "active" });
+      toast.success("Farm profile saved successfully.");
     } catch (err: any) {
-      toast.error(err?.message || "Unable to save farm profile");
+      toast.error(err?.message || "Unable to save farm profile.");
     } finally {
       setSavingProfile(false);
     }
   };
 
   const savePrefs = async () => {
+    if (!accessToken) {
+      toast.error("Your session is not ready. Please sign in again.");
+      return;
+    }
+    const numericFields: Array<[string, string, number]> = [
+      ["delivery", "freeDeliveryRadiusKm", prefs.delivery.freeDeliveryRadiusKm],
+      ["delivery", "baseFee", prefs.delivery.baseFee],
+      ["delivery", "perKmRate", prefs.delivery.perKmRate],
+      ["delivery", "maxRadiusKm", prefs.delivery.maxRadiusKm],
+      ["delivery", "minOrderValue", prefs.delivery.minOrderValue],
+      ["payouts", "minPayout", prefs.payouts.minPayout],
+    ];
+    const invalidNumber = numericFields.find(([, , value]) => !Number.isFinite(Number(value)) || Number(value) < 0);
+    if (invalidNumber) {
+      toast.error("Delivery and payout values must be valid non-negative numbers.");
+      return;
+    }
+    if (Number(prefs.delivery.freeDeliveryRadiusKm) > Number(prefs.delivery.maxRadiusKm)) {
+      toast.error("Free delivery radius cannot exceed the maximum delivery radius.");
+      return;
+    }
+    if (prefs.payouts.ifsc && !/^[A-Za-z]{4}0[A-Za-z0-9]{6}$/.test(String(prefs.payouts.ifsc).trim())) {
+      toast.error("Enter a valid 11-character IFSC code.");
+      return;
+    }
+    if (prefs.payouts.accountNumber && !/^[0-9]{6,20}$/.test(String(prefs.payouts.accountNumber).trim())) {
+      toast.error("Enter a valid bank account number (6–20 digits).");
+      return;
+    }
+
     setSavingPrefs(true);
     try {
-      await api.put("/settings/mine", prefs);
+      const response: any = await api.put("/settings/mine", prefs);
+      if (response?.success === false) throw new Error(response?.detail || "Failed to save settings.");
+      await queryClient.invalidateQueries({ queryKey: ["farmerSettings"] });
+      await queryClient.refetchQueries({ queryKey: ["farmerSettings"], type: "active" });
       setLastSaved(new Date().toLocaleTimeString());
-      toast.success("Settings saved");
+      toast.success("Farmer preferences saved successfully.");
     } catch (err: any) {
-      toast.error(err?.message || "Failed to save settings");
+      toast.error(err?.message || "Failed to save settings.");
     } finally {
       setSavingPrefs(false);
     }
@@ -272,6 +328,8 @@ export default function FarmerSettingsPage() {
           <Button variant="outline" onClick={savePrefs} disabled={savingPrefs || settingsLoading} className="h-10 rounded-xl border-emerald-200 px-5 text-emerald-800 hover:bg-emerald-50">{savingPrefs ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}Save Preferences</Button>
         </div>
       </div>
+      {sessionStatus === "loading" && <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">Checking your farmer account session…</p>}
+      {sessionStatus === "unauthenticated" && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">Your session has expired. Sign in again to update farmer settings.</p>}
       {lastSaved && <p className="text-right text-xs text-emerald-700">Preferences saved at {lastSaved}</p>}
       {(profileError || settingsError) && <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">Some saved settings could not be loaded. Check your connection and refresh before making changes.</div>}
 
