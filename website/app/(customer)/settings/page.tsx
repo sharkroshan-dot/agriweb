@@ -14,6 +14,7 @@ import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { api } from "../../lib/api/client";
 import toast from "react-hot-toast";
+import { useTheme } from "next-themes";
 
 const NOTIFICATION_ITEMS = [
   { key: "orderUpdates", label: "Order Updates", description: "Order confirmation, preparation and dispatch updates.", icon: Package },
@@ -86,9 +87,9 @@ const iconBubble = "flex h-10 w-10 shrink-0 items-center justify-center rounded-
 export default function CustomerSettingsPage() {
   const { data: session } = useSession();
   const accessToken = (session as any)?.accessToken as string | undefined;
+  const { theme, setTheme } = useTheme();
   const [notifications, setNotifications] = useState<Record<string, boolean>>(initialNotifications);
   const [language, setLanguage] = useState("en");
-  const [theme, setTheme] = useState("system");
   const [saving, setSaving] = useState(false);
   const [pwFields, setPwFields] = useState({ current: "", next: "", confirm: "" });
   const [changingPassword, setChangingPassword] = useState(false);
@@ -100,13 +101,31 @@ export default function CustomerSettingsPage() {
   });
 
   useEffect(() => {
+    const storedLanguage = window.localStorage.getItem("agriconnect-language");
+    if (storedLanguage === "en" || storedLanguage === "ta" || storedLanguage === "hi") {
+      setLanguage(storedLanguage);
+      document.documentElement.lang = storedLanguage;
+    }
+  }, []);
+
+  useEffect(() => {
     const saved = settingsData?.data;
     if (saved?.notifications) setNotifications((current) => ({ ...current, ...saved.notifications }));
     if (saved?.preferences) {
-      setLanguage(saved.preferences.language || "en");
-      setTheme(saved.preferences.theme || "system");
+      const savedLanguage = saved.preferences.language || "en";
+      const savedTheme = saved.preferences.theme || "system";
+      setLanguage(savedLanguage);
+      setTheme(savedTheme);
+      document.documentElement.lang = savedLanguage;
+      window.localStorage.setItem("agriconnect-language", savedLanguage);
     }
   }, [settingsData?.data]);
+
+  const chooseLanguage = (value: string) => {
+    setLanguage(value);
+    document.documentElement.lang = value;
+    window.localStorage.setItem("agriconnect-language", value);
+  };
 
   const saveSettings = async () => {
     setSaving(true);
@@ -214,7 +233,7 @@ export default function CustomerSettingsPage() {
             <div className="mb-3 flex items-center gap-3 border-b border-slate-100 pb-3"><div className={iconBubble}><SlidersHorizontal className="h-5 w-5" /></div><h2 className="text-lg font-bold text-slate-950">Preferences</h2></div>
             <div className="space-y-3">
               <div><p className="mb-2 text-sm font-bold text-slate-900">Language</p><div className="grid grid-cols-3 gap-2">
-                {[["en","English"],["ta","தமிழ் (Tamil)"],["hi","हिंदी (Hindi)"]].map(([value,label]) => <button key={value} type="button" onClick={() => setLanguage(value)} className={`rounded-lg border px-2 py-2 text-xs font-semibold ${language === value ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-slate-200 text-slate-700 hover:bg-slate-50"}`}>{language === value ? "● " : "○ "}{label}</button>)}
+                {[["en","English"],["ta","தமிழ் (Tamil)"],["hi","हिंदी (Hindi)"]].map(([value,label]) => <button key={value} type="button" onClick={() => chooseLanguage(value)} className={`rounded-lg border px-2 py-2 text-xs font-semibold ${language === value ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-slate-200 text-slate-700 hover:bg-slate-50"}`}>{language === value ? "● " : "○ "}{label}</button>)}
               </div></div>
               <div><p className="mb-2 text-sm font-bold text-slate-900">Appearance</p><div className="grid grid-cols-3 gap-2">
                 {[["system","System",Monitor],["light","Light",Sun],["dark","Dark",Moon]].map(([value,label,Icon]: any) => <button key={value} type="button" onClick={() => setTheme(value)} className={`flex flex-col items-center gap-1 rounded-lg border px-2 py-2 text-xs font-semibold ${theme === value ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-slate-200 text-slate-700 hover:bg-slate-50"}`}><Icon className="h-4 w-4" />{label}</button>)}
