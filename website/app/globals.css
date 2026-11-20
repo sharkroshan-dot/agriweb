@@ -1718,3 +1718,29 @@ button { -webkit-tap-highlight-color: transparent; }
   content: none !important;
   display: none !important;
 }
+
+
+/* Keep the selected role navigation item visibly green on every role workspace. */
+.agri-site-header[data-role="farmer"] .agri-header-nav-link[aria-current="page"],
+.agri-site-header[data-role="warehouse"] .agri-header-nav-link[aria-current="page"],
+.agri-site-header[data-role="delivery"] .agri-header-nav-link[aria-current="page"],
+.agri-site-header[data-role="business"] .agri-header-nav-link[aria-current="page"],
+.agri-site-header[data-role="admin"] .agri-header-nav-link[aria-current="page"],
+.agri-site-header[data-role="farmer"] .agri-header-nav-link.is-active,
+.agri-site-header[data-role="warehouse"] .agri-header-nav-link.is-active,
+.agri-site-header[data-role="delivery"] .agri-header-nav-link.is-active,
+.agri-site-header[data-role="business"] .agri-header-nav-link.is-active,
+.agri-site-header[data-role="admin"] .agri-header-nav-link.is-active {
+  color: #ffffff !important;
+  background: #059669 !important;
+  border-color: #059669 !important;
+  box-shadow: 0 2px 6px rgba(5, 150, 105, .22) !important;
+}
+.agri-site-header[data-role="farmer"] .agri-header-nav-link:active,
+.agri-site-header[data-role="warehouse"] .agri-header-nav-link:active,
+.agri-site-header[data-role="delivery"] .agri-header-nav-link:active,
+.agri-site-header[data-role="business"] .agri-header-nav-link:active,
+.agri-site-header[data-role="admin"] .agri-header-nav-link:active {
+  color: #ffffff !important;
+  background: #047857 !important;
+}
