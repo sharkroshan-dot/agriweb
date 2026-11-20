@@ -259,7 +259,7 @@ export function Header() {
               type="search"
               name={isRoleWorkspace ? "workspaceSearch" : "search"}
               aria-label={isRoleWorkspace ? "Search workspace pages and tools" : "Search products"}
-              placeholder={isRoleWorkspace ? "Search anything (orders, products, inventory, etc.)" : "Search vegetables, fruits, grains..."}
+              placeholder={isRoleWorkspace ? "Search workspace pages and tools..." : "Search vegetables, fruits, grains..."}
               value={globalSearch}
               onChange={(event) => {
                 setGlobalSearch(event.target.value);
