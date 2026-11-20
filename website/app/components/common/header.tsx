@@ -132,7 +132,6 @@ const roleSearchItems: Record<string, HeaderLink[]> = {
     { href: "/admin/products", label: "Products" },
     { href: "/admin/orders", label: "Orders" },
     { href: "/admin/complaints", label: "Complaints" },
-    { href: "/admin/approvals", label: "Approvals" },
     { href: "/admin/finance", label: "Finance" },
     { href: "/admin/payments", label: "Payments" },
     { href: "/admin/settings", label: "System Settings" },
@@ -197,7 +196,7 @@ export function Header() {
       return;
     }
 
-    router.push(`/marketplace?search=${encodeURIComponent(query)}`);
+    router.push(`/search?q=${encodeURIComponent(query)}`);
   };
 
   useEffect(() => {
