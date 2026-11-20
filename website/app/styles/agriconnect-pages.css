@@ -1352,6 +1352,7 @@
 
 /* Homepage brand mark: use the same rounded-square A logo as the login header.
    Keep the customer navigation layout and all other header controls unchanged. */
-.agri-site-header[data-home="true"] .agri-header-brand-mark {
+.agri-site-header[data-home="true"] .agri-header-brand-mark,
+.agri-site-header[data-login="true"] .agri-header-brand-mark {
   border-radius: 9px !important;
 }
