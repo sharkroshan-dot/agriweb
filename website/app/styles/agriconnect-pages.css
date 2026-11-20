@@ -1323,9 +1323,9 @@
   color: #087f5b !important;
 }
 .agri-site-header[data-role="customer"] .agri-header-nav-link.is-active {
-  background: #fff !important;
-  color: #087f5b !important;
-  box-shadow: 0 1px 4px rgba(16,37,31,.10) !important;
+  background: linear-gradient(135deg, #07945f 0%, #04764f 100%) !important;
+  color: #fff !important;
+  box-shadow: 0 2px 7px rgba(4,120,80,.22) !important;
 }
 .agri-site-header[data-role="customer"] .agri-header-search-form {
   width: 100% !important;
