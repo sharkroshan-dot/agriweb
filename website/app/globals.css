@@ -1744,3 +1744,34 @@ button { -webkit-tap-highlight-color: transparent; }
   color: #ffffff !important;
   background: #047857 !important;
 }
+
+/* Give the role header's search field the room previously used by the
+   role-specific workspace shortcut. Keep the brand, four nav links,
+   Copilot, notifications and profile controls unchanged. */
+.agri-site-header[data-role="farmer"] .agri-header-search-form,
+.agri-site-header[data-role="warehouse"] .agri-header-search-form,
+.agri-site-header[data-role="delivery"] .agri-header-search-form,
+.agri-site-header[data-role="business"] .agri-header-search-form,
+.agri-site-header[data-role="admin"] .agri-header-search-form {
+  flex: 1 1 420px !important;
+  width: auto !important;
+  min-width: 280px !important;
+  max-width: none !important;
+}
+.agri-site-header[data-role="farmer"] .agri-site-header-actions,
+.agri-site-header[data-role="warehouse"] .agri-site-header-actions,
+.agri-site-header[data-role="delivery"] .agri-site-header-actions,
+.agri-site-header[data-role="business"] .agri-site-header-actions,
+.agri-site-header[data-role="admin"] .agri-site-header-actions {
+  gap: 10px !important;
+}
+@media (max-width: 1100px) {
+  .agri-site-header[data-role="farmer"] .agri-header-search-form,
+  .agri-site-header[data-role="warehouse"] .agri-header-search-form,
+  .agri-site-header[data-role="delivery"] .agri-header-search-form,
+  .agri-site-header[data-role="business"] .agri-header-search-form,
+  .agri-site-header[data-role="admin"] .agri-header-search-form {
+    flex: 1 1 320px !important;
+    min-width: 240px !important;
+  }
+}
