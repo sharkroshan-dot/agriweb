@@ -414,9 +414,9 @@ export function Map({
         markerInstance.addListener("mouseover", () => {
           infoWindow.open(mapInstance, markerInstance);
         });
-        markerInstance.addListener("mouseout", () => {
-          infoWindow.close();
-        });
+        // Keep the info window open while the pointer moves from the pin
+        // into the popup, so users can scroll through every order in the group.
+        // The user can dismiss it with the InfoWindow close button or open another pin.
         markerInstance.addListener("click", () => {
           infoWindow.open(mapInstance, markerInstance);
           if (onMarkerClick) onMarkerClick(marker);
