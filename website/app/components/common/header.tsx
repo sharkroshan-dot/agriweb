@@ -118,7 +118,7 @@ export function Header() {
               type="search"
               name="q"
               aria-label="Search products"
-              placeholder={!session?.user && pathname === "/" ? "Search" : "Search vegetables, fruits, grains..."}
+              placeholder="Search vegetables, fruits, grains..."
               value={globalSearch}
               onChange={(event) => setGlobalSearch(event.target.value)}
             />
