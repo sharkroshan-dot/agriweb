@@ -700,9 +700,8 @@ export default function FarmerOrdersPage() {
               <div style="font-size:11px;color:#047857;">${escapeHtml(status)} · ${escapeHtml(formatPrice(order.totalAmount))}</div>
             </div>`;
           }).join("");
-          const hoverInfo = `<div style="box-sizing:border-box;padding:10px 12px;width:320px;max-width:calc(100vw - 64px);max-height:380px;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;font-family:Arial,sans-serif;">
-            <div style="position:sticky;top:0;padding:3px 0 8px;background:#fff;font-size:13px;font-weight:700;color:#047857;border-bottom:1px solid #e2e8f0;">${escapeHtml(locationName)} · ${points.length} order${points.length === 1 ? "" : "s"}</div>
-            <div style="font-size:11px;color:#64748b;margin-top:6px;margin-bottom:3px;">Scroll to view all orders at this location</div>
+          const hoverInfo = `<div style="box-sizing:border-box;padding:4px 12px 10px;width:320px;max-width:calc(100vw - 64px);max-height:380px;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;font-family:Arial,sans-serif;">
+            <div style="font-size:11px;color:#64748b;margin:0 0 5px;">Scroll to view every order at this location</div>
             ${ordersHtml}
           </div>`;
           return {
