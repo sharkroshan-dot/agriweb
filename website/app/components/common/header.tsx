@@ -55,7 +55,8 @@ export function Header() {
   const roleLabel = role ? roleLabels[role] || "Workspace" : null;
   const userLabel = (session?.user?.name || session?.user?.email || "Account").trim();
   const canSearchProducts = !session?.user || role === "customer";
-  const useCustomerHeaderStyle = role === "customer" || (!session?.user && (pathname === "/" || pathname === "/login" || pathname === "/register"));
+  // Use one consistent public navigation layout across every authenticated role and guest route.
+  const useCustomerHeaderStyle = true;
   const { items: wishlistItems } = useWishlist();
   const cartCount = useCartStore((s: any) =>
     s.items.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0)
@@ -86,7 +87,7 @@ export function Header() {
       <div className={`agri-site-header-inner${canSearchProducts ? " has-product-search" : ""}`}>
         <div className="agri-site-header-leading">
           <Link href="/" className="agri-header-brand" aria-label="AgriConnect home">
-            <span className="agri-header-brand-mark" aria-hidden="true">{pathname === "/" ? "A" : role === "customer" ? <Leaf className="h-6 w-6" /> : "A"}</span>
+            <span className="agri-header-brand-mark" aria-hidden="true">"A"</span>
             <span className="agri-header-brand-copy">
               <span className="agri-header-brand-name">AgriConnect</span>
               <span className="agri-header-brand-tagline">Fresh daily · Farm to home</span>
