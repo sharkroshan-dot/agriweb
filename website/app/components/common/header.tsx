@@ -55,6 +55,7 @@ export function Header() {
   const roleLabel = role ? roleLabels[role] || "Workspace" : null;
   const userLabel = (session?.user?.name || session?.user?.email || "Account").trim();
   const canSearchProducts = !session?.user || role === "customer";
+  const useCustomerHeaderStyle = role === "customer" || (!session?.user && pathname === "/");
   const { items: wishlistItems } = useWishlist();
   const cartCount = useCartStore((s: any) =>
     s.items.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0)
@@ -94,7 +95,7 @@ export function Header() {
         </div>
 
         <nav
-          className={`agri-header-navigation${role === "customer" ? " flex items-center justify-center gap-1 rounded-full border border-emerald-100 bg-emerald-50/60 p-1" : ""}`}
+          className={`agri-header-navigation${useCustomerHeaderStyle ? " flex items-center justify-center gap-1 rounded-full border border-emerald-100 bg-emerald-50/60 p-1" : ""}`}
           aria-label="Main navigation"
         >
           {primaryLinks.map((item) => (
@@ -102,7 +103,7 @@ export function Header() {
               key={item.href}
               href={item.href}
               aria-current={isActive(item.href) ? "page" : undefined}
-              className={`agri-header-nav-link${isActive(item.href) ? " is-active" : ""}${role === "customer" ? " rounded-full px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-white hover:text-emerald-800" : ""}${role === "customer" && isActive(item.href) ? " bg-white text-emerald-800 shadow-sm" : ""}`}
+              className={`agri-header-nav-link${isActive(item.href) ? " is-active" : ""}${useCustomerHeaderStyle ? " rounded-full px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-white hover:text-emerald-800" : ""}${useCustomerHeaderStyle && isActive(item.href) ? " bg-white text-emerald-800 shadow-sm" : ""}`}
             >
               {item.label}
             </Link>
