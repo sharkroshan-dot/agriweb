@@ -81,7 +81,7 @@ export function Header() {
     href === "/" ? pathname === "/" : pathname === href || pathname?.startsWith(`${href}/`);
 
   return (
-    <header className="agri-site-header" data-role={role || "guest"}>
+    <header className="agri-site-header" data-role={role || "guest"} data-home={pathname === "/" ? "true" : "false"}>
       <div className={`agri-site-header-inner${canSearchProducts ? " has-product-search" : ""}`}>
         <div className="agri-site-header-leading">
           <Link href="/" className="agri-header-brand" aria-label="AgriConnect home">
