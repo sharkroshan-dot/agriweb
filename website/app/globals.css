@@ -1775,3 +1775,147 @@ button { -webkit-tap-highlight-color: transparent; }
     min-width: 240px !important;
   }
 }
+
+/* Compact authenticated role header to match the supplied reference proportions. */
+.agri-site-header[data-role="farmer"] .agri-site-header-inner,
+.agri-site-header[data-role="warehouse"] .agri-site-header-inner,
+.agri-site-header[data-role="delivery"] .agri-site-header-inner,
+.agri-site-header[data-role="business"] .agri-site-header-inner,
+.agri-site-header[data-role="admin"] .agri-site-header-inner {
+  min-height: 62px !important;
+  padding: 7px clamp(12px, 1.4vw, 22px) !important;
+  gap: clamp(8px, 1vw, 15px) !important;
+}
+.agri-site-header[data-role="farmer"] .agri-header-brand-mark,
+.agri-site-header[data-role="warehouse"] .agri-header-brand-mark,
+.agri-site-header[data-role="delivery"] .agri-header-brand-mark,
+.agri-site-header[data-role="business"] .agri-header-brand-mark,
+.agri-site-header[data-role="admin"] .agri-header-brand-mark {
+  width: 38px !important;
+  height: 38px !important;
+  flex-basis: 38px !important;
+  border-radius: 10px !important;
+  font-size: 21px !important;
+}
+.agri-site-header[data-role="farmer"] .agri-header-brand,
+.agri-site-header[data-role="warehouse"] .agri-header-brand,
+.agri-site-header[data-role="delivery"] .agri-header-brand,
+.agri-site-header[data-role="business"] .agri-header-brand,
+.agri-site-header[data-role="admin"] .agri-header-brand {
+  gap: 8px !important;
+}
+.agri-site-header[data-role="farmer"] .agri-header-brand-name,
+.agri-site-header[data-role="warehouse"] .agri-header-brand-name,
+.agri-site-header[data-role="delivery"] .agri-header-brand-name,
+.agri-site-header[data-role="business"] .agri-header-brand-name,
+.agri-site-header[data-role="admin"] .agri-header-brand-name {
+  font-size: 14px !important;
+}
+.agri-site-header[data-role="farmer"] .agri-header-brand-tagline,
+.agri-site-header[data-role="warehouse"] .agri-header-brand-tagline,
+.agri-site-header[data-role="delivery"] .agri-header-brand-tagline,
+.agri-site-header[data-role="business"] .agri-header-brand-tagline,
+.agri-site-header[data-role="admin"] .agri-header-brand-tagline {
+  font-size: 8px !important;
+}
+.agri-site-header[data-role="farmer"] .agri-header-navigation,
+.agri-site-header[data-role="warehouse"] .agri-header-navigation,
+.agri-site-header[data-role="delivery"] .agri-header-navigation,
+.agri-site-header[data-role="business"] .agri-header-navigation,
+.agri-site-header[data-role="admin"] .agri-header-navigation {
+  flex: 0 1 390px !important;
+  gap: 2px !important;
+  padding: 3px !important;
+  border-radius: 11px !important;
+}
+.agri-site-header[data-role="farmer"] .agri-header-nav-link,
+.agri-site-header[data-role="warehouse"] .agri-header-nav-link,
+.agri-site-header[data-role="delivery"] .agri-header-nav-link,
+.agri-site-header[data-role="business"] .agri-header-nav-link,
+.agri-site-header[data-role="admin"] .agri-header-nav-link {
+  min-height: 34px !important;
+  padding: 7px 10px !important;
+  border-radius: 8px !important;
+  font-size: 11px !important;
+  font-weight: 650 !important;
+}
+.agri-site-header[data-role="farmer"] .agri-header-search-form,
+.agri-site-header[data-role="warehouse"] .agri-header-search-form,
+.agri-site-header[data-role="delivery"] .agri-header-search-form,
+.agri-site-header[data-role="business"] .agri-header-search-form,
+.agri-site-header[data-role="admin"] .agri-header-search-form {
+  flex: 1 1 360px !important;
+  min-width: 190px !important;
+  min-height: 36px !important;
+  height: 36px !important;
+  max-width: none !important;
+  border-radius: 9px !important;
+}
+.agri-site-header[data-role="farmer"] .agri-header-search-form input,
+.agri-site-header[data-role="warehouse"] .agri-header-search-form input,
+.agri-site-header[data-role="delivery"] .agri-header-search-form input,
+.agri-site-header[data-role="business"] .agri-header-search-form input,
+.agri-site-header[data-role="admin"] .agri-header-search-form input {
+  min-height: 34px !important;
+  height: 34px !important;
+  padding-inline: 10px !important;
+  font-size: 11px !important;
+}
+.agri-site-header[data-role="farmer"] .agri-header-search-form button,
+.agri-site-header[data-role="warehouse"] .agri-header-search-form button,
+.agri-site-header[data-role="delivery"] .agri-header-search-form button,
+.agri-site-header[data-role="business"] .agri-header-search-form button,
+.agri-site-header[data-role="admin"] .agri-header-search-form button {
+  min-height: 30px !important;
+  height: 30px !important;
+  padding-inline: 11px !important;
+  font-size: 11px !important;
+}
+.agri-site-header[data-role="farmer"] .agri-site-header-actions,
+.agri-site-header[data-role="warehouse"] .agri-site-header-actions,
+.agri-site-header[data-role="delivery"] .agri-site-header-actions,
+.agri-site-header[data-role="business"] .agri-site-header-actions,
+.agri-site-header[data-role="admin"] .agri-site-header-actions {
+  gap: 7px !important;
+}
+.agri-site-header[data-role="farmer"] .agri-header-utility > button,
+.agri-site-header[data-role="warehouse"] .agri-header-utility > button,
+.agri-site-header[data-role="delivery"] .agri-header-utility > button,
+.agri-site-header[data-role="business"] .agri-header-utility > button,
+.agri-site-header[data-role="admin"] .agri-header-utility > button {
+  min-height: 34px !important;
+  padding: 6px 9px !important;
+  font-size: 11px !important;
+}
+.agri-site-header[data-role="farmer"] .agri-header-profile-trigger,
+.agri-site-header[data-role="farmer"] .agri-header-avatar,
+.agri-site-header[data-role="warehouse"] .agri-header-profile-trigger,
+.agri-site-header[data-role="warehouse"] .agri-header-avatar,
+.agri-site-header[data-role="delivery"] .agri-header-profile-trigger,
+.agri-site-header[data-role="delivery"] .agri-header-avatar,
+.agri-site-header[data-role="business"] .agri-header-profile-trigger,
+.agri-site-header[data-role="business"] .agri-header-avatar,
+.agri-site-header[data-role="admin"] .agri-header-profile-trigger,
+.agri-site-header[data-role="admin"] .agri-header-avatar {
+  width: 34px !important;
+  height: 34px !important;
+  min-width: 34px !important;
+  font-size: 13px !important;
+}
+@media (max-width: 1280px) {
+  .agri-site-header[data-role="farmer"] .agri-header-navigation,
+  .agri-site-header[data-role="warehouse"] .agri-header-navigation,
+  .agri-site-header[data-role="delivery"] .agri-header-navigation,
+  .agri-site-header[data-role="business"] .agri-header-navigation,
+  .agri-site-header[data-role="admin"] .agri-header-navigation {
+    flex-basis: 340px !important;
+  }
+  .agri-site-header[data-role="farmer"] .agri-header-search-form,
+  .agri-site-header[data-role="warehouse"] .agri-header-search-form,
+  .agri-site-header[data-role="delivery"] .agri-header-search-form,
+  .agri-site-header[data-role="business"] .agri-header-search-form,
+  .agri-site-header[data-role="admin"] .agri-header-search-form {
+    flex-basis: 260px !important;
+    min-width: 160px !important;
+  }
+}
