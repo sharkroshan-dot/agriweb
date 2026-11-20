@@ -130,7 +130,7 @@ export function Header() {
 
         <div className="agri-site-header-actions">
           {!session?.user ? (
-            <><span className="agri-header-action-divider" aria-hidden="true" /><Link href="/login" className="agri-header-sign-in">Sign in</Link></>
+            <><span className="agri-header-action-divider" aria-hidden="true" /><Link href={pathname === "/login" ? "/register" : "/login"} className="agri-header-sign-in">{pathname === "/login" ? "Sign up" : "Sign in"}</Link></>
           ) : (
             <>
               {roleLabel && (
