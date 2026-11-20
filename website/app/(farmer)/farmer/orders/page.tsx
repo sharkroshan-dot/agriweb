@@ -81,7 +81,9 @@ function MapWithMarkers({ markers }: { markers: { id: string; lat: number; lng: 
       markers={markers.map((m) => ({
         ...m,
         color: "#059669",
-        label: String(m.orderCount || 1),
+        // Render the grouped order count in a readable badge above the map pin.
+        displayLabel: `${m.orderCount || 1} order${(m.orderCount || 1) === 1 ? "" : "s"}`,
+        label: undefined,
       }))}
       drawRoute={false}
       onMarkerClick={(m: any) => {
