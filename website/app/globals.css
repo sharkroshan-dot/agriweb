@@ -1562,8 +1562,9 @@ button { -webkit-tap-highlight-color: transparent; }
   font-size: 13px !important;
 }
 
-/* Consistent AgriConnect lettermark across every role and public page. */
-.agri-site-header .agri-header-brand-mark {
+/* Keep the A lettermark styling on the customer and public headers only. */
+.agri-site-header[data-role="customer"] .agri-header-brand-mark,
+.agri-site-header[data-role="guest"] .agri-header-brand-mark {
   color: #ffffff !important;
   font-family: Arial, Helvetica, sans-serif !important;
   font-size: 25px !important;
@@ -1574,8 +1575,10 @@ button { -webkit-tap-highlight-color: transparent; }
   text-shadow: none !important;
   text-decoration: none !important;
 }
-.agri-site-header .agri-header-brand-mark::before,
-.agri-site-header .agri-header-brand-mark::after {
+.agri-site-header[data-role="customer"] .agri-header-brand-mark::before,
+.agri-site-header[data-role="customer"] .agri-header-brand-mark::after,
+.agri-site-header[data-role="guest"] .agri-header-brand-mark::before,
+.agri-site-header[data-role="guest"] .agri-header-brand-mark::after {
   content: none !important;
   display: none !important;
 }
