@@ -304,6 +304,17 @@ export function Header() {
               )}
 
               <span className="agri-header-action-divider" aria-hidden="true" />
+              {isRoleWorkspace && (
+                <Link
+                  href={dashboardHref}
+                  className="agri-header-workspace"
+                  aria-label={`Open ${roleLabel} Workspace`}
+                  title={`Open ${roleLabel} Workspace`}
+                >
+                  <LayoutDashboard className="h-4 w-4" aria-hidden="true" />
+                  <span>{roleLabel} Workspace</span>
+                </Link>
+              )}
               <div className="agri-header-utility"><AICopilot /></div>
               <div className="agri-header-utility"><NotificationBell /></div>
 
