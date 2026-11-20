@@ -1562,125 +1562,43 @@ button { -webkit-tap-highlight-color: transparent; }
   font-size: 13px !important;
 }
 
-/* Homepage guest navigation: reference-image styling at customer-header scale.
-   Existing logo artwork, brand copy, labels and link behavior remain unchanged. */
+/* Public homepage header shell. Inner navigation and link states use the exact
+   customer-header classes from Header.tsx; only the outer shell is page-specific. */
 .agri-site-header[data-role="guest"][data-home="true"] {
-  height: 76px !important;
   min-height: 76px !important;
+  height: 76px !important;
   padding: 8px 12px !important;
-  background: #006341 !important;
   display: flex !important;
   align-items: center !important;
+  background: #006341 !important;
 }
 .agri-site-header[data-role="guest"][data-home="true"] .agri-site-header-inner {
   width: 100% !important;
   max-width: 1720px !important;
-  height: 60px !important;
   min-height: 60px !important;
+  height: 60px !important;
   margin: 0 auto !important;
-  padding: 6px clamp(16px, 2.5vw, 36px) !important;
-  display: flex !important;
-  align-items: center !important;
-  gap: clamp(12px, 1.7vw, 26px) !important;
+  padding: 6px clamp(16px, 2vw, 30px) !important;
   border: 1px solid #e2e8f0 !important;
   border-radius: 18px !important;
   background: #fff !important;
   box-shadow: 0 3px 12px rgba(3, 36, 24, .12) !important;
 }
-.agri-site-header[data-role="guest"][data-home="true"] .agri-site-header-leading {
-  flex: 0 0 auto !important;
-  min-width: max-content !important;
+.agri-site-header[data-role="guest"][data-home="true"] .agri-header-leading {
   padding-right: clamp(12px, 1.7vw, 26px) !important;
   border-right: 1px solid #dbe4e8 !important;
-}
-.agri-site-header[data-role="guest"][data-home="true"] .agri-header-brand {
-  gap: 10px !important;
-}
-.agri-site-header[data-role="guest"][data-home="true"] .agri-header-brand-mark {
-  width: 46px !important;
-  height: 46px !important;
-  flex: 0 0 46px !important;
-}
-.agri-site-header[data-role="guest"][data-home="true"] .agri-header-brand-name {
-  font-size: 17px !important;
-  line-height: 1.15 !important;
-}
-.agri-site-header[data-role="guest"][data-home="true"] .agri-header-brand-tagline {
-  font-size: 9px !important;
-  line-height: 1.2 !important;
-  white-space: nowrap !important;
 }
 .agri-site-header[data-role="guest"][data-home="true"] .agri-header-navigation {
   flex: 1 1 auto !important;
   min-width: max-content !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  gap: clamp(2px, .55vw, 9px) !important;
-  padding: 0 !important;
-  border: 0 !important;
-  border-radius: 0 !important;
-  background: transparent !important;
-}
-.agri-site-header[data-role="guest"][data-home="true"] .agri-header-nav-link {
-  min-height: 42px !important;
-  padding: 10px clamp(12px, 1.4vw, 22px) !important;
-  border-radius: 14px !important;
-  color: #17231e !important;
-  font-size: 14px !important;
-  font-weight: 700 !important;
-  line-height: 1.2 !important;
-  white-space: nowrap !important;
-}
-.agri-site-header[data-role="guest"][data-home="true"] .agri-header-nav-link.is-active {
-  background: #e1f6ec !important;
-  color: #087a3e !important;
 }
 .agri-site-header[data-role="guest"][data-home="true"] .agri-header-search-form {
-  flex: 1 1 320px !important;
-  min-width: 220px !important;
+  flex: 1 1 280px !important;
   max-width: 480px !important;
-  height: 44px !important;
-  min-height: 44px !important;
-  display: flex !important;
-  align-items: center !important;
-  gap: 8px !important;
-  padding: 3px 4px 3px 13px !important;
-  border: 1px solid #d5e0e8 !important;
-  border-radius: 14px !important;
-  background: #fff !important;
-}
-.agri-site-header[data-role="guest"][data-home="true"] .agri-header-search-form input {
-  min-width: 0 !important;
-  height: 36px !important;
-  min-height: 36px !important;
-  font-size: 13px !important;
-}
-.agri-site-header[data-role="guest"][data-home="true"] .agri-header-search-form button {
-  height: 38px !important;
-  min-height: 38px !important;
-  padding: 0 17px !important;
-  border-radius: 11px !important;
-  background: #078b45 !important;
-  color: #fff !important;
-  font-size: 13px !important;
-  font-weight: 700 !important;
 }
 .agri-site-header[data-role="guest"][data-home="true"] .agri-site-header-actions {
-  flex: 0 0 auto !important;
   padding-left: clamp(10px, 1.3vw, 20px) !important;
   border-left: 1px solid #dbe4e8 !important;
-}
-.agri-site-header[data-role="guest"][data-home="true"] .agri-header-sign-in {
-  min-width: 86px !important;
-  height: 42px !important;
-  min-height: 42px !important;
-  padding: 0 18px !important;
-  border-radius: 12px !important;
-  background: #078b45 !important;
-  color: #fff !important;
-  font-size: 13px !important;
-  font-weight: 700 !important;
 }
 @media (max-width: 900px) {
   .agri-site-header[data-role="guest"][data-home="true"] {
@@ -1691,7 +1609,6 @@ button { -webkit-tap-highlight-color: transparent; }
     height: auto !important;
     min-height: 60px !important;
     flex-wrap: wrap !important;
-    gap: 8px 12px !important;
   }
   .agri-site-header[data-role="guest"][data-home="true"] .agri-header-navigation {
     order: 3 !important;
@@ -1706,17 +1623,6 @@ button { -webkit-tap-highlight-color: transparent; }
 @media (max-width: 560px) {
   .agri-site-header[data-role="guest"][data-home="true"] .agri-site-header-inner {
     padding: 8px 10px !important;
-  }
-  .agri-site-header[data-role="guest"][data-home="true"] .agri-header-brand-mark {
-    width: 40px !important;
-    height: 40px !important;
-    flex-basis: 40px !important;
-  }
-  .agri-site-header[data-role="guest"][data-home="true"] .agri-header-brand-name {
-    font-size: 15px !important;
-  }
-  .agri-site-header[data-role="guest"][data-home="true"] .agri-header-brand-tagline {
-    font-size: 8px !important;
   }
   .agri-site-header[data-role="guest"][data-home="true"] .agri-header-search-form {
     order: 4 !important;
