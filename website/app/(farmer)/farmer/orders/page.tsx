@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CheckCircle, XCircle, Truck, Package, Eye, MoreVertical, RefreshCw, Store, ShoppingBag, Clock, UserCheck, Navigation, X, User, Star, Phone, Map as MapIcon, MapPin, Search } from "lucide-react";
+import { ArrowLeft, CheckCircle, XCircle, Truck, Package, Eye, MoreVertical, RefreshCw, Store, ShoppingBag, Clock, UserCheck, Navigation, X, User, Star, Phone, Map as MapIcon, MapPin, Search } from "lucide-react";
 import { Card, CardContent } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
 import { Badge } from "../../../components/ui/badge";
@@ -363,23 +363,15 @@ export default function FarmerOrdersPage() {
 
   return (
     <div className="farmer-orders-page w-full min-w-0 space-y-5 pb-8">
-      <section className="flex flex-col gap-4 rounded-xl border border-slate-200 border-l-4 border-l-emerald-600 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-6">
+      <section className="flex min-h-[132px] flex-col gap-5 rounded-xl border border-slate-200 border-l-[5px] border-l-emerald-600 bg-white px-6 py-6 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:px-7 sm:py-7">
         <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-700">Farmer workspace</p>
-          <h1 className="mt-0.5 text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">Customer Orders</h1>
-          <p className="mt-1 text-sm text-slate-500">Manage customer orders, fulfillment and delivery from one place.</p>
+          <p className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-700">Farmer workspace</p>
+          <h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">Customer Orders</h1>
+          <p className="mt-2 text-base text-slate-600">Manage customer orders, fulfillment and delivery from one place.</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-          <Badge variant="outline" className="h-9 bg-slate-50 px-3 text-sm font-semibold text-slate-700">
-            {orderList.length} total orders
-          </Badge>
-          <Button variant="outline" className="h-9" onClick={() => { refetch(); availabilityQuery.refetch(); }} aria-label="Refresh orders">
-            <RefreshCw className="mr-2 h-4 w-4" />Refresh
-          </Button>
-          <Button asChild className="h-9 bg-emerald-700 hover:bg-emerald-800">
-            <Link href="/farmer/order-map"><Navigation className="mr-2 h-4 w-4" />Order Map</Link>
-          </Button>
-        </div>
+        <Button asChild variant="outline" className="h-11 shrink-0 border-slate-200 px-5 text-slate-700 shadow-sm hover:bg-slate-50">
+          <Link href="/farmer/dashboard"><ArrowLeft className="mr-2 h-4 w-4" />Orders</Link>
+        </Button>
       </section>
 
       <section className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
