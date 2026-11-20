@@ -66,7 +66,7 @@ function MapWithMarkers({ markers }: { markers: { id: string; lat: number; lng: 
 
   if (markers.length === 0) {
     return (
-      <div className="flex h-[250px] w-full flex-col items-center justify-center rounded-lg border border-dashed text-center">
+      <div className="flex h-[420px] w-full flex-col items-center justify-center rounded-lg border border-dashed text-center">
         <MapIcon className="h-8 w-8 text-gray-300" />
         <p className="mt-2 text-sm font-medium text-gray-500">No order locations to show</p>
       </div>
@@ -75,7 +75,7 @@ function MapWithMarkers({ markers }: { markers: { id: string; lat: number; lng: 
 
   return (
     <Map
-      height="250px"
+      height="420px"
       zoom={markers.length === 1 ? 11 : 9}
       center={markers.length > 0 ? { lat: markers[0].lat, lng: markers[0].lng } : undefined}
       markers={markers.map((m) => ({
