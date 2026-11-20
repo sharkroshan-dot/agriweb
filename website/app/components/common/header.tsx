@@ -87,7 +87,7 @@ export function Header() {
       <div className={`agri-site-header-inner${canSearchProducts ? " has-product-search" : ""}`}>
         <div className="agri-site-header-leading">
           <Link href="/" className="agri-header-brand" aria-label="AgriConnect home">
-            <span className="agri-header-brand-mark" aria-hidden="true">"A"</span>
+            <span className="agri-header-brand-mark" aria-hidden="true">A</span>
             <span className="agri-header-brand-copy">
               <span className="agri-header-brand-name">AgriConnect</span>
               <span className="agri-header-brand-tagline">Fresh daily · Farm to home</span>
