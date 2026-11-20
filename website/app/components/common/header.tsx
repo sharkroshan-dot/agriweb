@@ -55,7 +55,7 @@ export function Header() {
   const roleLabel = role ? roleLabels[role] || "Workspace" : null;
   const userLabel = (session?.user?.name || session?.user?.email || "Account").trim();
   const canSearchProducts = !session?.user || role === "customer";
-  const useCustomerHeaderStyle = role === "customer" || (!session?.user && pathname === "/");
+  const useCustomerHeaderStyle = role === "customer" || (!session?.user && (pathname === "/" || pathname === "/login"));
   const { items: wishlistItems } = useWishlist();
   const cartCount = useCartStore((s: any) =>
     s.items.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0)
@@ -82,7 +82,7 @@ export function Header() {
     href === "/" ? pathname === "/" : pathname === href || pathname?.startsWith(`${href}/`);
 
   return (
-    <header className="agri-site-header" data-role={useCustomerHeaderStyle ? "customer" : role || "guest"} data-home={pathname === "/" ? "true" : "false"}>
+    <header className="agri-site-header" data-role={useCustomerHeaderStyle ? "customer" : role || "guest"} data-home={pathname === "/" ? "true" : "false"} data-login={pathname === "/login" ? "true" : "false"}>
       <div className={`agri-site-header-inner${canSearchProducts ? " has-product-search" : ""}`}>
         <div className="agri-site-header-leading">
           <Link href="/" className="agri-header-brand" aria-label="AgriConnect home">
