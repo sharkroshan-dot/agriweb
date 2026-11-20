@@ -55,7 +55,7 @@ export function Header() {
   const roleLabel = role ? roleLabels[role] || "Workspace" : null;
   const userLabel = (session?.user?.name || session?.user?.email || "Account").trim();
   const canSearchProducts = !session?.user || role === "customer";
-  const useCustomerHeaderStyle = role === "customer" || (!session?.user && (pathname === "/" || pathname === "/login"));
+  const useCustomerHeaderStyle = role === "customer" || (!session?.user && (pathname === "/" || pathname === "/login" || pathname === "/register"));
   const { items: wishlistItems } = useWishlist();
   const cartCount = useCartStore((s: any) =>
     s.items.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0)
