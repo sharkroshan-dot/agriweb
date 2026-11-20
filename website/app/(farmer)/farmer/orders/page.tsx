@@ -61,7 +61,7 @@ const paymentBadge = (method?: string): { label: string; cod: boolean } => {
   return { label: cod ? "COD" : m ? "Online" : "", cod };
 };
 
-function MapWithMarkers({ markers }: { markers: { id: string; lat: number; lng: number; title: string; info: string }[] }) {
+function MapWithMarkers({ markers }: { markers: { id: string; lat: number; lng: number; title: string; info: string; hoverInfo?: string; orderCount?: number }[] }) {
   const router = useRouter();
 
   if (markers.length === 0) {
@@ -78,10 +78,10 @@ function MapWithMarkers({ markers }: { markers: { id: string; lat: number; lng: 
       height="250px"
       zoom={markers.length === 1 ? 11 : 9}
       center={markers.length > 0 ? { lat: markers[0].lat, lng: markers[0].lng } : undefined}
-      markers={markers.map((m, i) => ({
+      markers={markers.map((m) => ({
         ...m,
         color: "#059669",
-        label: String(i + 1),
+        label: String(m.orderCount || 1),
       }))}
       drawRoute={false}
       onMarkerClick={(m: any) => {
@@ -654,25 +654,65 @@ export default function FarmerOrdersPage() {
           });
         }
 
-        const allMapMarkers = filteredOrderList
+        const orderMapPoints = filteredOrderList
           .filter((o: any) => o.deliveryAddress?.city)
           .filter((o: any) => !activeCity || o.deliveryAddress.city.toLowerCase() === activeCity)
           .map((o: any) => {
             const coords = o.deliveryAddress?.location?.coordinates;
             const label = o.orderNumber || o.id || o._id;
             const addrFull = [o.deliveryAddress?.addressLine1, o.deliveryAddress?.addressLine2, o.deliveryAddress?.city, o.deliveryAddress?.state, o.deliveryAddress?.zipCode].filter(Boolean).join(", ");
-            const addrShort = addrFull.length > 50 ? addrFull.slice(0, 50) + "..." : addrFull;
-            const addrInfo = `${o.customerName} · ${formatPrice(o.totalAmount)} · ${addrShort}`;
             if (coords) {
               const [lng, lat] = coords;
-              return { id: o.id || o._id, lat, lng, title: label, info: addrInfo };
+              return { order: o, id: String(o.id || o._id), lat: Number(lat), lng: Number(lng), title: String(label), address: addrFull };
             }
             const addrKey = addrFull.toLowerCase();
             const cached = addrKey ? geoCache[addrKey] : null;
-            if (cached) return { id: o.id || o._id, lat: cached.lat, lng: cached.lng, title: label, info: addrInfo };
-            const fallback = addrFallback(o.deliveryAddress);
-            return { id: o.id || o._id, lat: fallback.lat, lng: fallback.lng, title: label, info: addrInfo };
-          });
+            const fallback = cached || addrFallback(o.deliveryAddress);
+            return { order: o, id: String(o.id || o._id), lat: Number(fallback.lat), lng: Number(fallback.lng), title: String(label), address: addrFull };
+          })
+          .filter((point: any) => Number.isFinite(point.lat) && Number.isFinite(point.lng));
+
+        // Group orders sharing the same mapped point so overlapping markers do
+        // not hide one another. Four decimal places groups points within roughly
+        // 10 metres while keeping separate nearby addresses distinct.
+        const markerGroups = new globalThis.Map<string, any[]>();
+        orderMapPoints.forEach((point: any) => {
+          const key = `${point.lat.toFixed(4)},${point.lng.toFixed(4)}`;
+          if (!markerGroups.has(key)) markerGroups.set(key, []);
+          markerGroups.get(key)!.push(point);
+        });
+        const escapeHtml = (value: any) => String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+        const allMapMarkers = Array.from(markerGroups.entries()).map(([key, points]) => {
+          const first = points[0];
+          const locationName = first.order.deliveryAddress?.city || "Order location";
+          const ordersHtml = points.map((point: any) => {
+            const order = point.order;
+            const primaryItem = Array.isArray(order.items) ? order.items[0] || {} : {};
+            const orderNumber = order.orderNumber || point.id;
+            const customer = order.customerName || order.customer?.name || "Customer";
+            const product = primaryItem.productName || primaryItem.name || "Order";
+            const status = statusLabels[getStatus(order)] || getStatus(order);
+            return `<div style="padding:7px 0;border-top:1px solid #e2e8f0;">
+              <div style="font-weight:700;color:#0f172a;">${escapeHtml(orderNumber)}</div>
+              <div style="font-size:12px;color:#475569;">${escapeHtml(customer)} · ${escapeHtml(product)}</div>
+              <div style="font-size:11px;color:#047857;">${escapeHtml(status)} · ${escapeHtml(formatPrice(order.totalAmount))}</div>
+            </div>`;
+          }).join("");
+          const hoverInfo = `<div style="padding:9px 11px;max-width:320px;max-height:260px;overflow-y:auto;font-family:Arial,sans-serif;">
+            <div style="font-size:13px;font-weight:700;color:#047857;">${escapeHtml(locationName)} · ${points.length} order${points.length === 1 ? "" : "s"}</div>
+            <div style="font-size:11px;color:#64748b;margin-top:2px;">All orders at this location</div>
+            ${ordersHtml}
+          </div>`;
+          return {
+            id: first.id,
+            lat: first.lat,
+            lng: first.lng,
+            title: `${locationName} · ${points.length} orders`,
+            info: `${points.length} orders at this location`,
+            hoverInfo,
+            orderCount: points.length,
+          };
+        });
         return (
           <div className="space-y-4">
             {filteredOrderList.length === 0 ? (
