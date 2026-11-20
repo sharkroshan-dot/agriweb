@@ -55,7 +55,7 @@ export function Header() {
   const roleLabel = role ? roleLabels[role] || "Workspace" : null;
   const userLabel = (session?.user?.name || session?.user?.email || "Account").trim();
   const canSearchProducts = !session?.user || role === "customer";
-  const useCustomerHeaderStyle = role === "customer" || (!session?.user && pathname === "/");
+  const useCustomerHeaderStyle = role === "customer";
   const { items: wishlistItems } = useWishlist();
   const cartCount = useCartStore((s: any) =>
     s.items.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0)
@@ -86,7 +86,7 @@ export function Header() {
       <div className={`agri-site-header-inner${canSearchProducts ? " has-product-search" : ""}`}>
         <div className="agri-site-header-leading">
           <Link href="/" className="agri-header-brand" aria-label="AgriConnect home">
-            <span className="agri-header-brand-mark" aria-hidden="true">{role === "customer" || (!session?.user && pathname === "/") ? <Leaf className="h-6 w-6" /> : "A"}</span>
+            <span className="agri-header-brand-mark" aria-hidden="true">{role === "customer" ? <Leaf className="h-6 w-6" /> : "A"}</span>
             <span className="agri-header-brand-copy">
               <span className="agri-header-brand-name">AgriConnect</span>
               <span className="agri-header-brand-tagline">Fresh daily · Farm to home</span>
@@ -117,7 +117,7 @@ export function Header() {
               type="search"
               name="q"
               aria-label="Search products"
-              placeholder="Search vegetables, fruits, grains..."
+              placeholder={!session?.user && pathname === "/" ? "Search" : "Search vegetables, fruits, grains..."}
               value={globalSearch}
               onChange={(event) => setGlobalSearch(event.target.value)}
             />
@@ -130,7 +130,7 @@ export function Header() {
 
         <div className="agri-site-header-actions">
           {!session?.user ? (
-            <Link href="/login" className="agri-header-sign-in">Sign in</Link>
+            <><span className="agri-header-action-divider" aria-hidden="true" /><Link href="/login" className="agri-header-sign-in">Sign in</Link></>
           ) : (
             <>
               {roleLabel && (
