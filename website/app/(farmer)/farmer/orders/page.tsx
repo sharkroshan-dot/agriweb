@@ -145,6 +145,7 @@ export default function FarmerOrdersPage() {
 
   const [bulkRunning, setBulkRunning] = useState(false);
   const [runAllConfirmOpen, setRunAllConfirmOpen] = useState(false);
+  const [bulkActionRunning, setBulkActionRunning] = useState<"farmer_fulfillment" | "warehouse_fulfillment" | null>(null);
 
   const handleRunAllEligible = async () => {
     try {
@@ -170,6 +171,9 @@ export default function FarmerOrdersPage() {
   };
 
   const handleBulkWorkflowAction = async (action: "confirm" | "process" | "farmer_fulfillment" | "warehouse_fulfillment" | "warehouse_ready_for_pickup") => {
+    if (action === "farmer_fulfillment" || action === "warehouse_fulfillment") {
+      setBulkActionRunning(action);
+    }
     try {
       const response = await api.post("/orders/farmer/bulk-advance", { action });
       const result = response?.data || response;
@@ -196,6 +200,10 @@ export default function FarmerOrdersPage() {
         msg = j.detail || j.error?.message || j.message || msg;
       } catch {}
       toast.error(msg);
+    } finally {
+      if (action === "farmer_fulfillment" || action === "warehouse_fulfillment") {
+        setBulkActionRunning(null);
+      }
     }
   };
 
@@ -409,15 +417,26 @@ export default function FarmerOrdersPage() {
               <h2 className="text-base font-semibold text-slate-900">Order Workflow</h2>
               <p className="mt-1 text-xs text-slate-500">Run actions for every order eligible at that stage. Each order is validated independently.</p>
             </div>
-            <Button
-              size="sm"
-              className="h-9 w-full bg-emerald-700 hover:bg-emerald-800 sm:w-auto"
-              onClick={() => setRunAllConfirmOpen(true)}
-              disabled={bulkRunning || orderList.length === 0}
-            >
-              <CheckCircle className="mr-2 h-4 w-4" />
-              {bulkRunning ? "Processing…" : "Run All Eligible"}
-            </Button>
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+              <Button
+                size="sm"
+                className="h-10 w-full bg-emerald-700 hover:bg-emerald-800 sm:w-auto"
+                onClick={() => handleBulkWorkflowAction("farmer_fulfillment")}
+                disabled={bulkRunning || bulkActionRunning !== null || orderList.length === 0}
+              >
+                <UserCheck className="mr-2 h-4 w-4" />
+                {bulkActionRunning === "farmer_fulfillment" ? "Processing Farmer…" : "Process Farmer Fulfillment"}
+              </Button>
+              <Button
+                size="sm"
+                className="h-10 w-full bg-blue-600 hover:bg-blue-700 sm:w-auto"
+                onClick={() => handleBulkWorkflowAction("warehouse_fulfillment")}
+                disabled={bulkRunning || bulkActionRunning !== null || orderList.length === 0}
+              >
+                <Store className="mr-2 h-4 w-4" />
+                {bulkActionRunning === "warehouse_fulfillment" ? "Processing Warehouse…" : "Process Warehouse Fulfillment"}
+              </Button>
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
             <Button size="sm" variant="outline" className="h-10 justify-start whitespace-normal text-left" onClick={() => handleBulkWorkflowAction("confirm")}>
