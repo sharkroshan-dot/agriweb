@@ -813,8 +813,8 @@ export default function FarmerOrdersPage() {
                     : -1;
                   return (
                   <Card key={orderId} className="overflow-hidden rounded-2xl border-slate-200 bg-white shadow-sm transition-all duration-200 hover:border-emerald-200 hover:shadow-md">
-                    <CardContent className="p-0">
-                      <div className="grid min-w-0 grid-cols-1 xl:grid-cols-[minmax(170px,0.85fr)_minmax(210px,1fr)_minmax(270px,1.25fr)_minmax(245px,1fr)]">
+                    <CardContent className="!m-0 !p-0 !pt-0">
+                      <div className="mt-0 grid min-w-0 grid-cols-1 items-start xl:grid-cols-[minmax(170px,0.85fr)_minmax(210px,1fr)_minmax(270px,1.25fr)_minmax(245px,1fr)]">
                         <div className="min-w-0 border-b border-slate-100 p-4 sm:p-5 xl:border-b-0 xl:border-r">
                           <div className="flex flex-wrap items-center gap-2">
                             <Link href={`/farmer/orders/${orderId}`} className="text-sm font-bold tracking-tight text-slate-950 hover:text-emerald-700">
