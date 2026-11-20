@@ -363,18 +363,18 @@ export default function FarmerOrdersPage() {
 
   return (
     <div className="farmer-orders-page w-full min-w-0 space-y-5 pb-8">
-      <section className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-6">
+      <section className="flex flex-col gap-4 rounded-xl border border-slate-200 border-l-4 border-l-emerald-600 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-6">
         <div className="flex min-w-0 items-center gap-3">
-          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700">
-            <ShoppingBag className="h-6 w-6" />
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
+            <ShoppingBag className="h-5 w-5" />
           </span>
           <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700">Farmer workspace</p>
-            <h1 className="mt-0.5 text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">Orders</h1>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-700">Farmer workspace</p>
+            <h1 className="mt-0.5 text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">Customer Orders</h1>
             <p className="mt-1 text-sm text-slate-500">Manage customer orders, fulfillment and delivery from one place.</p>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
           <Badge variant="outline" className="h-9 bg-slate-50 px-3 text-sm font-semibold text-slate-700">
             {orderList.length} total orders
           </Badge>
