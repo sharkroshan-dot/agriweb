@@ -13,7 +13,6 @@ import {
   ShoppingCart,
   Search,
   MapPin,
-  Leaf,
 } from "lucide-react";
 import { useWishlist } from "../../lib/hooks/use-wishlist";
 import { useCartStore } from "../../lib/store/cart-store";
@@ -55,8 +54,10 @@ export function Header() {
   const roleLabel = role ? roleLabels[role] || "Workspace" : null;
   const userLabel = (session?.user?.name || session?.user?.email || "Account").trim();
   const canSearchProducts = !session?.user || role === "customer";
-  // Use one consistent public navigation layout across every authenticated role and guest route.
-  const useCustomerHeaderStyle = true;
+  // Keep the customer/public header; authenticated non-customer roles use their original role header.
+  const useCustomerHeaderStyle =
+    role === "customer" ||
+    (!session?.user && (pathname === "/" || pathname === "/login" || pathname === "/register"));
   const { items: wishlistItems } = useWishlist();
   const cartCount = useCartStore((s: any) =>
     s.items.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0)
