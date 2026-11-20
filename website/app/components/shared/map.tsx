@@ -404,6 +404,9 @@ export function Map({
 
       if (marker.hoverInfo || marker.info) {
         const infoWindow = new _maps.InfoWindow({
+          // Put the location name and grouped order count in the popup header
+          // so useful information starts at the very top of the window.
+          headerContent: marker.title || "",
           content: marker.hoverInfo || `<div style="padding: 8px; max-width: 200px;">
             <strong>${marker.title || ""}</strong>
             <p style="margin: 4px 0; font-size: 12px;">${marker.info}</p>
