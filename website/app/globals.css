@@ -1582,3 +1582,101 @@ button { -webkit-tap-highlight-color: transparent; }
   content: none !important;
   display: none !important;
 }
+
+
+/* Role workspace header: four primary destinations with a clear green active state. */
+.agri-site-header[data-role="farmer"] .agri-header-navigation,
+.agri-site-header[data-role="warehouse"] .agri-header-navigation,
+.agri-site-header[data-role="delivery"] .agri-header-navigation,
+.agri-site-header[data-role="business"] .agri-header-navigation,
+.agri-site-header[data-role="admin"] .agri-header-navigation {
+  display: flex !important;
+  flex: 0 1 auto !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 4px !important;
+  min-width: 0 !important;
+  padding: 4px !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 14px !important;
+  background: #f8fafc !important;
+}
+.agri-site-header[data-role="farmer"] .agri-header-nav-link,
+.agri-site-header[data-role="warehouse"] .agri-header-nav-link,
+.agri-site-header[data-role="delivery"] .agri-header-nav-link,
+.agri-site-header[data-role="business"] .agri-header-nav-link,
+.agri-site-header[data-role="admin"] .agri-header-nav-link {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-height: 40px !important;
+  padding: 9px 13px !important;
+  border-radius: 10px !important;
+  color: #334155 !important;
+  font-size: 13px !important;
+  font-weight: 650 !important;
+  line-height: 1.2 !important;
+  white-space: nowrap !important;
+  transition: color .18s ease, background-color .18s ease, box-shadow .18s ease !important;
+}
+.agri-site-header[data-role="farmer"] .agri-header-nav-link:hover,
+.agri-site-header[data-role="warehouse"] .agri-header-nav-link:hover,
+.agri-site-header[data-role="delivery"] .agri-header-nav-link:hover,
+.agri-site-header[data-role="business"] .agri-header-nav-link:hover,
+.agri-site-header[data-role="admin"] .agri-header-nav-link:hover {
+  color: #047857 !important;
+  background: #ecfdf5 !important;
+}
+.agri-site-header[data-role="farmer"] .agri-header-nav-link.is-active,
+.agri-site-header[data-role="warehouse"] .agri-header-nav-link.is-active,
+.agri-site-header[data-role="delivery"] .agri-header-nav-link.is-active,
+.agri-site-header[data-role="business"] .agri-header-nav-link.is-active,
+.agri-site-header[data-role="admin"] .agri-header-nav-link.is-active {
+  color: #ffffff !important;
+  background: #059669 !important;
+  box-shadow: 0 2px 5px rgba(5, 150, 105, .2) !important;
+}
+.agri-site-header .agri-header-search-feedback {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 10px;
+  z-index: 30;
+  padding: 5px 9px;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  background: #fff;
+  color: #b91c1c;
+  font-size: 11px;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, .08);
+}
+.agri-site-header .agri-header-search-form { position: relative !important; }
+@media (max-width: 1280px) {
+  .agri-site-header[data-role="farmer"] .agri-site-header-inner,
+  .agri-site-header[data-role="warehouse"] .agri-site-header-inner,
+  .agri-site-header[data-role="delivery"] .agri-site-header-inner,
+  .agri-site-header[data-role="business"] .agri-site-header-inner,
+  .agri-site-header[data-role="admin"] .agri-site-header-inner {
+    gap: 10px !important;
+  }
+  .agri-site-header[data-role="farmer"] .agri-header-nav-link,
+  .agri-site-header[data-role="warehouse"] .agri-header-nav-link,
+  .agri-site-header[data-role="delivery"] .agri-header-nav-link,
+  .agri-site-header[data-role="business"] .agri-header-nav-link,
+  .agri-site-header[data-role="admin"] .agri-header-nav-link {
+    padding-inline: 9px !important;
+    font-size: 12px !important;
+  }
+}
+@media (max-width: 900px) {
+  .agri-site-header[data-role="farmer"] .agri-header-navigation,
+  .agri-site-header[data-role="warehouse"] .agri-header-navigation,
+  .agri-site-header[data-role="delivery"] .agri-header-navigation,
+  .agri-site-header[data-role="business"] .agri-header-navigation,
+  .agri-site-header[data-role="admin"] .agri-header-navigation {
+    order: 3 !important;
+    width: 100% !important;
+    overflow-x: auto !important;
+    justify-content: flex-start !important;
+  }
+}
