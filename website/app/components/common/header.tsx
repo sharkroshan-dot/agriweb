@@ -259,7 +259,7 @@ export function Header() {
               type="search"
               name={isRoleWorkspace ? "workspaceSearch" : "search"}
               aria-label={isRoleWorkspace ? "Search workspace pages and tools" : "Search products"}
-              placeholder={isRoleWorkspace ? "Search workspace pages and tools..." : "Search vegetables, fruits, grains..."}
+              placeholder={isRoleWorkspace ? "Search anything (orders, products, inventory, etc...)" : "Search vegetables, fruits, grains..."}
               value={globalSearch}
               onChange={(event) => {
                 setGlobalSearch(event.target.value);
@@ -290,12 +290,6 @@ export function Header() {
             </>
           ) : (
             <>
-              {roleLabel && (
-                <Link href={dashboardHref} className="agri-header-workspace" title={`Open ${roleLabel} dashboard`}>
-                  <LayoutDashboard className="h-4 w-4" aria-hidden="true" />
-                  <span>{roleLabel} workspace</span>
-                </Link>
-              )}
               {role === "customer" && (
                 <>
                   <Link href="/cart" aria-label={`Cart, ${cartCount} items`} title="Cart" className="agri-header-icon-link agri-header-count-link">
