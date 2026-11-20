@@ -1561,3 +1561,21 @@ button { -webkit-tap-highlight-color: transparent; }
   padding: 9px 16px !important;
   font-size: 13px !important;
 }
+
+/* Consistent AgriConnect lettermark across every role and public page. */
+.agri-site-header .agri-header-brand-mark {
+  color: #ffffff !important;
+  font-family: Arial, Helvetica, sans-serif !important;
+  font-size: 25px !important;
+  font-weight: 800 !important;
+  font-style: normal !important;
+  line-height: 1 !important;
+  letter-spacing: 0 !important;
+  text-shadow: none !important;
+  text-decoration: none !important;
+}
+.agri-site-header .agri-header-brand-mark::before,
+.agri-site-header .agri-header-brand-mark::after {
+  content: none !important;
+  display: none !important;
+}
