@@ -1517,3 +1517,48 @@ button { -webkit-tap-highlight-color: transparent; }
   }
   .agri-site-header .agri-site-header-actions { gap: 6px !important; }
 }
+
+/* Keep the public/guest navigation the same compact scale as the signed-in customer header.
+   Brand artwork, wording, and navigation items are intentionally untouched. */
+.agri-site-header[data-role="guest"] {
+  min-height: 76px !important;
+}
+.agri-site-header[data-role="guest"] .agri-site-header-inner {
+  min-height: 76px !important;
+  padding: 10px clamp(16px, 2vw, 30px) !important;
+  gap: clamp(14px, 1.6vw, 26px) !important;
+}
+.agri-site-header[data-role="guest"] .agri-header-brand-mark {
+  width: 46px !important;
+  height: 46px !important;
+  flex-basis: 46px !important;
+}
+.agri-site-header[data-role="guest"] .agri-header-brand-name {
+  font-size: 17px !important;
+}
+.agri-site-header[data-role="guest"] .agri-header-brand-tagline {
+  font-size: 10px !important;
+}
+.agri-site-header[data-role="guest"] .agri-header-nav-link {
+  min-height: 42px !important;
+  padding: 11px 17px !important;
+  font-size: 14px !important;
+}
+.agri-site-header[data-role="guest"] .agri-header-search-form {
+  min-height: 44px !important;
+}
+.agri-site-header[data-role="guest"] .agri-header-search-form input {
+  min-height: 42px !important;
+  font-size: 13px !important;
+}
+.agri-site-header[data-role="guest"] .agri-header-search-form button {
+  min-height: 38px !important;
+  padding: 0 15px !important;
+  font-size: 13px !important;
+}
+.agri-site-header[data-role="guest"] .agri-header-sign-in {
+  min-height: 42px !important;
+  padding: 9px 16px !important;
+  font-size: 13px !important;
+}
+
