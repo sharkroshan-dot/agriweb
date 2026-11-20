@@ -33,6 +33,7 @@ interface MapProps {
     label?: string;
     displayLabel?: string;
     info?: string;
+    hoverInfo?: string;
     address?: string;
   }>;
   route?: Array<{ lat: number; lng: number }>;
@@ -401,14 +402,21 @@ export function Map({
       }
       const markerInstance = new markerLib.Marker(markerOptions);
 
-      if (marker.info) {
+      if (marker.hoverInfo || marker.info) {
         const infoWindow = new _maps.InfoWindow({
-          content: `<div style="padding: 8px; max-width: 200px;">
+          content: marker.hoverInfo || `<div style="padding: 8px; max-width: 200px;">
             <strong>${marker.title || ""}</strong>
             <p style="margin: 4px 0; font-size: 12px;">${marker.info}</p>
           </div>`,
+          maxWidth: 360,
         });
 
+        markerInstance.addListener("mouseover", () => {
+          infoWindow.open(mapInstance, markerInstance);
+        });
+        markerInstance.addListener("mouseout", () => {
+          infoWindow.close();
+        });
         markerInstance.addListener("click", () => {
           infoWindow.open(mapInstance, markerInstance);
           if (onMarkerClick) onMarkerClick(marker);
