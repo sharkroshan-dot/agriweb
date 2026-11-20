@@ -1680,3 +1680,41 @@ button { -webkit-tap-highlight-color: transparent; }
     justify-content: flex-start !important;
   }
 }
+
+/* Use the same green A brand mark on every authenticated role header. */
+.agri-site-header[data-role="farmer"] .agri-header-brand-mark,
+.agri-site-header[data-role="warehouse"] .agri-header-brand-mark,
+.agri-site-header[data-role="delivery"] .agri-header-brand-mark,
+.agri-site-header[data-role="business"] .agri-header-brand-mark,
+.agri-site-header[data-role="admin"] .agri-header-brand-mark {
+  display: inline-flex !important;
+  width: 46px !important;
+  height: 46px !important;
+  flex: 0 0 46px !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 12px !important;
+  background: linear-gradient(145deg, #10a875 0%, #047857 100%) !important;
+  color: #ffffff !important;
+  font-family: Arial, Helvetica, sans-serif !important;
+  font-size: 25px !important;
+  font-weight: 800 !important;
+  font-style: normal !important;
+  line-height: 1 !important;
+  letter-spacing: 0 !important;
+  text-shadow: none !important;
+  box-shadow: 0 3px 8px rgba(4, 120, 87, .2) !important;
+}
+.agri-site-header[data-role="farmer"] .agri-header-brand-mark::before,
+.agri-site-header[data-role="farmer"] .agri-header-brand-mark::after,
+.agri-site-header[data-role="warehouse"] .agri-header-brand-mark::before,
+.agri-site-header[data-role="warehouse"] .agri-header-brand-mark::after,
+.agri-site-header[data-role="delivery"] .agri-header-brand-mark::before,
+.agri-site-header[data-role="delivery"] .agri-header-brand-mark::after,
+.agri-site-header[data-role="business"] .agri-header-brand-mark::before,
+.agri-site-header[data-role="business"] .agri-header-brand-mark::after,
+.agri-site-header[data-role="admin"] .agri-header-brand-mark::before,
+.agri-site-header[data-role="admin"] .agri-header-brand-mark::after {
+  content: none !important;
+  display: none !important;
+}
