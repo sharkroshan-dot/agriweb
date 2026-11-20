@@ -52,7 +52,7 @@ const roleNavigation: Record<string, HeaderLink[]> = {
     { href: "/delivery/pickup-team", label: "Pickup" },
     { href: "/delivery/deliveries", label: "Deliveries" },
     { href: "/delivery/earnings", label: "Earnings" },
-    { href: "/delivery/history", label: "History" },
+    { href: "/delivery/dashboard", label: "Analytics" },
   ],
   business: [
     { href: "/business/rfqs", label: "RFQs & Contracts" },
