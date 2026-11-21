@@ -316,7 +316,7 @@ export function FarmerQualityPanel() {
                       <span className="block truncate text-xs font-semibold text-slate-900">{r.cropName || "Harvest batch"} <span className="ml-1 font-mono text-[10px] font-normal text-slate-500">({r.lotNumber || "Lot pending"})</span></span>
                       <span className="block truncate text-[11px] text-slate-500">{r.photos?.length || 0} photos · {r.videos?.length || 0} videos {active ? "· Selected" : ""}</span>
                     </span>
-                    <Badge variant={submitted ? "success" : "warning"} className="whitespace-nowrap text-[10px]">{submitted ? "Evidence submitted" : "Evidence required"}</Badge>
+                    {submitted ? <span className="flex flex-wrap items-center justify-end gap-1"><Badge variant="success" className="whitespace-nowrap text-[10px]"><CheckCircle2 className="mr-1 h-3 w-3" />Evidence submitted</Badge><Badge variant="outline" className="whitespace-nowrap border-emerald-200 bg-emerald-50 text-[10px] text-emerald-700">Awaiting warehouse review</Badge></span> : <Badge variant="warning" className="whitespace-nowrap text-[10px]">Evidence required</Badge>}
                   </button>
                 );
               })}
