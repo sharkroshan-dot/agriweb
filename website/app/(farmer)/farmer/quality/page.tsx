@@ -295,11 +295,11 @@ export function FarmerQualityPanel() {
       </Card>
 
       {(() => {
-        const evidenceQueue = apiRecords.filter((r: any) => !["approved", "rejected", "verified", "buyer_verified"].includes(String(r.inspectionStatus || r.verificationStatus || "").toLowerCase()));
-        const awaitingReview = evidenceQueue.filter((r: any) => getEvidenceStatus(r) === "awaiting").length;
-        const needsEvidence = evidenceQueue.length - awaitingReview;
-        const uploadable = evidenceQueue.filter((r: any) => getEvidenceStatus(r) === "required");
-        const selectedEvidence = apiRecords.find((r: any) => r.id === selectedEvidenceId) || uploadable[0] || evidenceQueue[0];
+        const awaitingReview = apiRecords.filter((r: any) => getEvidenceStatus(r) === "awaiting").length;
+        const needsEvidence = apiRecords.filter((r: any) => getEvidenceStatus(r) === "required").length;
+        // The right-hand panel is a detail workspace for the lot selected on the left,
+        // not a second list of every lot.
+        const selectedEvidence = apiRecords.find((r: any) => r.id === selectedEvidenceId) || apiRecords[0];
         const selectedNeedsEvidence = selectedEvidence ? getEvidenceStatus(selectedEvidence) === "required" : false;
         const selectedFiles = selectedEvidence ? evidenceFiles[selectedEvidence.id] || [] : [];
         const isUploadingThis = selectedEvidence && evidenceMutation.isPending && evidenceMutation.variables?.id === selectedEvidence.id;
@@ -315,25 +315,10 @@ export function FarmerQualityPanel() {
               </div>
             </CardHeader>
             <CardContent className="space-y-2 p-3">
-              {evidenceQueue.map((r: any) => {
-                const submitted = getEvidenceStatus(r) === "awaiting";
-                const active = selectedEvidence?.id === r.id;
-                return (
-                  <button key={r.id} type="button" onClick={() => !submitted && setSelectedEvidenceId(r.id)} disabled={submitted}
-                    className={cn("grid w-full grid-cols-[42px_minmax(0,1fr)_auto] items-center gap-2 rounded-lg border px-2 py-1.5 text-left transition", active ? "border-emerald-300 bg-emerald-50/60" : "border-slate-100 bg-white", submitted && "cursor-default")}>
-                    <span className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-lg bg-slate-100 text-emerald-700">
-                      {resolveQualityMediaUrl(r.photos?.[0]) ? <img src={resolveQualityMediaUrl(r.photos[0])} alt="" className="h-full w-full object-cover" onError={(event) => { event.currentTarget.style.display = "none"; }} /> : <Camera className="h-4 w-4" />}
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block truncate text-xs font-semibold text-slate-900">{r.cropName || "Harvest batch"} <span className="ml-1 font-mono text-[10px] font-normal text-slate-500">({r.lotNumber || "Lot pending"})</span></span>
-                      <span className="block truncate text-[11px] text-slate-500">{r.photos?.length || 0} photos · {r.videos?.length || 0} videos {active ? "· Selected" : ""}</span>
-                    </span>
-                    {submitted ? <span className="flex flex-wrap items-center justify-end gap-1"><Badge variant="success" className="whitespace-nowrap text-[10px]"><CheckCircle2 className="mr-1 h-3 w-3" />Evidence submitted</Badge><Badge variant="outline" className="whitespace-nowrap border-emerald-200 bg-emerald-50 text-[10px] text-emerald-700">Awaiting warehouse review</Badge></span> : <Badge variant="warning" className="whitespace-nowrap text-[10px]">Evidence required</Badge>}
-                  </button>
-                );
-              })}
-              {evidenceQueue.length === 0 && (
-                <div className="rounded-lg border border-dashed border-slate-200 px-3 py-5 text-center text-xs text-slate-500">No evidence submissions pending. Request an inspection for a harvest batch when it is ready.</div>
+              {!selectedEvidence && (
+                <div className="rounded-lg border border-dashed border-slate-200 px-3 py-8 text-center text-xs text-slate-500">
+                  Select a harvest lot from the left to view its evidence, inspection details and next actions here.
+                </div>
               )}
               {selectedEvidence && (
                 <div className="space-y-3 border-t border-slate-100 pt-3">
