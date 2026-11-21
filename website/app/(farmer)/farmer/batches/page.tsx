@@ -88,6 +88,9 @@ export default function FarmerBatchesPage() {
   const [showForm, setShowForm] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState<"all" | "inspection" | "listed" | "expired">("all");
+  const [harvestDateOrder, setHarvestDateOrder] = useState("newest");
+  const [qualityGradeFilter, setQualityGradeFilter] = useState("all");
+  const [storageFilter, setStorageFilter] = useState("all");
   const [selectedProductId, setSelectedProductId] = useState("");
   const [selectedHarvestId, setSelectedHarvestId] = useState("");
   const [form, setForm] = useState({
@@ -201,9 +204,14 @@ export default function FarmerBatchesPage() {
         (activeFilter === "listed" && Boolean(batch.productId)) ||
         (activeFilter === "expired" && isBatchExpired(batch));
 
-      return matchesSearch && matchesFilter;
+      const matchesGrade = qualityGradeFilter === "all" || String(batch.qualityGrade || "").toLowerCase() === qualityGradeFilter.toLowerCase();
+      const matchesStorage = storageFilter === "all" || String(batch.storageType || "").toLowerCase() === storageFilter.toLowerCase();
+      return matchesSearch && matchesFilter && matchesGrade && matchesStorage;
+    }).sort((a, b) => {
+      const difference = new Date(a.harvestDate || 0).getTime() - new Date(b.harvestDate || 0).getTime();
+      return harvestDateOrder === "oldest" ? difference : -difference;
     });
-  }, [batches, searchQuery, activeFilter]);
+  }, [batches, searchQuery, activeFilter, harvestDateOrder, qualityGradeFilter, storageFilter]);
 
   // A marketplace product can have many harvest lots over time.
   // Only the harvest event itself is one-to-one with a batch.
@@ -471,10 +479,10 @@ export default function FarmerBatchesPage() {
 
       {!isLoading && !isError && batches.length > 0 ? (
         <section id="harvest-lots" className="scroll-mt-24 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_2px_8px_rgba(15,23,42,0.04)]">
-          <div className="flex flex-col gap-3 border-b border-slate-100 bg-white p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+          <div className="flex flex-col gap-2 border-b border-slate-100 bg-white p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
             <div>
-              <h2 className="text-lg font-semibold tracking-tight text-slate-950">Harvest lots</h2>
-              <p className="mt-1 text-sm text-slate-500">{filteredBatches.length} of {batches.length} batches shown · {batchSummary.remainingKg.toLocaleString("en-IN")} kg remaining in stock</p>
+              <div className="flex items-center gap-2"><span className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><Package className="h-5 w-5" /></span><div><h2 className="text-lg font-semibold tracking-tight text-slate-950">Harvest lots</h2>
+              <p className="text-xs text-slate-500">{filteredBatches.length} of {batches.length} batches shown · {batchSummary.remainingKg.toLocaleString("en-IN")} kg remaining in stock</p></div></div>
             </div>
             <div className="relative w-full sm:max-w-sm">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -483,7 +491,7 @@ export default function FarmerBatchesPage() {
                 onChange={(event) => setSearchQuery(event.target.value)}
                 placeholder="Search lot number, crop or grade..."
                 aria-label="Search harvest batches"
-                className="h-10 w-full bg-white pl-9 text-sm"
+                className="h-9 w-full bg-white pl-9 text-xs"
               />
             </div>
           </div>
@@ -513,6 +521,17 @@ export default function FarmerBatchesPage() {
                 <span className={cn("rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums", activeFilter === value ? "bg-white/20 text-white" : "bg-slate-100 text-slate-600")}>{count}</span>
               </button>
             ))}
+            <div className="ml-auto flex w-full flex-wrap items-center gap-2 sm:w-auto">
+              <select aria-label="Sort harvest date" value={harvestDateOrder} onChange={e => setHarvestDateOrder(e.target.value)} className="h-9 min-w-[130px] rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700">
+                <option value="newest">Harvest Date · Newest</option><option value="oldest">Harvest Date · Oldest</option>
+              </select>
+              <select aria-label="Filter quality grade" value={qualityGradeFilter} onChange={e => setQualityGradeFilter(e.target.value)} className="h-9 min-w-[125px] rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700">
+                <option value="all">Quality Grade · All</option><option value="premium">Premium</option><option value="standard">Standard</option><option value="economy">Economy</option><option value="a">Grade A</option><option value="b">Grade B</option><option value="c">Grade C</option>
+              </select>
+              <select aria-label="Filter storage" value={storageFilter} onChange={e => setStorageFilter(e.target.value)} className="h-9 min-w-[115px] rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700">
+                <option value="all">Storage · All</option><option value="normal">Normal / ambient</option><option value="refrigerated">Refrigerated</option><option value="cold_storage">Cold storage</option><option value="frozen">Frozen</option>
+              </select>
+            </div>
           </div>
         </section>
       ) : null}
@@ -550,30 +569,30 @@ export default function FarmerBatchesPage() {
               <Search className="h-8 w-8 text-slate-300" />
               <p className="mt-3 text-sm font-semibold text-slate-900">No matching batches</p>
               <p className="mt-1 text-sm text-slate-500">Try another search or filter.</p>
-              <Button variant="outline" size="sm" className="mt-4" onClick={() => { setSearchQuery(""); setActiveFilter("all"); }}>Clear filters</Button>
+              <Button variant="outline" size="sm" className="mt-4" onClick={() => { setSearchQuery(""); setActiveFilter("all"); setHarvestDateOrder("newest"); setQualityGradeFilter("all"); setStorageFilter("all"); }}>Clear filters</Button>
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[1080px] border-collapse text-left">
                 <thead className="bg-emerald-50/90">
                   <tr className="border-b border-slate-200 text-[11px] font-semibold uppercase tracking-wide text-slate-700">
-                    <th className="px-4 py-3">Batch / product</th>
+                    <th className="px-3 py-2">Batch / product</th>
                     <th className="px-4 py-3">Harvest date</th>
                     <th className="px-4 py-3">Quantity</th>
                     <th className="px-4 py-3">Storage</th>
                     <th className="px-4 py-3">Quality grade</th>
                     <th className="px-4 py-3">Shelf life</th>
                     <th className="px-4 py-3">Batch status</th>
-                    <th className="px-4 py-3 text-right">Actions</th>
+                    <th className="px-3 py-2 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {filteredBatches.map((batch) => (
                     <Fragment key={batch.id}>
                       <tr className="align-top transition-colors hover:bg-emerald-50/50">
-                        <td className="px-4 py-4">
-                          <div className="flex items-start gap-3">
-                            <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><Layers className="h-4 w-4" /></span>
+                        <td className="px-3 py-2">
+                          <div className="flex items-center gap-2">
+                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><Layers className="h-4 w-4" /></span>
                             <div className="min-w-0">
                               <p className="font-mono text-xs font-bold text-slate-900">{batch.lotNumber}</p>
                               <p className="mt-1 text-sm font-semibold text-slate-800">{batch.cropName}</p>
@@ -581,27 +600,27 @@ export default function FarmerBatchesPage() {
                             </div>
                           </div>
                         </td>
-                        <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-700">{formatDate(batch.harvestDate)}</td>
-                        <td className="whitespace-nowrap px-4 py-4">
+                        <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-700">{formatDate(batch.harvestDate)}</td>
+                        <td className="whitespace-nowrap px-3 py-2">
                           <p className="text-sm font-semibold tabular-nums text-slate-900">{Number(batch.quantityKg || 0).toLocaleString("en-IN")} kg</p>
                           <p className="mt-1 text-xs text-slate-500">{Number(batch.remainingKg || 0).toLocaleString("en-IN")} kg remaining</p>
                         </td>
-                        <td className="px-4 py-4 text-sm text-slate-700">{storageLabel(batch.storageType)}</td>
-                        <td className="px-4 py-4 text-sm text-slate-700">{batch.qualityGrade || "—"}</td>
-                        <td className="px-4 py-4">
+                        <td className="px-3 py-2 text-xs text-slate-700">{storageLabel(batch.storageType)}</td>
+                        <td className="px-3 py-2 text-xs text-slate-700">{batch.qualityGrade || "—"}</td>
+                        <td className="px-3 py-2">
                           <p className="text-sm font-medium text-slate-800">{batch.actualShelfLifeDays ?? batch.shelfLifeDays ?? "—"} days actual</p>
                           <p className="mt-1 text-xs text-slate-500">Default: {batch.defaultShelfLifeDays ?? "—"} days</p>
                           <p className="mt-1 text-xs text-slate-500">Safe by: {batch.safeDeliveryDate ? formatDate(batch.safeDeliveryDate) : "Not set"}</p>
                         </td>
                         <td className="px-4 py-4">
-                          <div className="flex flex-col items-start gap-1.5">
+                          <div className="flex flex-wrap items-center gap-1">
                             {freshnessBadge(batch)}
                             {qualityBadge(batch)}
                             {batch.productId ? <Badge variant="outline"><Link2 className="mr-1 h-3 w-3" /> Listed</Badge> : <Badge variant="secondary">Unlisted</Badge>}
                           </div>
                         </td>
                         <td className="px-4 py-4">
-                          <div className="flex justify-end gap-2">
+                          <div className="flex justify-end gap-1.5">
                             <a href={`/trace/${encodeURIComponent(batch.lotNumber)}`} target="_blank" rel="noreferrer" aria-label={`Open traceability for ${batch.lotNumber}`} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800">
                               <QrCode className="h-4 w-4" /> Trace
                             </a>
