@@ -204,8 +204,9 @@ export function FarmerQualityPanel() {
         </div>
       </div>
 
-      <Card>
-        <CardHeader>
+      <div className="grid items-start gap-4 xl:grid-cols-[0.92fr_1.08fr]">
+      <Card className="h-full overflow-hidden border-emerald-100 shadow-sm">
+        <CardHeader className="border-b border-emerald-100 bg-gradient-to-r from-emerald-50 to-white">
           <CardTitle className="text-base">Harvest batches awaiting quality</CardTitle>
           <CardDescription>Each harvested batch must be independently inspected before a marketplace product can be created.</CardDescription>
         </CardHeader>
@@ -242,8 +243,8 @@ export function FarmerQualityPanel() {
         const awaitingReview = evidenceQueue.filter((r: any) => ["evidence_submitted", "in_progress"].includes(r.inspectionStatus || "")).length;
         const needsEvidence = evidenceQueue.length - awaitingReview;
         return (
-          <Card className="overflow-hidden border-slate-200 shadow-sm">
-            <CardHeader className="border-b border-slate-100 bg-slate-50/70 pb-4">
+          <Card className="h-full overflow-hidden border-slate-200 shadow-sm">
+            <CardHeader className="border-b border-emerald-100 bg-gradient-to-r from-emerald-50/70 to-white pb-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <CardTitle className="text-base">Evidence submission</CardTitle>
@@ -362,6 +363,7 @@ export function FarmerQualityPanel() {
           </Card>
         );
       })()}
+      </div>
 
       <div className="flex flex-wrap gap-2">
         {["all", "passed", "review", "failed"].map((f) => (
