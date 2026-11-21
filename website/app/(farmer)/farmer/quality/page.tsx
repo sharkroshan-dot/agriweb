@@ -408,6 +408,8 @@ export function FarmerQualityPanel() {
               </div>
             </CardContent>
           </Card>
+        );
+      })()}
       </div>
 
       <CameraCapture
