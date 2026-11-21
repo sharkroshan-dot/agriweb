@@ -58,6 +58,7 @@ export function FarmerQualityPanel() {
   const queryClient = useQueryClient();
   const router = useRouter();
   const [filter, setFilter] = useState<string>("all");
+  const [expandedInspectionId, setExpandedInspectionId] = useState<string>("");
   const [selectedEvidenceId, setSelectedEvidenceId] = useState<string>("");
   const [showInspect, setShowInspect] = useState(false);
   const [form, setForm] = useState({
@@ -201,32 +202,20 @@ export function FarmerQualityPanel() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-semibold text-slate-900">Quality inspection & evidence</h2>
-          <p className="text-gray-500">
-            Submit batch evidence, follow warehouse review and view the final quality decision.
-          </p>
-        </div>
-        <div className="rounded-lg border bg-amber-50 px-3 py-2 text-xs text-amber-800">
-          Farmer action: request inspection / submit evidence. Quality approval is completed by an authorized verifier.
-        </div>
-      </div>
-
-      <div className="grid items-start gap-3 xl:grid-cols-[0.92fr_1.08fr]">
+      <div className="grid items-start gap-3 xl:grid-cols-[minmax(0,0.98fr)_minmax(0,1.02fr)]">
       <Card className="h-full overflow-hidden border-emerald-100 shadow-sm">
         <CardHeader className="border-b border-emerald-100 bg-gradient-to-r from-emerald-50 to-white">
           <CardTitle className="text-base">Harvest batches awaiting quality</CardTitle>
           <CardDescription>Each harvested batch must be independently inspected before a marketplace product can be created.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="space-y-3" id="inspection-status-filters">
-            <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-2" id="inspection-status-filters">
+            <div className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h3 className="text-base font-bold tracking-tight text-slate-900">Inspection status</h3>
-                <p className="mt-1 text-xs text-slate-500">Review completed quality checks and filter results by their decision.</p>
+                <h3 className="text-sm font-bold tracking-tight text-slate-900">Inspection status</h3>
+                <p className="mt-0.5 text-[11px] text-slate-500">Filter by warehouse quality decision.</p>
               </div>
-              <div className="grid w-full grid-cols-2 gap-2 rounded-xl bg-slate-50 p-1.5 sm:flex sm:w-auto">
+              <div className="grid w-full grid-cols-4 gap-1 rounded-lg bg-slate-50 p-1 sm:flex sm:w-auto">
                 {[
                   { value: "all", label: "All", icon: PackageSearch, tone: "text-emerald-700" },
                   { value: "passed", label: "Passed", icon: CheckCircle2, tone: "text-emerald-700" },
@@ -242,7 +231,7 @@ export function FarmerQualityPanel() {
                       aria-pressed={active}
                       onClick={() => setFilter(item.value)}
                       className={cn(
-                        "inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg border px-3 text-xs font-semibold transition-colors sm:min-w-[92px]",
+                        "inline-flex min-h-9 items-center justify-center gap-1 rounded-lg border px-2 text-[11px] font-semibold transition-colors sm:min-w-[78px]",
                         active
                           ? "border-emerald-700 bg-emerald-700 text-white shadow-sm"
                           : "border-transparent bg-white text-slate-600 hover:border-slate-200 hover:bg-white"
@@ -267,21 +256,90 @@ export function FarmerQualityPanel() {
                 : "border-amber-200 bg-amber-50 text-amber-700";
             const StatusIcon = status === "passed" ? CheckCircle2 : status === "failed" ? XCircle : FlaskConical;
             const thumbnail = record.photos?.[0] || batch?.imageUrl || batch?.productImage;
+            const gradeInfo = GRADES.find((grade) => grade.value === record.grade);
+            const meets = meetsRequirement(record);
+            const expanded = expandedInspectionId === record.id;
             return (
-              <div key={record.id} className="flex min-w-0 items-center gap-3 border-b border-slate-100 px-1 py-2.5 last:border-b-0">
-                <div className="h-11 w-12 shrink-0 overflow-hidden rounded-lg border border-slate-100 bg-slate-50">
-                  {thumbnail ? <img src={thumbnail} alt={record.cropName || "Harvest batch"} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-emerald-700"><FileCheck className="h-5 w-5" /></div>}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold text-slate-900">{record.lotNumber} · {record.cropName}</p>
-                  <p className="text-xs text-slate-500">{record.weightKg || batch?.quantityKg || 0} kg · Harvest: {formatDate(batch?.harvestDate || record.inspectedAt)}</p>
-                </div>
-                <span className={cn("inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold", statusTone)}>
-                  <StatusIcon className="h-3.5 w-3.5" />{status === "passed" ? "Passed" : status === "failed" ? "Failed" : "Review"}
-                </span>
-                <button type="button" aria-label={`Open inspection for ${record.lotNumber}`} onClick={() => document.getElementById("inspection-history")?.scrollIntoView({ behavior: "smooth", block: "start" })} className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 sm:inline-flex">
-                  <span aria-hidden="true" className="text-xl">›</span>
+              <div key={record.id} className="overflow-hidden rounded-xl border border-slate-100 bg-white transition hover:border-emerald-200">
+                <button type="button" aria-expanded={expanded} onClick={() => setExpandedInspectionId(expanded ? "" : record.id)} className="flex w-full min-w-0 items-center gap-3 px-2.5 py-2 text-left">
+                  <div className="h-11 w-12 shrink-0 overflow-hidden rounded-lg border border-slate-100 bg-slate-50">
+                    {thumbnail ? <img src={thumbnail} alt={record.cropName || "Harvest batch"} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-emerald-700"><FileCheck className="h-5 w-5" /></div>}
+                  </div>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold text-slate-900">{record.lotNumber} · {record.cropName}</span>
+                    <span className="block text-xs text-slate-500">{record.weightKg || batch?.quantityKg || 0} kg · Harvest: {formatDate(batch?.harvestDate || record.inspectedAt)}</span>
+                  </span>
+                  <span className={cn("inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold", statusTone)}>
+                    <StatusIcon className="h-3.5 w-3.5" />{status === "passed" ? "Passed" : status === "failed" ? "Failed" : "Review"}
+                  </span>
+                  <span className={cn("shrink-0 text-xl text-slate-500 transition-transform", expanded && "rotate-90")}>›</span>
                 </button>
+                {expanded && (
+                  <div className="grid gap-3 border-t border-slate-100 bg-slate-50/60 p-3 sm:grid-cols-[minmax(0,1fr)_190px]">
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Badge variant="outline">{record.cropName}</Badge>
+                        <Badge variant={record.grade === "A" ? "success" : record.grade === "B" ? "warning" : "secondary"}>Grade {record.grade}</Badge>
+                        {record.verificationStatus === "verified" && <Badge variant="success">Verified Grade {record.verifiedGrade || record.grade}</Badge>}
+                        {record.verificationStatus === "buyer_verified" && <Badge variant="success">Buyer verified Grade {record.verifiedGrade || record.grade}</Badge>}
+                        {record.verificationStatus === "farmer_declared" && <Badge variant="warning">Farmer declared · Unverified</Badge>}
+                        {record.verificationStatus === "evidence_submitted" && <Badge variant="secondary">Evidence submitted</Badge>}
+                        {record.verificationStatus === "rejected" && <Badge variant="destructive">Rejected</Badge>}
+                        {meets === true && <Badge variant="outline" className="border-emerald-300 text-emerald-700">Meets {record.requirement?.grade} requirement</Badge>}
+                        {meets === false && <Badge variant="outline" className="border-red-300 text-red-700">Does not meet {record.requirement?.grade} requirement</Badge>}
+                      </div>
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
+                        <span>{record.size} size</span>
+                        <span>Freshness <b className="text-emerald-700">{record.freshness}%</b></span>
+                        <span>Damaged <b className="text-rose-700">{record.damagedPct}%</b></span>
+                        <span>{record.weightKg} kg verified</span>
+                        <span>Inspected {formatDate(record.inspectedAt)}</span>
+                      </div>
+                      {record.inspectorNotes && <p className="text-xs text-slate-500">{record.inspectorNotes}</p>}
+                      {record.aiAssessment && (
+                        <div className="flex flex-wrap items-center gap-2 rounded-lg bg-white px-3 py-2 text-xs">
+                          <Bot className="h-3.5 w-3.5 text-indigo-500" />
+                          <span className="font-medium text-slate-600">AI estimate: Grade {record.aiAssessment.estimatedGrade}</span>
+                          <span className="text-slate-400">({Math.round((record.aiAssessment.confidence || 0) * 100)}% confidence)</span>
+                          {record.aiAssessment.mismatch ? <Badge variant="destructive">Mismatch — verification required</Badge> : <Badge variant="success">Consistent with declaration</Badge>}
+                        </div>
+                      )}
+                      <div className="flex flex-wrap gap-2">
+                        {record.verificationStatus === "verified" && (
+                          <Button size="sm" onClick={() => {
+                            const linkedBatch = batches.find((item: any) => String(item._id || item.id) === String(record.batchId || ""));
+                            const planId = linkedBatch?.sourceHarvestPlanId;
+                            if (!planId) {
+                              toast.error("This verified inspection is not linked to a harvest plan.");
+                              return;
+                            }
+                            router.push(`/farmer/products/new?fromHarvest=${encodeURIComponent(String(planId))}&fromBatch=${encodeURIComponent(String(record.batchId))}&quantity=${encodeURIComponent(String(linkedBatch.quantityKg || ""))}&price=${encodeURIComponent(String(linkedBatch.finalRatePerKg || ""))}`);
+                          }}>
+                            <PackageSearch className="mr-1.5 h-4 w-4" /> Create Product
+                          </Button>
+                        )}
+                        {record.verificationStatus === "farmer_declared" && (
+                          <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => aiMutation.mutate(record.id)} disabled={aiMutation.isPending}>
+                            {aiMutation.isPending ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : <Bot className="mr-1.5 h-3 w-3" />} Run AI Screening
+                          </Button>
+                        )}
+                        {batch && batch.qualityStatus === "pending_inspection" && (
+                          <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => requestInspectionMutation.mutate(batch._id || batch.id)} disabled={requestInspectionMutation.isPending}>
+                            Request inspection
+                          </Button>
+                        )}
+                      </div>
+                      {record.photos?.length > 0 && <div className="flex flex-wrap gap-2">{record.photos.map((photo: string, index: number) => <img key={index} src={photo} alt="Inspection evidence" className="h-14 w-14 rounded-lg border object-cover" />)}</div>}
+                      {record.videos?.length > 0 && <p className="text-xs text-slate-500">{record.videos.length} inspection video(s) attached</p>}
+                    </div>
+                    {gradeInfo && (
+                      <div className="flex flex-col justify-center gap-1 rounded-lg border border-slate-100 bg-white p-3">
+                        <p className="flex items-center gap-1 text-xs font-semibold text-slate-500"><Star className="h-3.5 w-3.5 text-amber-400" />{gradeInfo.label}</p>
+                        <p className="text-xs text-slate-500">{gradeInfo.desc}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -371,153 +429,6 @@ export function FarmerQualityPanel() {
         );
       })()}
       </div>
-
-      <section id="inspection-history" className="scroll-mt-24 space-y-2">
-      <div className="flex items-center justify-between gap-3 px-1">
-        <div><h3 className="text-sm font-semibold text-slate-900">Inspection history &amp; verification details</h3><p className="text-xs text-slate-500">Expand a record to review grading, evidence, AI screening and available actions.</p></div>
-        <Badge variant="outline">{records.length} records</Badge>
-      </div>
-      {isLoading ? (
-        <div className="flex justify-center py-16">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
-      ) : records.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-            <PackageSearch className="h-10 w-10 text-slate-300" />
-            <p className="text-sm text-slate-500">No inspections yet. Run your first quality check on a harvest lot.</p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-3">
-          {records.map((r) => {
-            const meets = meetsRequirement(r);
-            const gradeInfo = GRADES.find((g) => g.value === r.grade);
-            return (
-              <details key={r.id} className="group overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-                <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2 px-3 py-2.5 hover:bg-slate-50 [&::-webkit-details-marker]:hidden">
-                  <div className="flex min-w-0 flex-wrap items-center gap-2">
-                    <span className="truncate text-xs font-mono font-semibold text-slate-900">{r.lotNumber}</span>
-                    <Badge variant="outline">{r.cropName}</Badge>
-                    <Badge variant={r.grade === "A" ? "success" : r.grade === "B" ? "warning" : "secondary"}>Grade {r.grade}</Badge>
-                    {r.status === "passed" ? <Badge variant="success">Passed</Badge> : r.status === "failed" ? <Badge variant="destructive">Failed</Badge> : <Badge variant="warning">Review</Badge>}
-                    {r.verificationStatus === "farmer_declared" && <Badge variant="warning">Farmer declared · Unverified</Badge>}
-                    {r.verificationStatus === "evidence_submitted" && <Badge variant="secondary">Evidence submitted</Badge>}
-                  </div>
-                  <span className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-emerald-700">Inspection details <span className="transition-transform group-open:rotate-180">⌄</span></span>
-                </summary>
-                <div className="grid gap-3 border-t border-slate-100 p-3 sm:grid-cols-[1fr_auto]">
-                  <div className="space-y-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-sm font-semibold">{r.lotNumber}</span>
-                      <Badge variant="outline">{r.cropName}</Badge>
-                      <Badge variant={r.grade === "A" ? "success" : r.grade === "B" ? "warning" : "secondary"}>
-                        Grade {r.grade}
-                      </Badge>
-                      {r.status === "passed" && <Badge variant="success"><CheckCircle2 className="mr-1 h-3 w-3" /> Passed</Badge>}
-                      {r.status === "review" && <Badge variant="warning"><FlaskConical className="mr-1 h-3 w-3" /> Review</Badge>}
-                      {r.status === "failed" && <Badge variant="destructive"><XCircle className="mr-1 h-3 w-3" /> Failed</Badge>}
-                      {r.verificationStatus === "verified" && (
-                        <Badge variant="success"><CheckCircle2 className="mr-1 h-3 w-3" /> Verified Grade {r.verifiedGrade || r.grade}</Badge>
-                      )}
-                      {r.verificationStatus === "buyer_verified" && (
-                        <Badge variant="success">✓ Buyer Verified Grade {r.verifiedGrade || r.grade}</Badge>
-                      )}
-                      {r.verificationStatus === "farmer_declared" && (
-                        <Badge variant="warning">⚠ Farmer Declared · Unverified</Badge>
-                      )}
-                      {r.verificationStatus === "evidence_submitted" && (
-                        <Badge variant="secondary">🔵 Evidence Submitted</Badge>
-                      )}
-                      {r.verificationStatus === "rejected" && (
-                        <Badge variant="destructive">Rejected</Badge>
-                      )}
-                      {meets === true && (
-                        <Badge variant="outline" className="border-emerald-300 text-emerald-700">
-                          ✓ Meets {r.requirement?.grade} requirement
-                        </Badge>
-                      )}
-                      {meets === false && (
-                        <Badge variant="outline" className="border-red-300 text-red-700">
-                          ✗ Does not meet {r.requirement?.grade} requirement
-                        </Badge>
-                      )}
-                    </div>
-                    <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm text-slate-600">
-                      <span>{r.size} size</span>
-                      <span>Freshness <span className="font-medium text-emerald-700">{r.freshness}%</span></span>
-                      <span>Damaged <span className="font-medium text-red-600">{r.damagedPct}%</span></span>
-                      <span className="flex items-center gap-1"><Scale className="h-3.5 w-3.5 text-slate-400" /> {r.weightKg} kg verified</span>
-                      <span>Inspected {formatDate(r.inspectedAt)}</span>
-                    </div>
-                    {r.inspectorNotes && <p className="text-xs text-slate-500">{r.inspectorNotes}</p>}
-                    {r.aiAssessment && (
-                      <div className="flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs">
-                        <Bot className="h-3.5 w-3.5 text-indigo-500" />
-                        <span className="font-medium text-slate-600">
-                          AI estimate: Grade {r.aiAssessment.estimatedGrade}
-                        </span>
-                        <span className="text-slate-400">
-                          ({Math.round((r.aiAssessment.confidence || 0) * 100)}% confidence)
-                        </span>
-                        {r.aiAssessment.mismatch ? (
-                          <Badge variant="destructive">Mismatch — verification required</Badge>
-                        ) : (
-                          <Badge variant="success">Consistent with declaration</Badge>
-                        )}
-                      </div>
-                    )}
-                    {r.verificationStatus === "verified" && (
-                      <Button
-                        size="sm"
-                        onClick={() => {
-                          const batch = batches.find((b: any) => String(b._id || b.id) === String(r.batchId || ""));
-                          const planId = batch?.sourceHarvestPlanId;
-                          if (!planId) {
-                            toast.error("This verified inspection is not linked to a harvest plan.");
-                            return;
-                          }
-                          router.push(`/farmer/products/new?fromHarvest=${encodeURIComponent(String(planId))}&fromBatch=${encodeURIComponent(String(r.batchId))}&quantity=${encodeURIComponent(String(batch.quantityKg || ""))}&price=${encodeURIComponent(String(batch.finalRatePerKg || ""))}`);
-                        }}
-                      >
-                        <PackageSearch className="mr-1.5 h-4 w-4" /> Create Product
-                      </Button>
-                    )}
-                    {r.verificationStatus === "farmer_declared" && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 text-xs"
-                        onClick={() => aiMutation.mutate(r.id)}
-                        disabled={aiMutation.isPending}
-                      >
-                        {aiMutation.isPending ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : <Bot className="mr-1.5 h-3 w-3" />}
-                        Run AI Screening
-                      </Button>
-                    )}
-                    {r.photos && r.photos.length > 0 && (
-                      <div className="flex flex-wrap gap-2">
-                        {r.photos.map((p, i) => (
-                          <img key={i} src={p} alt="proof" className="h-16 w-16 rounded-lg border object-cover" />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  {gradeInfo && (
-                    <div className="flex flex-col items-start gap-1 rounded-lg bg-slate-50 p-3 sm:min-w-[220px] sm:items-end">
-                      <p className="flex items-center gap-1 text-xs font-semibold text-slate-500">
-                        <Star className="h-3.5 w-3.5 text-amber-400" /> {gradeInfo.label}
-                      </p>
-                      <p className="text-right text-xs text-slate-500">{gradeInfo.desc}</p>
-                    </div>
-                  )}
-                </div>
-              </details>
-            );
-          })}
-        </div>
-      )}
-      </section>
 
       <CameraCapture
         open={cameraOpen}
