@@ -337,18 +337,37 @@ export default function FarmerRoutePage() {
   const progress = stops.length ? Math.round((doneCount / stops.length) * 100) : 0;
   const nextStop = stops.find((s) => s.status !== "delivered" && s.status !== "picked_up") ?? null;
 
+  const navigationWindowRef = useRef<Window | null>(null);
+
+  const buildGoogleNavigationUrl = (target: Stop, includeRemainingStops = false) => {
+    const destination = target.lat != null && target.lng != null
+      ? `${target.lat},${target.lng}`
+      : `${target.location}${target.city ? `, ${target.city}` : ""}`;
+    const pendingStops = stops.filter((stop) =>
+      stop.status !== "delivered" && stop.status !== "picked_up"
+    );
+    const targetIndex = pendingStops.findIndex((stop) => stop.id === target.id);
+    const remaining = includeRemainingStops && targetIndex >= 0
+      ? pendingStops.slice(targetIndex + 1)
+      : [];
+    const waypoints = remaining
+      .map((stop) => stop.lat != null && stop.lng != null
+        ? `${stop.lat},${stop.lng}`
+        : `${stop.location}${stop.city ? `, ${stop.city}` : ""}`)
+      .filter(Boolean);
+    const params = new URLSearchParams({
+      api: "1",
+      destination,
+      travelmode: "driving",
+      dir_action: "navigate",
+    });
+    if (userLocation) params.set("origin", `${userLocation.lat},${userLocation.lng}`);
+    if (waypoints.length) params.set("waypoints", waypoints.join("|"));
+    return `https://www.google.com/maps/dir/?${params.toString()}`;
+  };
+
   const navigateToStop = (stop: Stop) => {
-    if (stop.lat != null && stop.lng != null) {
-      window.open(
-        `https://www.google.com/maps/dir/?api=1&destination=${stop.lat},${stop.lng}`,
-        "_blank"
-      );
-    } else {
-      const query = encodeURIComponent(
-        `${stop.location}${stop.city ? `, ${stop.city}` : ""}`
-      );
-      window.open(`https://www.google.com/maps/search/?api=1&query=${query}`, "_blank");
-    }
+    window.open(buildGoogleNavigationUrl(stop), "_blank", "noopener,noreferrer");
   };
 
   const startMutation = useMutation({
@@ -357,6 +376,17 @@ export default function FarmerRoutePage() {
       const updatedStops = Number(res?.data?.updatedStops ?? res?.updatedStops ?? 0);
       setStarted(true);
       refetch();
+      const firstPendingStop = stops.find((stop) =>
+        stop.status !== "delivered" && stop.status !== "picked_up"
+      );
+      if (firstPendingStop) {
+        const navigationUrl = buildGoogleNavigationUrl(firstPendingStop, true);
+        if (navigationWindowRef.current && !navigationWindowRef.current.closed) {
+          navigationWindowRef.current.location.href = navigationUrl;
+        } else {
+          window.open(navigationUrl, "_blank", "noopener,noreferrer");
+        }
+      }
       if (navigator.geolocation) {
         setTracking(true);
         watchRef.current = navigator.geolocation.watchPosition(
@@ -371,7 +401,13 @@ export default function FarmerRoutePage() {
         toast("Route view started. The server reported no new status changes; verify order statuses before delivery.", { icon: "📍", duration: 6500 });
       }
     },
-    onError: () => toast.error("Could not start the delivery route. Please refresh and try again."),
+    onError: () => {
+      if (navigationWindowRef.current && !navigationWindowRef.current.closed) {
+        navigationWindowRef.current.close();
+        navigationWindowRef.current = null;
+      }
+      toast.error("Could not start the delivery route. Please refresh and try again.");
+    },
   });
 
   const completeMutation = useMutation({
@@ -464,8 +500,16 @@ export default function FarmerRoutePage() {
       toast("There are no pending delivery stops on this route.", { icon: "📦" });
       return;
     }
+    // Open a temporary tab directly from the user's click so popup blockers
+    // do not prevent Google Maps navigation after the API confirms route start.
+    navigationWindowRef.current = window.open("about:blank", "_blank");
+    if (navigationWindowRef.current) {
+      navigationWindowRef.current.document.title = "Opening Google Maps navigation…";
+      navigationWindowRef.current.document.body.innerHTML =
+        "<p style='font:16px Arial,sans-serif;padding:24px'>Starting your delivery route and opening Google Maps…</p>";
+    }
     startMutation.mutate();
-  };;
+  };
 
   const handleComplete = async (stop: Stop) => {
     if (completeMutation.isPending) return;
