@@ -180,10 +180,7 @@ export function FarmerQualityPanel() {
 
   const openEvidenceForRecord = (record: any) => {
     setSelectedEvidenceId(record.id);
-    setExpandedInspectionId(record.id);
-    window.setTimeout(() => {
-      document.getElementById("evidence-submission")?.scrollIntoView({ behavior: "smooth", block: "center" });
-    }, 0);
+    setExpandedInspectionId((current) => current === record.id ? "" : record.id);
   };
 
   const meetsRequirement = (r: InspectionRecord) => {
@@ -348,6 +345,41 @@ export function FarmerQualityPanel() {
                       </div>
                       {record.photos?.some((photo: string) => !!resolveQualityMediaUrl(photo)) && <div className="flex flex-wrap gap-2">{record.photos.filter((photo: string) => !!resolveQualityMediaUrl(photo)).map((photo: string, index: number) => <img key={index} src={resolveQualityMediaUrl(photo)} alt="Inspection evidence" className="h-14 w-14 rounded-lg border object-cover" onError={(event) => { event.currentTarget.style.display = "none"; }} />)}</div>}
                       {record.videos?.length > 0 && <p className="text-xs text-slate-500">{record.videos.length} inspection video(s) attached</p>}
+                      {getEvidenceStatus(record) === "required" ? (
+                        <div className="space-y-2 rounded-xl border border-emerald-200 bg-white p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-xs font-semibold text-slate-800">Submit evidence for this lot</p>
+                            <Badge variant="warning">Evidence required</Badge>
+                          </div>
+                          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
+                            <div>
+                              <label htmlFor={`inline-evidence-${record.id}`} className="flex min-h-[66px] cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 px-2 py-2 text-center hover:border-emerald-400">
+                                <Camera className="mb-1 h-4 w-4 text-emerald-700" />
+                                <span className="text-xs font-semibold text-slate-700">Choose photos or video</span>
+                                <span className="text-[10px] text-slate-500">JPG, PNG, MP4, WEBM, MOV</span>
+                              </label>
+                              <input id={`inline-evidence-${record.id}`} type="file" accept="image/*,video/mp4,video/webm,video/quicktime" multiple className="sr-only" onChange={(event) => {
+                                const chosen = Array.from(event.target.files || []);
+                                if (chosen.length) setEvidenceFiles((current) => ({ ...current, [record.id]: [...(current[record.id] || []), ...chosen] }));
+                                event.currentTarget.value = "";
+                              }} />
+                              {(evidenceFiles[record.id] || []).length > 0 && <p className="mt-1 text-[10px] text-slate-500">{(evidenceFiles[record.id] || []).map((file: File) => file.name).join(", ")}</p>}
+                            </div>
+                            <div>
+                              <label htmlFor={`inline-evidence-notes-${record.id}`} className="mb-1 block text-[11px] font-semibold text-slate-600">Note for warehouse (optional)</label>
+                              <textarea id={`inline-evidence-notes-${record.id}`} rows={2} value={evidenceNotes[record.id] || ""} onChange={(event) => setEvidenceNotes((current) => ({ ...current, [record.id]: event.target.value }))} placeholder="Harvest time, handling details or visible defects…" className="min-h-[66px] w-full rounded-lg border border-slate-200 px-2.5 py-2 text-xs outline-none focus:border-emerald-500" />
+                            </div>
+                            <Button size="sm" className="h-10" disabled={evidenceMutation.isPending || !(evidenceFiles[record.id] || []).length} onClick={() => evidenceMutation.mutate({ id: record.id, files: evidenceFiles[record.id] || [], notes: evidenceNotes[record.id] || "" })}>
+                              {evidenceMutation.isPending && evidenceMutation.variables?.id === record.id ? <><Loader2 className="mr-1.5 h-4 w-4 animate-spin" />Submitting</> : "Submit evidence"}
+                            </Button>
+                          </div>
+                        </div>
+                      ) : getEvidenceStatus(record) === "awaiting" ? (
+                        <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3">
+                          <div className="flex items-center gap-2 text-xs font-semibold text-emerald-800"><CheckCircle2 className="h-4 w-4" /> Evidence submitted · Awaiting warehouse review</div>
+                          <p className="mt-1 text-[11px] text-emerald-700">The warehouse quality team will verify this lot. You can continue once the review decision is available.</p>
+                        </div>
+                      ) : null}
                     </div>
                     {gradeInfo && (
                       <div className="flex flex-col justify-center gap-1 rounded-lg border border-slate-100 bg-white p-3">
