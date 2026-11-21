@@ -362,6 +362,8 @@ export function FarmerQualityPanel() {
           </Card>
         );
       })()}
+      </div>
+
       <section id="inspection-history" className="scroll-mt-24 space-y-3">
       {isLoading ? (
         <div className="flex justify-center py-16">
