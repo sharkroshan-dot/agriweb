@@ -213,18 +213,13 @@ export function FarmerQualityPanel() {
 
   return (
     <div className="space-y-4">
-      <div className="grid items-start gap-3 grid-cols-1">
+      <div className="grid items-start gap-3 xl:grid-cols-[minmax(0,0.98fr)_minmax(0,1.02fr)]">
       <Card className="h-full overflow-hidden border-emerald-100 shadow-sm">
         <CardHeader className="border-b border-emerald-100 bg-gradient-to-r from-emerald-50 to-white">
           <CardTitle className="text-base">Harvest batches awaiting quality</CardTitle>
           <CardDescription>Each harvested batch must be independently inspected before a marketplace product can be created.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            <div className="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2"><p className="text-[10px] font-medium text-amber-700">Evidence required</p><p className="text-lg font-bold text-amber-800">{apiRecords.filter((r: any) => getEvidenceStatus(r) === "required").length}</p></div>
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 px-3 py-2"><p className="text-[10px] font-medium text-emerald-700">Awaiting warehouse review</p><p className="text-lg font-bold text-emerald-800">{apiRecords.filter((r: any) => getEvidenceStatus(r) === "awaiting").length}</p></div>
-            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 col-span-2 sm:col-span-1"><p className="text-[10px] font-medium text-slate-600">Completed reviews</p><p className="text-lg font-bold text-slate-800">{apiRecords.filter((r: any) => getEvidenceStatus(r) === "completed").length}</p></div>
-          </div>
           <div className="space-y-2" id="inspection-status-filters">
             <div className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
               <div>
@@ -403,6 +398,81 @@ export function FarmerQualityPanel() {
         </CardContent>
       </Card>
 
+      {(() => {
+        const evidenceQueue = apiRecords.filter((r: any) => !["approved", "rejected", "verified", "buyer_verified"].includes(String(r.inspectionStatus || r.verificationStatus || "").toLowerCase()));
+        const awaitingReview = evidenceQueue.filter((r: any) => getEvidenceStatus(r) === "awaiting").length;
+        const needsEvidence = evidenceQueue.length - awaitingReview;
+        const uploadable = evidenceQueue.filter((r: any) => getEvidenceStatus(r) === "required");
+        const selectedEvidence = evidenceQueue.find((r: any) => r.id === selectedEvidenceId) || uploadable[0] || evidenceQueue[0];
+        const selectedNeedsEvidence = selectedEvidence ? getEvidenceStatus(selectedEvidence) === "required" : false;
+        const selectedFiles = selectedEvidence ? evidenceFiles[selectedEvidence.id] || [] : [];
+        const isUploadingThis = selectedEvidence && evidenceMutation.isPending && evidenceMutation.variables?.id === selectedEvidence.id;
+        return (
+          <Card id="evidence-submission" className="h-full scroll-mt-24 overflow-hidden border-slate-200 shadow-sm">
+            <CardHeader className="border-b border-slate-100 bg-white px-4 py-3">
+              <div className="flex items-center gap-3">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><Camera className="h-5 w-5" /></span>
+                <div className="min-w-0">
+                  <CardTitle className="text-base">Evidence submission</CardTitle>
+                  <CardDescription className="mt-0.5">Share clear photos or a short video so the warehouse team can assess your harvest.</CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-2 p-3">
+              {evidenceQueue.map((r: any) => {
+                const submitted = getEvidenceStatus(r) === "awaiting";
+                const active = selectedEvidence?.id === r.id;
+                return (
+                  <button key={r.id} type="button" onClick={() => !submitted && setSelectedEvidenceId(r.id)} disabled={submitted}
+                    className={cn("grid w-full grid-cols-[42px_minmax(0,1fr)_auto] items-center gap-2 rounded-lg border px-2 py-1.5 text-left transition", active ? "border-emerald-300 bg-emerald-50/60" : "border-slate-100 bg-white", submitted && "cursor-default")}>
+                    <span className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-lg bg-slate-100 text-emerald-700">
+                      {resolveQualityMediaUrl(r.photos?.[0]) ? <img src={resolveQualityMediaUrl(r.photos[0])} alt="" className="h-full w-full object-cover" onError={(event) => { event.currentTarget.style.display = "none"; }} /> : <Camera className="h-4 w-4" />}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-xs font-semibold text-slate-900">{r.cropName || "Harvest batch"} <span className="ml-1 font-mono text-[10px] font-normal text-slate-500">({r.lotNumber || "Lot pending"})</span></span>
+                      <span className="block truncate text-[11px] text-slate-500">{r.photos?.length || 0} photos · {r.videos?.length || 0} videos {active ? "· Selected" : ""}</span>
+                    </span>
+                    {submitted ? <span className="flex flex-wrap items-center justify-end gap-1"><Badge variant="success" className="whitespace-nowrap text-[10px]"><CheckCircle2 className="mr-1 h-3 w-3" />Evidence submitted</Badge><Badge variant="outline" className="whitespace-nowrap border-emerald-200 bg-emerald-50 text-[10px] text-emerald-700">Awaiting warehouse review</Badge></span> : <Badge variant="warning" className="whitespace-nowrap text-[10px]">Evidence required</Badge>}
+                  </button>
+                );
+              })}
+              {evidenceQueue.length === 0 && (
+                <div className="rounded-lg border border-dashed border-slate-200 px-3 py-5 text-center text-xs text-slate-500">No evidence submissions pending. Request an inspection for a harvest batch when it is ready.</div>
+              )}
+              {selectedEvidence && (
+                <div className="space-y-3 border-t border-slate-100 pt-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-slate-900">{selectedEvidence.cropName || "Harvest batch"} · {selectedEvidence.lotNumber || "Lot pending"}</p>
+                      <p className="text-[11px] text-slate-500">{selectedEvidence.weightKg || 0} kg · {selectedEvidence.photos?.length || 0} photos · {selectedEvidence.videos?.length || 0} videos</p>
+                    </div>
+                    {selectedNeedsEvidence ? <Badge variant="warning">Evidence required</Badge> : <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">Awaiting warehouse review</Badge>}
+                  </div>
+                  {selectedNeedsEvidence ? (
+                    <div className="grid gap-2 sm:grid-cols-[minmax(0,0.9fr)_minmax(180px,1fr)_auto] sm:items-end">
+                      <div>
+                        <label htmlFor={`evidence-${selectedEvidence.id}`} className="flex min-h-[68px] cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50/70 px-2 py-2 text-center transition hover:border-emerald-400 hover:bg-emerald-50/40">
+                          <Camera className="mb-1 h-5 w-5 text-emerald-700" />
+                          <span className="text-xs font-semibold text-slate-700">Choose photos or video</span>
+                          <span className="text-[10px] text-slate-500">JPG, PNG, MP4, WEBM, MOV · Max 50 MB per file</span>
+                        </label>
+                        <input id={`evidence-${selectedEvidence.id}`} type="file" accept="image/*,video/mp4,video/webm,video/quicktime" multiple onChange={e => { const chosen = Array.from(e.target.files || []); if (chosen.length) setEvidenceFiles(current => ({ ...current, [selectedEvidence.id]: [...(current[selectedEvidence.id] || []), ...chosen] })); e.currentTarget.value = ""; }} className="sr-only" />
+                        {selectedFiles.length > 0 && <div className="mt-2 flex flex-wrap gap-1.5">{selectedFiles.map((file, index) => <span key={`${file.name}-${file.lastModified}-${index}`} className="inline-flex max-w-full items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[10px] text-slate-600"><span className="max-w-[120px] truncate">{file.name}</span><button type="button" aria-label={`Remove ${file.name}`} onClick={() => setEvidenceFiles(current => ({ ...current, [selectedEvidence.id]: (current[selectedEvidence.id] || []).filter((_, fileIndex) => fileIndex !== index) }))}><XCircle className="h-3 w-3 text-rose-600" /></button></span>)}</div>}
+                      </div>
+                      <div><label htmlFor={`evidence-notes-${selectedEvidence.id}`} className="mb-1 block text-[11px] font-semibold text-slate-600">Note for warehouse (optional)</label><textarea id={`evidence-notes-${selectedEvidence.id}`} value={evidenceNotes[selectedEvidence.id] || ""} onChange={e => setEvidenceNotes(current => ({ ...current, [selectedEvidence.id]: e.target.value }))} placeholder="Mention visible defects, harvest time or handling details…" rows={2} className="min-h-[68px] w-full resize-y rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100" /></div>
+                      <Button size="sm" className="h-10 w-full sm:w-auto" onClick={() => evidenceMutation.mutate({ id: selectedEvidence.id, files: selectedFiles, notes: evidenceNotes[selectedEvidence.id] || "" })} disabled={evidenceMutation.isPending || selectedFiles.length === 0}>{isUploadingThis ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Uploading…</> : "Submit for warehouse review"}</Button>
+                    </div>
+                  ) : <p className="rounded-lg border border-emerald-100 bg-emerald-50/60 px-3 py-3 text-xs text-emerald-800">Your evidence has been submitted. The warehouse quality team must complete the review before this batch can proceed to product listing.</p>}
+                </div>
+              )}
+              <div className="flex flex-wrap gap-3 border-t border-slate-100 pt-2 text-[11px]">
+                <span className="font-medium text-amber-700">{needsEvidence} evidence required</span>
+                <span className="font-medium text-emerald-700">{awaitingReview} awaiting warehouse review</span>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
       </div>
 
       <CameraCapture
