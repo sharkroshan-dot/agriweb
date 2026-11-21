@@ -353,27 +353,44 @@ export default function FarmerRoutePage() {
     onSuccess: (res: any) => {
       const updatedStops = Number(res?.data?.updatedStops ?? res?.updatedStops ?? 0);
       if (!updatedStops) {
+        if (navigationWindowRef.current && !navigationWindowRef.current.closed) navigationWindowRef.current.close();
+        navigationWindowRef.current = null;
         toast(
-          "No delivery stops were dispatched. Customer pickup orders must be completed with the customer's pickup code or QR.",
+          "No delivery stops were dispatched. Pickup orders must be completed with the customer's pickup code or QR; no navigation was opened.",
           { icon: "📦", duration: 6500 }
         );
         return;
       }
       setStarted(true);
       refetch();
-      const pendingStops = stops.filter((stop) => stop.status !== "delivered" && stop.status !== "picked_up");
-      const navigationStops = pendingStops.length ? pendingStops : stops;
-      const destinationStop = navigationStops[navigationStops.length - 1];
-      const destination = destinationStop ? (destinationStop.lat != null && destinationStop.lng != null ? destinationStop.lat + "," + destinationStop.lng : destinationStop.location + (destinationStop.city ? ", " + destinationStop.city : "")) : "";
-      const waypoints = navigationStops.slice(0, -1).map((stop) => stop.lat != null && stop.lng != null ? stop.lat + "," + stop.lng : stop.location + (stop.city ? ", " + stop.city : "")).filter(Boolean);
-      const mapsParams = new URLSearchParams({ api: "1", origin: navigationOriginRef.current || "Current Location", destination, travelmode: "driving", dir_action: "navigate" });
+      const navigationStops = stops.filter((stop) => stop.status !== "delivered" && stop.status !== "picked_up" && stop.deliveryType !== "pickup");
+      const usableStops = navigationStops.length ? navigationStops : stops.filter((stop) => stop.deliveryType !== "pickup");
+      const destinationStop = usableStops.find((stop) => stop.lat != null && stop.lng != null) || usableStops.find((stop) => Boolean((stop.location || "").trim() || (stop.city || "").trim()));
+      if (!destinationStop) {
+        if (navigationWindowRef.current && !navigationWindowRef.current.closed) navigationWindowRef.current.close();
+        navigationWindowRef.current = null;
+        toast("Route started, but no customer destination is available for map navigation. Check the delivery address.", { icon: "📍", duration: 6500 });
+        return;
+      }
+      const orderedStops = usableStops.filter((stop) => stop.lat != null && stop.lng != null || Boolean((stop.location || "").trim() || (stop.city || "").trim()));
+      const destination = destinationStop.lat != null && destinationStop.lng != null ? destinationStop.lat + "," + destinationStop.lng : destinationStop.location + (destinationStop.city ? ", " + destinationStop.city : "");
+      const waypoints = orderedStops.filter((stop) => stop.orderId !== destinationStop.orderId).map((stop) => stop.lat != null && stop.lng != null ? stop.lat + "," + stop.lng : stop.location + (stop.city ? ", " + stop.city : "")).filter(Boolean);
+      const mapsParams = new URLSearchParams({ api: "1", origin: navigationOriginRef.current || "Current Location", destination, travelmode: "driving" });
       if (waypoints.length) mapsParams.set("waypoints", waypoints.join("|"));
       const mapsUrl = "https://www.google.com/maps/dir/?" + mapsParams.toString();
-      if (navigationWindowRef.current && !navigationWindowRef.current.closed) navigationWindowRef.current.location.href = mapsUrl;
-      else window.open(mapsUrl, "_blank", "noopener,noreferrer");
-      toast.success("Route started. Opening turn-by-turn navigation in Google Maps.");
+      if (navigationWindowRef.current && !navigationWindowRef.current.closed) {
+        navigationWindowRef.current.location.replace(mapsUrl);
+        navigationWindowRef.current.focus();
+      } else {
+        toast.error("Your browser blocked the navigation tab. Allow pop-ups and click Start Route again.");
+      }
+      toast.success("Route started. Opening your delivery directions in Google Maps.");
     },
-    onError: () => toast.error("Failed to start route"),
+    onError: () => {
+      if (navigationWindowRef.current && !navigationWindowRef.current.closed) navigationWindowRef.current.close();
+      navigationWindowRef.current = null;
+      toast.error("Failed to start route. No navigation was opened.");
+    },
   });
 
   const completeMutation = useMutation({
