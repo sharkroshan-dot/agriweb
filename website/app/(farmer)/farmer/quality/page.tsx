@@ -269,7 +269,7 @@ export function FarmerQualityPanel() {
             const meets = meetsRequirement(record);
             return (
               <div key={record.id} className="overflow-hidden rounded-xl border border-slate-100 bg-white transition hover:border-emerald-200">
-                <button type="button" aria-expanded={expanded} onClick={() => openEvidenceForRecord(record)} className="flex w-full min-w-0 items-center gap-3 px-2.5 py-2 text-left">
+                <button type="button" aria-pressed={selectedEvidenceId === record.id} onClick={() => openEvidenceForRecord(record)} className={cn("flex w-full min-w-0 items-center gap-3 px-2.5 py-2 text-left transition-colors", selectedEvidenceId === record.id ? "bg-emerald-50/70" : "bg-white hover:bg-slate-50")}>
                   <div className="h-11 w-12 shrink-0 overflow-hidden rounded-lg border border-slate-100 bg-slate-50">
                     {thumbnail ? <img src={thumbnail} alt={record.cropName || "Harvest batch"} className="h-full w-full object-cover" onError={(event) => { event.currentTarget.style.display = "none"; }} /> : <div className="flex h-full items-center justify-center text-emerald-700"><FileCheck className="h-5 w-5" /></div>}
                   </div>
