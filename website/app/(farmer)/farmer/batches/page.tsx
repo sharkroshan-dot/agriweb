@@ -306,25 +306,46 @@ export default function FarmerBatchesPage() {
 
       <section aria-label="Batch overview" className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
         {[
-          { label: "Total batches", value: batchSummary.total, icon: Layers, tone: "bg-slate-100 text-slate-700" },
-          { label: "Needs attention", value: batchSummary.awaitingInspection, icon: FlaskConical, tone: "bg-amber-50 text-amber-700" },
-          { label: "Listed batches", value: batchSummary.listed, icon: PackageCheck, tone: "bg-emerald-50 text-emerald-700" },
-          { label: "Expired lots", value: batchSummary.expired, icon: AlertTriangle, tone: "bg-rose-50 text-rose-700" },
-          { label: "Available stock", value: `${batchSummary.remainingKg.toLocaleString("en-IN")} kg`, icon: Package, tone: "bg-sky-50 text-sky-700" },
+          { label: "Total batches", value: batchSummary.total, icon: Layers, tone: "bg-emerald-100 text-emerald-700", surface: "border-emerald-100 bg-gradient-to-br from-emerald-50 to-white" },
+          { label: "Needs attention", value: batchSummary.awaitingInspection, icon: FlaskConical, tone: "bg-amber-100 text-amber-700", surface: "border-amber-100 bg-gradient-to-br from-amber-50 to-white" },
+          { label: "Listed batches", value: batchSummary.listed, icon: PackageCheck, tone: "bg-green-100 text-green-700", surface: "border-green-100 bg-gradient-to-br from-green-50 to-white" },
+          { label: "Expired lots", value: batchSummary.expired, icon: AlertTriangle, tone: "bg-rose-100 text-rose-700", surface: "border-rose-100 bg-gradient-to-br from-rose-50 to-white" },
+          { label: "Available stock", value: `${batchSummary.remainingKg.toLocaleString("en-IN")} kg`, icon: Package, tone: "bg-sky-100 text-sky-700", surface: "border-sky-100 bg-gradient-to-br from-sky-50 to-white" },
         ].map((stat) => (
-          <Card key={stat.label} className="border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-shadow hover:shadow-md">
-            <CardContent className="flex min-w-0 items-center justify-between gap-2 p-4 sm:p-5">
+          <Card key={stat.label} className={cn("overflow-hidden shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md", stat.surface)}>
+            <CardContent className="flex min-w-0 items-center justify-between gap-3 p-4 sm:p-5">
               <div className="min-w-0">
-                <p className="truncate text-xs font-semibold uppercase tracking-wide text-slate-500">{stat.label}</p>
+                <p className="truncate text-xs font-bold uppercase tracking-wide text-slate-500">{stat.label}</p>
                 <p className="mt-2 text-2xl font-bold tracking-tight text-slate-950">{isLoading || isError ? "—" : stat.value}</p>
               </div>
-              <span className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-xl", stat.tone)}><stat.icon className="h-[18px] w-[18px]" /></span>
+              <span className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl", stat.tone)}><stat.icon className="h-5 w-5" /></span>
             </CardContent>
           </Card>
         ))}
       </section>
 
-      <section className="space-y-3">
+      <section aria-label="Batch workflow guide" className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          <button type="button" onClick={() => setShowForm(true)} className="group flex min-w-0 items-center gap-3 rounded-xl border border-emerald-100 bg-emerald-50/70 p-3 text-left transition hover:border-emerald-300 hover:bg-emerald-50">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><Wheat className="h-5 w-5" /></span>
+            <span className="min-w-0"><span className="block text-sm font-bold text-slate-900">1. Create batch</span><span className="mt-0.5 block text-xs text-slate-500">Record harvested lot details</span></span>
+          </button>
+          <button type="button" onClick={() => document.getElementById("inspection-workspace")?.scrollIntoView({ behavior: "smooth", block: "start" })} className="group flex min-w-0 items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 text-left transition hover:border-emerald-300 hover:bg-emerald-50/50">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-50 text-amber-700"><FlaskConical className="h-5 w-5" /></span>
+            <span className="min-w-0"><span className="block text-sm font-bold text-slate-900">2. Submit evidence</span><span className="mt-0.5 block text-xs text-slate-500">Upload batch photos or video</span></span>
+          </button>
+          <button type="button" onClick={() => document.getElementById("inspection-workspace")?.scrollIntoView({ behavior: "smooth", block: "start" })} className="group flex min-w-0 items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 text-left transition hover:border-emerald-300 hover:bg-emerald-50/50">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-green-50 text-green-700"><ShieldCheck className="h-5 w-5" /></span>
+            <span className="min-w-0"><span className="block text-sm font-bold text-slate-900">3. Warehouse review</span><span className="mt-0.5 block text-xs text-slate-500">Follow the quality decision</span></span>
+          </button>
+          <button type="button" onClick={() => document.getElementById("harvest-lots")?.scrollIntoView({ behavior: "smooth", block: "start" })} className="group flex min-w-0 items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 text-left transition hover:border-emerald-300 hover:bg-emerald-50/50">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-sky-50 text-sky-700"><QrCode className="h-5 w-5" /></span>
+            <span className="min-w-0"><span className="block text-sm font-bold text-slate-900">4. Trace & distribute</span><span className="mt-0.5 block text-xs text-slate-500">Open traceability for each lot</span></span>
+          </button>
+        </div>
+      </section>
+
+      <section id="inspection-workspace" className="scroll-mt-24 space-y-3">
         <div className="flex flex-wrap items-end justify-between gap-2 px-1">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700">Quality & compliance</p>
@@ -336,8 +357,8 @@ export default function FarmerBatchesPage() {
         <FarmerQualityPanel />
       </section>
       {showForm && (
-        <Card className="overflow-hidden border-slate-200 shadow-sm">
-          <CardHeader className="border-b border-slate-100 bg-slate-50/60">
+        <Card id="batch-create-form" className="overflow-hidden border-emerald-200 shadow-sm">
+          <CardHeader className="border-b border-emerald-100 bg-gradient-to-r from-emerald-50 to-white">
             <CardTitle className="text-base font-semibold text-slate-950">Create batch from harvested crop</CardTitle>
             <CardDescription>
               Select a completed harvest to create a new traceable lot. You can add this lot to an existing marketplace product after quality approval.
@@ -426,7 +447,7 @@ export default function FarmerBatchesPage() {
       )}
 
       {!isLoading && !isError && batches.length > 0 ? (
-        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_2px_8px_rgba(15,23,42,0.04)]">
+        <section id="harvest-lots" className="scroll-mt-24 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_2px_8px_rgba(15,23,42,0.04)]">
           <div className="flex flex-col gap-3 border-b border-slate-100 bg-white p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
             <div>
               <h2 className="text-lg font-semibold tracking-tight text-slate-950">Harvest lots</h2>
@@ -511,8 +532,8 @@ export default function FarmerBatchesPage() {
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[1080px] border-collapse text-left">
-                <thead className="bg-slate-50">
-                  <tr className="border-b border-slate-200 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                <thead className="bg-emerald-50/90">
+                  <tr className="border-b border-slate-200 text-[11px] font-semibold uppercase tracking-wide text-slate-700">
                     <th className="px-4 py-3">Batch / product</th>
                     <th className="px-4 py-3">Harvest date</th>
                     <th className="px-4 py-3">Quantity</th>
@@ -526,7 +547,7 @@ export default function FarmerBatchesPage() {
                 <tbody className="divide-y divide-slate-100">
                   {filteredBatches.map((batch) => (
                     <Fragment key={batch.id}>
-                      <tr className="align-top transition-colors hover:bg-emerald-50/30">
+                      <tr className="align-top transition-colors hover:bg-emerald-50/50">
                         <td className="px-4 py-4">
                           <div className="flex items-start gap-3">
                             <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><Layers className="h-4 w-4" /></span>
