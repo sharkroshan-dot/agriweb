@@ -172,6 +172,22 @@ export function FarmerQualityPanel() {
 
   const records = filter === "all" ? apiRecords : apiRecords.filter((r) => r.status === filter);
 
+  // Keep evidence status logic in the component scope so both workflow panels can use it.
+  const getEvidenceStatus = (record: any) => {
+    const status = String(record.inspectionStatus || record.verificationStatus || "").toLowerCase();
+    if (["evidence_submitted", "in_progress"].includes(status)) return "awaiting";
+    if (["approved", "verified", "buyer_verified", "rejected"].includes(status) || record.status === "passed" || record.status === "failed") return "completed";
+    return "required";
+  };
+
+  const openEvidenceForRecord = (record: any) => {
+    setSelectedEvidenceId(record.id);
+    setExpandedInspectionId(record.id);
+    window.setTimeout(() => {
+      document.getElementById("evidence-submission")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 0);
+  };
+
   const meetsRequirement = (r: InspectionRecord) => {
     if (!r.requirement) return null;
     return r.grade === r.requirement.grade && 100 - r.damagedPct >= r.requirement.minAcceptablePct;
@@ -261,7 +277,7 @@ export function FarmerQualityPanel() {
             const expanded = expandedInspectionId === record.id;
             return (
               <div key={record.id} className="overflow-hidden rounded-xl border border-slate-100 bg-white transition hover:border-emerald-200">
-                <button type="button" aria-expanded={expanded} onClick={() => setExpandedInspectionId(expanded ? "" : record.id)} className="flex w-full min-w-0 items-center gap-3 px-2.5 py-2 text-left">
+                <button type="button" aria-expanded={expanded} onClick={() => openEvidenceForRecord(record)} className="flex w-full min-w-0 items-center gap-3 px-2.5 py-2 text-left">
                   <div className="h-11 w-12 shrink-0 overflow-hidden rounded-lg border border-slate-100 bg-slate-50">
                     {thumbnail ? <img src={thumbnail} alt={record.cropName || "Harvest batch"} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-emerald-700"><FileCheck className="h-5 w-5" /></div>}
                   </div>
@@ -269,8 +285,11 @@ export function FarmerQualityPanel() {
                     <span className="block truncate text-sm font-semibold text-slate-900">{record.lotNumber} · {record.cropName}</span>
                     <span className="block text-xs text-slate-500">{record.weightKg || batch?.quantityKg || 0} kg · Harvest: {formatDate(batch?.harvestDate || record.inspectedAt)}</span>
                   </span>
-                  <span className={cn("inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold", statusTone)}>
-                    <StatusIcon className="h-3.5 w-3.5" />{status === "passed" ? "Passed" : status === "failed" ? "Failed" : "Review"}
+                  <span className="flex shrink-0 flex-col items-end gap-1">
+                    <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold", statusTone)}>
+                      <StatusIcon className="h-3.5 w-3.5" />{status === "passed" ? "Passed" : status === "failed" ? "Failed" : "Review"}
+                    </span>
+                    {getEvidenceStatus(record) === "awaiting" ? <Badge variant="outline" className="whitespace-nowrap border-emerald-200 bg-emerald-50 text-[10px] text-emerald-700">Awaiting warehouse review</Badge> : getEvidenceStatus(record) === "required" ? <Badge variant="warning" className="whitespace-nowrap text-[10px]">Evidence required</Badge> : <Badge variant="secondary" className="whitespace-nowrap text-[10px]">Review completed</Badge>}
                   </span>
                   <span className={cn("shrink-0 text-xl text-slate-500 transition-transform", expanded && "rotate-90")}>›</span>
                 </button>
