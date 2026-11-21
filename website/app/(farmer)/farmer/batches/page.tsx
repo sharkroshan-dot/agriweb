@@ -278,7 +278,7 @@ export default function FarmerBatchesPage() {
   };
 
   return (
-    <div className="w-full min-w-0 space-y-6 pb-10">
+    <div className="w-full min-w-0 space-y-4 pb-10">
       <FarmerPageHeader
         eyebrow="Harvest lots & product traceability"
         title="Batches & Traceability"
@@ -304,26 +304,6 @@ export default function FarmerBatchesPage() {
         </Button>
       </FarmerPageHeader>
 
-      <section aria-label="Batch overview" className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
-        {[
-          { label: "Total batches", value: batchSummary.total, icon: Layers, tone: "bg-emerald-100 text-emerald-700", surface: "border-emerald-100 bg-gradient-to-br from-emerald-50 to-white" },
-          { label: "Needs attention", value: batchSummary.awaitingInspection, icon: FlaskConical, tone: "bg-amber-100 text-amber-700", surface: "border-amber-100 bg-gradient-to-br from-amber-50 to-white" },
-          { label: "Listed batches", value: batchSummary.listed, icon: PackageCheck, tone: "bg-green-100 text-green-700", surface: "border-green-100 bg-gradient-to-br from-green-50 to-white" },
-          { label: "Expired lots", value: batchSummary.expired, icon: AlertTriangle, tone: "bg-rose-100 text-rose-700", surface: "border-rose-100 bg-gradient-to-br from-rose-50 to-white" },
-          { label: "Available stock", value: `${batchSummary.remainingKg.toLocaleString("en-IN")} kg`, icon: Package, tone: "bg-sky-100 text-sky-700", surface: "border-sky-100 bg-gradient-to-br from-sky-50 to-white" },
-        ].map((stat) => (
-          <Card key={stat.label} className={cn("overflow-hidden shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md", stat.surface)}>
-            <CardContent className="flex min-w-0 items-center justify-between gap-3 p-4 sm:p-5">
-              <div className="min-w-0">
-                <p className="truncate text-xs font-bold uppercase tracking-wide text-slate-500">{stat.label}</p>
-                <p className="mt-2 text-2xl font-bold tracking-tight text-slate-950">{isLoading || isError ? "—" : stat.value}</p>
-              </div>
-              <span className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl", stat.tone)}><stat.icon className="h-5 w-5" /></span>
-            </CardContent>
-          </Card>
-        ))}
-      </section>
-
       <section aria-label="Batch workflow guide" className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
         <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
           <button type="button" onClick={() => setShowForm(true)} className="group flex min-w-0 items-center gap-3 rounded-xl border border-emerald-100 bg-emerald-50/70 p-3 text-left transition hover:border-emerald-300 hover:bg-emerald-50">
@@ -343,6 +323,26 @@ export default function FarmerBatchesPage() {
             <span className="min-w-0"><span className="block text-sm font-bold text-slate-900">4. Trace & distribute</span><span className="mt-0.5 block text-xs text-slate-500">Open traceability for each lot</span></span>
           </button>
         </div>
+      </section>
+
+      <section aria-label="Batch overview" className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+        {[
+          { label: "Total batches", value: batchSummary.total, icon: Layers, tone: "bg-emerald-100 text-emerald-700", surface: "border-emerald-100 bg-gradient-to-br from-emerald-50 to-white" },
+          { label: "Needs attention", value: batchSummary.awaitingInspection, icon: FlaskConical, tone: "bg-amber-100 text-amber-700", surface: "border-amber-100 bg-gradient-to-br from-amber-50 to-white" },
+          { label: "Listed batches", value: batchSummary.listed, icon: PackageCheck, tone: "bg-green-100 text-green-700", surface: "border-green-100 bg-gradient-to-br from-green-50 to-white" },
+          { label: "Expired lots", value: batchSummary.expired, icon: AlertTriangle, tone: "bg-rose-100 text-rose-700", surface: "border-rose-100 bg-gradient-to-br from-rose-50 to-white" },
+          { label: "Available stock", value: `${batchSummary.remainingKg.toLocaleString("en-IN")} kg`, icon: Package, tone: "bg-sky-100 text-sky-700", surface: "border-sky-100 bg-gradient-to-br from-sky-50 to-white" },
+        ].map((stat) => (
+          <Card key={stat.label} className={cn("overflow-hidden shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md", stat.surface)}>
+            <CardContent className="flex min-w-0 items-center justify-between gap-3 p-4 sm:p-5">
+              <div className="min-w-0">
+                <p className="truncate text-xs font-bold uppercase tracking-wide text-slate-500">{stat.label}</p>
+                <p className="mt-2 text-2xl font-bold tracking-tight text-slate-950">{isLoading || isError ? "—" : stat.value}</p>
+              </div>
+              <span className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl", stat.tone)}><stat.icon className="h-5 w-5" /></span>
+            </CardContent>
+          </Card>
+        ))}
       </section>
 
       <nav aria-label="Batch workspace sections" className="sticky top-2 z-20 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur">
