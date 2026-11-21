@@ -365,13 +365,42 @@ export function FarmerQualityPanel() {
       })()}
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        {["all", "passed", "review", "failed"].map((f) => (
-          <Button key={f} variant={filter === f ? "default" : "outline"} size="sm" onClick={() => setFilter(f)}>
-            {f === "all" ? "All" : f.charAt(0).toUpperCase() + f.slice(1)}
-          </Button>
-        ))}
-      </div>
+      <section id="inspection-history" className="scroll-mt-24 space-y-3">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h3 className="text-base font-bold tracking-tight text-slate-900">Inspection results / history</h3>
+            <p className="mt-1 text-xs text-slate-500">Review completed quality checks and filter results by their decision.</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 p-1.5">
+            {[
+              { value: "all", label: "All", icon: PackageSearch, tone: "text-emerald-700" },
+              { value: "passed", label: "Passed", icon: CheckCircle2, tone: "text-emerald-700" },
+              { value: "review", label: "Review", icon: FlaskConical, tone: "text-amber-700" },
+              { value: "failed", label: "Failed", icon: XCircle, tone: "text-rose-700" },
+            ].map((item) => {
+              const count = item.value === "all" ? apiRecords.length : apiRecords.filter((record) => record.status === item.value).length;
+              const active = filter === item.value;
+              return (
+                <button
+                  key={item.value}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => setFilter(item.value)}
+                  className={cn(
+                    "inline-flex min-h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold transition-colors",
+                    active
+                      ? "border-emerald-700 bg-emerald-700 text-white shadow-sm"
+                      : "border-transparent bg-white text-slate-600 hover:border-slate-200 hover:bg-white"
+                  )}
+                >
+                  <item.icon className={cn("h-3.5 w-3.5", active ? "text-white" : item.tone)} />
+                  {item.label}
+                  <span className={cn("rounded-full px-1.5 py-0.5 text-[10px] tabular-nums", active ? "bg-white/20 text-white" : "bg-slate-100 text-slate-600")}>{count}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
       {isLoading ? (
         <div className="flex justify-center py-16">
@@ -502,6 +531,7 @@ export function FarmerQualityPanel() {
           })}
         </div>
       )}
+      </section>
 
       <CameraCapture
         open={cameraOpen}
