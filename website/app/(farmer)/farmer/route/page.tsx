@@ -210,11 +210,16 @@ function RouteMap({
       zoom={farm.lat != null ? 10 : 5}
       height="420px"
       markers={markers}
-      route={[
-        ...(hasFarmCoords ? [{ lat: farm.lat as number, lng: farm.lng as number }] : []),
-        ...locatedStops.map((stop) => ({ lat: stop.lat, lng: stop.lng })),
-        ...(hasFarmCoords && locatedStops.length ? [{ lat: farm.lat as number, lng: farm.lng as number }] : []),
-      ]}
+      route={started
+        ? locatedStops
+            .filter((stop) => !completedIds.has(stop.id))
+            .map((stop) => ({ lat: stop.lat, lng: stop.lng }))
+        : [
+            ...(hasFarmCoords ? [{ lat: farm.lat as number, lng: farm.lng as number }] : []),
+            ...locatedStops.map((stop) => ({ lat: stop.lat, lng: stop.lng })),
+            ...(hasFarmCoords && locatedStops.length ? [{ lat: farm.lat as number, lng: farm.lng as number }] : []),
+          ]}
+      trackUserLocation={started}
       userLocation={userLocation}
       className="rounded-lg"
     />
