@@ -266,7 +266,7 @@ export function Map({
       const l = libsRef.current;
       if (!inst || !l) return;
       const markerStops = stopsRef.current.filter(Boolean);
-      const stops = route.length >= 2 ? route.filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng)) : markerStops;
+      const stops = route.length > 0 ? route.filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng)) : markerStops;
       if (stops.length === 0) return;
       const user = userPosRef.current;
 
@@ -302,7 +302,7 @@ export function Map({
           strokeOpacity: 0.9,
           icons: [{
             icon: {
-              path: _maps.SymbolPath?.FORWARD_CLOSED_ARROW ?? ForwardClosedArrowPath(),
+              path: _maps.SymbolPath?.FORWARD_CLOSED_ARROW ?? "M 0,-1 1,1 -1,1 z",
               scale: 3,
               strokeColor: "#ffffff",
               strokeWeight: 1,
