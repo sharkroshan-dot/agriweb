@@ -109,7 +109,15 @@ export function FarmerQualityPanel() {
 
   const apiRecords = useMemo(() => {
     const list = recordsData?.data?.inspections || recordsData?.data?.records || [];
-    return Array.isArray(list) ? list.map((r: any) => ({ ...r, id: r._id || r.id })) : [];
+    return Array.isArray(list) ? list.map((r: any) => {
+      const rawStatus = String(r.status || r.inspectionStatus || "").toLowerCase();
+      const status = ["passed", "pass", "approved", "verified", "quality_approved"].includes(rawStatus)
+        ? "passed"
+        : ["failed", "fail", "rejected", "quality_rejected"].includes(rawStatus)
+          ? "failed"
+          : "review";
+      return { ...r, id: r._id || r.id, status };
+    }) : [];
   }, [recordsData]);
 
   const batches = batchesData?.data?.batches || [];
@@ -364,7 +372,11 @@ export function FarmerQualityPanel() {
       })()}
       </div>
 
-      <section id="inspection-history" className="scroll-mt-24 space-y-3">
+      <section id="inspection-history" className="scroll-mt-24 space-y-2">
+      <div className="flex items-center justify-between gap-3 px-1">
+        <div><h3 className="text-sm font-semibold text-slate-900">Inspection history &amp; verification details</h3><p className="text-xs text-slate-500">Expand a record to review grading, evidence, AI screening and available actions.</p></div>
+        <Badge variant="outline">{records.length} records</Badge>
+      </div>
       {isLoading ? (
         <div className="flex justify-center py-16">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -382,8 +394,19 @@ export function FarmerQualityPanel() {
             const meets = meetsRequirement(r);
             const gradeInfo = GRADES.find((g) => g.value === r.grade);
             return (
-              <Card key={r.id}>
-                <CardContent className="grid gap-4 p-4 sm:grid-cols-[1fr_auto]">
+              <details key={r.id} className="group overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2 px-3 py-2.5 hover:bg-slate-50 [&::-webkit-details-marker]:hidden">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <span className="truncate text-xs font-mono font-semibold text-slate-900">{r.lotNumber}</span>
+                    <Badge variant="outline">{r.cropName}</Badge>
+                    <Badge variant={r.grade === "A" ? "success" : r.grade === "B" ? "warning" : "secondary"}>Grade {r.grade}</Badge>
+                    {r.status === "passed" ? <Badge variant="success">Passed</Badge> : r.status === "failed" ? <Badge variant="destructive">Failed</Badge> : <Badge variant="warning">Review</Badge>}
+                    {r.verificationStatus === "farmer_declared" && <Badge variant="warning">Farmer declared · Unverified</Badge>}
+                    {r.verificationStatus === "evidence_submitted" && <Badge variant="secondary">Evidence submitted</Badge>}
+                  </div>
+                  <span className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-emerald-700">Inspection details <span className="transition-transform group-open:rotate-180">⌄</span></span>
+                </summary>
+                <div className="grid gap-3 border-t border-slate-100 p-3 sm:grid-cols-[1fr_auto]">
                   <div className="space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-mono text-sm font-semibold">{r.lotNumber}</span>
@@ -488,8 +511,8 @@ export function FarmerQualityPanel() {
                       <p className="text-right text-xs text-slate-500">{gradeInfo.desc}</p>
                     </div>
                   )}
-                </CardContent>
-              </Card>
+                </div>
+              </details>
             );
           })}
         </div>
