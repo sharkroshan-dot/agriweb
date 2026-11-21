@@ -123,14 +123,22 @@ export function FarmerQualityPanel() {
     productsData?.data?.products || productsData?.data || [];
 
   const aiMutation = useMutation({
+    // The backend route is /ai-assess; /ai-screen does not exist.
     mutationFn: (inspectionId: string) =>
-      api.post(`/quality/inspections/${inspectionId}/ai-screen`),
-    onSuccess: () => {
+      api.post(`/quality/inspections/${inspectionId}/ai-assess`),
+    onSuccess: (response: any) => {
       queryClient.invalidateQueries({ queryKey: ["farmerQuality"] });
       queryClient.invalidateQueries({ queryKey: ["farmerBatchesForQuality"] });
-      toast.success("AI quality screening completed.");
+      const assessment = response?.data?.data?.aiAssessment;
+      if (assessment?.mismatch) {
+        toast.error(`AI screening estimates Grade ${assessment.estimatedGrade}. A manual quality review is required.`);
+      } else {
+        toast.success(assessment?.estimatedGrade
+          ? `AI screening completed. Estimated Grade ${assessment.estimatedGrade}.`
+          : "AI quality screening completed.");
+      }
     },
-    onError: (err: any) => toast.error(err?.message || "AI screening failed"),
+    onError: (err: any) => toast.error(err?.response?.data?.detail || err?.message || "AI screening failed"),
   });
 
   const requestInspectionMutation = useMutation({
