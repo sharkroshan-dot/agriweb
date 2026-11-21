@@ -377,7 +377,7 @@ export function FarmerQualityPanel() {
                         </label>
                         <input id={`evidence-${selectedEvidence.id}`} type="file" accept="image/*,video/mp4,video/webm,video/quicktime" multiple onChange={e => { const chosen = Array.from(e.target.files || []); if (chosen.length) setEvidenceFiles(current => ({ ...current, [selectedEvidence.id]: [...(current[selectedEvidence.id] || []), ...chosen] })); e.currentTarget.value = ""; }} className="sr-only" />
                         <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                          <p className="text-xs font-semibold text-slate-800">Uploaded files ({selectedEvidence.photos?.length || 0 + selectedEvidence.videos?.length || 0 + selectedFiles.length})</p>
+                          <p className="text-xs font-semibold text-slate-800">Uploaded files ({(selectedEvidence.photos?.length || 0) + (selectedEvidence.videos?.length || 0) + selectedFiles.length})</p>
                           {selectedFiles.length > 0 && <button type="button" onClick={() => setEvidenceFiles(current => ({ ...current, [selectedEvidence.id]: [] }))} className="inline-flex items-center gap-1 text-xs font-semibold text-rose-600 hover:text-rose-700"><Trash2 className="h-3.5 w-3.5" />Clear pending files</button>}
                         </div>
                         <div className="mt-2 flex flex-wrap gap-2">
