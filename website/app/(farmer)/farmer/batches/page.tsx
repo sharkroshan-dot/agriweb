@@ -358,7 +358,6 @@ export default function FarmerBatchesPage() {
           { label: "Inspection Workspace", icon: FlaskConical, target: "inspection-workspace" },
           { label: "Harvest Lots", icon: Wheat, target: "harvest-lots" },
           { label: "Traceability", icon: QrCode, target: "harvest-lots" },
-          { label: "Reports", icon: PackageCheck, target: "inspection-history" },
         ].map((item, index) => (
           <button
             key={item.label}
