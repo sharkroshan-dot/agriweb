@@ -345,6 +345,29 @@ export default function FarmerBatchesPage() {
         </div>
       </section>
 
+      <nav aria-label="Batch workspace sections" className="sticky top-2 z-20 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur">
+        {[
+          { label: "Inspection Workspace", icon: FlaskConical, target: "inspection-workspace" },
+          { label: "Harvest Lots", icon: Wheat, target: "harvest-lots" },
+          { label: "Traceability", icon: QrCode, target: "harvest-lots" },
+          { label: "Reports", icon: PackageCheck, target: "inspection-history" },
+        ].map((item, index) => (
+          <button
+            key={item.label}
+            type="button"
+            onClick={() => document.getElementById(item.target)?.scrollIntoView({ behavior: "smooth", block: "start" })}
+            className={cn(
+              "inline-flex min-h-9 items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors sm:text-sm",
+              index === 0
+                ? "border-emerald-700 bg-emerald-700 text-white shadow-sm hover:bg-emerald-800"
+                : "border-slate-200 bg-white text-slate-700 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800"
+            )}
+          >
+            <item.icon className="h-4 w-4" />{item.label}
+          </button>
+        ))}
+      </nav>
+
       <section id="inspection-workspace" className="scroll-mt-24 space-y-3">
         <div className="flex flex-wrap items-end justify-between gap-2 px-1">
           <div>
