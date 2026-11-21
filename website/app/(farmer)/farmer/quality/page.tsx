@@ -304,8 +304,8 @@ export function FarmerQualityPanel() {
         const selectedFiles = selectedEvidence ? evidenceFiles[selectedEvidence.id] || [] : [];
         const isUploadingThis = selectedEvidence && evidenceMutation.isPending && evidenceMutation.variables?.id === selectedEvidence.id;
         return (
-          <Card id="evidence-submission" className="h-full scroll-mt-24 overflow-hidden border-slate-200 shadow-sm">
-            <CardHeader className="border-b border-slate-100 bg-white px-4 py-3">
+          <Card id="evidence-submission" className="h-full scroll-mt-24 overflow-hidden border-emerald-200 shadow-sm">
+            <CardHeader className="border-b border-emerald-100 bg-gradient-to-r from-emerald-50/80 to-white px-4 py-3">
               <div className="flex items-center gap-3">
                 <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><Camera className="h-5 w-5" /></span>
                 <div className="min-w-0">
@@ -314,33 +314,46 @@ export function FarmerQualityPanel() {
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="space-y-2 p-3">
+            <CardContent className="space-y-3 p-3 sm:p-4">
+              <div className="grid grid-cols-3 items-center gap-1.5 text-[11px] font-semibold sm:gap-2">
+                <div className="flex min-h-9 items-center justify-center gap-1 rounded-full bg-emerald-100 px-2 text-emerald-800"><CheckCircle2 className="h-3.5 w-3.5" /> <span>Select lot</span></div>
+                <div className="flex min-h-9 items-center justify-center gap-1 rounded-full bg-emerald-100 px-2 text-emerald-800"><span className="flex h-4 w-4 items-center justify-center rounded-full bg-emerald-700 text-[10px] text-white">2</span><span>Add evidence</span></div>
+                <div className="flex min-h-9 items-center justify-center gap-1 rounded-full bg-slate-100 px-2 text-slate-600"><span className="flex h-4 w-4 items-center justify-center rounded-full bg-slate-400 text-[10px] text-white">3</span><span>Submit for review</span></div>
+              </div>
               {!selectedEvidence && (
-                <div className="rounded-lg border border-dashed border-slate-200 px-3 py-8 text-center text-xs text-slate-500">
+                <div className="rounded-xl border border-dashed border-slate-200 px-3 py-10 text-center text-sm text-slate-500">
                   Select a harvest lot from the left to view its evidence, inspection details and next actions here.
                 </div>
               )}
               {selectedEvidence && (
-                <div className="space-y-3 border-t border-slate-100 pt-3">
+                <>
                   <div className="rounded-xl border border-slate-200 bg-white p-3">
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div>
-                        <p className="text-sm font-bold text-slate-900">{selectedEvidence.lotNumber} · {selectedEvidence.cropName}</p>
-                        <p className="text-xs text-slate-500">{selectedEvidence.weightKg || 0} kg · Size: {selectedEvidence.size || "Not recorded"} · Inspected: {selectedEvidence.inspectedAt ? formatDate(selectedEvidence.inspectedAt) : "Not inspected"}</p>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-slate-100 bg-slate-50">
+                        {resolveQualityMediaUrl(selectedEvidence.photos?.[0]) ? <img src={resolveQualityMediaUrl(selectedEvidence.photos?.[0])} alt={selectedEvidence.cropName || "Selected harvest lot"} className="h-full w-full object-cover" onError={(event) => { event.currentTarget.style.display = "none"; }} /> : <div className="flex h-full items-center justify-center text-emerald-700"><Camera className="h-6 w-6" /></div>}
                       </div>
-                      <Badge variant={selectedEvidence.status === "passed" ? "success" : selectedEvidence.status === "failed" ? "destructive" : "warning"}>{selectedEvidence.status === "passed" ? "Passed" : selectedEvidence.status === "failed" ? "Failed" : "Review"}</Badge>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[11px] text-slate-500">Selected lot (from Harvest batches awaiting quality)</p>
+                        <p className="break-words text-sm font-bold text-slate-900">{selectedEvidence.lotNumber} · {selectedEvidence.cropName}</p>
+                        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
+                          <span className="inline-flex items-center gap-1"><PackageSearch className="h-3.5 w-3.5" />Harvest quantity: {selectedEvidence.weightKg || 0} kg</span>
+                          <span>Harvest date: {formatDate(batches.find((item: any) => String(item._id || item.id) === String(selectedEvidence.batchId || ""))?.harvestDate || selectedEvidence.inspectedAt)}</span>
+                        </div>
+                      </div>
+                      {selectedNeedsEvidence ? <Badge variant="warning" className="shrink-0">Evidence required</Badge> : <Badge variant="outline" className="shrink-0 border-emerald-200 bg-emerald-50 text-emerald-700">{getEvidenceStatus(selectedEvidence) === "completed" ? "Review completed" : "Awaiting warehouse review"}</Badge>}
                     </div>
-                    <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                      <Badge variant="outline">Grade {selectedEvidence.grade || "Not graded"}</Badge>
-                      <Badge variant="outline">Freshness {selectedEvidence.freshness ?? "—"}%</Badge>
-                      <Badge variant="outline">Damaged {selectedEvidence.damagedPct ?? "—"}%</Badge>
-                      <Badge variant="outline">{selectedEvidence.photos?.length || 0} photos · {selectedEvidence.videos?.length || 0} videos</Badge>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-white p-3">
+                    <div className="mb-2 flex items-center gap-2 text-xs font-bold text-slate-800"><Scale className="h-4 w-4 text-emerald-700" />Inspection / Quality summary</div>
+                    <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
+                      <div className="rounded-full border border-slate-200 px-3 py-2 text-center text-[11px] font-semibold text-slate-700"><span className="text-emerald-700">Grade:</span> {selectedEvidence.grade || "Not graded"}</div>
+                      <div className="rounded-full border border-slate-200 px-3 py-2 text-center text-[11px] font-semibold text-slate-700"><span className="text-emerald-700">Freshness:</span> {selectedEvidence.freshness ?? "—"}%</div>
+                      <div className="rounded-full border border-slate-200 px-3 py-2 text-center text-[11px] font-semibold text-slate-700"><span className="text-amber-600">Damaged:</span> {selectedEvidence.damagedPct ?? "—"}%</div>
+                      <div className="rounded-full border border-slate-200 px-3 py-2 text-center text-[11px] font-semibold text-slate-700">Photos: {selectedEvidence.photos?.length || 0} · Videos: {selectedEvidence.videos?.length || 0}</div>
                     </div>
-                    {selectedEvidence.inspectorNotes && <p className="mt-2 text-xs text-slate-600">{selectedEvidence.inspectorNotes}</p>}
                     {selectedEvidence.aiAssessment && <div className="mt-2 rounded-lg bg-indigo-50 px-3 py-2 text-xs text-indigo-800">AI estimate: Grade {selectedEvidence.aiAssessment.estimatedGrade} ({Math.round((selectedEvidence.aiAssessment.confidence || 0) * 100)}% confidence)</div>}
-                    {selectedEvidence.photos?.filter((photo: string) => !!resolveQualityMediaUrl(photo)).length > 0 && <div className="mt-2 flex flex-wrap gap-2">{selectedEvidence.photos.filter((photo: string) => !!resolveQualityMediaUrl(photo)).map((photo: string, index: number) => <img key={index} src={resolveQualityMediaUrl(photo)} alt="Batch evidence" className="h-16 w-16 rounded-lg border object-cover" onError={(event) => { event.currentTarget.style.display = "none"; }} />)}</div>}
-                    {selectedEvidence.videos?.length > 0 && <p className="mt-2 text-xs text-slate-500">{selectedEvidence.videos.length} video(s) attached to this lot.</p>}
-                    <div className="mt-3 flex flex-wrap gap-2">
+                    {selectedEvidence.inspectorNotes && <p className="mt-2 text-xs text-slate-600">{selectedEvidence.inspectorNotes}</p>}
+                    <div className="mt-2 flex flex-wrap gap-2">
                       {selectedEvidence.verificationStatus === "verified" && <Button size="sm" onClick={() => {
                         const linkedBatch = batches.find((item: any) => String(item._id || item.id) === String(selectedEvidence.batchId || ""));
                         const planId = linkedBatch?.sourceHarvestPlanId;
@@ -350,38 +363,51 @@ export function FarmerQualityPanel() {
                       {selectedEvidence.verificationStatus === "farmer_declared" && <Button size="sm" variant="outline" onClick={() => aiMutation.mutate(selectedEvidence.id)} disabled={aiMutation.isPending}>{aiMutation.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Bot className="mr-1.5 h-4 w-4" />}Run AI Screening</Button>}
                     </div>
                   </div>
-                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2">
-                    <div className="min-w-0">
-                      <p className="text-xs font-semibold text-slate-900">{selectedEvidence.cropName || "Harvest batch"} · {selectedEvidence.lotNumber || "Lot pending"}</p>
-                      <p className="text-[11px] text-slate-500">{selectedEvidence.weightKg || 0} kg · {selectedEvidence.photos?.length || 0} photos · {selectedEvidence.videos?.length || 0} videos</p>
+                  <div className="rounded-xl border border-slate-200 bg-white p-3">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 text-xs font-bold text-slate-800"><Camera className="h-4 w-4 text-emerald-700" />Upload evidence <span className="font-normal text-slate-500">(Photos and video of the harvested lot)</span></div>
                     </div>
-                    {selectedNeedsEvidence ? <Badge variant="warning">Evidence required</Badge> : <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">Awaiting warehouse review</Badge>}
-                  </div>
-                  {selectedNeedsEvidence ? (
-                    <div className="grid gap-2 sm:grid-cols-[minmax(0,0.9fr)_minmax(180px,1fr)_auto] sm:items-end">
-                      <div>
-                        <label htmlFor={`evidence-${selectedEvidence.id}`} className="flex min-h-[68px] cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50/70 px-2 py-2 text-center transition hover:border-emerald-400 hover:bg-emerald-50/40">
-                          <Camera className="mb-1 h-5 w-5 text-emerald-700" />
-                          <span className="text-xs font-semibold text-slate-700">Choose photos or video</span>
-                          <span className="text-[10px] text-slate-500">JPG, PNG, MP4, WEBM, MOV · Max 50 MB per file</span>
+                    {selectedNeedsEvidence ? (
+                      <>
+                        <label htmlFor={`evidence-${selectedEvidence.id}`} className="flex min-h-28 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-emerald-300 bg-emerald-50/30 px-3 py-4 text-center transition hover:border-emerald-500 hover:bg-emerald-50">
+                          <span className="mb-2 flex h-9 w-9 items-center justify-center rounded-full bg-white text-emerald-700 shadow-sm"><Camera className="h-5 w-5" /></span>
+                          <span className="text-sm font-bold text-slate-800">Drag &amp; drop photos or a video here</span>
+                          <span className="mt-0.5 text-xs text-slate-600">or click to browse files</span>
+                          <span className="mt-2 rounded-full bg-emerald-100 px-3 py-1 text-[10px] text-slate-600">Supported: JPG, PNG, MP4, WEBM, MOV · Max size: 50 MB per file</span>
                         </label>
                         <input id={`evidence-${selectedEvidence.id}`} type="file" accept="image/*,video/mp4,video/webm,video/quicktime" multiple onChange={e => { const chosen = Array.from(e.target.files || []); if (chosen.length) setEvidenceFiles(current => ({ ...current, [selectedEvidence.id]: [...(current[selectedEvidence.id] || []), ...chosen] })); e.currentTarget.value = ""; }} className="sr-only" />
-                        {selectedFiles.length > 0 && <div className="mt-2 flex flex-wrap gap-1.5">{selectedFiles.map((file, index) => <span key={`${file.name}-${file.lastModified}-${index}`} className="inline-flex max-w-full items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[10px] text-slate-600"><span className="max-w-[120px] truncate">{file.name}</span><button type="button" aria-label={`Remove ${file.name}`} onClick={() => setEvidenceFiles(current => ({ ...current, [selectedEvidence.id]: (current[selectedEvidence.id] || []).filter((_, fileIndex) => fileIndex !== index) }))}><XCircle className="h-3 w-3 text-rose-600" /></button></span>)}</div>}
-                      </div>
-                      <div><label htmlFor={`evidence-notes-${selectedEvidence.id}`} className="mb-1 block text-[11px] font-semibold text-slate-600">Note for warehouse (optional)</label><textarea id={`evidence-notes-${selectedEvidence.id}`} value={evidenceNotes[selectedEvidence.id] || ""} onChange={e => setEvidenceNotes(current => ({ ...current, [selectedEvidence.id]: e.target.value }))} placeholder="Mention visible defects, harvest time or handling details…" rows={2} className="min-h-[68px] w-full resize-y rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100" /></div>
-                      <Button size="sm" className="h-10 w-full sm:w-auto" onClick={() => evidenceMutation.mutate({ id: selectedEvidence.id, files: selectedFiles, notes: evidenceNotes[selectedEvidence.id] || "" })} disabled={evidenceMutation.isPending || selectedFiles.length === 0}>{isUploadingThis ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Uploading…</> : "Submit for warehouse review"}</Button>
-                    </div>
-                  ) : <p className="rounded-lg border border-emerald-100 bg-emerald-50/60 px-3 py-3 text-xs text-emerald-800">Your evidence has been submitted. The warehouse quality team must complete the review before this batch can proceed to product listing.</p>}
-                </div>
+                        <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-xs font-semibold text-slate-800">Uploaded files ({selectedEvidence.photos?.length || 0 + selectedEvidence.videos?.length || 0 + selectedFiles.length})</p>
+                          {selectedFiles.length > 0 && <button type="button" onClick={() => setEvidenceFiles(current => ({ ...current, [selectedEvidence.id]: [] }))} className="inline-flex items-center gap-1 text-xs font-semibold text-rose-600 hover:text-rose-700"><Trash2 className="h-3.5 w-3.5" />Clear pending files</button>}
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {(selectedEvidence.photos || []).filter((photo: string) => !!resolveQualityMediaUrl(photo)).map((photo: string, index: number) => <div key={`photo-${index}`} className="w-28 overflow-hidden rounded-lg border border-slate-200 bg-white"><img src={resolveQualityMediaUrl(photo)} alt="Uploaded harvest evidence" className="h-20 w-full object-cover" onError={(event) => { event.currentTarget.style.display = "none"; }} /><p className="truncate px-2 py-1 text-[10px] text-slate-600">Photo {index + 1}</p></div>)}
+                          {(selectedEvidence.videos || []).map((video: string, index: number) => <div key={`video-${index}`} className="flex w-28 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2 text-[10px] text-slate-600"><Film className="h-5 w-5 shrink-0 text-emerald-700" /><span className="truncate">Video {index + 1}</span></div>)}
+                          {selectedFiles.map((file, index) => <div key={`${file.name}-${file.lastModified}-${index}`} className="flex w-36 items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50/50 p-2 text-[10px] text-slate-700"><span className="min-w-0 flex-1 truncate">{file.name}</span><button type="button" aria-label={`Remove ${file.name}`} onClick={() => setEvidenceFiles(current => ({ ...current, [selectedEvidence.id]: (current[selectedEvidence.id] || []).filter((_, fileIndex) => fileIndex !== index) }))}><XCircle className="h-3.5 w-3.5 text-rose-600" /></button></div>)}
+                        </div>
+                        <div className="mt-3">
+                          <label htmlFor={`evidence-notes-${selectedEvidence.id}`} className="mb-1 block text-xs font-semibold text-slate-800">Note for warehouse (optional)</label>
+                          <textarea id={`evidence-notes-${selectedEvidence.id}`} value={evidenceNotes[selectedEvidence.id] || ""} onChange={e => setEvidenceNotes(current => ({ ...current, [selectedEvidence.id]: e.target.value }))} placeholder="Mention visible defects, harvest time or handling details…" maxLength={500} rows={2} className="min-h-[64px] w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100" />
+                          <div className="mt-0.5 text-right text-[10px] text-slate-500">{(evidenceNotes[selectedEvidence.id] || "").length} / 500</div>
+                        </div>
+                        <div className="flex justify-end">
+                          <Button className="w-full sm:w-auto" onClick={() => evidenceMutation.mutate({ id: selectedEvidence.id, files: selectedFiles, notes: evidenceNotes[selectedEvidence.id] || "" })} disabled={evidenceMutation.isPending || selectedFiles.length === 0}>{isUploadingThis ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Uploading…</> : <><Camera className="mr-2 h-4 w-4" />Submit for warehouse review</>}</Button>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="rounded-lg border border-emerald-100 bg-emerald-50/60 p-3 text-xs text-emerald-800">Evidence has been submitted for this lot. The warehouse quality team must complete the review before the batch can proceed to product listing.</div>
+                    )}
+                  </div>
+                </>
               )}
-              <div className="flex flex-wrap gap-3 border-t border-slate-100 pt-2 text-[11px]">
-                <span className="font-medium text-amber-700">{needsEvidence} evidence required</span>
-                <span className="font-medium text-emerald-700">{awaitingReview} awaiting warehouse review</span>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px]">
+                <span className="font-semibold text-slate-700">Current status (all lots):</span>
+                <span className="font-semibold text-amber-700">{needsEvidence} evidence required</span>
+                <span className="text-slate-400">|</span>
+                <span className="font-semibold text-emerald-700">{awaitingReview} awaiting warehouse review</span>
               </div>
             </CardContent>
           </Card>
-        );
-      })()}
       </div>
 
       <CameraCapture
