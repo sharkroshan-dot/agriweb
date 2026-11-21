@@ -306,6 +306,8 @@ export default function FarmerRoutePage() {
   const [tracking, setTracking] = useState(false);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const watchRef = useRef<number | null>(null);
+  const navigationWindowRef = useRef<Window | null>(null);
+  const navigationOriginRef = useRef("Current Location");
   const { data: session } = useSession();
   const accessToken = (session as any)?.accessToken as string | undefined;
 
@@ -359,7 +361,17 @@ export default function FarmerRoutePage() {
       }
       setStarted(true);
       refetch();
-      toast.success("Route started! Delivery stops are dispatched; priority is refreshed before execution.");
+      const pendingStops = stops.filter((stop) => stop.status !== "delivered" && stop.status !== "picked_up");
+      const navigationStops = pendingStops.length ? pendingStops : stops;
+      const destinationStop = navigationStops[navigationStops.length - 1];
+      const destination = destinationStop ? (destinationStop.lat != null && destinationStop.lng != null ? destinationStop.lat + "," + destinationStop.lng : destinationStop.location + (destinationStop.city ? ", " + destinationStop.city : "")) : "";
+      const waypoints = navigationStops.slice(0, -1).map((stop) => stop.lat != null && stop.lng != null ? stop.lat + "," + stop.lng : stop.location + (stop.city ? ", " + stop.city : "")).filter(Boolean);
+      const mapsParams = new URLSearchParams({ api: "1", origin: navigationOriginRef.current || "Current Location", destination, travelmode: "driving", dir_action: "navigate" });
+      if (waypoints.length) mapsParams.set("waypoints", waypoints.join("|"));
+      const mapsUrl = "https://www.google.com/maps/dir/?" + mapsParams.toString();
+      if (navigationWindowRef.current && !navigationWindowRef.current.closed) navigationWindowRef.current.location.href = mapsUrl;
+      else window.open(mapsUrl, "_blank", "noopener,noreferrer");
+      toast.success("Route started. Opening turn-by-turn navigation in Google Maps.");
     },
     onError: () => toast.error("Failed to start route"),
   });
@@ -449,7 +461,19 @@ export default function FarmerRoutePage() {
   };
 
   const handleStartRoute = () => {
-    if (!startMutation.isPending) startMutation.mutate();
+    if (startMutation.isPending || started) return;
+    navigationWindowRef.current = window.open("about:blank", "_blank");
+    if (!navigationWindowRef.current) toast.error("Allow pop-ups for this site to open turn-by-turn navigation.");
+    if (!navigator.geolocation) {
+      navigationOriginRef.current = farm.address || "Current Location";
+      startMutation.mutate();
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => { navigationOriginRef.current = position.coords.latitude + "," + position.coords.longitude; startMutation.mutate(); },
+      () => { navigationOriginRef.current = farm.address || "Current Location"; toast("Could not read GPS. Opening navigation from your current location.", { icon: "📍" }); startMutation.mutate(); },
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 10000 }
+    );
   };
 
   const handleComplete = async (stop: Stop) => {
