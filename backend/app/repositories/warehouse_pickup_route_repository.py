@@ -92,6 +92,32 @@ class WarehousePickupRouteRepository(BaseRepository):
         except Exception:
             return None
 
+    async def unclaim_route(self, route_id: str, partner_id: str) -> bool:
+        """Return a route to its open offer state only when this partner owns it."""
+        try:
+            result = await self.collection.update_one(
+                {
+                    "_id": ObjectId(route_id),
+                    "deliveryPartnerId": ObjectId(partner_id),
+                    "status": "assigned",
+                    "deletedAt": None,
+                },
+                {"$set": {
+                    "deliveryPartnerId": None,
+                    "status": "offered",
+                    "updatedAt": datetime.utcnow(),
+                }, "$unset": {
+                    "assignedAt": "",
+                    "assignedBy": "",
+                    "deliveryPartnerName": "",
+                    "deliveryPartnerVehicleType": "",
+                    "deliveryPartnerVehicleNumber": "",
+                }},
+            )
+            return result.modified_count > 0
+        except Exception:
+            return False
+
     async def update_route(self, route_id: str, data: Dict[str, Any]) -> bool:
         payload = dict(data)
         payload["updatedAt"] = datetime.utcnow()

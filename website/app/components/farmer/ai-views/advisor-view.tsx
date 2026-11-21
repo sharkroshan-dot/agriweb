@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 import { useQuery } from "@tanstack/react-query";
-import { Bot, Loader2, TrendingUp, Package, Wallet, Truck, Info, Sparkles, RefreshCw } from "lucide-react";
+import { Bot, Loader2, TrendingUp, Package, Wallet, Truck, Info, Sparkles, RefreshCw, MessageCircle, Send } from "lucide-react";
 import Link from "next/link";
 import { api } from "../../../lib/api/client";
 import { cn, formatPrice } from "../../../lib/utils";
@@ -30,6 +31,11 @@ const fmt = (n: number) =>
 
 export function AdvisorView() {
   const [period, setPeriod] = useState("30d");
+  const [question, setQuestion] = useState("");
+  const [language, setLanguage] = useState("english");
+  const [messages, setMessages] = useState<Array<{role: "user" | "assistant"; content: string}>>([]);
+  const chat = useMutation({ mutationFn: (message: string) => api.post("/ai/chatbot", { message, language }), onSuccess: (response: any) => { const payload = response?.data ?? response; setMessages((old) => [...old, { role: "assistant", content: payload?.reply || "No answer returned." }]); }, onError: () => setMessages((old) => [...old, { role: "assistant", content: "The advisory service is unavailable. Please try again." }]) });
+  const ask = () => { const message = question.trim(); if (!message || chat.isPending) return; setMessages((old) => [...old, { role: "user", content: message }]); setQuestion(""); chat.mutate(message); };
 
   const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ["farmerAdvisor", period],
@@ -52,14 +58,15 @@ export function AdvisorView() {
       : <span className="text-gray-400">—</span>;
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+    <div className="w-full min-w-0 space-y-6 pb-8">
+      <div className="flex flex-col gap-4 relative overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-br from-white via-emerald-50/80 to-teal-50/70 p-6 shadow-sm sm:p-7 sm:flex-row sm:items-center sm:justify-between sm:p-6">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Bot className="h-6 w-6 text-emerald-600" /> AI Farm Advisor
+          <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-white/80 px-3 py-1 text-[11px] font-semibold tracking-wider text-emerald-700">FARM INTELLIGENCE</div>
+          <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100"><Bot className="h-6 w-6 text-emerald-700" /></span> AI Farm Advisor
           </h1>
           <p className="text-gray-500">
-            What happened, why, what happens next, and what to do about it — from your real sales data.
+            Practical crop guidance and clear insights from your AgriConnect farm activity.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -74,6 +81,19 @@ export function AdvisorView() {
         </div>
       </div>
 
+      <Card className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <CardContent className="space-y-4 p-5 sm:p-6">
+          <div className="flex flex-wrap items-center justify-between gap-2"><div className="flex items-center gap-2"><MessageCircle className="h-5 w-5 text-emerald-600" /><h2 className="font-semibold text-slate-900">Ask your Farm Advisor</h2></div><select aria-label="Advisor language" value={language} onChange={(e) => setLanguage(e.target.value)} className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"><option value="english">English</option><option value="tamil">தமிழ்</option><option value="hindi">हिन्दी</option></select></div>
+          <p className="text-sm leading-6 text-slate-600">Describe what is happening on your farm. Include crop name, location, crop age and symptoms for more relevant guidance.</p><div className="flex flex-wrap gap-2">{["My tomato leaves are turning yellow","How can I improve soil health?","How should I plan irrigation?","How can I manage pests safely?"].map((prompt) => <button key={prompt} type="button" onClick={() => { setQuestion(prompt); setMessages((old) => [...old, { role: "user", content: prompt }]); chat.mutate(prompt); }} disabled={chat.isPending} className="rounded-full border border-slate-200 bg-white px-3.5 py-2 text-left text-xs font-medium text-slate-600 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800 disabled:opacity-50">{prompt}</button>)}</div>
+          {messages.length > 0 && <div aria-live="polite" className="max-h-80 space-y-3 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/80 p-4 sm:p-5">{messages.map((m, i) => <div key={i} className={cn("max-w-[92%] rounded-xl border p-3.5 text-sm leading-6 shadow-sm", m.role === "user" ? "ml-auto border-emerald-200 bg-emerald-50 text-emerald-950" : "mr-auto border-slate-100 bg-white text-slate-700")}>{m.content}</div>)}{chat.isPending && <p className="text-xs text-gray-500">Preparing guidance...</p>}</div>}
+          <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); ask(); }}><input value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="Ask about crops, soil, water or pests..." className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-100" /><Button type="submit" disabled={!question.trim() || chat.isPending}><Send className="mr-2 h-4 w-4" />Ask</Button></form>
+          <p className="text-xs text-slate-400">General guidance only. Confirm serious crop-health and chemical-use decisions with a qualified local agricultural expert.</p>
+        </CardContent>
+      </Card>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Link href="/farmer/crop-advisor" className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-md"><p className="font-semibold">Crop selection & field planning</p><p className="mt-1 text-sm text-gray-500">Soil, season, weather, field size and water inputs.</p></Link>
+        <Link href="/farmer/weather" className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-sky-300 hover:shadow-md"><p className="font-semibold">Weather guidance</p><p className="mt-1 text-sm text-gray-500">Review local weather and its crop impact.</p></Link>
+      </div>
       {isLoading && (
         <Card>
           <CardContent className="flex items-center gap-3 py-10 text-gray-500">
@@ -103,10 +123,10 @@ export function AdvisorView() {
       {data && report?.hasData && (
         <>
           <div>
-            <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold">
+            <h2 className="mb-3 flex items-center gap-2 text-lg font-bold text-slate-900">
               <TrendingUp className="h-5 w-5 text-emerald-600" /> What happened ({report.periodLabel})
             </h2>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <Card>
                 <CardContent className="p-4">
                   <p className="text-xs text-gray-500">Sales</p>
@@ -147,12 +167,12 @@ export function AdvisorView() {
 
           {why.length > 0 && (
             <div>
-              <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold">
+              <h2 className="mb-3 flex items-center gap-2 text-lg font-bold text-slate-900">
                 <Info className="h-5 w-5 text-emerald-600" /> Why
               </h2>
               <div className="grid gap-3 sm:grid-cols-2">
                 {why.map((w, i) => (
-                  <Card key={i} className="bg-gray-50/60">
+                  <Card key={i} className="rounded-xl border-slate-200 bg-white shadow-sm">
                     <CardContent className="flex items-start gap-3 p-4">
                       <span className="text-xl">{w.emoji}</span>
                       <div>
@@ -168,12 +188,12 @@ export function AdvisorView() {
 
           {forecast.length > 0 && (
             <div>
-              <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold">
+              <h2 className="mb-3 flex items-center gap-2 text-lg font-bold text-slate-900">
                 <Sparkles className="h-5 w-5 text-emerald-600" /> What happens next ({report.periodLabel})
               </h2>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {forecast.map((f, i) => (
-                  <Card key={i} className="border-l-4 border-l-emerald-400">
+                  <Card key={i} className="rounded-xl border-slate-200 border-l-4 border-l-emerald-500 shadow-sm">
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between">
                         <p className="font-semibold text-gray-900">{f.product}</p>
@@ -204,7 +224,7 @@ export function AdvisorView() {
 
           {recs.length > 0 && (
             <div>
-              <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold">
+              <h2 className="mb-3 flex items-center gap-2 text-lg font-bold text-slate-900">
                 <Bot className="h-5 w-5 text-emerald-600" /> What should I do?
               </h2>
               <div className="space-y-3">
@@ -235,7 +255,7 @@ export function AdvisorView() {
 
           {priceInsight.length > 0 && (
             <div>
-              <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold">
+              <h2 className="mb-3 flex items-center gap-2 text-lg font-bold text-slate-900">
                 <Package className="h-5 w-5 text-emerald-600" /> Price check
               </h2>
               <div className="grid gap-3 sm:grid-cols-3">

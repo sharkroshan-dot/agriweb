@@ -121,8 +121,32 @@ async def award_points_for_delivered_order(order: dict) -> Optional[dict]:
 
 @router.get("/me")
 async def get_my_points(current_user: dict = Depends(get_current_user)):
-    """Get the customer's AgriPoints balance and recent history."""
-    account = await _get_account(str(current_user["_id"]))
+    """Get the customer's AgriPoints balance and recent history.
+
+    Reconcile recent completed orders as well as awarding points on the live
+    delivery transition. This safely backfills orders completed before the
+    loyalty award hook was enabled; the award function is idempotent per order.
+    """
+    user_id = str(current_user["_id"])
+    completed_orders = []
+    for completed_status in ("delivered", "picked_up"):
+        completed_orders.extend(
+            await order_repository.get_by_customer(
+                user_id,
+                limit=100,
+                status=completed_status,
+            )
+        )
+    for completed_order in completed_orders:
+        try:
+            await award_points_for_delivered_order(completed_order)
+        except Exception:
+            logger.exception(
+                "Failed to reconcile AgriPoints for completed order %s",
+                completed_order.get("_id"),
+            )
+
+    account = await _get_account(user_id)
     txns = await txn_repo.find_many(
         {"userId": ObjectId(current_user["_id"]), "deletedAt": None},
         sort=[("createdAt", -1)],
@@ -151,6 +175,88 @@ async def get_my_points(current_user: dict = Depends(get_current_user)):
             "count": len(txns),
         },
     }
+
+
+async def redeem_points_for_order(user_id: str, points: int, order_id: str) -> dict:
+    """Atomically debit AgriPoints for an order and write a ledger entry."""
+    if points <= 0:
+        return {"redeemedPoints": 0, "discountRs": 0}
+    if points > MAX_REDEEM_POINTS or points % POINTS_PER_RS_REWARD:
+        raise ValueError(
+            f"Points must be a multiple of {POINTS_PER_RS_REWARD} and no more than {MAX_REDEEM_POINTS}."
+        )
+
+    account = await _get_account(user_id)
+    result = await account_repo.collection.update_one(
+        {"_id": account["_id"], "balance": {"$gte": points}},
+        {"$inc": {"balance": -points}, "$set": {"updatedAt": datetime.utcnow()}},
+    )
+    if getattr(result, "modified_count", 0) != 1:
+        raise ValueError("Your AgriPoints balance changed. Refresh checkout and try again.")
+
+    updated_account = await account_repo.find_one({"_id": account["_id"]})
+    new_balance = int((updated_account or {}).get("balance") or 0)
+    discount_rs = points // POINTS_PER_RS_REWARD
+    try:
+        await txn_repo.create({
+            "userId": ObjectId(user_id),
+            "orderId": ObjectId(order_id),
+            "type": "redeem",
+            "points": -points,
+            "balanceAfter": new_balance,
+            "reason": "order_checkout_redemption",
+            "description": f"Used {points} AgriPoints for order checkout",
+        })
+    except Exception:
+        await account_repo.collection.update_one(
+            {"_id": account["_id"]},
+            {"$inc": {"balance": points}, "$set": {"updatedAt": datetime.utcnow()}},
+        )
+        raise
+    return {"redeemedPoints": points, "discountRs": discount_rs, "newBalance": new_balance}
+
+
+async def refund_order_points(user_id: str, order_id: str) -> Optional[dict]:
+    """Restore checkout points once when the associated order is cancelled/refunded."""
+    order_object_id = ObjectId(order_id)
+    redemption = await txn_repo.find_one({
+        "userId": ObjectId(user_id),
+        "orderId": order_object_id,
+        "type": "redeem",
+        "reason": "order_checkout_redemption",
+        "deletedAt": None,
+    })
+    if not redemption:
+        return None
+    already_refunded = await txn_repo.find_one({
+        "userId": ObjectId(user_id),
+        "orderId": order_object_id,
+        "type": "refund",
+        "reason": "order_checkout_redemption_refund",
+        "deletedAt": None,
+    })
+    if already_refunded:
+        return None
+
+    points = abs(int(redemption.get("points") or 0))
+    if points <= 0:
+        return None
+    account = await _get_account(user_id)
+    new_balance = int(account.get("balance") or 0) + points
+    await account_repo.update(
+        {"_id": account["_id"]},
+        {"balance": new_balance, "updatedAt": datetime.utcnow()},
+    )
+    await txn_repo.create({
+        "userId": ObjectId(user_id),
+        "orderId": order_object_id,
+        "type": "refund",
+        "points": points,
+        "balanceAfter": new_balance,
+        "reason": "order_checkout_redemption_refund",
+        "description": f"Restored {points} AgriPoints for cancelled/refunded order",
+    })
+    return {"refundedPoints": points, "newBalance": new_balance}
 
 
 class RedeemRequest(BaseModel):

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, CheckCheck, Clock, ExternalLink, X } from "lucide-react";
+import { Bell, CheckCheck, Clock, ExternalLink } from "lucide-react";
 import { api } from "../../lib/api/client";
 import toast from "react-hot-toast";
 import { resolveBackendUrl } from "../../lib/utils";
@@ -43,6 +43,39 @@ function timeAgo(iso?: string) {
 
 function notificationTitle(notification: any) {
   return notification.title || typeLabels[notification.type] || "Notification";
+}
+
+function humanLabel(key: string) {
+  const labels: Record<string, string> = {
+    orderNumber: "Order Number", createdAt: "Order Date", orderStatus: "Order Status",
+    paymentStatus: "Payment Status", paymentMethod: "Payment Method", deliveryType: "Delivery Method",
+    totalAmount: "Order Total", discount: "Discount", points: "Points Earned",
+    balance: "Available Points", type: "Notification Type", quantity: "Quantity",
+    productName: "Product", unit: "Unit", price: "Unit Price", totalPrice: "Item Total",
+  };
+  return labels[key] || key.replace(/([A-Z])/g, " $1").replace(/[_-]/g, " ").replace(/^./, (letter) => letter.toUpperCase());
+}
+
+function humanValue(value: any, key = ""): string {
+  if (value === null || value === undefined || value === "") return "Not available";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (key === "createdAt" || /Date$/.test(key)) {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString(undefined, { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" });
+  }
+  if (["orderStatus", "paymentStatus", "paymentMethod", "deliveryType", "type"].includes(key)) {
+    const labels: Record<string, string> = {
+      picked_up: "Picked Up", ready_for_pickup: "Ready for Pickup", in_transit: "In Transit",
+      out_for_delivery: "Out for Delivery", delivered: "Delivered", paid: "Paid",
+      pending: "Pending", failed: "Failed", razorpay: "Razorpay", cash: "Cash",
+      pickup: "Customer Pickup", delivery: "Home Delivery", loyalty: "Loyalty Rewards",
+    };
+    return labels[String(value).toLowerCase()] || String(value).replace(/[_-]/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+  }
+  if (typeof value === "number" && /amount|price|discount|total/i.test(key)) {
+    return `₹${value.toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+  }
+  return String(value);
 }
 
 export function NotificationBell() {
@@ -268,19 +301,10 @@ export function NotificationBell() {
         )}
       </div>
 
-      <Dialog open={Boolean(selectedNotification)} onOpenChange={(value) => !value && closeDetail()}>
-        <DialogContent className="max-w-xl max-h-[80vh] overflow-y-auto">
+      <Dialog open={Boolean(selectedNotification)} onOpenChange={(value) => !value && closeDetail()} wide contentClassName="!max-w-3xl min-h-[min(680px,calc(100vh-2rem))]">
+        <DialogContent className="overflow-visible">
           <DialogHeader className="pr-8">
             <DialogTitle>{selectedNotification ? notificationTitle(selectedNotification) : "Notification"}</DialogTitle>
-            <button
-              type="button"
-              onClick={closeDetail}
-              className="absolute right-4 top-4 rounded-full p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
-              aria-label="Close notification details"
-              title="Close"
-            >
-              <X className="h-4 w-4" />
-            </button>
           </DialogHeader>
 
           {selectedNotification && (
@@ -309,23 +333,62 @@ export function NotificationBell() {
                 </p>
               </div>
 
-              {selectedNotification.data && Object.keys(selectedNotification.data).length > 0 && (
-                <div>
-                  <h4 className="mb-2 text-sm font-semibold text-slate-900">Details</h4>
-                  <div className="overflow-hidden rounded-2xl border border-slate-200">
-                    {Object.entries(selectedNotification.data).map(([key, value]) => (
-                      <div key={key} className="grid grid-cols-1 gap-1 border-b border-slate-100 px-4 py-3 last:border-0 sm:grid-cols-[150px_1fr] sm:gap-4">
-                        <span className="text-xs font-semibold capitalize text-slate-500">
-                          {key.replace(/([A-Z])/g, " $1").replace(/_/g, " ")}
-                        </span>
-                        <span className="break-words text-sm text-slate-700">
-                          {typeof value === "object" ? JSON.stringify(value, null, 2) : String(value)}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+              {selectedNotification.data && Object.keys(selectedNotification.data).length > 0 && (() => {
+                const data = selectedNotification.data || {};
+                const order = data.relatedOrder && typeof data.relatedOrder === "object" ? data.relatedOrder : null;
+                const points = data.points ?? data.pointsEarned ?? data.earnedPoints;
+                const balance = data.balance ?? data.totalPoints ?? data.availablePoints;
+                const items = Array.isArray(order?.items) ? order.items : [];
+                const technicalKeys = new Set(["id", "_id", "relatedOrder", "actionUrl", "url", "podUrl", "invitationId", "kind"]);
+                const extraEntries = Object.entries(data).filter(([key, value]) =>
+                  !technicalKeys.has(key) && !["points", "pointsEarned", "earnedPoints", "balance", "totalPoints", "availablePoints"].includes(key) &&
+                  value !== null && value !== undefined && value !== "" && typeof value !== "object"
+                );
+                const orderFields = order ? [
+                  ["orderNumber", order.orderNumber],
+                  ["createdAt", order.createdAt],
+                  ["orderStatus", order.orderStatus],
+                  ["paymentStatus", order.paymentStatus],
+                  ["paymentMethod", order.paymentMethod],
+                  ["deliveryType", order.deliveryType],
+                  ["totalAmount", order.totalAmount],
+                  ["discount", order.discount],
+                ].filter(([, value]) => value !== null && value !== undefined && value !== "") as [string, any][] : [];
+                return <div className="space-y-4">
+                  {(points !== undefined || balance !== undefined) && <section className="overflow-hidden rounded-2xl border border-slate-200">
+                    <h4 className="flex items-center gap-2 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-900">Reward Summary</h4>
+                    <div className="grid grid-cols-2 divide-x divide-slate-200 p-4">
+                      {points !== undefined && <div className="text-center"><p className="text-xs text-slate-500">Points Earned</p><p className="mt-1 text-2xl font-bold text-emerald-700">{humanValue(points)}</p></div>}
+                      {balance !== undefined && <div className="text-center"><p className="text-xs text-slate-500">Available Points</p><p className="mt-1 text-2xl font-bold text-slate-900">{humanValue(balance)}</p></div>}
+                    </div>
+                  </section>}
+                  {order && <section className="overflow-hidden rounded-2xl border border-slate-200">
+                    <h4 className="bg-slate-50 px-4 py-3 text-sm font-bold text-slate-900">Related Order Details</h4>
+                    <div className="divide-y divide-slate-100 px-4">
+                      {orderFields.map(([key, value]) => <div key={key} className="grid grid-cols-[minmax(110px,0.8fr)_minmax(0,1.2fr)] gap-3 py-3">
+                        <span className="text-xs font-medium text-slate-500">{humanLabel(key)}</span>
+                        <span className="break-words text-right text-sm font-semibold text-slate-800">{humanValue(value, key)}</span>
+                      </div>)}
+                    </div>
+                    {items.length > 0 && <div className="border-t border-slate-100 p-4">
+                      <p className="mb-3 text-xs font-bold uppercase tracking-wide text-slate-500">Items in this order ({items.length})</p>
+                      <div className="space-y-2">{items.map((item: any, index: number) => <div key={item.productId || item.id || index} className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-3">
+                        <div className="min-w-0"><p className="text-sm font-semibold text-slate-900">{item.productName || "Product"}</p><p className="mt-0.5 text-xs text-slate-500">Quantity: {item.quantity ?? 1} {item.unit || ""}</p></div>
+                        <span className="shrink-0 text-sm font-semibold text-slate-800">{humanValue(item.totalPrice ?? item.price ?? 0, "totalPrice")}</span>
+                      </div>)}</div>
+                    </div>}
+                  </section>}
+                  {extraEntries.length > 0 && <section className="overflow-hidden rounded-2xl border border-slate-200">
+                    <h4 className="bg-slate-50 px-4 py-3 text-sm font-bold text-slate-900">Additional Information</h4>
+                    <div className="divide-y divide-slate-100 px-4">
+                      {extraEntries.map(([key, value]) => <div key={key} className="grid grid-cols-[minmax(110px,0.8fr)_minmax(0,1.2fr)] gap-3 py-3">
+                        <span className="text-xs font-medium text-slate-500">{humanLabel(key)}</span>
+                        <span className="break-words text-right text-sm font-semibold text-slate-800">{humanValue(value, key)}</span>
+                      </div>)}
+                    </div>
+                  </section>}
+                </div>;
+              })()}
 
               {selectedNotification.data?.podUrl && (
                 <div>

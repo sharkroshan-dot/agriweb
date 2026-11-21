@@ -19,6 +19,7 @@ from app.schemas.notification import (
 from app.services.notification_service import NotificationService, _json_safe
 from app.services.sms_rating_service import SMSRatingService
 from app.repositories.notification_repository import notification_repository
+from app.repositories.order_repository import order_repository
 from app.repositories.device_token_repository import device_token_repository
 from app.repositories.notification_preferences_repository import notification_preferences_repository
 import logging
@@ -114,6 +115,49 @@ async def get_notification_detail(
         )
 
     notification["id"] = str(notification["_id"])
+
+    # Enrich customer order-related notifications with the actual order record.
+    # Only search within the signed-in customer's orders; never trust an order
+    # number supplied by notification text without checking ownership.
+    notification_data = notification.get("data") or {}
+    order_number = notification_data.get("orderNumber")
+    if not order_number:
+        import re
+        match = re.search(r"(ORD-[A-Z0-9-]+)", str(notification.get("message") or ""), re.IGNORECASE)
+        order_number = match.group(1) if match else None
+
+    if order_number and current_user.get("role") == "customer":
+        related_order = await order_repository.find_one({
+            "orderNumber": order_number,
+            "customerId": ObjectId(user_id),
+            "deletedAt": None,
+        })
+        if related_order:
+            items = related_order.get("items") or related_order.get("orderItems") or []
+            notification_data["relatedOrder"] = {
+                "id": str(related_order.get("_id", "")),
+                "orderNumber": related_order.get("orderNumber"),
+                "createdAt": related_order.get("createdAt"),
+                "orderStatus": related_order.get("orderStatus") or related_order.get("status"),
+                "paymentStatus": related_order.get("paymentStatus"),
+                "paymentMethod": related_order.get("paymentMethod"),
+                "deliveryType": related_order.get("deliveryType"),
+                "totalAmount": related_order.get("totalAmount"),
+                "discount": related_order.get("discount"),
+                "items": [
+                    {
+                        "productName": item.get("productName") or item.get("name"),
+                        "quantity": item.get("quantity"),
+                        "unit": item.get("unit"),
+                        "price": item.get("price") or item.get("unitPrice"),
+                        "totalPrice": item.get("totalPrice"),
+                    }
+                    for item in items if isinstance(item, dict)
+                ],
+                "trackingHistory": related_order.get("trackingHistory") or related_order.get("tracking") or [],
+            }
+            notification["data"] = notification_data
+
     notification = _json_safe(notification)
     return {
         "success": True,

@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { MapPin, Route, CheckCircle2, Navigation, Hand, Warehouse, UserCheck, Lock, Truck, Briefcase, ChevronDown } from "lucide-react";
+import { MapPin, Route, CheckCircle2, Navigation, Hand, Warehouse, UserCheck, Lock, Truck, Briefcase, ChevronDown, Clock } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
 import { Badge } from "../../../components/ui/badge";
@@ -58,6 +58,28 @@ const isTransferCompleted = (item: any) =>
   // Use the driver's actual arrival statuses only. Downstream receipt or a
   // generic "completed" status must not mark this transfer leg complete.
   ["arrived_at_destination", "arrived_at_hub"].includes(String(item?.status || "").toLowerCase());
+
+// Customer last-mile deliveries belong in My Deliveries / Delivery History,
+// never in the farm-to-warehouse pickup workspace. Some legacy API responses
+// can include delivered customer orders in the pickup route feed, so filter
+// by both explicit workflow metadata and terminal delivery statuses.
+const isCustomerDeliveryRecord = (item: any) => {
+  const workflowFields = [
+    item?.workflowType, item?.workflow, item?.assignmentType,
+    item?.jobType, item?.deliveryType, item?.fulfillmentType,
+  ].map((value) => String(value || "").toLowerCase().replace(/[ -]+/g, "_"));
+  if (workflowFields.some((value) => ["customer_delivery", "last_mile_delivery", "business_delivery", "b2b_delivery"].includes(value))) return true;
+  const terminalDeliveryStatuses = new Set(["delivered", "delivery_completed", "completed_delivery", "delivered_to_customer", "delivered_to_business"]);
+  const routeStatus = String(item?.status || item?.routeStatus || item?.deliveryStatus || "").toLowerCase().replace(/[ -]+/g, "_");
+  if (terminalDeliveryStatuses.has(routeStatus)) return true;
+  const nestedOrders = (Array.isArray(item?.orders) ? item.orders : []).concat(
+    ...(Array.isArray(item?.stops) ? item.stops.map((stop: any) => Array.isArray(stop?.orders) ? stop.orders : [stop]) : [])
+  );
+  return nestedOrders.length > 0 && nestedOrders.every((order: any) => {
+    const status = String(order?.deliveryStatus || order?.status || order?.orderStatus || "").toLowerCase().replace(/[ -]+/g, "_");
+    return terminalDeliveryStatuses.has(status);
+  });
+};
 
 const routeDateValue = (item: any, workflow: "pickup" | "transfer" = "pickup") => {
   if (workflow === "pickup" && isPickupCompleted(item)) {
@@ -235,13 +257,12 @@ export default function DeliveryPickupRoutesPage() {
 
   // Keep unfinished routes from earlier days visible while viewing Today so a
   // delivery partner cannot lose sight of work that still needs handover.
+  // Once the warehouse handover is recorded, the farm pickup route leaves
+  // the active route workspace and is shown in Pickup History instead.
   const routes = allRoutes.filter((item: any) => {
-    // A returned/received route belongs to the day the warehouse handover
-    // actually happened, not the original route creation day.
-    const completed = isPickupCompleted(item);
+    if (isCustomerDeliveryRecord(item) || isPickupCompleted(item)) return false;
     return isInDatePeriod(item, datePeriod, "pickup") ||
-      (completed && isInDatePeriod(item, datePeriod, "pickup")) ||
-      (datePeriod === "today" && isCarryoverRoute(item) && !completed);
+      (datePeriod === "today" && isCarryoverRoute(item));
   });
   // The offers endpoint can return a stale open copy of an order whose valid route
   // is already assigned and visible in My Routes. Match by route ID AND stable
@@ -288,15 +309,17 @@ export default function DeliveryPickupRoutesPage() {
     }
   }
   const offers = allOffers.filter((item: any) => {
-    if (!isInDatePeriod(item, datePeriod, "pickup")) return false;
+    if (isCustomerDeliveryRecord(item) || !isInDatePeriod(item, datePeriod, "pickup")) return false;
     if (normalizeRouteKey(item?.status || "offered") !== "offered") return true;
     const keys = routeBusinessKeys(item);
     return !Array.from(keys).some((key) => activeRouteKeys.has(key));
   });
-  const pickupJobs = allPickupJobs.filter((item: any) => isInDatePeriod(item, datePeriod, "pickup"));
+  const pickupJobs = allPickupJobs.filter((item: any) => !isCustomerDeliveryRecord(item) && isInDatePeriod(item, datePeriod, "pickup"));
   const acceptedPickupJobs = allAcceptedPickupJobs.filter((item: any) =>
-    isInDatePeriod(item, datePeriod, "pickup") ||
-    (datePeriod === "today" && isCarryoverRoute(item) && !isPickupCompleted(item))
+    !isCustomerDeliveryRecord(item) && !isPickupCompleted(item) && (
+      isInDatePeriod(item, datePeriod, "pickup") ||
+      (datePeriod === "today" && isCarryoverRoute(item))
+    )
   );
   const hubTransfers = allHubTransfers.filter((item: any) => isInDatePeriod(item, datePeriod, "transfer"));
   const warehouseTransfers = allWarehouseTransfers.filter((item: any) => isInDatePeriod(item, datePeriod, "transfer"));
@@ -311,14 +334,30 @@ export default function DeliveryPickupRoutesPage() {
     isInDatePeriod(item, datePeriod, "pickup") ||
     (datePeriod === "today" && isCarryoverRoute(item) && !isPickupCompleted(item))
   );
-  const pickupPendingCount = summaryPickupRoutes.filter((item: any) => !isPickupCompleted(item)).length;
+  const isPickupInProgress = (item: any) =>
+    ["started", "arrived_at_farm", "collected", "departed_farm", "pickup_in_progress"].includes(normalizeRouteKey(item?.status));
+  const pickupInProgressCount = summaryPickupRoutes.filter(isPickupInProgress).length;
   const pickupCompletedCount = summaryPickupRoutes.filter(isPickupCompleted).length;
+  const pickupPendingCount = Math.max(0, summaryPickupRoutes.length - pickupInProgressCount - pickupCompletedCount);
 
   // Count each transfer once across the two route categories and use the
   // driver's arrival state, not a downstream warehouse/hub receipt state.
   const summaryTransfers = uniqueById([...warehouseTransfers, ...hubTransfers]);
-  const transferPendingCount = summaryTransfers.filter((item: any) => !isTransferCompleted(item)).length;
+  const isTransferInProgress = (item: any) =>
+    ["started", "picked_up", "collected", "departed_source", "in_transit", "transfer_in_progress", "out_for_delivery"].includes(normalizeRouteKey(item?.status));
+  const transferInProgressCount = summaryTransfers.filter(isTransferInProgress).length;
   const transferCompletedCount = summaryTransfers.filter(isTransferCompleted).length;
+  const transferPendingCount = Math.max(0, summaryTransfers.length - transferInProgressCount - transferCompletedCount);
+  // B2B deliveries have their own lifecycle and are counted separately from
+  // farm pickups and warehouse transfers.
+  const b2bCompletedCount = b2bDeliveries.filter((order: any) =>
+    ["delivered", "completed", "delivered_to_business"].includes(String(order.status || "").toLowerCase())
+  ).length;
+  const b2bInProgressCount = b2bDeliveries.filter((order: any) =>
+    ["in_transit", "out_for_delivery", "delivery_started"].includes(String(order.status || "").toLowerCase()) ||
+    Boolean(order.finalDeliveryStartedAt)
+  ).length;
+  const b2bPendingCount = Math.max(0, b2bDeliveries.length - b2bCompletedCount - b2bInProgressCount);
   const overduePickupCount = datePeriod === "today"
     ? allRoutes.filter((item: any) => isCarryoverRoute(item) && !isPickupCompleted(item) && !isInDatePeriod(item, "today")).length
     : 0;
@@ -408,61 +447,123 @@ export default function DeliveryPickupRoutesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-2xl bg-gradient-to-r from-emerald-700 to-teal-600 p-6 text-white">
-        <p className="text-sm text-emerald-100">Delivery partner route operations</p>
-        <h1 className="mt-1 text-3xl font-bold">{routeView === "pickup" ? "Farm Pickup Routes" : "Warehouse Transfer Routes"}</h1>
-        <p className="mt-2 text-sm text-emerald-50">
-          {routeView === "pickup"
-            ? "Collect packed orders from farms and deliver sealed shipments to the assigned warehouse."
-            : "Move sealed shipments between warehouses or from a warehouse to the assigned local hub."}
-        </p>
-      </div>
+      <header className="relative isolate min-h-[150px] overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-r from-white via-sky-50 to-emerald-50 shadow-sm sm:min-h-[172px]">
+        <div aria-hidden="true" className="absolute inset-y-0 right-0 -z-10 w-full bg-cover bg-center opacity-95 sm:w-[72%]" style={{ backgroundImage: "url('/images/farm-pickup-routes-banner.svg')" }} />
+        <div className="absolute inset-0 -z-0 bg-gradient-to-r from-white via-white/90 to-white/10" />
+        <div className="relative z-10 flex min-h-[150px] flex-col justify-center gap-4 px-5 py-5 sm:min-h-[172px] sm:flex-row sm:items-center sm:justify-between sm:px-7">
+          <div className="flex min-w-0 items-center gap-4">
+            <div className="hidden h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-emerald-700 text-white shadow-md sm:flex"><Route className="h-9 w-9" /></div>
+            <div className="max-w-2xl min-w-0">
+              <p className="mb-1 text-xs font-bold uppercase tracking-[0.13em] text-emerald-800 sm:text-sm">Delivery Partner Operations</p>
+              <h1 className="text-2xl font-extrabold leading-tight tracking-tight text-slate-950 sm:text-4xl">{routeView === "pickup" ? "Farm Pickup Routes" : routeView === "transfers" ? "Warehouse Transfer Routes" : "B2B Business Deliveries"}</h1>
+              <p className="mt-2 max-w-xl text-sm leading-5 text-slate-700 sm:text-base sm:leading-6">
+                {routeView === "pickup" ? "Collect packed orders from farms and deliver sealed shipments to the assigned warehouse." : routeView === "transfers" ? "Move sealed shipments between warehouses or from a warehouse to the assigned local hub." : "Deliver assigned business orders and record the recipient handover."}
+              </p>
+            </div>
+          </div>
+        </div>
+      </header>
 
-      <Card className="shadow-sm">
-        <CardContent className="space-y-4 p-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+
+
+      <section aria-labelledby="route-activity-heading" className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex flex-col gap-4 border-b border-slate-100 bg-gradient-to-r from-white to-emerald-50/60 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <div className="flex items-start gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
+              <Route className="h-5 w-5" />
+            </div>
             <div>
-              <h2 className="font-semibold text-slate-900">Route activity</h2>
-              <p className="text-sm text-muted-foreground">Choose a day to check whether pickups and transfers are available, pending, or completed.</p>
-            </div>
-            <div className="flex gap-2">
-              <Button type="button" variant={datePeriod === "today" ? "default" : "outline"} className={datePeriod === "today" ? "bg-emerald-700 hover:bg-emerald-800" : ""} onClick={() => setDatePeriod("today")} aria-pressed={datePeriod === "today"}>Today</Button>
-              <Button type="button" variant={datePeriod === "yesterday" ? "default" : "outline"} className={datePeriod === "yesterday" ? "bg-emerald-700 hover:bg-emerald-800" : ""} onClick={() => setDatePeriod("yesterday")} aria-pressed={datePeriod === "yesterday"}>Yesterday</Button>
+              <h2 id="route-activity-heading" className="text-lg font-bold tracking-tight text-slate-950">Route Activity</h2>
+              <p className="mt-1 text-sm text-slate-600">Track pending and completed work across your pickup and transfer routes.</p>
             </div>
           </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4">
-              <div className="flex items-center justify-between gap-2">
-                <p className="font-semibold text-emerald-950">Farm Pickup Routes</p>
-                <p className="text-xs text-emerald-800">Completed only after all collected orders are handed over at the source warehouse.</p>
-                <Route className="h-5 w-5 text-emerald-700" />
-              </div>
-              <div className="mt-3 grid grid-cols-2 gap-3">
-                <div className="rounded-lg bg-white p-3"><p className="text-sm text-slate-500">Pending</p><p className="mt-1 text-2xl font-bold text-amber-700">{pickupPendingCount}</p></div>
-                <div className="rounded-lg bg-white p-3"><p className="text-sm text-slate-500">Completed</p><p className="mt-1 text-2xl font-bold text-emerald-700">{pickupCompletedCount}</p></div>
-              </div>
-              {overduePickupCount > 0 && datePeriod === "today" && <p className="mt-3 text-sm font-medium text-amber-800">{overduePickupCount} unfinished route(s) from earlier days remain visible below.</p>}
-            </div>
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4">
-              <div className="flex items-center justify-between gap-2">
-                <p className="font-semibold text-emerald-950">Warehouse Transfer Routes</p>
-                <p className="text-xs text-emerald-800">Completed after arrival at the destination warehouse or local hub.</p>
-                <Truck className="h-5 w-5 text-emerald-700" />
-              </div>
-              <div className="mt-3 grid grid-cols-2 gap-3">
-                <div className="rounded-lg bg-white p-3"><p className="text-sm text-slate-500">Pending</p><p className="mt-1 text-2xl font-bold text-amber-700">{transferPendingCount}</p></div>
-                <div className="rounded-lg bg-white p-3"><p className="text-sm text-slate-500">Completed</p><p className="mt-1 text-2xl font-bold text-emerald-700">{transferCompletedCount}</p></div>
-              </div>
-            </div>
+          <div className="inline-flex w-fit items-center rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
+            <Button type="button" size="sm" variant={datePeriod === "today" ? "default" : "ghost"} className={datePeriod === "today" ? "rounded-lg bg-emerald-700 px-4 text-white shadow-sm hover:bg-emerald-800" : "rounded-lg px-4 text-slate-600"} onClick={() => setDatePeriod("today")} aria-pressed={datePeriod === "today"}>Today</Button>
+            <Button type="button" size="sm" variant={datePeriod === "yesterday" ? "default" : "ghost"} className={datePeriod === "yesterday" ? "rounded-lg bg-emerald-700 px-4 text-white shadow-sm hover:bg-emerald-800" : "rounded-lg px-4 text-slate-600"} onClick={() => setDatePeriod("yesterday")} aria-pressed={datePeriod === "yesterday"}>Yesterday</Button>
           </div>
-        </CardContent>
-      </Card>
+        </div>
 
-      <div className="grid grid-cols-3 gap-2 sm:gap-3">
+        <div className="grid gap-4 p-4 sm:p-5 lg:grid-cols-3">
+          <article className="overflow-hidden rounded-xl border border-emerald-200 bg-white">
+            <div className="flex items-center justify-between gap-3 bg-emerald-50/80 px-4 py-3">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-emerald-700 shadow-sm"><Route className="h-5 w-5" /></div>
+                <div><h3 className="text-sm font-bold text-emerald-950">Farm Pickup Routes</h3><p className="text-xs text-emerald-800">Farm to assigned warehouse</p></div>
+              </div>
+              <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-200">Pickup</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2 p-4">
+              <div className="rounded-xl border border-amber-100 bg-amber-50/70 p-3">
+                <div className="flex items-center gap-1.5 text-amber-700"><Clock className="h-4 w-4"/><span className="text-[11px] font-semibold uppercase tracking-wide">Pending</span></div>
+                <p className="mt-2 text-2xl font-extrabold tabular-nums text-slate-950">{pickupPendingCount}</p>
+              </div>
+              <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-3">
+                <div className="flex items-center gap-1.5 text-blue-700"><Truck className="h-4 w-4"/><span className="text-[11px] font-semibold uppercase tracking-wide">In progress</span></div>
+                <p className="mt-2 text-2xl font-extrabold tabular-nums text-slate-950">{pickupInProgressCount}</p>
+              </div>
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-3">
+                <div className="flex items-center gap-1.5 text-emerald-700"><CheckCircle2 className="h-4 w-4"/><span className="text-[11px] font-semibold uppercase tracking-wide">Completed</span></div>
+                <p className="mt-2 text-2xl font-extrabold tabular-nums text-slate-950">{pickupCompletedCount}</p>
+              </div>
+            </div>
+            {overduePickupCount > 0 && datePeriod === "today" && <div className="mx-4 mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800"><Clock className="mt-0.5 h-4 w-4 shrink-0"/><span>{overduePickupCount} unfinished route(s) from earlier days remain visible below.</span></div>}
+          </article>
+
+          <article className="overflow-hidden rounded-xl border border-blue-200 bg-white">
+            <div className="flex items-center justify-between gap-3 bg-blue-50/80 px-4 py-3">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-blue-700 shadow-sm"><Truck className="h-5 w-5" /></div>
+                <div><h3 className="text-sm font-bold text-blue-950">Warehouse Transfer Routes</h3><p className="text-xs text-blue-800">Warehouse to warehouse / local hub</p></div>
+              </div>
+              <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-blue-800 ring-1 ring-blue-200">Transfer</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2 p-4">
+              <div className="rounded-xl border border-amber-100 bg-amber-50/70 p-3">
+                <div className="flex items-center gap-1.5 text-amber-700"><Clock className="h-4 w-4"/><span className="text-[11px] font-semibold uppercase tracking-wide">Pending</span></div>
+                <p className="mt-2 text-2xl font-extrabold tabular-nums text-slate-950">{transferPendingCount}</p>
+              </div>
+              <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-3">
+                <div className="flex items-center gap-1.5 text-blue-700"><Truck className="h-4 w-4"/><span className="text-[11px] font-semibold uppercase tracking-wide">In progress</span></div>
+                <p className="mt-2 text-2xl font-extrabold tabular-nums text-slate-950">{transferInProgressCount}</p>
+              </div>
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-3">
+                <div className="flex items-center gap-1.5 text-emerald-700"><CheckCircle2 className="h-4 w-4"/><span className="text-[11px] font-semibold uppercase tracking-wide">Completed</span></div>
+                <p className="mt-2 text-2xl font-extrabold tabular-nums text-slate-950">{transferCompletedCount}</p>
+              </div>
+            </div>
+          </article>
+
+          <article className="overflow-hidden rounded-xl border border-violet-200 bg-white">
+            <div className="flex items-center justify-between gap-3 bg-violet-50/80 px-4 py-3">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-violet-700 shadow-sm"><Briefcase className="h-5 w-5" /></div>
+                <div><h3 className="text-sm font-bold text-violet-950">B2B Business Deliveries</h3><p className="text-xs text-violet-800">Warehouse to business buyer</p></div>
+              </div>
+              <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-violet-800 ring-1 ring-violet-200">B2B</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2 p-4">
+              <div className="rounded-xl border border-amber-100 bg-amber-50/70 p-3">
+                <div className="flex items-center gap-1.5 text-amber-700"><Clock className="h-4 w-4"/><span className="text-[11px] font-semibold uppercase tracking-wide">Pending</span></div>
+                <p className="mt-2 text-2xl font-extrabold tabular-nums text-slate-950">{b2bPendingCount}</p>
+              </div>
+              <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-3">
+                <div className="flex items-center gap-1.5 text-blue-700"><Truck className="h-4 w-4"/><span className="text-[11px] font-semibold uppercase tracking-wide">In progress</span></div>
+                <p className="mt-2 text-2xl font-extrabold tabular-nums text-slate-950">{b2bInProgressCount}</p>
+              </div>
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-3">
+                <div className="flex items-center gap-1.5 text-emerald-700"><CheckCircle2 className="h-4 w-4"/><span className="text-[11px] font-semibold uppercase tracking-wide">Completed</span></div>
+                <p className="mt-2 text-2xl font-extrabold tabular-nums text-slate-950">{b2bCompletedCount}</p>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-3">
         <Button
           type="button"
           variant={routeView === "pickup" ? "default" : "outline"}
-          className={routeView === "pickup" ? "h-12 bg-emerald-700 text-base hover:bg-emerald-800" : "h-12 text-base"}
+          className={routeView === "pickup" ? "h-12 rounded-xl bg-emerald-700 text-sm font-semibold shadow-sm hover:bg-emerald-800 sm:text-base" : "h-12 rounded-xl border-slate-200 bg-white text-sm font-semibold text-slate-700 shadow-sm hover:bg-emerald-50 sm:text-base"}
           onClick={() => setRouteView("pickup")}
           aria-pressed={routeView === "pickup"}
         >
@@ -472,7 +573,7 @@ export default function DeliveryPickupRoutesPage() {
         <Button
           type="button"
           variant={routeView === "transfers" ? "default" : "outline"}
-          className={routeView === "transfers" ? "h-12 bg-emerald-700 text-base hover:bg-emerald-800" : "h-12 text-base"}
+          className={routeView === "transfers" ? "h-12 rounded-xl bg-emerald-700 text-sm font-semibold shadow-sm hover:bg-emerald-800 sm:text-base" : "h-12 rounded-xl border-slate-200 bg-white text-sm font-semibold text-slate-700 shadow-sm hover:bg-emerald-50 sm:text-base"}
           onClick={() => setRouteView("transfers")}
           aria-pressed={routeView === "transfers"}
         >
@@ -482,7 +583,7 @@ export default function DeliveryPickupRoutesPage() {
         <Button
           type="button"
           variant={routeView === "b2b" ? "default" : "outline"}
-          className={routeView === "b2b" ? "h-12 bg-emerald-700 text-base hover:bg-emerald-800" : "h-12 text-base"}
+          className={routeView === "b2b" ? "h-12 rounded-xl bg-emerald-700 text-sm font-semibold shadow-sm hover:bg-emerald-800 sm:text-base" : "h-12 rounded-xl border-slate-200 bg-white text-sm font-semibold text-slate-700 shadow-sm hover:bg-emerald-50 sm:text-base"}
           onClick={() => setRouteView("b2b")}
           aria-pressed={routeView === "b2b"}
         >

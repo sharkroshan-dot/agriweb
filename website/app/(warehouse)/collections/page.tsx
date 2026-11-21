@@ -398,7 +398,7 @@ export default function WarehouseCollectionsPage() {
 
 
   return (
-    <div className="space-y-6">
+    <div className="warehouse-collections-page space-y-6">
       <div className="rounded-2xl bg-gradient-to-r from-emerald-800 via-emerald-700 to-teal-700 p-6 text-white shadow-sm sm:p-8">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div>

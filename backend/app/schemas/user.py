@@ -54,9 +54,24 @@ class AddressBase(BaseModel):
     zip_code: str
     country: str = "India"
     landmark: Optional[str] = None
+    phone_number: Optional[str] = None
+    alternative_phone_number: Optional[str] = None
     address_type: str = "home"  # home, work, farm, warehouse, other
     is_default: bool = False
     location: Optional[Dict[str, Any]] = None  # GeoJSON Point
+
+    @validator("phone_number", "alternative_phone_number")
+    def normalize_address_contact_number(cls, value):
+        if value:
+            return normalize_phone_number(value)
+        return value
+
+    @validator("alternative_phone_number")
+    def alternative_must_differ(cls, value, values):
+        primary = values.get("phone_number")
+        if value and primary and value == primary:
+            raise ValueError("Alternative phone number must be different from primary phone number")
+        return value
 
 class AddressCreate(AddressBase):
     """Create address schema."""

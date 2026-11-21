@@ -38,7 +38,7 @@ export default function AdminProductsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="admin-page-header flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Admin Products</h1>
           <p className="text-sm text-muted-foreground">Monitor product listings, stock levels, and farmer supply.</p>

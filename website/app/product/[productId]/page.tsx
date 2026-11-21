@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 
 
-import { Star, ShoppingCart, MapPin, Bell, AlertCircle, Package, Minus, Plus, Store, Truck, LogIn, Heart } from "lucide-react";
+import { Star, ShoppingCart, ArrowLeft, MapPin, Bell, AlertCircle, Package, Minus, Plus, Store, Truck, LogIn, Heart, Phone, Leaf, ShieldCheck, CheckCircle2 } from "lucide-react";
 import Link from "next/link";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent } from "../../components/ui/card";
@@ -19,6 +19,41 @@ import { useNavigationStore } from "../../lib/store/navigation-store";
 import { isListingPath } from "../../lib/utils/listing-routes";
 import { formatPrice, haversineDistance, cn } from "../../lib/utils";
 import toast from "react-hot-toast";
+
+// Prefer registered farm address fields; never expose raw GPS coordinates as a
+// customer-facing location. Coordinates are useful for maps, not address labels.
+function readableFarmLocation(product: any): string {
+  const farmer = product?.farmer || product?.farmerProfile || product?.farmerDetails || {};
+  const farm = product?.farm || product?.farmDetails || product?.farmProfile || {};
+  const candidates = [
+    product?.farmAddress,
+    product?.farmerAddress,
+    product?.location?.address,
+    farmer?.farmAddress,
+    farmer?.address,
+    farmer?.location?.address,
+    farm?.address,
+    farm?.location?.address,
+  ];
+  const isCoordinates = (value: unknown) =>
+    typeof value === "string" &&
+    /^\s*-?\d{1,3}(?:\.\d+)?\s*,\s*-?\d{1,3}(?:\.\d+)?\s*$/.test(value);
+  const address = candidates.find((value) => typeof value === "string" && value.trim() && !isCoordinates(value));
+  if (address) return address.trim();
+
+  const parts = [
+    farmer?.village, farmer?.farmVillage, farm?.village, product?.farmVillage,
+    farmer?.town, farmer?.city, farm?.town, farm?.city, product?.city,
+    farmer?.taluk, farmer?.farmTaluk, farm?.taluk,
+    farmer?.district, farm?.district, product?.district,
+    farmer?.state, farm?.state, product?.state,
+  ].filter((value, index, values) =>
+    typeof value === "string" && value.trim() &&
+    values.findIndex((item) => String(item).trim().toLowerCase() === value.trim().toLowerCase()) === index
+  );
+  return parts.join(", ");
+}
+
 
 const fallbackProducts: Record<string, any> = {
   "tomatoes-01": { name: "Organic Tomatoes", price: 35, unit: "kg", description: "Fresh tomatoes sourced from nearby farms.", rating: 4.7, farmerName: "Annur Fresh Basket", image: "/images/placeholder-product.jpg" },
@@ -46,7 +81,6 @@ export default function ProductDetailPage() {
   const wishlisted = isWishlisted(productId);
   const [quantity, setQuantity] = useState(1);
   const [userLocation, setUserLocation] = useState<{lat: number; lng: number} | null>(null);
-  const [deliveryEstimate, setDeliveryEstimate] = useState<{minutes: number; confidence: number} | null>(null);
   const connectProductStock = useInventoryStore((state) => state.connectProductStock);
   const setStock = useInventoryStore((state) => state.setStock);
 
@@ -65,6 +99,16 @@ export default function ProductDetailPage() {
     queryFn: () => api.get(`/products/${productId}`),
   });
 
+  // Load marketplace products independently of the current product payload.
+  // The product endpoint does not guarantee an embedded similarProducts array.
+  const { data: relatedProductsData } = useQuery({
+    queryKey: ["productRecommendations", productId],
+    queryFn: () => api.get("/products/search", {
+      params: { limit: 24, sortBy: "createdAt", sortOrder: "desc" },
+    }),
+    staleTime: 60_000,
+  });
+
   useEffect(() => {
     if (typeof window !== "undefined" && navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
@@ -80,34 +124,6 @@ export default function ProductDetailPage() {
       if (stock) setStock(productId, stock);
     }).catch(() => {});
   }, [productId, setStock]);
-
-  useEffect(() => {
-    const apiProduct = (data as any)?.data || data;
-    const coords = apiProduct?.location?.coordinates;
-    if (!userLocation || !Array.isArray(coords) || coords.length < 2 || !isAuthenticated) {
-      setDeliveryEstimate(null);
-      return;
-    }
-    let cancelled = false;
-    api.post("/ai/delivery-time", {
-      originLat: Number(coords[1]),
-      originLng: Number(coords[0]),
-      destinationLat: userLocation.lat,
-      destinationLng: userLocation.lng,
-      vehicleType: "truck",
-      timeOfDay: new Date().getHours(),
-      dayOfWeek: new Date().getDay(),
-    }).then((res: any) => {
-      if (cancelled) return;
-      const body = res?.data || res;
-      if (body?.estimatedMinutes != null) {
-        setDeliveryEstimate({ minutes: Number(body.estimatedMinutes), confidence: Number(body.confidence || 0) });
-      }
-    }).catch(() => {
-      if (!cancelled) setDeliveryEstimate(null);
-    });
-    return () => { cancelled = true; };
-  }, [data, userLocation, isAuthenticated]);
 
   useEffect(() => {
     const disconnect = connectProductStock(productId);
@@ -147,17 +163,10 @@ export default function ProductDetailPage() {
     };
   }, [data, productId, userLocation]);
 
-  const stockLoaded = Boolean(stockInfo);
-  const available = stockLoaded
-    ? Math.max(0, Number(stockInfo?.available_stock ?? 0))
-    : Math.max(0, Number(product.quantity ?? 0));
-  const totalStock = stockLoaded
-    ? Math.max(0, Number(stockInfo?.total_stock ?? 0))
-    : available;
+  const available = stockInfo?.available_stock ?? 0;
+  const totalStock = stockInfo?.total_stock ?? 0;
   const unit = stockInfo?.unit || product.unit || "kg";
-  const isOutOfStock = stockLoaded
-    ? Boolean(stockInfo?.is_out_of_stock) || available <= 0
-    : available <= 0;
+  const isOutOfStock = stockInfo?.is_out_of_stock ?? false;
   const maxQty = Math.max(1, available);
 
   const handleQuantityChange = (delta: number) => {
@@ -340,395 +349,578 @@ export default function ProductDetailPage() {
     }
   };
 
+  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+  const [activeTab, setActiveTab] = useState<"description" | "specifications" | "reviews" | "delivery" | "farmer">("description");
+  const galleryImages: string[] = Array.isArray(product.images)
+    ? product.images.map((image: any) => typeof image === "string" ? image : image?.url || image?.src).filter(Boolean)
+    : [];
+  const displayImages = galleryImages.length ? galleryImages : [product.image || "/images/placeholder-product.jpg"];
+  const reviewCount = reviews.length;
+  const categoryValue = product.category ?? product.categoryName;
+  const categoryLabel =
+    typeof categoryValue === "string" || typeof categoryValue === "number"
+      ? String(categoryValue)
+      : categoryValue && typeof categoryValue === "object"
+        ? categoryValue.name || categoryValue.slug || "Not specified"
+        : "Not specified";
+  const directFarmerLocation = readableFarmLocation(product);
+  const [reverseGeocodedLocation, setReverseGeocodedLocation] = useState("");
+  const farmerLocation = directFarmerLocation || reverseGeocodedLocation;
+  const farmerProfile = product.farmer || product.farmerProfile || product.farmerDetails || {};
+  const farmProfile = product.farm || product.farmDetails || product.farmProfile || {};
+  const farmerAvatar = product.farmerAvatar || farmerProfile.avatar || farmerProfile.profileImage || farmerProfile.photo || "";
+  const farmerPhone = product.farmerPhone || product.farmerContactNumber || product.farmerMobile || farmerProfile.phone || farmerProfile.phoneNumber || farmerProfile.mobile || farmerProfile.mobileNumber || farmerProfile.contactNumber || farmerProfile.contact_number || farmProfile.phone || farmProfile.contactNumber || product.contactNumber || product.phone || "";
+  const farmerMemberSince = product.farmer?.createdAt || product.farmer?.joinedAt || product.farmer?.memberSince || product.farmerCreatedAt || "";
+  const farmerProducts = product.farmer?.products || product.farmerProducts || product.otherProductsFromFarmer || [];
+  const currentProductId = String(product.id || product._id || productId);
+  const embeddedFarmerProducts = Array.isArray(farmerProducts) ? farmerProducts : [];
+  const marketplaceProducts = relatedProductsData?.data?.products || relatedProductsData?.products || relatedProductsData?.data?.items || relatedProductsData?.items || [];
+  const recommendationPool = Array.isArray(product.similarProducts) && product.similarProducts.length
+    ? product.similarProducts
+    : [...embeddedFarmerProducts, ...(Array.isArray(marketplaceProducts) ? marketplaceProducts : [])];
+  const uniqueRecommendations = recommendationPool.filter((item: any, index: number, items: any[]) => {
+    const itemId = String(item.id || item._id || item.productId || "");
+    return itemId && itemId !== currentProductId &&
+      items.findIndex((candidate: any) => String(candidate.id || candidate._id || candidate.productId || "") === itemId) === index;
+  });
+  const currentCategory = String(product.category?.name || product.categoryName || product.category || "").toLowerCase();
+  const sameCategoryRecommendations = uniqueRecommendations.filter((item: any) =>
+    String(item.category?.name || item.categoryName || item.category || "").toLowerCase() === currentCategory
+  );
+  const similarProducts = (sameCategoryRecommendations.length ? sameCategoryRecommendations : uniqueRecommendations).slice(0, 3);
+  const otherFarmerProducts = embeddedFarmerProducts
+    .filter((item: any) => String(item.id || item._id || item.productId || "") !== currentProductId)
+    .slice(0, 3);
+
+  // If the listing contains GPS only, resolve it to a customer-readable place
+  // name. Never render raw latitude/longitude as the farm address.
+  useEffect(() => {
+    setReverseGeocodedLocation("");
+    if (directFarmerLocation) return;
+    const coordinates = product?.location?.coordinates;
+    const latitude = Array.isArray(coordinates) ? Number(coordinates[1]) : Number(product?.location?.latitude ?? product?.latitude);
+    const longitude = Array.isArray(coordinates) ? Number(coordinates[0]) : Number(product?.location?.longitude ?? product?.longitude);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
+    if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return;
+    const controller = new AbortController();
+    const params = new URLSearchParams({ format: "jsonv2", lat: String(latitude), lon: String(longitude), zoom: "10", addressdetails: "1" });
+    fetch("https://nominatim.openstreetmap.org/reverse?" + params.toString(), { signal: controller.signal, headers: { Accept: "application/json" } })
+      .then((response) => response.ok ? response.json() : null)
+      .then((result) => {
+        const address = result?.address || {};
+        const place = [
+          address.village || address.hamlet || address.suburb || address.town || address.city || address.municipality,
+          address.county || address.state_district || address.district,
+          address.state,
+        ].filter((value, index, values) => value && values.findIndex((item) => String(item).toLowerCase() === String(value).toLowerCase()) === index);
+        if (place.length) setReverseGeocodedLocation(place.join(", "));
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [productId, directFarmerLocation, product?.location?.coordinates, product?.location?.latitude, product?.location?.longitude, product?.latitude, product?.longitude]);
+
   if (isLoading) {
-    return <div className="h-[60vh] animate-pulse rounded-3xl bg-muted" />;
-  }
-
-  return (
-    <div className="mx-auto max-w-7xl space-y-6 p-6">
-
-      <div className="rounded-3xl border border-emerald-100 bg-gradient-to-r from-emerald-50 via-white to-green-50 p-4 shadow-sm shadow-emerald-100/60">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">Fresh harvest</p>
-            <p className="mt-1 text-sm text-slate-600">Packed and dispatch-ready from trusted local farms.</p>
-          </div>
-          <div className="inline-flex items-center gap-2 self-start rounded-full bg-white px-3 py-1.5 text-sm font-medium text-emerald-700 shadow-sm">
-            <Truck className="h-4 w-4" />
-            {product.farmDistanceKm ? `${product.farmDistanceKm.toFixed(1)} km away` : "Fast delivery"}
-          </div>
+    return (
+      <div className="mx-auto max-w-screen-2xl space-y-5 p-4 lg:p-6">
+        <div className="h-5 w-64 animate-pulse rounded bg-slate-200" />
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="h-[560px] animate-pulse rounded-2xl bg-slate-100" />
+          <div className="h-[560px] animate-pulse rounded-2xl bg-slate-100" />
         </div>
       </div>
+    );
+  }
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
-        <Card className="overflow-hidden border-0 shadow-lg shadow-slate-200/60">
-          <CardContent className="p-0">
-            <div className="relative aspect-[4/3] overflow-hidden bg-slate-100">
-              <img
-                src={product.images?.[0] || product.image || "/images/placeholder-product.jpg"}
-                alt={product.name}
-                className="h-full w-full object-cover transition duration-500 hover:scale-[1.02]"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).src = "/images/placeholder-product.jpg";
-                }}
-              />
-              {product.rating > 0 && (
-                <div className="absolute left-4 top-4 rounded-full bg-white/90 px-3 py-1.5 text-sm font-semibold text-slate-800 shadow-sm backdrop-blur-sm">
-                  <span className="inline-flex items-center gap-1.5">
-                    <Star className="h-3.5 w-3.5 fill-yellow-400 text-yellow-400" />
-                    {Number(product.rating).toFixed(1)}
-                  </span>
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+  const tabs = [
+    { id: "description", label: "Description" },
+    { id: "specifications", label: "Specifications" },
+    { id: "reviews", label: `Reviews (${reviewCount})` },
+    { id: "delivery", label: "Delivery & Returns" },
+    { id: "farmer", label: "Farmer Details" },
+  ] as const;
 
-        <Card className="h-fit border-0 shadow-lg shadow-slate-200/60">
-          <CardContent className="space-y-4 p-6">
-            <div>
-              <Badge variant="outline">Product details</Badge>
-              <div className="mt-3 flex items-start justify-between gap-3">
-                <h1 className="text-2xl font-semibold text-slate-900">{product.name}</h1>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={handleWishlist}
-                  className={cn("shrink-0 rounded-full", wishlisted && "text-red-500")}
-                  title={wishlisted ? "Remove from wishlist" : "Add to wishlist"}
-                >
-                  <Heart className={cn("h-5 w-5", wishlisted && "fill-current")} />
-                </Button>
-              </div>
-              <p className="mt-1 text-sm text-slate-500">{product.farmerName}</p>
-            </div>
+  return (
+    <div className="role-workspace role-customer mx-auto w-full max-w-[1720px] space-y-4 px-3 py-4 sm:px-5 lg:px-6 2xl:px-8">
+      <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-2 text-sm text-slate-500">
+        <Link href="/" className="font-medium hover:text-emerald-700">Home</Link>
+        <span>›</span>
+        <Link href="/marketplace" className="font-medium hover:text-emerald-700">Marketplace</Link>
+        <span>›</span>
+        <Link href={backHref} className="font-medium hover:text-emerald-700">Products</Link>
+        <span>›</span>
+        <span className="max-w-[220px] truncate font-semibold text-slate-800">{product.name}</span>
+      </nav>
 
-            <div className="flex items-center gap-2 text-sm">
-              <Star className="h-4 w-4 text-yellow-500" />
-              <span>{product.rating ? Number(product.rating).toFixed(1) : "New"}</span>
-            </div>
-
-            <p className="text-sm text-muted-foreground">{product.description}</p>
-
-            <div className="flex items-center gap-4 rounded-lg border bg-slate-50 p-3">
-              <Package className="h-5 w-5 text-emerald-600" />
-              <div className="flex-1">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-slate-600">Available Stock</span>
-                  <span className={isOutOfStock ? "font-semibold text-red-600" : "font-semibold text-emerald-700"}>
-                    {isOutOfStock ? "Out of Stock" : `${available} ${unit}`}
-                  </span>
-                </div>
-                {totalStock > 0 && (
-                  <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
-                    <div
-                      className={`h-full rounded-full transition-all ${
-                        isOutOfStock ? "bg-red-400" : "bg-emerald-500"
-                      }`}
-                      style={{ width: `${(available / totalStock) * 100}%` }}
-                    />
+      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_390px] 2xl:gap-5">
+        <div className="min-w-0 space-y-4">
+        <Card className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_4px_18px_rgba(15,23,42,0.07)]">
+          <CardContent className="p-3 sm:p-4 lg:p-5">
+            <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.08fr)_minmax(0,.92fr)] 2xl:gap-7">
+              <section className="min-w-0">
+                <div className="group relative aspect-[1.5/1] max-h-[520px] overflow-hidden rounded-2xl bg-slate-100">
+                  <img
+                    src={displayImages[Math.min(selectedImageIndex, displayImages.length - 1)]}
+                    alt={product.name}
+                    className="h-full w-full object-cover"
+                    onError={(e) => { (e.currentTarget as HTMLImageElement).src = "/images/placeholder-product.jpg"; }}
+                  />
+                  <div className="absolute left-4 top-4 rounded-full bg-emerald-700 px-4 py-2 text-sm font-semibold text-white shadow-md">
+                    <span className="mr-1.5">✦</span> Farm Fresh
                   </div>
-                )}
-                {!isOutOfStock && available > 0 && available <= 5 && (
-                  <p className="mt-1 text-xs text-amber-600">Only {available} left in stock</p>
-                )}
-              </div>
-            </div>
-
-            {product.farmDistanceKm && (
-              <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
-                <p className="flex items-center gap-2 text-sm font-medium text-emerald-800">
-                  <MapPin className="h-4 w-4" /> Farm Distance
-                </p>
-                <p className="text-lg font-bold text-emerald-700">
-                  {product.farmDistanceKm.toFixed(1)} km {product.pickupAvailable ? "away" : "from your location"}
-                </p>
-                {product.farmAddress && (
-                  <p className="mt-1 text-xs text-emerald-600">{product.farmAddress}</p>
-                )}
-                {deliveryEstimate && (
-              <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
-                <p className="flex items-center gap-2 text-sm font-medium text-blue-800">
-                  <Truck className="h-4 w-4" /> Estimated delivery
-                </p>
-                <p className="mt-1 text-lg font-bold text-blue-700">
-                  {deliveryEstimate.minutes < 60
-                    ? `About ${Math.round(deliveryEstimate.minutes)} min`
-                    : `About ${Math.floor(deliveryEstimate.minutes / 60)}h ${Math.round(deliveryEstimate.minutes % 60)}m`}
-                </p>
-                {deliveryEstimate.confidence > 0 && (
-                  <p className="text-xs text-blue-600">AI estimate confidence: {Math.round(deliveryEstimate.confidence <= 1 ? deliveryEstimate.confidence * 100 : deliveryEstimate.confidence)}%</p>
-                )}
-              </div>
-            )}
-
-            {product.pickupAvailable && (
-                  <p className="mt-1 text-xs text-emerald-600">
-                    <Store className="mr-1 inline h-3 w-3" />
-                    Visit the farm directly for urgent purchase
-                  </p>
-                )}
-              </div>
-            )}
-
-            {product.pickupAvailable && (
-              <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
-                <p className="flex items-center gap-2 text-sm font-medium text-amber-800">
-                  <Store className="h-4 w-4" /> Pickup Available
-                </p>
-                <p className="text-xs text-amber-700">Collect directly from the farm</p>
-                {product.pickupInstructions && (
-                  <p className="text-xs text-amber-600">{product.pickupInstructions}</p>
-                )}
-              </div>
-            )}
-
-            {product.minBulkQty > 0 && (
-              <div className="space-y-1 rounded-lg border border-blue-200 bg-blue-50 p-3">
-                <p className="flex items-center gap-2 text-sm font-medium text-blue-800">
-                  <Package className="h-4 w-4" /> Bulk Pricing Available
-                </p>
-                <p className="text-xs text-blue-700">
-                  Order {product.minBulkQty}+ {unit} for
-                  {product.bulkPrice > 0
-                    ? ` ${formatPrice(product.bulkPrice)}/${unit}`
-                    : product.bulkDiscountPercent > 0
-                      ? ` ${product.bulkDiscountPercent}% off`
-                      : " discounted price"}
-                </p>
-                {quantity >= (product.minBulkQty || 999) && effectivePrice !== Number(product.price || 0) && (
-                  <p className="text-xs font-medium text-blue-700">
-                    Bulk discount applied! {formatPrice(Number(product.price || 0))} → {formatPrice(effectivePrice)}/{unit}
-                  </p>
-                )}
-              </div>
-            )}
-
-            {product.location?.coordinates && (
-              <div className="space-y-2 border-t pt-4">
-                <p className="text-sm font-medium text-gray-700">Product Location</p>
-                <p className="text-sm text-gray-700">
-                  <MapPin className="inline h-3.5 w-3.5 text-emerald-600 mr-1" />
-                  <span className="font-medium">Place:</span> {product.location.address || "Not specified"}
-                </p>
-                <div className="aspect-video w-full overflow-hidden rounded-lg border bg-gray-100">
-                  <iframe
-                    title="Product Location"
-                    width="100%"
-                    height="100%"
-                    frameBorder="0"
-                    src={`https://www.openstreetmap.org/export/embed.html?bbox=${Number(product.location.coordinates[0]) - 0.01}%2C${Number(product.location.coordinates[1]) - 0.01}%2C${Number(product.location.coordinates[0]) + 0.01}%2C${Number(product.location.coordinates[1]) + 0.01}&layer=mapnik&marker=${product.location.coordinates[1]}%2C${product.location.coordinates[0]}`}
-                  />
-                </div>
-                <a
-                  href={`https://www.openstreetmap.org/?mlat=${product.location.coordinates[1]}&mlon=${product.location.coordinates[0]}&zoom=14`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-block text-xs text-emerald-600 hover:underline"
-                >
-                  Open in OpenStreetMap →
-                </a>
-              </div>
-            )}
-
-            <div className="text-2xl font-semibold text-emerald-700">
-              {formatPrice(effectivePrice * quantity)} 
-              <span className="text-base font-normal text-slate-500"> / {unit}</span>
-              {effectivePrice !== Number(product.price || 0) && Number(product.price || 0) > 0 && (
-                <span className="ml-2 text-sm text-slate-400 line-through">
-                  {formatPrice(Number(product.price || 0) * quantity)}
-                </span>
-              )}
-            </div>
-
-            {!isOutOfStock && (
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-slate-600">Quantity:</span>
-                <div className="flex items-center rounded-lg border">
-                  <button
-                    onClick={() => handleQuantityChange(-1)}
-                    disabled={quantity <= 1}
-                    className="flex h-9 w-9 items-center justify-center text-slate-600 transition hover:bg-slate-100 disabled:opacity-30"
-                  >
-                    <Minus className="h-4 w-4" />
-                  </button>
-                  <input
-                    type="number"
-                    value={quantity}
-                    min={1}
-                    max={maxQty}
-                    onChange={(e) => {
-                      const val = parseInt(e.target.value, 10);
-                      if (isNaN(val) || val < 1) setQuantity(1);
-                      else if (val > maxQty) setQuantity(maxQty);
-                      else setQuantity(val);
-                    }}
-                    className="flex h-9 w-14 border-x text-center text-sm font-medium outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                  />
-                  <button
-                    onClick={() => handleQuantityChange(1)}
-                    disabled={quantity >= maxQty}
-                    className="flex h-9 w-9 items-center justify-center text-slate-600 transition hover:bg-slate-100 disabled:opacity-30"
-                  >
-                    <Plus className="h-4 w-4" />
-                  </button>
-                </div>
-                {maxQty < 999 && (
-                  <span className="text-xs text-slate-400">max {maxQty} {unit}</span>
-                )}
-              </div>
-            )}
-
-            {isOutOfStock ? (
-              <div className="space-y-2">
-                <Button className="w-full" variant="outline" onClick={activeAlert ? removeAlert : () => openAlertPanel("back_in_stock")}>
-                  <Bell className="mr-2 h-4 w-4" />
-                  {activeAlert ? "Alert On" : "Notify Me"}
-                </Button>
-                {activeAlert && (
-                  <p className="text-center text-xs text-muted-foreground">
-                    {activeAlert.alertType === "price_drop" ? "You'll be alerted on price drops" : "You'll be alerted when back in stock"}
-                  </p>
-                )}
-                {alertOpen && (
-                  <div className="rounded-lg border p-3">
-                    <p className="mb-2 text-sm font-medium text-slate-700">Notify me when:</p>
-                    <div className="flex flex-col gap-2 text-sm text-slate-700">
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="radio"
-                          checked={alertType === "back_in_stock"}
-                          onChange={() => setAlertType("back_in_stock")}
-                          className="accent-emerald-600"
-                        />
-                        Back in stock
-                      </label>
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="radio"
-                          checked={alertType === "price_drop"}
-                          onChange={() => setAlertType("price_drop")}
-                          className="accent-emerald-600"
-                        />
-                        Price drops to
-                        {alertType === "price_drop" && (
-                          <input
-                            type="number"
-                            value={targetPrice}
-                            onChange={(e) => setTargetPrice(e.target.value)}
-                            placeholder="₹ amount"
-                            min={0}
-                            className="w-24 rounded-md border border-slate-300 px-2 py-1 text-sm outline-none focus:border-emerald-500"
-                          />
-                        )}
-                      </label>
-                    </div>
-                    <Button
-                      className="mt-3 w-full"
-                      size="sm"
-                      onClick={subscribeAlert}
-                      disabled={alertSubmitting || (alertType === "price_drop" && targetPrice !== "" && Number(targetPrice) <= 0)}
-                    >
-                      {alertSubmitting ? "Setting..." : "Set Alert"}
+                  <div className="absolute right-4 top-4 flex gap-2">
+                    <Button variant="secondary" size="icon" className="h-10 w-10 rounded-full bg-white/95 shadow" onClick={handleWishlist} title={wishlisted ? "Remove from wishlist" : "Add to wishlist"}>
+                      <Heart className={cn("h-5 w-5", wishlisted && "fill-rose-500 text-rose-500")} />
+                    </Button>
+                    <Button variant="secondary" size="icon" className="h-10 w-10 rounded-full bg-white/95 shadow" onClick={() => {
+                      if (typeof navigator !== "undefined" && navigator.share) navigator.share({ title: product.name, url: window.location.href }).catch(() => {});
+                      else if (typeof navigator !== "undefined" && navigator.clipboard) navigator.clipboard.writeText(window.location.href).then(() => toast.success("Product link copied"));
+                    }} title="Share product">
+                      <span className="text-lg leading-none">↗</span>
                     </Button>
                   </div>
-                )}
-              </div>
-            ) : !isAuthenticated ? (
-              <Button className="w-full" onClick={() => router.push(`/login?callbackUrl=${encodeURIComponent(window.location.pathname)}`)}>
-                <LogIn className="mr-2 h-4 w-4" />
-                Sign in to Buy
-              </Button>
-            ) : (
-              <div className="flex gap-2">
-                <Button variant="outline" className="flex-1" onClick={handleAddToCart} disabled={isOutOfStock}>
-                  <ShoppingCart className="mr-2 h-4 w-4" />
-                  Add to Cart
-                </Button>
-                <Button className="flex-1" onClick={handleBuyNow} disabled={isOutOfStock}>
-                  Buy Now
-                </Button>
-              </div>
-            )}
-
-            {!isOutOfStock && (
-              <button
-                onClick={activeAlert ? removeAlert : () => openAlertPanel("price_drop")}
-                className="flex w-full items-center justify-center gap-1.5 rounded-md py-1.5 text-xs font-medium text-emerald-700 transition hover:bg-emerald-50"
-              >
-                <Bell className="h-3.5 w-3.5" />
-                {activeAlert ? "Price alert on — tap to remove" : "Track price — get notified on price drops"}
-              </button>
-            )}
-
-            {available <= 0 && totalStock > 0 && (
-              <div className="flex items-center gap-2 rounded-md bg-amber-50 p-2 text-xs text-amber-700">
-                <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
-                Temporarily out of stock — check back soon
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Reviews */}
-      <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
-        <Card>
-          <CardContent className="space-y-4 p-6">
-            <h2 className="text-lg font-semibold">Customer Reviews</h2>
-            {reviews.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No reviews yet. Be the first to rate this product.</p>
-            ) : (
-              <div className="space-y-4">
-                {reviews.map((r: any) => (
-                  <div key={r.id} className="border-b pb-3 last:border-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium">{r.userName || "Customer"}</span>
-                      <span className="text-sm text-yellow-500">
-                        {"★".repeat(Math.min(5, r.rating))}{"☆".repeat(Math.max(0, 5 - Math.min(5, r.rating)))}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-sm text-slate-700">{r.comment}</p>
-                    {r.createdAt && (
-                      <p className="mt-1 text-xs text-slate-400">{new Date(r.createdAt).toLocaleDateString()}</p>
-                    )}
+                  {displayImages.length > 1 && (
+                    <>
+                      <button type="button" aria-label="Previous product image" onClick={() => setSelectedImageIndex((i) => (i - 1 + displayImages.length) % displayImages.length)} className="absolute left-3 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/95 text-2xl text-slate-800 shadow transition hover:bg-white">‹</button>
+                      <button type="button" aria-label="Next product image" onClick={() => setSelectedImageIndex((i) => (i + 1) % displayImages.length)} className="absolute right-3 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/95 text-2xl text-slate-800 shadow transition hover:bg-white">›</button>
+                    </>
+                  )}
+                  <span className="absolute bottom-4 right-4 rounded-full bg-slate-950/75 px-3 py-1.5 text-xs font-semibold text-white">
+                    {selectedImageIndex + 1} / {displayImages.length}
+                  </span>
+                </div>
+                {displayImages.length > 1 && (
+                  <div className="mt-3 grid grid-cols-5 gap-2.5">
+                    {displayImages.slice(0, 5).map((image, index) => (
+                      <button key={image + index} type="button" onClick={() => setSelectedImageIndex(index)} className={cn("aspect-[1.25/1] overflow-hidden rounded-xl border-2 bg-slate-50 transition", selectedImageIndex === index ? "border-emerald-600 ring-2 ring-emerald-100" : "border-transparent hover:border-emerald-200")}>
+                        <img src={image} alt={`${product.name} view ${index + 1}`} className="h-full w-full object-cover" onError={(e) => { (e.currentTarget as HTMLImageElement).src = "/images/placeholder-product.jpg"; }} />
+                      </button>
+                    ))}
                   </div>
-                ))}
+                )}
+              </section>
+
+              <section className="flex min-w-0 flex-col xl:pt-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className="border-0 bg-emerald-100 text-emerald-800 hover:bg-emerald-100">Farm fresh</Badge>
+                  {product.isOrganic && <Badge className="border-0 bg-green-100 text-green-800 hover:bg-green-100">Organic</Badge>}
+                  {product.isPesticideFree && <Badge className="border-0 bg-green-100 text-green-800 hover:bg-green-100">Pesticide free</Badge>}
+                  {product.isChemicalFree && <Badge className="border-0 bg-green-100 text-green-800 hover:bg-green-100">Chemical free</Badge>}
+                </div>
+                <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl">{product.name}</h1>
+                <p className="mt-2 text-sm leading-6 text-slate-600 sm:text-base">{product.description}</p>
+
+                <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+                  <span className="inline-flex items-center gap-1.5 font-semibold text-slate-900">
+                    <Star className="h-5 w-5 fill-amber-400 text-amber-400" />
+                    {product.rating ? Number(product.rating).toFixed(1) : "New"}
+                    <span className="font-normal text-slate-500">({reviewCount} reviews)</span>
+                  </span>
+                  {product.purchaseCount ? <span className="text-slate-500">{Number(product.purchaseCount).toLocaleString()}+ bought</span> : null}
+                </div>
+
+                <div className="mt-4 rounded-2xl border border-emerald-100 bg-gradient-to-r from-emerald-50 to-green-50 p-4 sm:p-5">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-white bg-white shadow-sm">
+                      {farmerAvatar ? <img src={farmerAvatar} alt={product.farmerName || "Farmer"} className="h-full w-full object-cover" /> : <Store className="h-6 w-6 text-emerald-700" />}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="flex flex-wrap items-center gap-1.5 font-bold text-slate-900">
+                        {product.farmerName || product.farmer?.name || "Local Farmer"}
+                        {product.farmerVerified && <span className="text-emerald-600" title="Verified farmer">✓</span>}
+                      </p>
+                      {farmerLocation && <p className="mt-1 flex items-start gap-1 text-sm text-slate-700"><MapPin className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />{farmerLocation}</p>}
+                      <p className="mt-1 text-xs font-medium text-emerald-700">Farm supplier</p>
+                    </div>
+                    {product.farmerId && <Link href={`/farmer/${product.farmerId}`} className="rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm font-semibold text-emerald-800 shadow-sm hover:bg-emerald-50">View Farm Profile →</Link>}
+                  </div>
+                </div>
+
+                <div className="mt-5">
+                  <h2 className="text-lg font-bold text-slate-950">Key Highlights</h2>
+                  <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    {[
+                      ["🌱", "Farm sourced"],
+                      ["📦", "Stock tracked"],
+                      ["📍", "Farm location"],
+                      ["🚚", "Delivery options"],
+                    ].map(([icon, label]) => (
+                      <div key={label} className="flex flex-col items-center rounded-xl bg-emerald-50/70 px-2 py-3 text-center">
+                        <span className="text-2xl">{icon}</span>
+                        <span className="mt-1 text-xs font-semibold text-slate-800">{label}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {(product.pickupAvailable || product.minBulkQty > 0) && (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {product.pickupAvailable && <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-800">Farm pickup available</Badge>}
+                    {product.minBulkQty > 0 && <Badge variant="outline" className="border-blue-200 bg-blue-50 text-blue-800">Bulk pricing available</Badge>}
+                  </div>
+                )}
+              </section>
+            </div>
+          </CardContent>
+        </Card>
+      <section id="product-information" className="scroll-mt-24 space-y-4">
+        <nav aria-label="Product information sections" className="grid grid-cols-2 gap-1 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-[0_4px_16px_rgba(15,23,42,0.06)] sm:grid-cols-3 lg:grid-cols-5">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              aria-pressed={activeTab === tab.id}
+              className={cn(
+                "min-h-12 rounded-xl px-2 py-2.5 text-xs font-bold transition sm:text-sm",
+                activeTab === tab.id
+                  ? "bg-emerald-700 text-white shadow-md"
+                  : "text-slate-700 hover:bg-emerald-50 hover:text-emerald-800"
+              )}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </nav>
+
+        <Card className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_4px_18px_rgba(15,23,42,0.06)]">
+          <CardContent className="min-h-[320px] p-4 sm:p-6 lg:p-7">
+            {activeTab === "description" && (
+              <div className="grid items-center gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(260px,.85fr)]">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-emerald-700">About this product</p>
+                  <h2 className="mt-1 text-2xl font-extrabold text-slate-950">Product Description</h2>
+                  <p className="mt-3 whitespace-pre-line text-sm leading-7 text-slate-600">
+                    {product.description || "No product description has been provided yet."}
+                  </p>
+                  <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    {[
+                      [Leaf, "Farm Fresh"],
+                      [ShieldCheck, "Quality Assured"],
+                      [Truck, "Safe Delivery"],
+                      [CheckCircle2, "Naturally Grown"],
+                    ].map(([Icon, label]: any) => (
+                      <div key={label} className="flex min-h-[88px] flex-col items-center justify-center rounded-xl border border-emerald-100 bg-emerald-50/70 p-3 text-center">
+                        <Icon className="h-7 w-7 text-emerald-700" />
+                        <span className="mt-2 text-xs font-bold text-slate-700">{label}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="overflow-hidden rounded-2xl border border-emerald-100 bg-emerald-50">
+                  <img
+                    src={displayImages[0]}
+                    alt={product.name + " product"}
+                    className="h-64 w-full object-cover sm:h-72"
+                    onError={(e) => { (e.currentTarget as HTMLImageElement).src = "/images/placeholder-product.jpg"; }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {activeTab === "specifications" && (
+              <div>
+                <div className="flex flex-wrap items-end justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[0.16em] text-emerald-700">Product information</p>
+                    <h2 className="mt-1 text-2xl font-extrabold text-slate-950">Product Specifications</h2>
+                  </div>
+                  <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">Live product details</span>
+                </div>
+                <dl className="mt-5 grid gap-3 lg:grid-cols-2">
+                  {[
+                    [Package, "Product Name", product.name || "—"],
+                    [Leaf, "Category", categoryLabel],
+                    [Package, "Unit", unit],
+                    [ShoppingCart, "Price", formatPrice(effectivePrice) + " / " + unit],
+                    [Package, "Available Quantity", available + " " + unit],
+                    [ShoppingCart, "Minimum Order", (product.minBulkQty || 1) + " " + unit],
+                    [CheckCircle2, "Harvest Status", product.harvestStatus || (product.isPreHarvest ? "Pre-harvest" : "Harvested")],
+                    [ShieldCheck, "Packaging", product.packagingType || product.packaging || "Farm packed"],
+                  ].map(([Icon, label, value]: any) => (
+                    <div key={label} className="grid min-w-0 grid-cols-[minmax(0,.9fr)_minmax(0,1.1fr)] overflow-hidden rounded-xl border border-slate-200">
+                      <dt className="flex items-center gap-2 bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-600 sm:px-4">
+                        <Icon className="h-4 w-4 shrink-0 text-emerald-700" />
+                        {label}
+                      </dt>
+                      <dd className="flex items-center break-words px-3 py-3 text-sm font-bold text-slate-900 sm:px-4">{String(value ?? "—")}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            )}
+
+            {activeTab === "reviews" && (
+              <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-emerald-700">Customer feedback</p>
+                  <h2 className="mt-1 text-2xl font-extrabold text-slate-950">Customer Reviews</h2>
+                  <div className="mt-4 grid gap-4 rounded-2xl border border-slate-100 bg-slate-50 p-4 sm:grid-cols-[150px_minmax(0,1fr)]">
+                    <div className="flex flex-col justify-center">
+                      <span className="text-5xl font-extrabold tracking-tight text-slate-950">{product.rating ? Number(product.rating).toFixed(1) : "New"}</span>
+                      <span className="mt-1 text-xl tracking-wider text-amber-500">{"★".repeat(Math.max(0, Math.min(5, Math.round(Number(product.rating) || 0))))}{"☆".repeat(Math.max(0, 5 - Math.min(5, Math.round(Number(product.rating) || 0))))}</span>
+                      <span className="mt-1 text-xs text-slate-500">Based on {reviewCount} reviews</span>
+                    </div>
+                    <div className="space-y-2">
+                      {[5, 4, 3, 2, 1].map((rating) => {
+                        const count = reviews.filter((review: any) => Number(review.rating) === rating).length;
+                        const percent = reviewCount ? (count / reviewCount) * 100 : 0;
+                        return (
+                          <div key={rating} className="grid grid-cols-[34px_minmax(0,1fr)_34px] items-center gap-2 text-xs">
+                            <span className="font-semibold text-slate-600">{rating} ★</span>
+                            <div className="h-2 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-emerald-600" style={{ width: percent + "%" }} /></div>
+                            <span className="text-right text-slate-500">{Math.round(percent)}%</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  {reviews.length === 0 ? (
+                    <div className="mt-4 rounded-xl border border-dashed border-slate-300 p-6 text-center">
+                      <Star className="mx-auto h-8 w-8 text-amber-400" />
+                      <p className="mt-2 font-semibold text-slate-800">No reviews yet</p>
+                      <p className="mt-1 text-sm text-slate-500">Be the first customer to share feedback about this product.</p>
+                    </div>
+                  ) : (
+                    <div className="mt-4 space-y-3">
+                      {reviews.map((review: any, index: number) => (
+                        <article key={review.id || review._id || index} className="rounded-xl border border-slate-200 p-4">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="font-bold text-slate-900">{review.userName || "Customer"}</span>
+                            <span className="text-sm tracking-wider text-amber-500">{"★".repeat(Math.min(5, Number(review.rating) || 0))}{"☆".repeat(Math.max(0, 5 - Math.min(5, Number(review.rating) || 0)))}</span>
+                          </div>
+                          <p className="mt-2 text-sm leading-6 text-slate-600">{review.comment}</p>
+                          {review.createdAt && <p className="mt-2 text-xs text-slate-400">{new Date(review.createdAt).toLocaleDateString()}</p>}
+                        </article>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <aside className="h-fit rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4">
+                  <h3 className="text-lg font-bold text-slate-900">Write a Review</h3>
+                  <p className="mt-1 text-sm text-slate-600">Share your experience with other customers.</p>
+                  <div className="mt-3 flex gap-1">{[1, 2, 3, 4, 5].map((star) => <button key={star} type="button" onClick={() => setReviewRating(star)} aria-label={star + " stars"} className={cn("text-3xl transition", star <= reviewRating ? "text-amber-500" : "text-slate-300")}>★</button>)}</div>
+                  <textarea value={reviewComment} onChange={(e) => setReviewComment(e.target.value)} rows={5} placeholder="Share your experience..." className="mt-3 w-full rounded-xl border border-slate-200 bg-white p-3 text-sm outline-none focus:border-emerald-500" />
+                  {reviewError && <p className="mt-2 text-sm text-rose-600">{reviewError}</p>}
+                  <Button className="mt-3 w-full rounded-xl bg-emerald-700 hover:bg-emerald-800" onClick={handleSubmitReview} disabled={reviewLoading}>{reviewLoading ? "Submitting..." : "Submit Review"}</Button>
+                  <p className="mt-2 text-xs leading-5 text-slate-500">Review submission may require a verified purchase.</p>
+                </aside>
+              </div>
+            )}
+
+            {activeTab === "delivery" && (
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-emerald-700">Order information</p>
+                <h2 className="mt-1 text-2xl font-extrabold text-slate-950">Delivery & Returns</h2>
+                <div className="mt-5 grid gap-4 lg:grid-cols-2">
+                  <section className="rounded-2xl border border-slate-200 p-4 sm:p-5">
+                    <h3 className="flex items-center gap-2 text-lg font-bold text-slate-900"><Truck className="h-5 w-5 text-emerald-700" />Delivery Information</h3>
+                    <div className="mt-4 space-y-4">
+                      {[
+                        ["Estimated Delivery", "Delivery estimate is confirmed at checkout for your address."],
+                        ["Delivery Charge", "Calculated at checkout based on delivery address and available service."],
+                        ["Delivery Method", "Available delivery options are shown during checkout."],
+                      ].map(([label, value]) => (
+                        <div key={label} className="flex gap-3 border-b border-slate-100 pb-3 last:border-0 last:pb-0">
+                          <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
+                          <div><p className="text-sm font-bold text-slate-800">{label}</p><p className="mt-1 text-sm leading-5 text-slate-600">{value}</p></div>
+                        </div>
+                      ))}
+                      {product.pickupAvailable && <div className="rounded-xl bg-amber-50 p-3 text-sm text-amber-800"><p className="font-bold"><Store className="mr-1 inline h-4 w-4" />Farm Pickup Available</p><p className="mt-1">{product.pickupInstructions || "Contact the farmer to confirm pickup arrangements."}</p></div>}
+                    </div>
+                  </section>
+                  <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:p-5">
+                    <h3 className="flex items-center gap-2 text-lg font-bold text-slate-900"><ShieldCheck className="h-5 w-5 text-emerald-700" />Returns & Refunds</h3>
+                    <div className="mt-4 space-y-3 text-sm leading-6 text-slate-600">
+                      <p>If the produce arrives damaged, incorrect, or does not meet the applicable quality requirements, you can submit a return or refund request for review.</p>
+                      <p>Requests are assessed according to the AgriConnect return policy and the order details.</p>
+                    </div>
+                    <Link href="/refunds" className="mt-5 inline-flex items-center rounded-xl border border-emerald-600 bg-white px-4 py-2.5 text-sm font-bold text-emerald-800 hover:bg-emerald-50">View Return & Refund Policy →</Link>
+                  </section>
+                </div>
+              </div>
+            )}
+
+            {activeTab === "farmer" && (
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-emerald-700">Meet the grower</p>
+                <h2 className="mt-1 text-2xl font-extrabold text-slate-950">Farmer Details</h2>
+                <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(300px,.85fr)]">
+                  <section className="rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm sm:p-5">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full border border-emerald-100 bg-emerald-50">
+                        {farmerAvatar ? <img src={farmerAvatar} alt={product.farmerName || "Farmer"} className="h-full w-full object-cover" /> : <Store className="h-7 w-7 text-emerald-700" />}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-lg font-extrabold text-slate-950">{product.farmer?.farmName || product.farmName || product.farmerName || product.farmer?.name || "Local Farmer"}</p>
+                        <p className="mt-0.5 text-sm font-semibold text-emerald-700">{product.farmerVerified || product.farmer?.isVerified ? "✓ Verified Farmer" : "Farm Supplier"}</p>
+                        {farmerLocation && <p className="mt-1.5 flex items-start gap-2 text-sm text-slate-600"><MapPin className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" /><span>{farmerLocation}</span></p>}
+                      </div>
+                    </div>
+                    <div className="mt-4 grid gap-2">
+                      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50/80 px-3 py-3">
+                        <Phone className="h-4 w-4 shrink-0 text-emerald-700" />
+                        <span className="text-xs font-bold uppercase tracking-wide text-emerald-800">Contact Number</span>
+                        {farmerPhone ? <a href={"tel:" + farmerPhone} className="ml-auto font-bold text-emerald-900 hover:underline">{farmerPhone}</a> : <span className="ml-auto text-sm text-slate-500">Not provided in farmer profile</span>}
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <div className="rounded-xl bg-slate-50 p-3">
+                          <p className="text-xs text-slate-500">Farming Method</p>
+                          <p className="mt-1 text-sm font-bold text-slate-900">{product.farmingMethod || product.farmer?.farmingMethod || (product.isOrganic ? "Organic" : "Farm grown")}</p>
+                        </div>
+                        <div className="rounded-xl bg-slate-50 p-3">
+                          <p className="text-xs text-slate-500">Product Stock</p>
+                          <p className="mt-1 text-sm font-bold text-emerald-800">{available} {unit} available</p>
+                        </div>
+                      </div>
+                      {farmerMemberSince && <p className="text-xs text-slate-500">Member since: <span className="font-semibold text-slate-700">{new Date(farmerMemberSince).toLocaleDateString(undefined, { month: "short", year: "numeric" })}</span></p>}
+                    </div>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {farmerPhone && <a href={"tel:" + farmerPhone} className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-800"><Phone className="h-4 w-4" />Call Farmer</a>}
+                      {product.farmerId && <Link href={"/farmer/" + product.farmerId} className="inline-flex items-center justify-center rounded-xl border border-emerald-600 bg-white px-4 py-2.5 text-sm font-bold text-emerald-800 hover:bg-emerald-50">View Full Farm Profile →</Link>}
+                    </div>
+                  </section>
+                  <aside className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+                    <div className="flex items-center justify-between gap-2">
+                      <h3 className="text-base font-extrabold text-slate-900">Other Products from this Farmer</h3>
+                      {otherFarmerProducts.length > 0 && <span className="text-xs font-semibold text-slate-500">{otherFarmerProducts.length} products</span>}
+                    </div>
+                    {otherFarmerProducts.length > 0 ? (
+                      <div className="mt-4 grid grid-cols-3 gap-2">
+                        {otherFarmerProducts.map((item: any, index: number) => {
+                          const itemId = item.id || item._id || item.productId;
+                          const itemImage = item.images?.[0] || item.image || "/images/placeholder-product.jpg";
+                          return (
+                            <Link key={itemId || index} href={itemId ? "/product/" + itemId : "/marketplace"} className="min-w-0 rounded-xl border border-slate-100 p-2 transition hover:border-emerald-200 hover:shadow-sm">
+                              <img src={itemImage} alt={item.name || "Farm product"} className="h-20 w-full rounded-lg object-cover" onError={(e) => { (e.currentTarget as HTMLImageElement).src = "/images/placeholder-product.jpg"; }} />
+                              <p className="mt-2 truncate text-xs font-bold text-slate-900">{item.name || "Farm product"}</p>
+                              <p className="mt-0.5 text-xs font-semibold text-emerald-700">{item.price != null ? formatPrice(item.price) + " / " + (item.unit || unit) : "View product"}</p>
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="mt-4 flex min-h-36 flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 text-center">
+                        <Store className="h-7 w-7 text-emerald-600" />
+                        <p className="mt-2 text-sm font-semibold text-slate-700">More farm products</p>
+                        <p className="mt-1 text-xs leading-5 text-slate-500">Other products will appear here when the farmer has additional active listings.</p>
+                      </div>
+                    )}
+                    {farmerLocation && <p className="mt-4 flex items-start gap-2 border-t border-slate-100 pt-3 text-xs leading-5 text-slate-600"><MapPin className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />Farm location: {farmerLocation}</p>}
+                  </aside>
+                </div>
               </div>
             )}
           </CardContent>
         </Card>
+      </section>
+        </div>
+        <aside className="space-y-4">
+          <Card className="rounded-2xl border border-slate-200/80 bg-white shadow-[0_4px_18px_rgba(15,23,42,0.07)]">
+            <CardContent className="space-y-4 p-4 sm:p-5">
+              <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span className="inline-flex items-center gap-2 font-medium text-slate-700"><Package className="h-5 w-5 text-emerald-700" />Available Stock</span>
+                  <span className={cn("font-bold", isOutOfStock ? "text-rose-600" : "text-emerald-700")}>{isOutOfStock ? "Out of stock" : `${available} ${unit}`}</span>
+                </div>
+                {totalStock > 0 && <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200"><div className={cn("h-full rounded-full", isOutOfStock ? "bg-rose-500" : "bg-emerald-600")} style={{ width: `${Math.min(100, (available / totalStock) * 100)}%` }} /></div>}
+                {!isOutOfStock && available > 0 && available <= 5 && <p className="mt-2 text-xs font-medium text-amber-700">Only {available} left in stock</p>}
+              </div>
 
-        <Card>
-          <CardContent className="space-y-3 p-6">
-            <h2 className="text-lg font-semibold">Rate this product</h2>
-            <div className="flex items-center gap-1">
-              {[1, 2, 3, 4, 5].map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => setReviewRating(s)}
-                  className={`text-2xl transition ${s <= reviewRating ? "text-yellow-500" : "text-slate-300 hover:text-yellow-300"}`}
-                  aria-label={`${s} stars`}
-                >
-                  ★
-                </button>
-              ))}
-            </div>
-            <textarea
-              value={reviewComment}
-              onChange={(e) => setReviewComment(e.target.value)}
-              rows={4}
-              placeholder="Share your experience with this product..."
-              className="w-full rounded-lg border border-slate-300 bg-white p-3 text-sm outline-none focus:border-emerald-500"
-            />
-            {reviewError && <p className="text-sm text-red-600">{reviewError}</p>}
-            <Button className="w-full" onClick={handleSubmitReview} disabled={reviewLoading}>
-              {reviewLoading ? "Submitting..." : "Submit Rating"}
-            </Button>
-            <p className="text-xs text-muted-foreground">You can rate products from your delivered orders.</p>
-          </CardContent>
-        </Card>
+              {Number(product.farmDistanceKm) > 0 && (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                  <p className="flex items-center gap-2 text-sm font-medium text-emerald-800"><MapPin className="h-4 w-4" />Farm Distance</p>
+                  <p className="mt-1 text-lg font-bold text-emerald-800">{Number(product.farmDistanceKm).toFixed(1)} km from your location</p>
+                </div>
+              )}
+
+              {product.location?.coordinates && (
+                <div className="space-y-2">
+                  <h2 className="font-bold text-slate-900">Product Location</h2>
+                  <p className="flex items-center gap-1.5 text-sm text-slate-600"><MapPin className="h-4 w-4 text-emerald-700" />{farmerLocation || "Farm location"}</p>
+                  <div className="h-36 overflow-hidden rounded-xl border bg-slate-100">
+                    <iframe title="Product location map" width="100%" height="100%" loading="lazy" frameBorder="0" src={`https://www.openstreetmap.org/export/embed.html?bbox=${Number(product.location.coordinates[0]) - 0.01}%2C${Number(product.location.coordinates[1]) - 0.01}%2C${Number(product.location.coordinates[0]) + 0.01}%2C${Number(product.location.coordinates[1]) + 0.01}&layer=mapnik&marker=${product.location.coordinates[1]}%2C${product.location.coordinates[0]}`} />
+                  </div>
+                  <a href={`https://www.openstreetmap.org/?mlat=${product.location.coordinates[1]}&mlon=${product.location.coordinates[0]}&zoom=14`} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-emerald-700 hover:underline">Open in OpenStreetMap →</a>
+                </div>
+              )}
+
+              <div className="border-t pt-4">
+                <div className="flex flex-wrap items-end gap-2">
+                  <span className="text-3xl font-extrabold tracking-tight text-emerald-700">{formatPrice(effectivePrice)}</span>
+                  <span className="pb-1 text-sm text-slate-500">/ {unit}</span>
+                  {effectivePrice < Number(product.price || 0) && <span className="pb-1 text-sm text-slate-400 line-through">{formatPrice(Number(product.price || 0))}</span>}
+                  {product.bulkDiscountPercent > 0 && <Badge className="mb-1 border-0 bg-rose-100 text-rose-700 hover:bg-rose-100">{product.bulkDiscountPercent}% off</Badge>}
+                </div>
+                {product.minBulkQty > 0 && <p className="mt-1 text-xs text-blue-700">Bulk price applies from {product.minBulkQty} {unit}</p>}
+                {!isOutOfStock && (
+                  <div className="mt-4 flex flex-wrap items-center gap-3">
+                    <span className="text-sm font-semibold text-slate-800">Quantity:</span>
+                    <div className="flex h-10 items-center overflow-hidden rounded-xl border border-slate-200">
+                      <button type="button" onClick={() => handleQuantityChange(-1)} disabled={quantity <= 1} className="flex h-full w-10 items-center justify-center text-slate-700 hover:bg-slate-50 disabled:opacity-30"><Minus className="h-4 w-4" /></button>
+                      <input type="number" aria-label="Product quantity" value={quantity} min={1} max={maxQty} onChange={(e) => { const val = parseInt(e.target.value, 10); if (isNaN(val) || val < 1) setQuantity(1); else setQuantity(Math.min(val, maxQty)); }} className="h-full w-12 border-x text-center text-sm font-semibold outline-none" />
+                      <button type="button" onClick={() => handleQuantityChange(1)} disabled={quantity >= maxQty} className="flex h-full w-10 items-center justify-center text-slate-700 hover:bg-slate-50 disabled:opacity-30"><Plus className="h-4 w-4" /></button>
+                    </div>
+                    <span className="text-xs text-slate-500">Max {available} {unit}</span>
+                  </div>
+                )}
+                <p className="mt-2 text-xs text-slate-500">Order total: <span className="font-semibold text-slate-800">{formatPrice(effectivePrice * quantity)}</span></p>
+              </div>
+
+              {product.pickupAvailable && <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800"><p className="font-semibold"><Store className="mr-1 inline h-4 w-4" />Farm pickup available</p><p className="mt-1 text-xs">{product.pickupInstructions || "Collect directly from the farm, subject to confirmation."}</p></div>}
+
+              {isOutOfStock ? (
+                <div className="space-y-2">
+                  <Button className="w-full rounded-xl" variant="outline" onClick={activeAlert ? removeAlert : () => openAlertPanel("back_in_stock")}><Bell className="mr-2 h-4 w-4" />{activeAlert ? "Alert On" : "Notify Me When Available"}</Button>
+                  {activeAlert && <p className="text-center text-xs text-slate-500">{activeAlert.alertType === "price_drop" ? "Price-drop alert is active" : "Back-in-stock alert is active"}</p>}
+                  {alertOpen && <div className="space-y-3 rounded-xl border p-3"><p className="text-sm font-semibold">Notify me when:</p><label className="flex items-center gap-2 text-sm"><input type="radio" checked={alertType === "back_in_stock"} onChange={() => setAlertType("back_in_stock")} />Back in stock</label><label className="flex items-center gap-2 text-sm"><input type="radio" checked={alertType === "price_drop"} onChange={() => setAlertType("price_drop")} />Price drops to {alertType === "price_drop" && <input type="number" value={targetPrice} onChange={(e) => setTargetPrice(e.target.value)} placeholder="₹ amount" className="w-24 rounded border px-2 py-1" />}</label><Button className="w-full" size="sm" onClick={subscribeAlert} disabled={alertSubmitting}>{alertSubmitting ? "Setting..." : "Set Alert"}</Button></div>}
+                </div>
+              ) : !isAuthenticated ? (
+                <Button className="w-full rounded-xl" onClick={() => router.push(`/login?callbackUrl=${encodeURIComponent(window.location.pathname)}`)}><LogIn className="mr-2 h-4 w-4" />Sign in to Buy</Button>
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  <Button variant="outline" className="h-12 rounded-xl border-slate-300 font-semibold" onClick={handleAddToCart}><ShoppingCart className="mr-2 h-4 w-4" />Add to Cart</Button>
+                  <Button className="h-12 rounded-xl bg-emerald-700 font-semibold hover:bg-emerald-800" onClick={handleBuyNow}><span className="mr-2">ϟ</span>Buy Now</Button>
+                </div>
+              )}
+              {!isOutOfStock && <button type="button" onClick={activeAlert ? removeAlert : () => openAlertPanel("price_drop")} className="flex w-full items-center justify-center gap-2 rounded-lg py-2 text-xs font-medium text-emerald-700 hover:bg-emerald-50"><Bell className="h-3.5 w-3.5" />{activeAlert ? "Price alert on — remove alert" : "Track price and get notified"}</button>}
+              {available <= 0 && totalStock > 0 && <div className="flex items-center gap-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-800"><AlertCircle className="h-4 w-4" />Temporarily out of stock — check back soon.</div>}
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-2xl border border-slate-200/80 shadow-sm">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-lg font-bold text-slate-900">Similar Products</h2>
+                <Link href="/marketplace" className="text-sm font-semibold text-emerald-700 hover:underline">View all →</Link>
+              </div>
+              <div className="mt-3 space-y-3">
+                {similarProducts.slice(0, 3).map((item: any, index: number) => {
+                  const itemId = item.id || item._id || item.productId;
+                  const itemImage = item.images?.[0] || item.image || "/images/placeholder-product.jpg";
+                  return (
+                    <Link key={itemId || index} href={itemId ? "/product/" + itemId : "/marketplace"} className="flex min-w-0 items-center gap-3 rounded-xl border border-slate-100 p-2 transition hover:border-emerald-200 hover:shadow-sm">
+                      <img src={itemImage} alt={item.name || "Similar product"} className="h-20 w-20 shrink-0 rounded-lg object-cover" onError={(e) => { (e.currentTarget as HTMLImageElement).src = "/images/placeholder-product.jpg"; }} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-bold text-slate-900">{item.name || "Fresh produce"}</span>
+                        <span className="mt-1 block text-sm font-bold text-emerald-700">{item.price != null ? formatPrice(item.price) + " / " + (item.unit || unit) : "View product"}</span>
+                        {item.rating != null && <span className="mt-1 block text-xs text-slate-500">★ {Number(item.rating).toFixed(1)}</span>}
+                      </span>
+                      <ShoppingCart className="h-5 w-5 shrink-0 text-emerald-700" />
+                    </Link>
+                  );
+                })}
+                {similarProducts.length === 0 && (
+                  <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-5 text-center">
+                    <Store className="mx-auto h-6 w-6 text-emerald-600" />
+                    <p className="mt-2 text-sm font-semibold text-slate-700">No similar products available yet</p>
+                    <p className="mt-1 text-xs text-slate-500">Explore the marketplace to discover more fresh produce.</p>
+                  </div>
+                )}
+                <Link href="/marketplace" className="inline-flex w-full items-center justify-center rounded-xl border border-emerald-200 px-4 py-2.5 text-sm font-semibold text-emerald-800 hover:bg-emerald-50">View All Products →</Link>
+              </div>
+            </CardContent>
+          </Card>
+        </aside>
       </div>
     </div>
   );

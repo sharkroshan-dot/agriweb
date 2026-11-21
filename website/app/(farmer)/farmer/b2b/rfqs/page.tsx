@@ -16,6 +16,7 @@ import {
   RefreshCw,
   Bot,
   AlertCircle,
+  Upload,
 } from "lucide-react";
 import { api } from "../../../../lib/api/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../../components/ui/card";
@@ -215,6 +216,126 @@ function QuoteForm({ rfq, onDone }: { rfq: any; onDone: () => void }) {
   );
 }
 
+function FarmerGoodsReceiptDisputeCard({ order }: { order: any }) {
+  const queryClient = useQueryClient();
+  const receipt = order.goodsReceipt || {};
+  const canRespond = String(receipt.status || "").toLowerCase() === "dispute_open";
+  const [proposal, setProposal] = useState("replacement");
+  const [notes, setNotes] = useState("");
+  const [evidenceUrls, setEvidenceUrls] = useState("");
+  const [uploadingEvidence, setUploadingEvidence] = useState(false);
+  const uploadEvidenceFiles = async (files: File[]) => {
+    const currentUrls = evidenceUrls.split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
+    if (currentUrls.length + files.length > 5) {
+      toast.error("You can attach up to five supporting photos.");
+      return;
+    }
+    setUploadingEvidence(true);
+    try {
+      const apiBaseUrl = (process.env.NEXT_PUBLIC_API_URL || process.env.API_URL || "http://localhost:8000/api/v1")
+        .replace(/\/api\/v1\/?$/, "")
+        .replace(/\/$/, "");
+      const uploadedUrls: string[] = [];
+      for (const file of files) {
+        const response: any = await api.upload("/products/upload", file);
+        const relativeUrl = response?.data?.url;
+        if (!relativeUrl) throw new Error("The photo upload did not return a file URL.");
+        uploadedUrls.push(/^https?:\/\//i.test(relativeUrl) ? relativeUrl : apiBaseUrl + (relativeUrl.startsWith("/") ? relativeUrl : "/" + relativeUrl));
+      }
+      setEvidenceUrls((current) => [...current.split(/\r?\n/).map((value) => value.trim()).filter(Boolean), ...uploadedUrls].slice(0, 5).join("\n"));
+      toast.success(uploadedUrls.length === 1 ? "Supporting photo uploaded." : uploadedUrls.length + " supporting photos uploaded.");
+    } catch (error: any) {
+      toast.error(error?.message || "Could not upload supporting evidence.");
+    } finally {
+      setUploadingEvidence(false);
+    }
+  };
+
+  const responseMutation = useMutation({
+    mutationFn: (payload: any) => api.post(`/b2b/orders/${encodeURIComponent(order.id || order._id)}/goods-receipt/respond`, payload),
+    onSuccess: async (response: any) => {
+      toast.success(response?.data?.message || "Response sent to the business");
+      setNotes("");
+      setEvidenceUrls("");
+      await queryClient.invalidateQueries({ queryKey: ["b2b", "farmer", "orders"] });
+    },
+    onError: (error: any) => toast.error(error?.message || "Could not send your dispute response"),
+  });
+
+  return (
+    <Card className="border-amber-200">
+      <CardContent className="space-y-3 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <p className="font-semibold text-slate-900">{order.orderNumber} · {order.productName || "B2B produce"}</p>
+            <p className="text-xs text-slate-500">Business {order.businessInfo?.businessName || order.businessName || "Buyer"} · {order.quantityKg || 0} kg ordered</p>
+          </div>
+          <Badge variant="warning">Business reported an issue</Badge>
+        </div>
+        <div className="grid grid-cols-3 gap-2 rounded-lg bg-slate-50 p-3 text-center">
+          <div><p className="text-xs text-slate-500">Received</p><p className="font-bold">{receipt.receivedQuantityKg ?? "—"} kg</p></div>
+          <div><p className="text-xs text-slate-500">Accepted</p><p className="font-bold">{receipt.acceptedQuantityKg ?? "—"} kg</p></div>
+          <div><p className="text-xs text-slate-500">Issues</p><p className="text-xs font-semibold">{(receipt.issueTypes || []).map((value: string) => value.replace(/_/g, " ")).join(", ") || "Review notes"}</p></div>
+        </div>
+        <div className="rounded-lg border border-amber-100 bg-amber-50/60 p-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">Buyer inspection notes</p>
+          <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{receipt.notes || "No additional inspection notes were provided."}</p>
+          {(receipt.evidenceUrls || []).map((url: string) => (
+            <a key={url} href={url} target="_blank" rel="noreferrer" className="mt-1 block text-xs font-semibold text-emerald-700 underline">Open buyer evidence</a>
+          ))}
+        </div>
+        {receipt.farmerResponse ? (
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm">
+            <p className="font-semibold text-emerald-900">Your response: {String(receipt.farmerResponse.proposal || "").replace(/_/g, " ")}</p>
+            <p className="mt-1 whitespace-pre-wrap text-slate-700">{receipt.farmerResponse.notes}</p>
+          </div>
+        ) : null}
+        <div className="space-y-1">
+          <label className="text-sm font-semibold text-slate-800">Your proposed resolution</label>
+          <select disabled={!canRespond} value={proposal} onChange={(event) => setProposal(event.target.value)} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm disabled:bg-slate-100 disabled:text-slate-500">
+            <option value="replacement">Send replacement produce</option>
+            <option value="credit_or_refund">Offer a credit / refund for business agreement</option>
+            <option value="explanation">Provide an explanation or clarification</option>
+            <option value="contest">Disagree with the inspection and provide evidence</option>
+          </select>
+        </div>
+        <div className="space-y-1">
+          <label className="text-sm font-semibold text-slate-800">Response details</label>
+          <textarea disabled={!canRespond} value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} maxLength={3000} placeholder={canRespond ? "Explain what happened and how you propose to resolve the issue…" : "Your response has been sent. Waiting for the business to review it."} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 disabled:bg-slate-100" />
+        </div>
+        <div className="space-y-1">
+          <label className="text-sm font-semibold text-slate-800">Supporting evidence links (optional)</label>
+          <textarea disabled={!canRespond || uploadingEvidence} value={evidenceUrls} onChange={(event) => setEvidenceUrls(event.target.value)} rows={2} placeholder="One HTTP or HTTPS link per line" className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 disabled:bg-slate-100" />
+          <div className="flex flex-wrap items-center gap-3">
+            <label className={"inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 " + (!canRespond || uploadingEvidence ? "pointer-events-none opacity-60" : "")}>
+              <input type="file" accept="image/*" multiple disabled={!canRespond || uploadingEvidence} className="sr-only" onChange={async (event) => {
+                const files = Array.from(event.target.files || []);
+                event.target.value = "";
+                if (files.length) await uploadEvidenceFiles(files);
+              }} />
+              {uploadingEvidence ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+              {uploadingEvidence ? "Uploading photos…" : "Upload supporting photos"}
+            </label>
+            <p className="text-xs text-slate-500">Up to five photos. Link-based evidence is also supported.</p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="max-w-md text-xs text-slate-500">Your response is sent to the buyer. It does not automatically change the order payment or invoice.</p>
+          <Button size="sm" disabled={!canRespond || !notes.trim() || responseMutation.isPending || uploadingEvidence} onClick={() => responseMutation.mutate({
+            proposal,
+            notes,
+            evidenceUrls: evidenceUrls.split(/\r?\n/).map((value) => value.trim()).filter(Boolean),
+          })}>
+            {responseMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            {responseMutation.isPending ? "Sending…" : canRespond ? "Send response" : "Response sent · awaiting buyer"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+
 export default function FarmerB2bRfqsPage() {
   const [openFor, setOpenFor] = useState<string | null>(null);
   const [scope, setScope] = useState("all");
@@ -259,6 +380,27 @@ export default function FarmerB2bRfqsPage() {
   });
 
   const allRfqs = Array.isArray(rfqData?.rfqs) ? rfqData.rfqs : [];
+
+  const { data: farmerOrdersData } = useQuery({
+    queryKey: ["b2b", "farmer", "orders"],
+    queryFn: async () => {
+      const response: any = await api.get("/b2b/orders");
+      const candidates = [
+        response?.data?.orders,
+        response?.orders,
+        response?.data?.data?.orders,
+      ];
+      const orders = candidates.find((value) => Array.isArray(value));
+      return { orders: Array.isArray(orders) ? orders : [] };
+    },
+    refetchInterval: 15000,
+    refetchOnWindowFocus: true,
+  });
+  const farmerOrders = farmerOrdersData?.orders || [];
+  const openGoodsReceiptDisputes = farmerOrders.filter((order: any) =>
+    String(order.status || "").toLowerCase() === "delivered"
+    && ["dispute_open", "response_received"].includes(String(order.goodsReceipt?.status || "").toLowerCase())
+  );
 
   const scopeCounts: Record<string, number> = {
     all: allRfqs.length,
@@ -334,6 +476,8 @@ export default function FarmerB2bRfqsPage() {
               <p className="text-lg font-semibold">{r.productName}</p>
               {r.qualityGrade ? <Badge variant="outline">{r.qualityGrade}</Badge> : null}
               {r.recurring ? <Badge variant="outline">recurring</Badge> : <Badge variant="outline">one-off</Badge>}
+              <Badge variant="outline">Payment: {r.paymentTerms ? String(r.paymentTerms).replace(/_/g, " ") : "Not selected"}</Badge>
+              {r.replacementSourcingOpen ? <Badge variant="success">Replacement quote requested</Badge> : null}
             </div>
             <p className="mt-1 text-sm text-gray-700">
               {r.recurring
@@ -366,10 +510,6 @@ export default function FarmerB2bRfqsPage() {
                     <p className="font-medium text-slate-800">{r.qualityGrade || "Standard"}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-slate-500">Payment terms</p>
-                    <p className="font-medium text-slate-800">{String(r.paymentTerms || "To be agreed").replace(/_/g, " ").replace(/^./, (c: string) => c.toUpperCase())}</p>
-                  </div>
-                  <div>
                     <p className="text-xs text-slate-500">Delivery time</p>
                     <p className="font-medium text-slate-800">{r.deliveryTimeSlot || "To be agreed"}</p>
                   </div>
@@ -380,9 +520,15 @@ export default function FarmerB2bRfqsPage() {
                     <p className="text-sm text-slate-700">{r.cancellationTerms}</p>
                   </div>
                 ) : null}
-                <p className="mt-3 text-xs leading-5 text-emerald-800">
-                  This is a repeating supply request, not a single order. If the business accepts your quote, the contract still needs your acceptance before scheduled deliveries can be generated.
-                </p>
+                {r.replacementSourcingOpen ? (
+                  <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
+                    This recurring RFQ has already been awarded. The business is requesting a replacement quote for a specific delivery; submitting or updating your quote does not create a normal second contract. The business will compare your quote and current stock before selecting a replacement supplier.
+                  </p>
+                ) : (
+                  <p className="mt-3 text-xs leading-5 text-emerald-800">
+                    This is a repeating supply request, not a single order. If the business accepts your quote, the contract still needs your acceptance before scheduled deliveries can be generated.
+                  </p>
+                )}
               </div>
             ) : null}
             <div className="mt-2 flex flex-wrap gap-4 text-sm text-gray-500">
@@ -470,6 +616,23 @@ export default function FarmerB2bRfqsPage() {
         </div>
         <Input className="max-w-xs" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="🔎 Search RFQs…" />
       </div>
+
+      {openGoodsReceiptDisputes.length > 0 ? (
+        <section className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="text-lg font-semibold text-amber-950">Business goods-receipt disputes</h2>
+              <p className="text-sm text-slate-500">Respond to quantity or quality concerns reported by buyers for your delivered B2B orders.</p>
+            </div>
+            <Badge variant="warning">{openGoodsReceiptDisputes.length} awaiting resolution</Badge>
+          </div>
+          <div className="space-y-3">
+            {openGoodsReceiptDisputes.map((order: any) => (
+              <FarmerGoodsReceiptDisputeCard key={order.id || order._id} order={order} />
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <PillTabs
         value={scope}

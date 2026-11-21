@@ -1,9 +1,9 @@
 "use client";
 import { DeliveryWorkflowNav } from "../../../components/farmer/delivery-workflow-nav";
-import { useSearchParams } from "next/navigation";
 
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   MapPin,
   Navigation,
@@ -43,6 +43,7 @@ interface Stop {
   orderNumber: string;
   customerName: string;
   address: string;
+  landmark?: string;
   city: string;
   lat: number | null;
   lng: number | null;
@@ -51,8 +52,12 @@ interface Stop {
   status: string;
   items: { name: string; quantity: number }[];
   total: number;
-  distance: number;
+  distance: number | null;
+  legDurationMinutes?: number | null;
   deliveryWindow: string;
+  priority?: number;
+  priorityLabel?: string;
+  priorityReason?: string;
 }
 
 interface Summary {
@@ -67,6 +72,8 @@ interface Summary {
   customersCount: number;
   savings: { distance: number; time: number; fuel: number };
   algorithm: string;
+  distanceMethod?: "road_network" | "straight_line_estimate";
+  unlocatedStops?: number;
   profitability?: {
     revenue: number;
     fuelCost: number;
@@ -114,10 +121,12 @@ function SequenceBar({ stops }: { stops: Stop[] }) {
 
 export default function SmartRoutePage() {
   const searchParams = useSearchParams();
-  const workflowOrderIds = searchParams.get("orderIds") || "";
-  const { data: routeData, isLoading, refetch } = useQuery({
-    queryKey: ["smartRoute", workflowOrderIds],
-    queryFn: () => api.get(`/farmers/me/smart-route${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`),
+  const orderIds = searchParams.get("orderIds") || "";
+  const routeQuery = orderIds ? `?orderIds=${encodeURIComponent(orderIds)}` : "";
+  const { data: routeData, isLoading, isError, error, refetch, isFetching } = useQuery({
+    queryKey: ["smartRoute", orderIds],
+    queryFn: () => api.get(`/farmers/me/smart-route${routeQuery}`),
+    retry: 1,
   });
 
   const { data: aiInsightsData } = useQuery({
@@ -126,8 +135,8 @@ export default function SmartRoutePage() {
     retry: 1,
   });
 
-  const summary = (routeData as any)?.summary as Summary | undefined;
   const stops = ((routeData as any)?.stops ?? []) as Stop[];
+  const summary = (routeData as any)?.summary as Summary | undefined;
   const origin = (routeData as any)?.origin as Origin | undefined;
   const aiInsights = (aiInsightsData as any)?.data ?? {};
   const riskyByOrder: Record<string, any> = {};
@@ -145,6 +154,40 @@ export default function SmartRoutePage() {
     : locatedStops.length > 0
       ? { lat: locatedStops[0].lat as number, lng: locatedStops[0].lng as number }
       : undefined;
+  const routePath = [
+    ...(hasOriginCoords ? [{ lat: origin!.lat as number, lng: origin!.lng as number }] : []),
+    ...locatedStops.map((stop) => ({ lat: stop.lat as number, lng: stop.lng as number })),
+    ...(hasOriginCoords && locatedStops.length ? [{ lat: origin!.lat as number, lng: origin!.lng as number }] : []),
+  ];
+  // Combine stops at the same physical location into one map pin.
+  // A 50 m radius handles small geocoding/GPS differences without merging
+  // genuinely different nearby delivery addresses.
+  const groupedLocatedStops: { lat: number; lng: number; stops: { stop: Stop; sequence: number }[] }[] = [];
+  const distanceBetweenMeters = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
+    const toRad = (value: number) => (value * Math.PI) / 180;
+    const dLat = toRad(b.lat - a.lat);
+    const dLng = toRad(b.lng - a.lng);
+    const h =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+    return 6371000 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+  };
+  locatedStops.forEach((stop) => {
+    const sequence = stops.findIndex((item) => item.orderId === stop.orderId) + 1;
+    const existingGroup = groupedLocatedStops.find(
+      (group) => distanceBetweenMeters(group, { lat: stop.lat as number, lng: stop.lng as number }) <= 50
+    );
+    if (existingGroup) {
+      existingGroup.stops.push({ stop, sequence });
+    } else {
+      groupedLocatedStops.push({
+        lat: stop.lat as number,
+        lng: stop.lng as number,
+        stops: [{ stop, sequence }],
+      });
+    }
+  });
+
   const mapMarkers = [
     ...(hasOriginCoords
       ? [{
@@ -157,15 +200,27 @@ export default function SmartRoutePage() {
           info: origin?.address || "Route start & end point",
         }]
       : []),
-    ...locatedStops.map((s, i) => ({
-      id: s.orderId,
-      lat: s.lat as number,
-      lng: s.lng as number,
-      title: `${i + 1}. ${s.customerName}`,
-      color: "#10B981",
-      label: String(i + 1),
-      info: `${s.address}${s.city ? `, ${s.city}` : ""} · +${s.distance} km · ${formatPrice(s.total)}`,
-    })),
+    ...groupedLocatedStops.map((group) => {
+      const orderNumbers = group.stops.map(({ sequence }) => sequence);
+      const firstStop = group.stops[0].stop;
+      const orderLabel = orderNumbers.join(", ");
+      const details = group.stops.map(({ stop, sequence }) =>
+        `#${sequence} ${stop.customerName} — ${stop.address}${stop.city ? `, ${stop.city}` : ""} — ${formatPrice(stop.total)}`
+      );
+      const landmark = firstStop.landmark || firstStop.address || firstStop.city || "Delivery location";
+      return {
+        id: group.stops.map(({ stop }) => stop.orderId).join(","),
+        lat: group.lat,
+        lng: group.lng,
+        title: group.stops.length > 1
+          ? `${group.stops.length} customer orders · ${landmark}`
+          : `${orderNumbers[0]}. ${firstStop.customerName}`,
+        color: "#10B981",
+        label: orderLabel,
+        displayLabel: `${landmark} · Orders: ${orderLabel}`,
+        info: details.join("\\n"),
+      };
+    }),
   ];
 
   const handleOptimize = () => {
@@ -187,9 +242,9 @@ export default function SmartRoutePage() {
   if (isLoading) {
     return (
       <div className="space-y-6">
-      <DeliveryWorkflowNav current="smart-route" />
+      <DeliveryWorkflowNav current="smart-route" hideCalendar />
         <div className="h-8 w-64 animate-pulse rounded bg-gray-200" />
-        <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
           {[1, 2, 3, 4, 5, 6].map((i) => (
             <div key={i} className="h-24 animate-pulse rounded-lg bg-gray-200" />
           ))}
@@ -200,29 +255,36 @@ export default function SmartRoutePage() {
     );
   }
 
+  if (isError) {
+    return (
+      <div className="space-y-4">
+        <DeliveryWorkflowNav current="smart-route" hideCalendar />
+        <Card className="border-red-200">
+          <CardHeader><CardTitle className="text-red-700">Could not calculate your Smart Route</CardTitle><CardDescription>{(error as Error)?.message || "The route service or order data could not be loaded."}</CardDescription></CardHeader>
+          <CardContent><Button onClick={() => refetch()} disabled={isFetching}><RotateCw className="mr-2 h-4 w-4" /> Try again</Button></CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   if (!stops.length) {
     return (
-      <div className="space-y-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="space-y-4">
+        <DeliveryWorkflowNav current="smart-route" hideCalendar />
+        <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-3xl font-bold">Smart Route</h1>
-            <p className="text-gray-500">{dateStr}</p>
+            <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700"><Sparkles className="h-3.5 w-3.5" /> DELIVERY OPTIMIZATION</div>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900">Smart Route Planner</h1>
+            <p className="mt-1 text-sm text-slate-500">{dateStr} · Plan and review your farmer self-delivery route.</p>
           </div>
         </div>
         <div className="flex flex-col items-center justify-center rounded-lg border border-dashed p-12 text-center">
           <Sparkles className="h-12 w-12 text-gray-300" />
           <h3 className="mt-4 text-lg font-semibold text-gray-900">No route to optimize</h3>
           <p className="mt-2 text-sm text-gray-500">
-            Orders appear here once they are ready for delivery or pickup.
+            Confirm farmer self-delivery for packed orders in Order Map. Eligible orders appear here automatically. Partner-assigned, pickup and completed orders are not included.
           </p>
-          <div className="mt-4 flex gap-3">
-            <Button asChild>
-              <Link href={`/farmer/delivery-calendar${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`}>View Delivery Calendar</Link>
-            </Button>
-            <Button asChild variant="outline">
-              <Link href={`/farmer/route${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`}>Route Planning</Link>
-            </Button>
-          </div>
+          <div className="mt-4 flex flex-wrap gap-3"><Button asChild variant="outline"><Link href="/farmer/order-map">Back to Order Map</Link></Button><Button asChild><Link href="/farmer/route">Open Delivery Route</Link></Button></div>
         </div>
       </div>
     );
@@ -233,69 +295,64 @@ export default function SmartRoutePage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Smart Route</h1>
-          <p className="text-gray-500">{dateStr}</p>
+      <DeliveryWorkflowNav current="smart-route" hideCalendar />
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="min-w-0">
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50"><Sparkles className="mr-1.5 h-3.5 w-3.5" /> Smart delivery planning</Badge>
+              <Badge variant="outline" className="text-slate-500">{dateStr}</Badge>
+            </div>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Smart Route Planner</h1>
+            <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500">Review the optimized stop sequence, travel estimate and delivery earnings before starting your route.</p>
+          </div>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <Button variant="outline" onClick={handleOptimize} disabled={isLoading}><RotateCw className="mr-2 h-4 w-4" /> Re-optimize</Button>
+            <Button asChild disabled={stops.length === 0} className="bg-emerald-600 hover:bg-emerald-700"><Link href={`/farmer/route?orderIds=${encodeURIComponent(stops.map((stop) => stop.orderId).join(","))}`}><Play className="mr-2 h-4 w-4" /> Start delivery</Link></Button>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={handleOptimize}>
-            <RotateCw className="mr-2 h-4 w-4" />
-            Optimize Route
-          </Button>
-          <Button asChild>
-            <Link href={`/farmer/route${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`}>
-              <Play className="mr-2 h-4 w-4" />
-              Launch Route
-            </Link>
-          </Button>
-        </div>
+      </section>
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
+        <Card className="border-slate-200 shadow-sm">
+          <CardContent className="flex items-center gap-3 p-4">
+            <div className="rounded-xl bg-blue-50 p-3"><Route className="h-5 w-5 text-blue-600" /></div><div><p className="text-xl font-bold text-slate-900">{summary?.totalDistance ?? 0} km</p><p className="text-xs text-slate-500">Total round-trip distance</p></div>
+          </CardContent>
+        </Card>
+        <Card className="border-slate-200 shadow-sm">
+          <CardContent className="flex items-center gap-3 p-4">
+            <div className="rounded-xl bg-amber-50 p-3"><Clock className="h-5 w-5 text-amber-600" /></div><div><p className="text-xl font-bold text-slate-900">{Math.round(summary?.estimatedTime ?? 0)} min</p><p className="text-xs text-slate-500">Driving + stop time</p></div>
+          </CardContent>
+        </Card>
+        <Card className="border-slate-200 shadow-sm">
+          <CardContent className="flex items-center gap-3 p-4">
+            <div className="rounded-xl bg-orange-50 p-3"><Wallet className="h-5 w-5 text-orange-600" /></div><div><p className="text-xl font-bold text-slate-900">{formatPrice(summary?.fuelCost)}</p><p className="text-xs text-slate-500">Estimated fuel cost</p></div>
+          </CardContent>
+        </Card>
+        <Card className="border-slate-200 shadow-sm">
+          <CardContent className="flex items-center gap-3 p-4">
+            <div className="rounded-xl bg-emerald-50 p-3"><DollarSign className="h-5 w-5 text-emerald-600" /></div><div><p className="text-xl font-bold text-slate-900">{formatPrice(summary?.expectedIncome)}</p><p className="text-xs text-slate-500">Expected income</p></div>
+          </CardContent>
+        </Card>
+        <Card className="border-slate-200 shadow-sm">
+          <CardContent className="flex items-center gap-3 p-4">
+            <div className="rounded-xl bg-green-50 p-3"><TrendingUp className="h-5 w-5 text-green-600" /></div><div><p className="text-xl font-bold text-slate-900">{formatPrice(summary?.netIncome)}</p><p className="text-xs text-slate-500">Net profit</p></div>
+          </CardContent>
+        </Card>
+        <Card className="border-slate-200 shadow-sm">
+          <CardContent className="flex items-center gap-3 p-4">
+            <div className="rounded-xl bg-indigo-50 p-3"><Users className="h-5 w-5 text-indigo-600" /></div><div><p className="text-xl font-bold text-slate-900">{summary?.customersCount ?? 0}</p><p className="text-xs text-slate-500">Customers</p></div>
+          </CardContent>
+        </Card>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
-        <Card>
-          <CardContent className="p-4 text-center">
-            <Route className="mx-auto h-5 w-5 text-blue-600" />
-            <p className="mt-2 text-2xl font-bold">{summary?.totalDistance ?? 0} km</p>
-            <p className="text-xs text-gray-500">Optimized Distance</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4 text-center">
-            <Clock className="mx-auto h-5 w-5 text-amber-600" />
-            <p className="mt-2 text-2xl font-bold">{Math.round(summary?.estimatedTime ?? 0)} min</p>
-            <p className="text-xs text-gray-500">Est. Time</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4 text-center">
-            <Wallet className="mx-auto h-5 w-5 text-orange-600" />
-            <p className="mt-2 text-2xl font-bold">{formatPrice(summary?.fuelCost)}</p>
-            <p className="text-xs text-gray-500">Fuel Cost</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4 text-center">
-            <DollarSign className="mx-auto h-5 w-5 text-emerald-600" />
-            <p className="mt-2 text-2xl font-bold">{formatPrice(summary?.expectedIncome)}</p>
-            <p className="text-xs text-gray-500">Expected Income</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4 text-center">
-            <TrendingUp className="mx-auto h-5 w-5 text-green-600" />
-            <p className="mt-2 text-2xl font-bold">{formatPrice(summary?.netIncome)}</p>
-            <p className="text-xs text-gray-500">Net Profit</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4 text-center">
-            <Users className="mx-auto h-5 w-5 text-indigo-600" />
-            <p className="mt-2 text-2xl font-bold">{summary?.customersCount}</p>
-            <p className="text-xs text-gray-500">Customers</p>
-          </CardContent>
-        </Card>
-      </div>
+      {summary && (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <Badge variant="outline">{summary.distanceMethod === "road_network" ? "Road-network distances" : "Straight-line estimate"}</Badge>
+          <span className="text-slate-500">{summary.algorithm}</span>
+          {(summary.unlocatedStops ?? unlocatedCount) > 0 && <Badge variant="warning">{summary.unlocatedStops ?? unlocatedCount} stop(s) need location details</Badge>}
+        </div>
+      )}
 
       {savings && (
         <Card
@@ -411,10 +468,10 @@ export default function SmartRoutePage() {
 
       {mapMarkers.length > 0 && (
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
+          <CardHeader className="border-b bg-white py-4">
+            <CardTitle className="flex items-center gap-2 text-base">
               <Navigation className="h-5 w-5 text-emerald-600" />
-              Route Map
+              Route overview
             </CardTitle>
             <CardDescription>
               Optimized driving order from {origin?.name ?? "your farm"} — follow the blue line.
@@ -427,6 +484,7 @@ export default function SmartRoutePage() {
                 zoom={12}
                 height="420px"
                 markers={mapMarkers}
+                route={routePath}
                 className="rounded-xl border"
               />
             ) : (
@@ -450,6 +508,7 @@ export default function SmartRoutePage() {
         </Card>
       )}
 
+      {stops.length > 0 && (
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -479,8 +538,9 @@ export default function SmartRoutePage() {
           </div>
         </CardContent>
       </Card>
+      )}
 
-      <Card>
+      {stops.length > 0 && <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Navigation className="h-5 w-5 text-emerald-600" />
@@ -529,7 +589,7 @@ export default function SmartRoutePage() {
                         <Badge variant="warning" className="text-xs">Medium risk</Badge>
                       )}
                       <Badge variant="outline" className="text-xs">
-                        +{stop.distance} km
+                        {stop.distance == null ? "Distance unavailable" : `+${stop.distance} km`}
                       </Badge>
                     </div>
                   </div>
@@ -550,6 +610,8 @@ export default function SmartRoutePage() {
                       <Clock className="h-3 w-3" />
                       {stop.deliveryWindow}
                     </span>
+                    {stop.legDurationMinutes != null && <span className="text-slate-500">{stop.legDurationMinutes} min from previous stop</span>}
+                    {stop.priorityLabel && stop.priorityLabel !== "normal" && <Badge variant="outline">{stop.priorityLabel} priority</Badge>}
                     <span className="font-medium text-gray-700">{formatPrice(stop.total)}</span>
                   </div>
                 </div>
@@ -567,16 +629,16 @@ export default function SmartRoutePage() {
             </div>
           </div>
 
-          <div className="mt-6 flex justify-end">
+          <div className="mt-6 flex flex-col-reverse gap-2 border-t pt-4 sm:flex-row sm:justify-end">
             <Button asChild>
-              <Link href={`/farmer/route${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`}>
+              <Link href={`/farmer/route?orderIds=${encodeURIComponent(stops.map((stop) => stop.orderId).join(","))}`}>
                 <Play className="mr-2 h-4 w-4" />
-                Go to Route Planning to start delivery
+                Start delivery
               </Link>
             </Button>
           </div>
         </CardContent>
-      </Card>
+      </Card>}
     </div>
   );
 }

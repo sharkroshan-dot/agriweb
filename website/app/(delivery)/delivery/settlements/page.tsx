@@ -98,18 +98,11 @@ export default function DeliverySettlementPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-sm font-medium text-primary">Payments</p>
-          <h1 className="text-3xl font-semibold tracking-tight">Cash Settlement</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Track the COD cash you collected, transfer it to the agriConnect account, and submit the UTR for verification.
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isLoading}>
-          <RefreshCw className="mr-2 h-4 w-4" /> Refresh
-        </Button>
-      </div>
+      <header className="relative isolate flex min-h-[112px] items-center overflow-hidden rounded-2xl border border-emerald-200 bg-gradient-to-r from-[#effbe9] via-[#e9f8df] to-[#d5efc2] px-5 py-4 shadow-sm sm:px-7">
+        <div className="pointer-events-none absolute inset-y-0 right-0 w-[48%] bg-gradient-to-l from-emerald-300/25 to-transparent"/>
+        <div className="relative z-10 flex items-center gap-4"><div className="rounded-xl bg-emerald-600 p-3 text-white shadow"><Banknote className="h-8 w-8"/></div><div className="h-12 w-px bg-emerald-700/50"/><div><p className="text-[11px] font-bold uppercase tracking-widest text-emerald-800">Cash on delivery</p><h1 className="text-2xl font-bold tracking-tight text-slate-900">COD Collection</h1><p className="text-xs text-slate-600 sm:text-sm">Track customer cash collections, deposits and reconciliation.</p></div></div>
+        <div className="relative z-10 ml-auto hidden sm:block"><Button variant="outline" size="sm" onClick={() => refetch()} disabled={isLoading}><RefreshCw className="mr-2 h-4 w-4"/>Refresh</Button></div>
+      </header>
 
       {d.codBlocked && (
         <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
@@ -137,6 +130,21 @@ export default function DeliverySettlementPage() {
 
       {tab === "overview" && (
         <div className="space-y-6">
+          <div className="grid gap-4 xl:grid-cols-[1.1fr_1fr_0.8fr]">
+            <Card>
+              <CardHeader className="border-b pb-3"><CardTitle className="text-base">COD Status Overview</CardTitle><CardDescription>How collected cash is currently reconciled.</CardDescription></CardHeader>
+              <CardContent className="flex flex-col items-center gap-4 p-5 sm:flex-row">
+                <div className="relative flex h-36 w-36 shrink-0 items-center justify-center rounded-full" style={{background: `conic-gradient(#16a34a 0 ${(Number(d.alreadyDeposited)||0)/(Number(d.alreadyDeposited||0)+Number(d.pendingSubmission||0)+Number(d.inVerification||0)||1)*100}%, #f59e0b 0 ${((Number(d.alreadyDeposited)||0)+(Number(d.pendingSubmission)||0))/(Number(d.alreadyDeposited||0)+Number(d.pendingSubmission||0)+Number(d.inVerification||0)||1)*100}%, #ef4444 0 100%)`}}>
+                  <div className="flex h-24 w-24 flex-col items-center justify-center rounded-full bg-white text-center"><strong className="text-lg">{inr(Number(d.todayCash)||0)}</strong><span className="text-[10px] text-muted-foreground">COD today</span></div>
+                </div>
+                <div className="w-full space-y-3 text-sm">
+                  {[{label:"Deposited",value:d.alreadyDeposited,color:"bg-green-600"},{label:"Pending deposit",value:d.pendingSubmission,color:"bg-amber-500"},{label:"In verification",value:d.inVerification,color:"bg-red-500"}].map(x=><div key={x.label} className="flex items-center justify-between gap-2"><span className="flex items-center gap-2"><i className={`h-2.5 w-2.5 rounded-full ${x.color}`}/>{x.label}</span><strong>{inr(Number(x.value)||0)}</strong></div>)}
+                </div>
+              </CardContent>
+            </Card>
+            <Card><CardHeader className="border-b pb-3"><CardTitle className="text-base">Collection Summary</CardTitle><CardDescription>Amounts from the COD settlement service.</CardDescription></CardHeader><CardContent className="space-y-4 pt-4"><div className="rounded-xl bg-emerald-50 p-4"><p className="text-xs text-emerald-800">Today&apos;s cash collected</p><p className="text-2xl font-bold text-emerald-800">{inr(Number(d.todayCash)||0)}</p><p className="text-xs text-emerald-700">{Number(d.todayCodOrders)||0} COD orders today</p></div><div className="flex items-center justify-between text-sm"><span className="text-muted-foreground">Online payments today</span><strong>{inr(Number(today.onlineAmount)||0)}</strong></div><div className="flex items-center justify-between text-sm"><span className="text-muted-foreground">Cash awaiting deposit</span><strong className="text-amber-700">{inr(pendingTotal)}</strong></div></CardContent></Card>
+            <Card><CardHeader className="border-b pb-3"><CardTitle className="text-base">Cash Deposit</CardTitle><CardDescription>Submit transfer details for verification.</CardDescription></CardHeader><CardContent className="space-y-3 pt-4"><div className="rounded-xl bg-amber-50 p-4"><p className="text-xs text-amber-800">Pending to deposit</p><p className="text-2xl font-bold text-amber-800">{inr(pendingTotal)}</p></div><Button className="w-full bg-emerald-700 hover:bg-emerald-800" onClick={()=>setSettleOpen(true)} disabled={pending.length===0}>Record cash deposit</Button><Button className="w-full" variant="outline" onClick={()=>setTab("settlements")}>View deposit history</Button></CardContent></Card>
+          </div>
           <div className="grid gap-4 lg:grid-cols-2">
             <Card>
               <CardHeader>

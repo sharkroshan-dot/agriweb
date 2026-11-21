@@ -6,16 +6,23 @@ class CropRecommendationRequest(BaseModel):
     soilType: str = "loamy"
     location: str
     temperature: float = 28.0
-    rainfall: float = 100.0
+    rainfall: Optional[float] = None
     previousCrop: Optional[str] = None
     season: str = "kharif"
     areaAcres: float = 1.0
+    humidity: Optional[float] = None
+    weatherForecast: List[dict] = Field(default_factory=list)
+    waterAvailability: str = "reliable"
+    irrigationType: Optional[str] = None
 
 class CropRecommendationResponse(BaseModel):
     recommendations: List[dict]
     topCrop: str
     soilHealth: str
     seasonInfo: str
+    weatherSummary: Optional[dict] = None
+    waterAvailability: Optional[str] = None
+    areaAcres: Optional[float] = None
     timestamp: datetime
 
 class ChatbotRequest(BaseModel):

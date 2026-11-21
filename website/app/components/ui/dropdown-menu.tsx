@@ -16,6 +16,34 @@ export function DropdownMenu({ children }: DropdownMenuProps) {
   const trigger = childArray.find((child) => React.isValidElement(child) && child.type === DropdownMenuTrigger);
   const content = childArray.find((child) => React.isValidElement(child) && child.type === DropdownMenuContent);
 
+  React.useEffect(() => {
+    if (!open) return;
+
+    // Close the menu whenever the user clicks or taps outside the trigger/menu.
+    // The trigger and popup share this wrapper, so clicks within either remain open.
+    const handleOutsidePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && !triggerRef.current?.contains(target)) {
+        setOpen(false);
+      }
+    };
+
+    // Match native dropdown behavior for keyboard users.
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handleOutsidePointerDown, true);
+    document.addEventListener("keydown", handleEscape);
+
+    return () => {
+      document.removeEventListener("pointerdown", handleOutsidePointerDown, true);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [open]);
+
   if (!trigger || !content) return null;
 
   return (

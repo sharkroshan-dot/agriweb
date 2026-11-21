@@ -37,23 +37,33 @@ function InvoiceModal({ invoice, onClose }: { invoice: any; onClose: () => void 
           <div className="p-5">
             <div className="flex items-center justify-between border-b pb-3">
               <div>
-                <p className="text-lg font-bold">B2B INVOICE</p>
+                <p className="text-lg font-bold">B2B PROCUREMENT INVOICE</p>
                 <p className="text-xs text-gray-500">{invoice.invoiceNumber} · Order {invoice.orderNumber}</p>
+                {invoice.recurring && invoice.scheduledDeliveryDate ? (
+                  <p className="text-xs text-gray-500">Contract {invoice.contractNumber || "—"} · Delivery {String(invoice.scheduledDeliveryDate).slice(0, 10)}</p>
+                ) : null}
               </div>
               <FileText className="h-8 w-8 text-emerald-600" />
             </div>
 
             <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
               <div>
+                <p className="text-xs font-medium text-gray-400">Buyer</p>
+                <p className="font-medium">{invoice.buyer?.name || invoice.buyerName || "—"}</p>
+                <p className="text-xs text-gray-500">{invoice.buyer?.city || invoice.buyerLocation || "—"}</p>
+                {invoice.buyer?.gstin ? <p className="text-xs text-gray-500">GSTIN: {invoice.buyer.gstin}</p> : null}
+              </div>
+              <div>
                 <p className="text-xs font-medium text-gray-400">Supplier</p>
-                <p className="font-medium">{invoice.farmName || "—"}</p>
+                <p className="font-medium">{invoice.seller?.name || invoice.farmName || "—"}</p>
+                <p className="text-xs text-gray-500">{invoice.seller?.city || invoice.farmerLocation || "—"}</p>
+                {invoice.seller?.gstin ? <p className="text-xs text-gray-500">GSTIN: {invoice.seller.gstin}</p> : null}
               </div>
-              <div className="text-right">
-                <p className="text-xs font-medium text-gray-400">Status</p>
-                <Badge variant={invoice.paymentStatus === "paid" ? "success" : "warning"} className="capitalize">
-                  {invoice.paymentStatus}
-                </Badge>
-              </div>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-gray-50 p-3 text-xs text-gray-600">
+              <span>Payment status: <strong className="capitalize">{invoice.paymentStatus || "pending"}</strong></span>
+              <span>Method: <strong className="capitalize">{invoice.paymentMode || "—"}</strong></span>
+              <span>Terms: <strong className="capitalize">{String(invoice.paymentTerms || "—").replace(/_/g, " ")}</strong></span>
             </div>
 
             <table className="mt-4 w-full text-sm">
@@ -76,16 +86,19 @@ function InvoiceModal({ invoice, onClose }: { invoice: any; onClose: () => void 
             </table>
 
             <div className="mt-3 space-y-1 text-sm">
-              <div className="flex justify-between"><span className="text-gray-500">Subtotal</span><span>₹{invoice.subtotal}</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">Delivery</span><span>₹{invoice.deliveryCharge}</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">Taxes</span><span>₹0</span></div>
-              <div className="flex justify-between border-t pt-2 text-base font-bold"><span>Total</span><span>₹{invoice.total}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Subtotal</span><span>{formatPrice(invoice.subtotal)}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Delivery</span><span>{formatPrice(invoice.deliveryCharge)}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Other charges</span><span>{formatPrice(invoice.otherCharges || 0)}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Taxes ({Number(invoice.taxRate || 0)}%)</span><span>{formatPrice(invoice.taxes || 0)}</span></div>
+              <div className="flex justify-between border-t pt-2 text-base font-bold"><span>Invoice total</span><span>{formatPrice(invoice.total)}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Amount paid</span><span>{formatPrice(invoice.paidAmount || 0)}</span></div>
+              <div className="flex justify-between font-semibold text-amber-800"><span>Balance due</span><span>{formatPrice(invoice.amountDue || 0)}</span></div>
             </div>
 
             <div className="mt-4 flex items-center justify-between gap-2 text-xs text-gray-500">
-              <span className="capitalize">Payment: {invoice.paymentMode} · {invoice.paymentStatus}</span>
+              <span className="capitalize">Invoice issued {invoice.invoiceIssuedAtEstimated ? "(estimated date)" : ""}</span>
               <div className="flex items-center gap-2">
-                <span>Issued {invoice.issuedAt ? new Date(invoice.issuedAt).toLocaleString() : "—"}</span>
+                <span>Issued {invoice.issuedAt ? new Date(invoice.issuedAt).toLocaleString("en-IN") : "—"}</span>
                 <Button variant="outline" size="sm" onClick={() => downloadInvoice(invoice)}>
                   <Download className="mr-1 h-3.5 w-3.5" /> Download
                 </Button>
@@ -128,7 +141,7 @@ export default function InvoicesPage() {
           <CardContent className="py-14 text-center">
             <Receipt className="mx-auto h-10 w-10 text-gray-300" />
             <p className="mt-3 text-sm text-gray-500">No invoices yet.</p>
-            <p className="text-sm text-gray-400">Completed B2B orders generate invoices automatically.</p>
+            <p className="text-sm text-gray-400">Final invoices appear after the business confirms receipt and completes a B2B order. Each recurring delivery occurrence has its own invoice.</p>
           </CardContent>
         </Card>
       ) : (
@@ -148,9 +161,11 @@ export default function InvoicesPage() {
                     {inv.productName} · {inv.quantityKg} kg · {inv.farmName || "Farm"}
                   </p>
                   <p className="text-xs text-gray-400">
-                    {inv.issuedAt ? `issued ${new Date(inv.issuedAt).toLocaleDateString()}` : ""}
+                    {inv.issuedAt ? `issued ${new Date(inv.issuedAt).toLocaleDateString("en-IN")}` : ""}
                     {inv.paymentMode ? ` · ${inv.paymentMode}` : ""}
+                    {inv.recurring && inv.scheduledDeliveryDate ? ` · Delivery ${String(inv.scheduledDeliveryDate).slice(0, 10)}` : ""}
                   </p>
+                  <p className="mt-1 text-xs text-slate-500">Paid {formatPrice(inv.paidAmount || 0)} · Due {formatPrice(inv.amountDue || 0)}</p>
                 </div>
                 <div className="flex items-center gap-3">
                   <p className="text-lg font-bold text-emerald-600">{formatPrice(inv.total)}</p>

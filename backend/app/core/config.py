@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     
     # JWT
     JWT_SECRET: str = "your-secret-key-here-change-in-production"
+    TOTP_ENCRYPTION_KEY: Optional[str] = None
     ENABLE_AI_STUBS: bool = False
     COOKIE_SECURE: bool = False
     JWT_ALGORITHM: str = "HS256"

@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../..
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Badge } from "../../components/ui/badge";
-import { Warehouse, PackageCheck, Truck, Plus, RefreshCw, Copy, CheckCircle2, ArrowRight, Clock3, MapPin, ClipboardCheck, CircleCheck } from "lucide-react";
+import { Warehouse, PackageCheck, Truck, Plus, RefreshCw, Copy, CheckCircle2, ArrowRight, Clock3, MapPin, ClipboardCheck } from "lucide-react";
 import toast from "react-hot-toast";
 
 const unwrap = (value: any) => value?.data?.data ?? value?.data ?? value ?? {};
@@ -36,7 +36,8 @@ export default function LocalHubManagementPage() {
   const isIncomingView = searchParams.get("view") === "incoming";
   const isHubManager = (session?.user as any)?.facilityType === "local_hub";
   const qc = useQueryClient();
-  const [form, setForm] = useState({ name: "", district: "", state: "Tamil Nadu", address: "", capacity: "5000", managerName: "", username: "", email: "" });
+  const [form, setForm] = useState({ name: "", district: "", state: "Tamil Nadu", address: "", capacity: "5000", managerName: "", username: "", email: "", serviceAreas: "", pickupRadiusKm: "15" });
+  const [coverageDrafts, setCoverageDrafts] = useState<Record<string, { serviceAreas: string; pickupRadiusKm: string }>>({});
   const [createdCredentials, setCreatedCredentials] = useState<any>(null);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -48,14 +49,19 @@ export default function LocalHubManagementPage() {
     retry: 1,
   });
   const createHub = useMutation({
-    mutationFn: async () => unwrap(await api.post("/warehouse/me/local-hubs", { ...form, capacity: Number(form.capacity) })),
+    mutationFn: async () => unwrap(await api.post("/warehouse/me/local-hubs", { ...form, capacity: Number(form.capacity), serviceAreas: form.serviceAreas.split(/[,;]+|\r?\n/).map((value) => value.trim()).filter(Boolean), pickupRadiusKm: Number(form.pickupRadiusKm) })),
     onSuccess: (result) => {
       setCreatedCredentials(result);
-      setForm({ name: "", district: "", state: "Tamil Nadu", address: "", capacity: "5000", managerName: "", username: "", email: "" });
+      setForm({ name: "", district: "", state: "Tamil Nadu", address: "", capacity: "5000", managerName: "", username: "", email: "", serviceAreas: "", pickupRadiusKm: "15" });
       qc.invalidateQueries({ queryKey: ["warehouse-local-hubs"] });
       toast.success(result?.data?.emailSent ? "Local hub created; login credentials emailed to the manager" : "Local hub created, but credential email failed. Copy the temporary password below.");
     },
     onError: (error: any) => toast.error(error?.response?.data?.detail || error?.message || "Could not create local hub"),
+  });
+  const updateCoverage = useMutation({
+    mutationFn: ({ id, value }: { id: string; value: { serviceAreas: string[]; pickupRadiusKm: number } }) => api.patch(`/warehouse/me/local-hubs/${id}/coverage`, value),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["warehouse-local-hubs"] }); qc.invalidateQueries({ queryKey: ["warehousePickupAreaDirectory"] }); toast.success("Local Hub pickup coverage saved"); },
+    onError: (error: any) => toast.error(error?.response?.data?.detail || error?.message || "Could not update Local Hub coverage"),
   });
   const resendLogin = useMutation({
     mutationFn: (id: string) => api.post(`/warehouse/me/local-hubs/${id}/resend-login`, {}),
@@ -121,7 +127,7 @@ export default function LocalHubManagementPage() {
   const credentialData = createdCredentials?.data || createdCredentials;
   const canCreate = Boolean(form.name.trim() && form.district.trim() && form.state.trim() && form.address.trim() && Number(form.capacity) > 0 && form.managerName.trim() && form.username.trim() && form.email.trim());
 
-  return <div className="mx-auto max-w-6xl space-y-6">
+  return <div className="warehouse-hub-management-page mx-auto max-w-6xl space-y-6">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div><p className="text-sm font-medium text-emerald-700">Local Hub Operations</p><h1 className="mt-1 text-2xl font-bold tracking-tight">{isHubManager ? (isIncomingView ? "Incoming Orders" : (hub.name || "Local Hub Dashboard")) : "Local Hub Management"}</h1><p className="mt-2 max-w-3xl text-sm text-muted-foreground">{isHubManager ? (isIncomingView ? "Process shipments sent to your hub: confirm physical receipt, then publish eligible orders for final-mile delivery." : "Monitor your hub activity and incoming shipment totals. Open Incoming Orders to process transfers.") : "Create a local hub and provision its manager account. Hub managers use the same warehouse role but are restricted to their assigned hub."}</p></div>
       <Button variant="outline" onClick={() => hubsQuery.refetch()} disabled={hubsQuery.isFetching}><RefreshCw className="mr-2 h-4 w-4" />Refresh</Button>
@@ -166,6 +172,8 @@ export default function LocalHubManagementPage() {
           <div className="space-y-1"><label className="text-sm font-medium">District</label><Input value={form.district} onChange={(e) => setForm({ ...form, district: e.target.value })} required /></div>
           <div className="space-y-1"><label className="text-sm font-medium">State</label><Input value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })} required /></div>
           <div className="space-y-1"><label className="text-sm font-medium">Capacity (project units)</label><Input type="number" min="1" value={form.capacity} onChange={(e) => setForm({ ...form, capacity: e.target.value })} required /></div>
+          <div className="space-y-1 md:col-span-2"><label className="text-sm font-medium">Pickup service areas (villages / localities)</label><Input value={form.serviceAreas} onChange={(e) => setForm({ ...form, serviceAreas: e.target.value })} placeholder="Manachanallur, Samayapuram, Siruganur" /><p className="text-xs text-muted-foreground">Enter comma-separated villages/localities this hub explicitly serves. Explicit coverage takes priority over radius matching.</p></div>
+          <div className="space-y-1"><label className="text-sm font-medium">GPS fallback radius (km)</label><Input type="number" min="1" max="100" value={form.pickupRadiusKm} onChange={(e) => setForm({ ...form, pickupRadiusKm: e.target.value })} required /><p className="text-xs text-muted-foreground">Used only when a farm is not in an explicitly assigned service area and both farm and hub have verified GPS coordinates.</p></div>
           <div className="space-y-1 md:col-span-2"><label className="text-sm font-medium">Full address</label><Input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="Street, area, landmark or pincode" required /><p className="text-xs text-muted-foreground">Map coordinates are generated automatically from this address. Enter an accurate address so distance and routing workflows use the correct location.</p></div>
           <div className="space-y-1"><label className="text-sm font-medium">Manager name</label><Input value={form.managerName} onChange={(e) => setForm({ ...form, managerName: e.target.value })} required /></div>
           <div className="space-y-1"><label className="text-sm font-medium">Username</label><Input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} autoComplete="off" required /></div>
@@ -175,7 +183,15 @@ export default function LocalHubManagementPage() {
       </CardContent></Card>
       {credentialData?.temporaryPassword && <Card className="border-emerald-300"><CardHeader><CardTitle className="flex items-center gap-2"><CheckCircle2 className="h-5 w-5 text-emerald-700" />Hub Created Successfully</CardTitle><CardDescription>{credentialData.emailSent ? `Login credentials were emailed to ${credentialData.manager?.email}.` : "The credential email was not sent. Check SMTP settings and securely share the temporary password below."} Ask the manager to change the password after signing in.</CardDescription></CardHeader><CardContent className="space-y-3"><div className="rounded-lg bg-muted p-3 text-sm"><p><strong>Hub:</strong> {credentialData.hub?.name}</p><p><strong>Username:</strong> {credentialData.manager?.username}</p><p><strong>Sign-in email:</strong> {credentialData.manager?.email}</p><p className="mt-2 break-all"><strong>Temporary password:</strong> {credentialData.temporaryPassword}</p></div><Button variant="outline" onClick={() => { const c = credentialData; navigator.clipboard.writeText(`Hub: ${c.hub?.name}\nUsername: ${c.manager?.username}\nEmail: ${c.manager?.email}\nTemporary password: ${c.temporaryPassword}`); toast.success("Temporary credentials copied"); }}><Copy className="mr-2 h-4 w-4" />Copy credentials</Button></CardContent></Card>}
       <Card><CardHeader><CardTitle>Managed Local Hubs</CardTitle><CardDescription>Hubs created under your warehouse.</CardDescription></CardHeader><CardContent>
-        {hubsQuery.isLoading ? <p className="py-6 text-sm text-muted-foreground">Loading local hubs…</p> : hubs.length === 0 ? <p className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">No local hubs created yet.</p> : <div className="space-y-3">{hubs.map((item: any) => <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4"><div><p className="font-semibold">{item.name}</p><p className="text-sm text-muted-foreground">{item.district}, {item.state}</p><p className="mt-1 text-xs text-muted-foreground">Manager: {item.manager?.name || "—"} · {item.manager?.email || "No email"}</p></div><div className="flex items-center gap-2"><Badge variant="outline">{readableStatus(item.status)}</Badge><Button size="sm" variant="outline" disabled={resendLogin.isPending || !item.manager?.email || !item.manager?.username} onClick={() => { if (window.confirm(`Generate a new temporary password and email it to ${item.manager?.email}? The manager current password will be replaced only if the email is sent successfully.`)) resendLogin.mutate(String(item.id || item._id)); }}><RefreshCw className="mr-2 h-4 w-4" />{resendLogin.isPending ? "Sending…" : "Resend Login Details"}</Button></div></div>)}</div>}
+        {hubsQuery.isLoading ? <p className="py-6 text-sm text-muted-foreground">Loading local hubs…</p> : hubs.length === 0 ? <p className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">No local hubs created yet.</p> : <div className="space-y-3">{hubs.map((item: any) => <div key={item.id} className="rounded-xl border p-4 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-semibold">{item.name}</p><p className="text-sm text-muted-foreground">{item.district}, {item.state}</p><p className="mt-1 text-xs text-muted-foreground">Manager: {item.manager?.name || "—"} · {item.manager?.email || "No email"}</p></div><div className="flex items-center gap-2"><Badge variant="outline">{readableStatus(item.status)}</Badge><Button size="sm" variant="outline" disabled={resendLogin.isPending || !item.manager?.email || !item.manager?.username} onClick={() => { if (window.confirm(`Generate a new temporary password and email it to ${item.manager?.email}? The manager current password will be replaced only if the email is sent successfully.`)) resendLogin.mutate(String(item.id || item._id)); }}><RefreshCw className="mr-2 h-4 w-4" />{resendLogin.isPending ? "Sending…" : "Resend Login Details"}</Button></div></div>
+          {(() => { const id = String(item.id || item._id); const draft = coverageDrafts[id] || { serviceAreas: (item.serviceAreas || []).join(", "), pickupRadiusKm: String(item.pickupRadiusKm || 15) }; return <div className="grid gap-3 rounded-lg bg-muted/30 p-3 md:grid-cols-[minmax(0,1fr)_150px_auto] md:items-end">
+            <div className="space-y-1"><label className="text-xs font-medium">Pickup service areas</label><Input value={draft.serviceAreas} onChange={(e) => setCoverageDrafts((current) => ({ ...current, [id]: { ...draft, serviceAreas: e.target.value } }))} placeholder="Village/locality names, comma-separated" /></div>
+            <div className="space-y-1"><label className="text-xs font-medium">Fallback radius (km)</label><Input type="number" min="1" max="100" value={draft.pickupRadiusKm} onChange={(e) => setCoverageDrafts((current) => ({ ...current, [id]: { ...draft, pickupRadiusKm: e.target.value } }))} /></div>
+            <Button size="sm" disabled={updateCoverage.isPending || !Number(draft.pickupRadiusKm) || Number(draft.pickupRadiusKm) < 1 || Number(draft.pickupRadiusKm) > 100} onClick={() => updateCoverage.mutate({ id, value: { serviceAreas: draft.serviceAreas.split(/[,;]+|\r?\n/).map((value) => value.trim()).filter(Boolean), pickupRadiusKm: Number(draft.pickupRadiusKm) } })}>Save pickup coverage</Button>
+            <p className="text-xs text-muted-foreground md:col-span-3">Explicit locality assignments are preferred. Verified farm GPS coordinates use the radius only when no explicit hub area matches.</p>
+          </div>; })()}
+        </div>)}</div>}
       </CardContent></Card>
     </>}
   </div>;

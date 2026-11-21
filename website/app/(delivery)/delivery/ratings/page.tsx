@@ -3,35 +3,29 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
-import { Star, RefreshCw, MessageSquare, Truck } from "lucide-react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
+import { CheckCircle2, MessageSquare, RefreshCw, Star, Truck, User } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
 import { api } from "../../../lib/api/client";
 
 const Stars = ({ value }: { value: number }) => (
-  <span className="flex items-center gap-0.5">
-    {[1, 2, 3, 4, 5].map((s) => (
-      <Star key={s} className={`h-3.5 w-3.5 ${s <= value ? "fill-yellow-400 text-yellow-400" : "text-slate-300"}`} />
-    ))}
+  <span className="inline-flex items-center gap-0.5" aria-label={`${value} out of 5 stars`}>
+    {[1,2,3,4,5].map((n)=><Star key={n} className={`h-4 w-4 ${n <= Math.round(Number(value)||0) ? "fill-amber-400 text-amber-400" : "text-slate-200"}`}/>)}
   </span>
 );
 
-const CategoryRow = ({ label, value }: { label: string; value: number }) => (
-  <div className="rounded-lg border p-3 text-center">
-    <p className="text-2xl font-bold text-yellow-600">{value || 0}</p>
-    <p className="mt-1 text-xs text-muted-foreground">{label}</p>
-    <div className="mt-2 flex items-center justify-center gap-0.5">
-      <Stars value={Math.round(value || 0)} />
-    </div>
-  </div>
-);
+const RatingBar = ({ star, count, total }: { star: number; count: number; total: number }) => {
+  const percent = total ? Math.round((count / total) * 100) : 0;
+  return <div className="flex items-center gap-3 text-sm"><span className="w-3 font-semibold text-slate-700">{star}</span><Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400"/><div className="h-2.5 flex-1 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-600 transition-all" style={{width:`${percent}%`}}/></div><span className="w-16 text-right text-xs tabular-nums text-slate-600">{percent}% ({count})</span></div>;
+};
+
+const metric = (value: any) => Number(value || 0).toFixed(1);
 
 export default function DeliveryMyRatingsPage() {
   const { data: session } = useSession();
   const accessToken = (session as any)?.accessToken as string | undefined;
-
-  const { data, isLoading, refetch } = useQuery({
+  const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ["deliveryMyRatings"],
     queryFn: () => api.get("/delivery-ratings/partner/me", { params: { limit: 50 } }),
     enabled: Boolean(accessToken),
@@ -41,189 +35,60 @@ export default function DeliveryMyRatingsPage() {
   const result = useMemo(() => data?.data || {}, [data]);
   const ratings: any[] = result.ratings || [];
   const summary: any = result.summary || {};
-  const total = result.pagination?.total ?? summary.count ?? ratings.length;
+  const total = Number(result.pagination?.total ?? summary.count ?? ratings.length);
+  const distribution = summary.distribution || {};
+  const positiveCount = Number(distribution["4"] || 0) + Number(distribution["5"] || 0);
+  const positivePercent = total ? Math.round((positiveCount / total) * 100) : 0;
+  const reviewsThisMonth = ratings.filter((r:any) => {
+    if (!r.createdAt) return false;
+    const d = new Date(r.createdAt); const now = new Date();
+    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+  }).length;
+  const categories = [
+    { label: "On-time delivery", value: summary.onTimeAvg, icon: Truck },
+    { label: "Product handling", value: summary.handlingAvg, icon: Star },
+    { label: "Behaviour & service", value: summary.professionalismAvg, icon: MessageSquare },
+    { label: "Communication", value: summary.communicationAvg, icon: MessageSquare },
+  ].filter((item)=>item.value != null);
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-sm font-medium text-primary">Performance</p>
-          <h1 className="text-3xl font-semibold tracking-tight">My Ratings</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Customer feedback on your deliveries. Personal details are never shared with you.
-          </p>
+    <div className="space-y-5 pb-6">
+      <header className="relative isolate flex min-h-[132px] items-center overflow-hidden rounded-2xl border border-emerald-200/80 bg-gradient-to-r from-[#f2fbe9] via-[#f4fbe9] to-[#dff5c9] px-5 py-5 shadow-sm sm:px-7 lg:min-h-[144px]">
+        <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 w-[48%] overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-r from-[#f2fbe9] via-[#eaf8d8]/70 to-transparent"/>
+          <div className="absolute -bottom-16 right-[-3%] h-36 w-[78%] rounded-[50%] bg-gradient-to-b from-[#c9eaa5] to-[#9ed47b] opacity-75"/>
+          <div className="absolute -bottom-20 right-[8%] h-32 w-[62%] rotate-[-7deg] rounded-[50%] border-t-[14px] border-white/80"/>
+          <div className="absolute bottom-0 right-0 h-20 w-32 rounded-tl-[100%] bg-gradient-to-br from-emerald-300/40 to-green-600/30"/>
+          <div className="absolute bottom-2 right-[5%] rounded-full bg-white/70 p-3 text-emerald-700 shadow-sm"><Truck className="h-12 w-12 sm:h-14 sm:w-14"/></div>
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isLoading}>
-          <RefreshCw className="mr-2 h-4 w-4" /> Refresh
-        </Button>
-      </div>
-
-      {isLoading ? (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          {[1, 2, 3, 4].map((i) => <div key={i} className="h-28 animate-pulse rounded-lg bg-muted" />)}
+        <div className="relative z-10 flex min-w-0 items-center gap-4 sm:gap-6">
+          <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-emerald-600 text-white shadow-md sm:h-[76px] sm:w-[76px]"><Star className="h-9 w-9 fill-white sm:h-11 sm:w-11"/></div>
+          <div className="h-14 w-px shrink-0 bg-emerald-700/60 sm:h-16"/>
+          <div className="min-w-0"><p className="text-[11px] font-bold uppercase tracking-[0.14em] text-emerald-800 sm:text-xs">Delivery performance</p><h1 className="mt-1 text-xl font-bold tracking-tight text-slate-900 sm:text-2xl lg:text-[28px]">My Ratings</h1><p className="mt-1 max-w-3xl text-xs leading-5 text-slate-700 sm:text-sm">View your customer ratings, feedback and delivery performance.</p></div>
         </div>
-      ) : (
-        <>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">Average rating</p>
-                    <p className="text-2xl font-bold text-yellow-600">{summary.overallAvg ?? 0}</p>
-                  </div>
-                  <div className="rounded-full bg-muted p-2 text-yellow-600"><Star className="h-5 w-5 fill-yellow-400 text-yellow-400" /></div>
-                </div>
-                <div className="mt-2"><Stars value={Math.round(summary.overallAvg || 0)} /></div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">Total ratings</p>
-                    <p className="text-2xl font-bold">{total}</p>
-                  </div>
-                  <div className="rounded-full bg-muted p-2 text-blue-600"><MessageSquare className="h-5 w-5" /></div>
-                </div>
-                <p className="mt-2 text-xs text-muted-foreground">
-                  {ratings.filter((r: any) => r.feedback).length} with written feedback
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">On-time percentage</p>
-                    <p className="text-2xl font-bold">{summary.onTimePercentage ?? 0}%</p>
-                  </div>
-                  <div className="rounded-full bg-muted p-2 text-green-600"><Truck className="h-5 w-5" /></div>
-                </div>
-                <p className="mt-2 text-xs text-muted-foreground">Ratings marking on-time as 4+ stars</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">5-star share</p>
-                    <p className="text-2xl font-bold">
-                      {summary.count ? Math.round(((summary.distribution?.["5"] || 0) / summary.count) * 100) : 0}%
-                    </p>
-                  </div>
-                  <div className="rounded-full bg-muted p-2 text-emerald-600"><Star className="h-5 w-5" /></div>
-                </div>
-                <div className="mt-2 flex items-center gap-1">
-                  {[5, 4, 3, 2, 1].map((star) => (
-                    <span key={star} className="text-xs text-muted-foreground">
-                      {star}<span className="text-slate-400">★</span>
-                    </span>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+      </header>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Star className="h-5 w-5 text-yellow-500" /> Performance breakdown
-              </CardTitle>
-              <CardDescription>Average score across every rating category.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {summary.count ? (
-                <>
-                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-                    <CategoryRow label="Overall" value={summary.overallAvg} />
-                    <CategoryRow label="On-time" value={summary.onTimeAvg} />
-                    <CategoryRow label="Professionalism" value={summary.professionalismAvg} />
-                    <CategoryRow label="Product handling" value={summary.handlingAvg} />
-                    <CategoryRow label="Communication" value={summary.communicationAvg} />
-                  </div>
-                  <div>
-                    <h4 className="mb-2 mt-6 text-sm font-semibold">Star distribution</h4>
-                    <div className="space-y-1.5">
-                      {[5, 4, 3, 2, 1].map((star) => {
-                        const count = summary.distribution?.[String(star)] || 0;
-                        const pct = summary.count ? Math.round((count / summary.count) * 100) : 0;
-                        return (
-                          <div key={star} className="flex items-center gap-2 text-sm">
-                            <span className="w-3 font-medium">{star}</span>
-                            <Star className="h-3.5 w-3.5 fill-yellow-400 text-yellow-400" />
-                            <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
-                              <div className="h-full rounded-full bg-yellow-400" style={{ width: `${pct}%` }} />
-                            </div>
-                            <span className="w-8 text-right text-xs text-muted-foreground">{count}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <p className="rounded-lg bg-muted/50 p-6 text-center text-sm text-muted-foreground">
-                  No ratings yet. Once customers rate your deliveries, your breakdown will appear here.
-                </p>
-              )}
-            </CardContent>
-          </Card>
+      <div className="flex justify-end"><Button variant="outline" size="sm" onClick={()=>void refetch()} disabled={isFetching}><RefreshCw className={`mr-2 h-4 w-4 ${isFetching ? "animate-spin" : ""}`}/>Refresh ratings</Button></div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <MessageSquare className="h-5 w-5 text-primary" /> Rating history
-              </CardTitle>
-              <CardDescription>Individual ratings left on your delivered orders.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {ratings.length === 0 ? (
-                <p className="py-8 text-center text-sm text-muted-foreground">No ratings to show yet.</p>
-              ) : (
-                ratings.map((r: any) => (
-                  <div key={r.id} className="rounded-lg border p-4">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <p className="font-medium">{r.orderNumber || `Order ${String(r.orderId).slice(-6)}`}</p>
-                        <Badge variant="secondary">Delivered</Badge>
-                      </div>
-                      {r.createdAt && (
-                        <span className="text-xs text-muted-foreground">
-                          {new Date(r.createdAt).toLocaleDateString()}
-                        </span>
-                      )}
-                    </div>
-                    <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                      <div className="flex items-center justify-between rounded-md bg-muted/40 px-3 py-2 text-sm">
-                        <span className="text-muted-foreground">Overall</span>
-                        <span className="flex items-center gap-2">{r.overallRating} <Stars value={r.overallRating} /></span>
-                      </div>
-                      <div className="flex items-center justify-between rounded-md bg-muted/40 px-3 py-2 text-sm">
-                        <span className="text-muted-foreground">On-time</span><Stars value={r.onTimeRating} />
-                      </div>
-                      <div className="flex items-center justify-between rounded-md bg-muted/40 px-3 py-2 text-sm">
-                        <span className="text-muted-foreground">Professionalism</span><Stars value={r.professionalismRating} />
-                      </div>
-                      <div className="flex items-center justify-between rounded-md bg-muted/40 px-3 py-2 text-sm">
-                        <span className="text-muted-foreground">Handling</span><Stars value={r.handlingRating} />
-                      </div>
-                      <div className="flex items-center justify-between rounded-md bg-muted/40 px-3 py-2 text-sm">
-                        <span className="text-muted-foreground">Communication</span><Stars value={r.communicationRating} />
-                      </div>
-                    </div>
-                    {r.feedback && (
-                      <p className="mt-3 rounded-md bg-muted/30 p-2 text-sm text-muted-foreground">
-                        &ldquo;{r.feedback}&rdquo;
-                      </p>
-                    )}
-                  </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
-        </>
-      )}
+      {isLoading ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">{[1,2,3,4,5].map(i=><div key={i} className="h-24 animate-pulse rounded-xl bg-muted"/>)}</div>
+      : isError ? <Card><CardContent className="py-12 text-center"><p className="font-semibold">Unable to load your ratings</p><p className="mt-1 text-sm text-muted-foreground">Please try again in a moment.</p><Button className="mt-4" variant="outline" onClick={()=>void refetch()}>Try again</Button></CardContent></Card>
+      : <>
+        <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <Card><CardContent className="flex items-center gap-3 p-4"><div className="rounded-full bg-amber-100 p-3 text-amber-600"><Star className="h-5 w-5 fill-amber-400"/></div><div><p className="text-xs text-muted-foreground">Average rating</p><p className="text-2xl font-bold">{metric(summary.overallAvg)} <span className="text-sm font-medium text-muted-foreground">/ 5</span></p><Stars value={summary.overallAvg}/></div></CardContent></Card>
+          <Card><CardContent className="flex items-center gap-3 p-4"><div className="rounded-full bg-emerald-100 p-3 text-emerald-700"><User className="h-5 w-5"/></div><div><p className="text-xs text-muted-foreground">Total reviews</p><p className="text-2xl font-bold">{total}</p></div></CardContent></Card>
+          <Card><CardContent className="flex items-center gap-3 p-4"><div className="rounded-full bg-green-100 p-3 text-green-700"><Truck className="h-5 w-5"/></div><div><p className="text-xs text-muted-foreground">On-time score</p><p className="text-2xl font-bold">{summary.onTimePercentage != null ? `${Math.round(summary.onTimePercentage)}%` : summary.onTimeAvg != null ? metric(summary.onTimeAvg) + " / 5" : "—"}</p></div></CardContent></Card>
+          <Card><CardContent className="flex items-center gap-3 p-4"><div className="rounded-full bg-blue-100 p-3 text-blue-700"><MessageSquare className="h-5 w-5"/></div><div><p className="text-xs text-muted-foreground">Reviews this month</p><p className="text-2xl font-bold">{reviewsThisMonth}</p></div></CardContent></Card>
+          <Card><CardContent className="flex items-center gap-3 p-4"><div className="rounded-full bg-emerald-100 p-3 text-emerald-700"><Star className="h-5 w-5"/></div><div><p className="text-xs text-muted-foreground">Positive reviews (4–5★)</p><p className="text-2xl font-bold">{total ? `${positivePercent}%` : "—"}</p></div></CardContent></Card>
+        </section>
+
+        <section className="grid gap-4 xl:grid-cols-[1.15fr_1fr_0.95fr]">
+          <Card className="overflow-hidden"><CardHeader className="border-b pb-3"><CardTitle className="text-base">Rating breakdown</CardTitle><p className="text-xs text-muted-foreground">{total} customer ratings</p></CardHeader><CardContent className="space-y-4 p-5">{total ? [5,4,3,2,1].map(star=><RatingBar key={star} star={star} count={Number(distribution[String(star)]||0)} total={total}/>) : <p className="py-8 text-center text-sm text-muted-foreground">Your star distribution will appear after customers rate completed deliveries.</p>}</CardContent></Card>
+          <Card className="overflow-hidden"><CardHeader className="border-b pb-3"><CardTitle className="text-base">Category ratings</CardTitle><p className="text-xs text-muted-foreground">Average scores from customer feedback</p></CardHeader><CardContent className="divide-y p-4">{categories.length ? categories.map(({label,value,icon:Icon}:any)=><div key={label} className="flex items-center justify-between gap-3 py-3 first:pt-1 last:pb-1"><div className="flex items-center gap-3"><span className="rounded-full bg-emerald-50 p-2 text-emerald-700"><Icon className="h-4 w-4"/></span><span className="text-sm font-medium">{label}</span></div><span className="flex items-center gap-1.5 text-sm font-bold">{metric(value)} <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400"/></span></div>) : <p className="py-8 text-center text-sm text-muted-foreground">Category scores are not available yet.</p>}</CardContent></Card>
+          <Card className="overflow-hidden"><CardHeader className="border-b pb-3"><CardTitle className="flex items-center gap-2 text-base"><Star className="h-5 w-5 text-emerald-700"/>Performance insights</CardTitle></CardHeader><CardContent className="space-y-3 p-4"><div className="rounded-xl bg-emerald-50 p-4"><p className="flex items-center gap-2 text-sm font-semibold text-emerald-900"><Star className="h-4 w-4 shrink-0"/>Your current average is {metric(summary.overallAvg)} / 5</p><p className="mt-1 text-xs text-emerald-800">Based on ratings recorded for your deliveries.</p></div>{summary.onTimeAvg != null && <div className="flex gap-2 text-sm text-slate-700"><Star className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600"/>On-time delivery score: {metric(summary.onTimeAvg)} / 5.</div>}{summary.handlingAvg != null && <div className="flex gap-2 text-sm text-slate-700"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600"/>Product handling score: {metric(summary.handlingAvg)} / 5.</div>}{summary.professionalismAvg != null && <div className="flex gap-2 text-sm text-slate-700"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600"/>Professionalism score: {metric(summary.professionalismAvg)} / 5.</div>}{!total && <p className="text-sm text-muted-foreground">Complete deliveries and invite customers to share feedback to build your performance profile.</p>}</CardContent></Card>
+        </section>
+
+        <Card className="overflow-hidden"><CardHeader className="flex flex-row items-center justify-between border-b"><div><CardTitle className="text-base">Customer reviews</CardTitle><p className="mt-1 text-xs text-muted-foreground">Latest feedback on your completed deliveries</p></div><Badge variant="secondary">{ratings.length} shown</Badge></CardHeader><CardContent className="divide-y p-0">{ratings.length ? ratings.map((r:any,index:number)=><div key={r.id || r._id || r.orderId || index} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between sm:px-5"><div className="flex min-w-0 gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-100 font-semibold text-emerald-800">{String(r.customerName || "C").trim().charAt(0).toUpperCase()}</div><div className="min-w-0"><p className="font-semibold text-slate-900">{r.customerName || "Customer"}</p><div className="mt-1 flex flex-wrap items-center gap-2"><Stars value={Number(r.overallRating)||0}/><span className="text-xs text-muted-foreground">{r.orderNumber || (r.orderId ? `Order ${String(r.orderId).slice(-6)}` : "Delivery review")}</span></div>{r.feedback ? <p className="mt-2 text-sm leading-6 text-slate-600">“{r.feedback}”</p> : <p className="mt-2 text-xs italic text-muted-foreground">No written comment provided.</p>}</div></div><div className="shrink-0 text-xs text-muted-foreground">{r.createdAt ? new Date(r.createdAt).toLocaleString("en-IN",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}) : "Date not recorded"}</div></div>) : <div className="py-12 text-center"><MessageSquare className="mx-auto h-9 w-9 text-slate-300"/><p className="mt-3 font-semibold">No customer reviews yet</p><p className="mt-1 text-sm text-muted-foreground">Your ratings and feedback will appear here after customers review completed deliveries.</p></div>}</CardContent></Card>
+      </>}
     </div>
   );
 }

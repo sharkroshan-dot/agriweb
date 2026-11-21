@@ -2,7 +2,7 @@
 
 import { PrefetchLink as Link } from "./prefetch-link";
 import { useEffect, useState } from "react";
-import { ArrowRight, CheckCircle2, Circle, Clock3, Ban, Workflow } from "lucide-react";
+import { ArrowRight, CheckCircle2, Circle, Clock3, Ban, Workflow, ChevronDown, ChevronUp } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../../lib/api/client";
 
@@ -56,7 +56,7 @@ function stateClass(state: WorkflowStep["state"], active?: boolean) {
   return "border-slate-200 bg-slate-50";
 }
 
-export function WorkflowGuide({ role }: { role: Role }) {
+export function WorkflowGuide({ role, compact = false }: { role: Role; compact?: boolean }) {
   const { data, isLoading } = useQuery({
     queryKey: ["myWorkflow", role],
     queryFn: () => api.get("/workflow/me"),
@@ -75,6 +75,7 @@ export function WorkflowGuide({ role }: { role: Role }) {
   const next = resolved?.next as { href?: string; label?: string; reason?: string } | undefined;
   const backendActiveKey = steps.find((step) => step.active)?.key ?? null;
   const [selectedKey, setSelectedKey] = useState<string | null>(backendActiveKey);
+  const [isExpanded, setIsExpanded] = useState(!compact);
 
   useEffect(() => {
     if (backendActiveKey) setSelectedKey(backendActiveKey);
@@ -94,15 +95,33 @@ export function WorkflowGuide({ role }: { role: Role }) {
             </p>
           </div>
         </div>
-        {next?.href && next.label && (
-          <Link href={next.href} className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
-            Continue: {next.label}
-            <ArrowRight className="h-4 w-4" />
-          </Link>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {next?.href && next.label && (
+            <Link href={next.href} className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
+              Continue: {next.label}
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          )}
+          {compact && (
+            <button
+              type="button"
+              onClick={() => setIsExpanded((expanded) => !expanded)}
+              aria-expanded={isExpanded}
+              aria-controls="workflow-guide-steps"
+              className="inline-flex min-h-9 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-emerald-300 hover:bg-emerald-50"
+            >
+              {isExpanded ? "Hide steps" : "Show steps"}
+              {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            </button>
+          )}
+        </div>
       </div>
 
-      <div className="p-4">
+      <div
+        id="workflow-guide-steps"
+        className={`p-4 ${compact && !isExpanded ? "hidden" : ""}`}
+        aria-hidden={compact && !isExpanded}
+      >
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-11">
           {steps.map((step) => {
             const selected = selectedKey === step.key;

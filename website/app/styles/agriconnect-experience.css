@@ -1,0 +1,521 @@
+/*
+ * AgriConnect cross-role experience layer.
+ * Imported after globals.css so shared UX refinements are consistent
+ * while preserving role- and status-specific styling.
+ */
+:root {
+  --agri-ink: #10251f;
+  --agri-muted: #64756e;
+  --agri-line: #e3ebe6;
+  --agri-surface: #ffffff;
+  --agri-canvas: #f6f9f7;
+  --agri-brand: #087f5b;
+  --agri-brand-dark: #066447;
+  --agri-focus: rgba(8, 127, 91, 0.24);
+  --agri-card-shadow: 0 2px 8px rgba(16, 37, 31, 0.035), 0 12px 28px rgba(16, 37, 31, 0.025);
+}
+
+.role-workspace {
+  width: 100%;
+  min-width: 0;
+  color: var(--agri-ink);
+}
+
+.role-workspace > *,
+.role-workspace :is(.grid, .flex) > * {
+  min-width: 0;
+}
+
+.role-workspace :is(h1, h2, h3) {
+  text-wrap: balance;
+}
+
+.role-workspace h1 {
+  font-size: clamp(1.55rem, 2.1vw, 2.1rem);
+  line-height: 1.16;
+  letter-spacing: -0.04em;
+  font-weight: 780;
+}
+
+.role-workspace h2 {
+  font-size: clamp(1.02rem, 1.3vw, 1.2rem);
+  line-height: 1.32;
+  letter-spacing: -0.025em;
+  font-weight: 730;
+}
+
+.role-workspace p {
+  text-wrap: pretty;
+}
+
+.role-workspace :is(
+  [class*="rounded-lg"][class*="border"],
+  [class*="rounded-xl"][class*="border"],
+  [class*="rounded-2xl"][class*="border"]
+):not([class*="border-emerald-"]):not([class*="border-green-"]):not([class*="border-red-"]):not([class*="border-rose-"]):not([class*="border-amber-"]):not([class*="border-yellow-"]):not([class*="border-blue-"]):not([class*="border-sky-"]):not([class*="border-indigo-"]):not([class*="border-purple-"]):not([class*="border-violet-"]):not([class*="border-orange-"]):not([class*="border-teal-"]):not([class*="border-cyan-"]) {
+  border-color: var(--agri-line);
+}
+
+.role-workspace :is(
+  [class*="rounded-xl"][class*="bg-white"],
+  [class*="rounded-2xl"][class*="bg-white"],
+  [class*="rounded-xl"][class*="bg-card"],
+  [class*="rounded-2xl"][class*="bg-card"]
+) {
+  box-shadow: var(--agri-card-shadow);
+}
+
+.role-workspace :is(input, select, textarea) {
+  min-width: 0;
+  max-width: 100%;
+  border-radius: 0.75rem;
+}
+
+.role-workspace :is(input, select, textarea):focus-visible {
+  outline: 3px solid var(--agri-focus);
+  outline-offset: 1px;
+}
+
+.role-workspace :is(button, a) {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.role-workspace :is(.overflow-x-auto, [data-table-scroll]) {
+  max-width: 100%;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: thin;
+}
+
+.role-workspace table {
+  max-width: 100%;
+}
+
+.role-workspace :is(.grid, [class*="grid-cols-"]) > * {
+  min-width: 0;
+}
+
+.role-workspace [class*="truncate"] {
+  min-width: 0;
+}
+
+/* Sidebars reduce the content width at tablet and small desktop sizes.
+   Keep card grids readable until there is enough room for four columns. */
+@media (min-width: 768px) and (max-width: 1279px) {
+  .role-workspace [class~="md:grid-cols-3"],
+  .role-workspace [class~="lg:grid-cols-3"],
+  .role-workspace [class~="lg:grid-cols-4"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .role-workspace [class~="lg:col-span-2"] {
+    grid-column: span 2 / span 2;
+  }
+}
+
+@media (max-width: 767px) {
+  .role-workspace {
+    padding-bottom: 1.25rem;
+  }
+
+  .role-workspace :is(.flex.items-center.justify-between, .flex.justify-between) {
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  .role-workspace [class~="sm:grid-cols-2"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Customer marketplace: commerce-first discovery and product presentation. */
+.marketplace-hub-page {
+  width: 100%;
+  min-width: 0;
+  max-width: 1520px;
+  margin-inline: auto;
+}
+
+.marketplace-hub-page .marketplace-hero {
+  overflow: hidden;
+  border: 1px solid #d9eee3;
+  border-radius: 26px;
+  background:
+    radial-gradient(circle at 92% 8%, rgba(16, 185, 129, 0.16), transparent 18rem),
+    linear-gradient(125deg, #effaf3 0%, #ffffff 52%, #f0fdfa 100%);
+  box-shadow: 0 12px 32px rgba(6, 95, 70, 0.07);
+}
+
+.marketplace-hub-page .marketplace-mode-card,
+.marketplace-hub-page .marketplace-product-card {
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid #e5eee8;
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 3px 12px rgba(16, 37, 31, 0.035);
+  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+}
+
+.marketplace-hub-page .marketplace-mode-card:hover,
+.marketplace-hub-page .marketplace-product-card:hover {
+  transform: translateY(-2px);
+  border-color: #b9ddca;
+  box-shadow: 0 12px 28px rgba(16, 37, 31, 0.08);
+}
+
+.marketplace-hub-page .marketplace-mode-grid,
+.marketplace-hub-page .marketplace-product-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+@media (max-width: 1199px) {
+  .marketplace-hub-page .marketplace-mode-grid,
+  .marketplace-hub-page .marketplace-product-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 639px) {
+  .marketplace-hub-page .marketplace-mode-grid,
+  .marketplace-hub-page .marketplace-product-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .marketplace-hub-page .marketplace-hero {
+    border-radius: 20px;
+  }
+}
+
+
+/* Shared role navigation surfaces and accessible active states. */
+.role-sidebar {
+  background: rgba(255, 255, 255, 0.97);
+  border-color: #e3ebe6;
+}
+
+.role-sidebar > div {
+  scrollbar-width: thin;
+  scrollbar-color: #d7e3dc transparent;
+}
+
+.role-sidebar nav {
+  min-width: 0;
+}
+
+.role-sidebar nav > div > p,
+.role-sidebar nav section > div:first-child h2 {
+  color: #82928a;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: .11em;
+  text-transform: uppercase;
+}
+
+.role-sidebar nav a {
+  min-width: 0;
+  min-height: 42px;
+  border-radius: 11px;
+  transition: background-color .16s ease, color .16s ease, transform .16s ease;
+}
+
+.role-sidebar nav a:not([aria-current="page"]):hover {
+  background: #f0f7f2;
+  color: #075c42;
+}
+
+.role-sidebar nav a[aria-current="page"] {
+  background: linear-gradient(105deg, #087f5b, #09976a);
+  color: #ffffff;
+  box-shadow: 0 5px 12px rgba(8, 127, 91, .14);
+}
+
+.role-sidebar nav a[aria-current="page"] :is(svg, span) {
+  color: inherit;
+}
+
+.role-mobile-nav {
+  position: relative;
+  z-index: 30;
+}
+
+.role-mobile-nav > div {
+  scrollbar-width: thin;
+  scrollbar-color: #d7e3dc transparent;
+}
+
+.role-mobile-nav a {
+  min-height: 40px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.role-mobile-nav a[aria-current="page"] {
+  background: #087f5b;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(8, 127, 91, .14);
+}
+
+@media (max-width: 767px) {
+  .role-mobile-nav {
+    padding-block: .65rem;
+  }
+
+  .role-mobile-nav > div {
+    gap: .45rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .role-sidebar nav a,
+  .role-mobile-nav a,
+  .marketplace-hub-page .marketplace-mode-card,
+  .marketplace-hub-page .marketplace-product-card {
+    transition: none;
+  }
+}
+
+/* Role page headers: one consistent hierarchy, with role-specific accents. */
+.role-workspace :is(
+  .customer-page-header,
+  .farmer-page-header,
+  .business-page-header,
+  .warehouse-page-header,
+  .delivery-page-header,
+  .admin-page-header
+) {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.role-workspace :is(
+  .customer-page-header,
+  .farmer-page-header,
+  .business-page-header,
+  .warehouse-page-header,
+  .delivery-page-header,
+  .admin-page-header
+) > :first-child {
+  min-width: 0;
+}
+
+.role-workspace :is(
+  .customer-page-header h1,
+  .farmer-page-title,
+  .business-page-title,
+  .warehouse-page-header h1,
+  .delivery-page-title,
+  .admin-page-title
+) {
+  margin: 0;
+  color: var(--agri-ink);
+  font-size: clamp(1.55rem, 2.15vw, 2.1rem);
+  font-weight: 780;
+  line-height: 1.16;
+  letter-spacing: -0.04em;
+}
+
+.role-workspace :is(
+  .customer-page-eyebrow,
+  .farmer-page-eyebrow,
+  .business-page-eyebrow,
+  .warehouse-page-eyebrow,
+  .delivery-page-eyebrow,
+  .admin-page-eyebrow
+) {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0 0 0.4rem;
+  color: var(--agri-brand);
+  font-size: 0.67rem;
+  font-weight: 800;
+  line-height: 1.35;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.role-workspace :is(
+  .customer-page-description,
+  .farmer-page-description,
+  .business-page-description,
+  .warehouse-page-description,
+  .delivery-page-description,
+  .admin-page-description
+) {
+  max-width: 62rem;
+  margin: 0.4rem 0 0;
+  color: var(--agri-muted);
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.role-workspace :is(
+  .customer-page-actions,
+  .farmer-page-actions,
+  .business-page-actions,
+  .warehouse-page-actions,
+  .delivery-page-actions,
+  .admin-page-actions
+) {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.role-workspace .warehouse-page-header {
+  align-items: center;
+}
+
+.role-workspace .warehouse-page-header-icon {
+  display: flex;
+  width: 2.75rem;
+  height: 2.75rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #cfe9da;
+  border-radius: 0.9rem;
+  background: linear-gradient(145deg, #e6f7ed, #f4fbf6);
+  color: var(--agri-brand);
+}
+
+.role-workspace .warehouse-page-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.55rem;
+  color: var(--agri-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Customer search trust strip and role-specific next-action banners. */
+.customer-retail-shell {
+  width: 100%;
+  min-width: 0;
+}
+
+.customer-trust-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid var(--agri-line);
+  border-radius: 1rem;
+  background: linear-gradient(120deg, #f2faf5, #ffffff);
+}
+
+.customer-trust-item {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.6rem;
+  border: 1px solid #e7f0ea;
+  border-radius: 0.8rem;
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.customer-trust-item > div {
+  display: grid;
+  min-width: 0;
+  gap: 0.1rem;
+}
+
+.customer-trust-item strong {
+  color: var(--agri-ink);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.customer-trust-item > div > span {
+  color: var(--agri-muted);
+  font-size: 0.7rem;
+  line-height: 1.4;
+}
+
+.role-workspace .farmer-task-banner,
+.role-workspace .business-task-banner,
+.role-workspace .delivery-next-task,
+.role-workspace .admin-action-banner {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border: 1px solid var(--agri-line);
+  border-radius: 1rem;
+  padding: 1rem 1.125rem;
+}
+
+.role-workspace .farmer-task-banner,
+.role-workspace .delivery-next-task {
+  border-color: #cdebd8;
+  background: linear-gradient(120deg, #effaf3, #fbfefc);
+}
+
+.role-workspace .business-task-banner,
+.role-workspace .admin-action-banner {
+  border-color: #cfe0f8;
+  background: linear-gradient(120deg, #eff6ff, #fbfdff);
+}
+
+@media (max-width: 767px) {
+  .role-workspace :is(
+    .customer-page-header,
+    .farmer-page-header,
+    .business-page-header,
+    .warehouse-page-header,
+    .delivery-page-header,
+    .admin-page-header
+  ) {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+
+  .role-workspace :is(
+    .customer-page-actions,
+    .farmer-page-actions,
+    .business-page-actions,
+    .warehouse-page-actions,
+    .delivery-page-actions,
+    .admin-page-actions
+  ) {
+    justify-content: flex-start;
+  }
+
+  .customer-trust-strip {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .customer-trust-item {
+    padding: 0.65rem;
+  }
+
+  .role-workspace :is(
+    .farmer-task-banner,
+    .business-task-banner,
+    .delivery-next-task,
+    .admin-action-banner
+  ) {
+    align-items: flex-start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .role-workspace :is(button, a) {
+    scroll-behavior: auto;
+  }
+}
+

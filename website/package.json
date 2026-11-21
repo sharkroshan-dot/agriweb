@@ -10,7 +10,7 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "cypress": "cypress open",
-    "dev:clean": "node -e \"require('fs').rmSync('.next', { recursive: true, force: true })\" && npm run dev"
+    "dev:clean": "node -e \"const fs=require('fs'); for (const name of fs.readdirSync('.')) { if (name === '.next' || name.startsWith('.next-dev-')) fs.rmSync(name, { recursive: true, force: true }); }\" && npm run dev"
   },
   "dependencies": {
     "@googlemaps/js-api-loader": "^2.1.1",

@@ -1,0 +1,347 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { PackageCheck, Truck, Warehouse, RefreshCw, CheckCircle2, MapPin, ClipboardCheck, Search, CalendarDays, Users, Package, Route, CheckCircle, ArrowRight, Filter, ChevronRight, Store } from "lucide-react";
+import toast from "react-hot-toast";
+import { api } from "../../../lib/api/client";
+import { Card, CardContent } from "../../../components/ui/card";
+import { Button } from "../../../components/ui/button";
+import { Input } from "../../../components/ui/input";
+import { Badge } from "../../../components/ui/badge";
+import { WarehousePageHeader } from "../../../components/warehouse/warehouse-page-header";
+import { PageToolbar } from "../../../components/common/page-primitives";
+
+const label = (value: string) => String(value || "unknown").replace(/_/g, " ");
+export default function B2BFulfillmentPage() {
+  const qc = useQueryClient();
+  const [forms, setForms] = useState<Record<string, any>>({});
+  const [destinationOrderId, setDestinationOrderId] = useState<string>("");
+  const [view, setView] = useState<"active" | "completed">("active");
+  const [routingMode, setRoutingMode] = useState<Record<string, "automatic" | "manual">>({});
+  const [selectedOrderId, setSelectedOrderId] = useState<string>("");
+  const [searchText, setSearchText] = useState("");
+  const [farmFilter, setFarmFilter] = useState("all");
+  const [productFilter, setProductFilter] = useState("all");
+  const [areaFilter, setAreaFilter] = useState("all");
+  const [deliveryFilter, setDeliveryFilter] = useState("all");
+  const [stageFilter, setStageFilter] = useState("all");
+  const query = useQuery({ queryKey: ["b2b", "warehouse-fulfillment"], queryFn: () => api.get("/b2b/warehouse/fulfillment"), refetchInterval: 10000 });
+  const teamsQuery = useQuery({ queryKey: ["b2b", "approved-pickup-teams"], queryFn: () => api.get("/warehouse/me/pickup-team/members"), refetchInterval: 30000 });
+  const orders = (query.data?.data?.orders || query.data?.orders || []).map((o: any) => ({ ...o, id: String(o.id || o._id || "") }));
+  const completedQuery = useQuery({
+    queryKey: ["b2b", "warehouse-fulfillment-completed"],
+    queryFn: () => api.get("/b2b/warehouse/fulfillment/completed"),
+    enabled: view === "completed",
+    refetchInterval: view === "completed" ? 30000 : false,
+  });
+  const completedOrders = (completedQuery.data?.data?.orders || completedQuery.data?.orders || []).map((o: any) => ({ ...o, id: String(o.id || o._id || "") }));
+  const cooperativeOrderIds = orders.filter((o: any) => Boolean(o.cooperativeId)).map((o: any) => o.id).sort();
+  const cooperativeContributionsQuery = useQuery({
+    queryKey: ["b2b", "cooperative-contributions", cooperativeOrderIds.join(",")],
+    queryFn: async () => {
+      const entries = await Promise.all(cooperativeOrderIds.map(async (id: string) => {
+        const response = await api.get(`/b2b/warehouse/fulfillment/${encodeURIComponent(id)}/cooperative-contributions`);
+        return [id, response?.data?.data?.contributions || response?.data?.contributions || []] as const;
+      }));
+      return Object.fromEntries(entries);
+    },
+    enabled: cooperativeOrderIds.length > 0 && view === "active",
+    refetchInterval: 15000,
+    retry: 1,
+  });
+  const cooperativeContributionRows = cooperativeContributionsQuery.data || {};
+  const cooperativeContributionMutation = useMutation({
+    mutationFn: ({ orderId, contributionId, payload }: { orderId: string; contributionId: string; payload: any }) =>
+      api.patch(`/b2b/warehouse/fulfillment/${encodeURIComponent(orderId)}/cooperative-contributions/${encodeURIComponent(contributionId)}`, payload),
+    onSuccess: async () => {
+      toast.success("Farmer-wise received quantity and quality saved");
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["b2b", "cooperative-contributions"] }),
+        qc.invalidateQueries({ queryKey: ["b2b", "warehouse-fulfillment"] }),
+      ]);
+    },
+    onError: (e: any) => toast.error(e?.message || "Could not save farmer-wise receipt"),
+  });
+  const displayedOrders = view === "completed" ? completedOrders : orders;
+  const destinationQuery = useQuery({ queryKey: ["b2b", "destination-warehouses", destinationOrderId], queryFn: () => api.get(`/b2b/warehouse/fulfillment/destination-warehouses?orderId=${encodeURIComponent(destinationOrderId)}`), enabled: Boolean(destinationOrderId), retry: false });
+  const destinationWarehouses = destinationQuery.data?.data?.warehouses || [];
+  const routableOrders = orders.filter((o: any) => o.status === "warehouse_received" && o.warehouseQualityCheck === "passed");
+  const recommendationQuery = useQuery({
+    queryKey: ["b2b", "route-recommendations", routableOrders.map((o: any) => o.id).sort().join(",")],
+    queryFn: async () => {
+      const entries = await Promise.all(routableOrders.map(async (o: any) => {
+        const response = await api.post(`/b2b/warehouse/fulfillment/${encodeURIComponent(o.id)}/route-recommendation`, { orderId: o.id });
+        return [o.id, response?.data?.data ?? response?.data ?? {}] as const;
+      }));
+      return Object.fromEntries(entries);
+    },
+    enabled: routableOrders.length > 0,
+    refetchInterval: 30000,
+  });
+  const routeRecommendations = recommendationQuery.data || {};
+  useEffect(() => {
+    if (!recommendationQuery.data) return;
+    setForms((previous) => {
+      const next = { ...previous };
+      for (const [orderId, recommendation] of Object.entries(recommendationQuery.data as Record<string, any>)) {
+        if (!recommendation?.available) continue;
+        const existing = next[orderId] || {};
+        if (!existing.fulfillmentRoute) {
+          next[orderId] = {
+            ...existing,
+            fulfillmentRoute: recommendation.fulfillmentRoute,
+            destinationWarehouseId: recommendation.destinationWarehouseId || "",
+          };
+        }
+      }
+      return next;
+    });
+  }, [recommendationQuery.data]);
+  const members = teamsQuery.data?.data?.members || teamsQuery.data?.members || [];
+  const teams = members.filter((t: any) => Number(t.capacityKg || t.vehicleCapacityKg || t.capacity || t.vehicleCapacity || t.maxCapacityKg || 0) > 0);
+  const mutation = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: any }) => api.put(`/b2b/warehouse/fulfillment/${encodeURIComponent(id)}`, { ...payload }),
+    onSuccess: async () => {
+      toast.success("B2B order workflow updated");
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["b2b", "warehouse-fulfillment"] }),
+        qc.invalidateQueries({ queryKey: ["b2b", "farmer", "orders"] }),
+        qc.invalidateQueries({ queryKey: ["warehouseCollectionsPage"] }),
+        qc.invalidateQueries({ queryKey: ["warehousePickupAreaPlanning"] }),
+      ]);
+    },
+    onError: (e: any) => toast.error(e?.message || "Could not update B2B fulfillment"),
+  });
+  const form = (id: string) => forms[id] || {};
+  const setForm = (id: string, patch: any) => setForms((old) => ({ ...old, [id]: { ...old[id], ...patch } }));
+  const act = (id: string, payload: any) => mutation.mutate({ id, payload });
+  const farmNameOf = (o: any) => o.farmerInfo?.farmName || o.farmName || o.farmerName || "Farmer";
+  const productNameOf = (o: any) => o.productName || o.items?.[0]?.productName || "B2B produce";
+  const areaNameOf = (o: any) => o.farmerInfo?.farmLocation || o.farmLocation || o.farmerInfo?.city || o.farmCity || o.farmerInfo?.district || o.farmDistrict || "Area not recorded";
+  const businessNameOf = (o: any) => o.businessInfo?.businessName || o.businessName || "Business buyer";
+  const stageOf = (o: any) => {
+    const status = String(o.status || "").toLowerCase();
+    if (["delivered", "completed"].includes(status)) return "delivered";
+    if (status === "in_transit") return "delivery_transit";
+    if (status === "transfer_in_transit") return "transfer_transit";
+    if (status === "destination_warehouse_received") return Number(o.b2bFarmerCount || 1) > 1 && !o.consolidationCompletedAt ? "consolidation" : "ready_delivery";
+    if (status === "warehouse_received") return o.warehouseQualityCheck === "passed" ? (o.fulfillmentRoute ? "routing" : "routing_required") : "warehouse_received";
+    if (["picked_up", "warehouse_arrived", "arrived_warehouse", "departed_farm", "collected"].includes(status) || ["warehouse_arrived", "arrived_warehouse", "departed_farm", "collected"].includes(String(o.warehouseFulfillmentStage || o.warehouseCollectionStatus || "").toLowerCase())) return "collected";
+    if (status === "ready_for_pickup" && o.pickupTeam) return "pickup_assigned";
+    return "ready_pickup";
+  };
+  const stageCounts = {
+    ready_pickup: orders.filter((o: any) => stageOf(o) === "ready_pickup").length,
+    pickup_assigned: orders.filter((o: any) => stageOf(o) === "pickup_assigned").length,
+    collected: orders.filter((o: any) => stageOf(o) === "collected").length,
+    warehouse_received: orders.filter((o: any) => stageOf(o) === "warehouse_received").length,
+    routing: orders.filter((o: any) => ["routing", "routing_required"].includes(stageOf(o))).length,
+    transfer_transit: orders.filter((o: any) => stageOf(o) === "transfer_transit").length,
+    ready_delivery: orders.filter((o: any) => ["ready_delivery", "consolidation"].includes(stageOf(o))).length,
+    delivery_transit: orders.filter((o: any) => stageOf(o) === "delivery_transit").length,
+    delivered: orders.filter((o: any) => stageOf(o) === "delivered").length,
+  };
+  const filteredOrders = displayedOrders.filter((o: any) => {
+    const q = searchText.trim().toLowerCase();
+    const matchesSearch = !q || [o.orderNumber, o.id, o.rfqNumber, farmNameOf(o), productNameOf(o), businessNameOf(o)].some((v: any) => String(v || "").toLowerCase().includes(q));
+    const matchesFarm = farmFilter === "all" || farmNameOf(o) === farmFilter;
+    const matchesProduct = productFilter === "all" || productNameOf(o) === productFilter;
+    const matchesArea = areaFilter === "all" || areaNameOf(o) === areaFilter;
+    const matchesDelivery = deliveryFilter === "all" || String(o.fulfillmentRoute || o.deliveryType || "to_warehouse") === deliveryFilter;
+    const matchesStage = stageFilter === "all" || stageOf(o) === stageFilter;
+    return matchesSearch && matchesFarm && matchesProduct && matchesArea && matchesDelivery && matchesStage;
+  });
+  const selectedOrder = filteredOrders.find((o: any) => o.id === selectedOrderId) || filteredOrders[0] || null;
+  const uniqueValues = (field: (o: any) => string) => Array.from(new Set(displayedOrders.map(field).filter((v: string) => v && v !== "Area not recorded"))).sort();
+
+  return <div className="warehouse-b2b-page space-y-6">
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50/70 px-4 py-2 text-sm"><span className="font-medium text-emerald-900">New B2B workspace · Separate from your existing page</span><a href="/warehouse/b2b-fulfillment" className="font-semibold text-emerald-800 underline underline-offset-4">Open original B2B page</a></div>
+    <WarehousePageHeader
+      title="B2B Pickup & Fulfillment Workspace"
+      description="A separate operational workspace for district-based B2B pickup, warehouse receipt, quality, routing, transfers and business delivery. Existing workflow rules are preserved."
+      eyebrow="B2B operations · New workspace"
+      meta={<Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-800">District routing enforced</Badge>}
+      actions={<div className="flex flex-wrap gap-2"><a href="/warehouse/b2b-fulfillment" className="inline-flex h-9 items-center rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50">Original page</a><Button variant="outline" onClick={() => { query.refetch(); teamsQuery.refetch(); }}><RefreshCw className="mr-2 h-4 w-4"/>Refresh</Button></div>}
+    />
+    <PageToolbar variant="bare" aria-label="B2B fulfillment views">
+      <div className="flex flex-wrap gap-2">
+        <Button variant={view === "active" ? "default" : "outline"} onClick={() => setView("active")}>Active fulfillment ({orders.length})</Button>
+        <Button variant={view === "completed" ? "default" : "outline"} onClick={() => setView("completed")}>Completed orders ({completedOrders.length})</Button>
+      </div>
+    </PageToolbar>
+    {view === "completed" && <p className="text-sm text-slate-600">Read-only archive of completed B2B orders. Archived orders have no pickup, receipt, routing, transfer, or dispatch actions.</p>}
+    <div className="grid gap-2 sm:grid-cols-3 xl:grid-cols-6">
+      {[{n:"01",t:"Farm Pickup",d:"Assign & collect",icon:Truck},{n:"02",t:"Warehouse Receipt",d:"Receive stock",icon:Warehouse},{n:"03",t:"Quality Check",d:"Pass or fail",icon:ClipboardCheck},{n:"04",t:"Consolidation",d:"Combine portions",icon:Package},{n:"05",t:"Transfer (Inter-WH)",d:"District transfer",icon:Route},{n:"06",t:"Final Delivery",d:"Deliver to buyer",icon:Store}].map((s:any,i:number)=><div key={s.n} className="flex min-w-0 items-center gap-2 rounded-xl border border-emerald-100 bg-gradient-to-r from-emerald-50 to-white px-3 py-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-emerald-200 bg-white text-emerald-700"><s.icon className="h-4 w-4"/></span><div className="min-w-0"><p className="truncate text-xs font-semibold text-slate-900">{s.t}</p><p className="truncate text-[11px] text-slate-500">{s.d}</p></div>{i<5&&<ChevronRight className="ml-auto hidden h-4 w-4 shrink-0 text-emerald-600 2xl:block"/>}</div>)}
+    </div>
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5 2xl:grid-cols-9">
+      {[
+        {label:"Ready for Farm Pickup",key:"readyForFarmPickup",fallback:stageCounts.ready_pickup,color:"emerald"},
+        {label:"Pickup Assigned",key:"pickupAssigned",fallback:stageCounts.pickup_assigned,color:"sky"},
+        {label:"Collected from Farm",key:"collectedFromFarm",fallback:stageCounts.collected,color:"violet"},
+        {label:"Warehouse Received",key:"warehouseReceived",fallback:stageCounts.warehouse_received,color:"blue"},
+        {label:"Routing Required",key:"routingRequired",fallback:stageCounts.routing,color:"orange"},
+        {label:"In Transit (WH Transfer)",key:"warehouseTransferInTransit",fallback:stageCounts.transfer_transit,color:"violet"},
+        {label:"Ready for Direct Delivery",key:"readyForDirectDelivery",fallback:stageCounts.ready_delivery,color:"emerald"},
+        {label:"In Transit (Delivery)",key:"directDeliveryInTransit",fallback:stageCounts.delivery_transit,color:"sky"},
+        {label:"Delivered to Business",key:"deliveredToBusiness",fallback:stageCounts.delivered,color:"green"},
+      ].map((s:any)=><button key={s.key} type="button" onClick={()=>{setView("active");setStageFilter(({readyForFarmPickup:"ready_pickup",pickupAssigned:"pickup_assigned",collectedFromFarm:"collected",warehouseReceived:"warehouse_received",routingRequired:"routing",warehouseTransferInTransit:"transfer_transit",readyForDirectDelivery:"ready_delivery",directDeliveryInTransit:"delivery_transit",deliveredToBusiness:"delivered"} as any)[s.key]);}} className="min-h-[104px] rounded-xl border border-slate-200 bg-white p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"><p className="min-h-8 text-[11px] font-semibold leading-tight text-slate-600">{s.label}</p><p className="mt-1 text-2xl font-bold tabular-nums text-slate-900">{Number(query.data?.data?.summary?.[s.key] ?? s.fallback)}</p><p className="mt-1 text-[10px] text-slate-500">View orders <ArrowRight className="ml-1 inline h-3 w-3"/></p></button>)}
+    </div>
+    <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-3">
+      {[
+        {key:"ready_pickup",label:"Ready for Pickup",count:stageCounts.ready_pickup+stageCounts.pickup_assigned},
+        {key:"pickup_assigned",label:"Assigned",count:stageCounts.pickup_assigned},
+        {key:"collected",label:"Collected",count:stageCounts.collected},
+        {key:"warehouse_received",label:"Received",count:stageCounts.warehouse_received},
+        {key:"routing",label:"Routing",count:stageCounts.routing},
+        {key:"transfer_transit",label:"In Transit",count:stageCounts.transfer_transit},
+        {key:"ready_delivery",label:"Ready for Delivery",count:stageCounts.ready_delivery},
+        {key:"delivery_transit",label:"Delivery In Transit",count:stageCounts.delivery_transit},
+        {key:"delivered",label:"Delivered",count:stageCounts.delivered},
+      ].map((tab:any)=><button type="button" key={tab.key} onClick={()=>setStageFilter(stageFilter===tab.key?"all":tab.key)} className={`rounded-lg border px-3 py-2 text-xs font-semibold transition ${stageFilter===tab.key?"border-emerald-700 bg-emerald-700 text-white shadow-sm":"border-slate-200 bg-white text-slate-700 hover:border-emerald-300 hover:bg-emerald-50"}`}>{tab.label} <span className={stageFilter===tab.key?"text-emerald-100":"text-slate-400"}>({tab.count})</span></button>)}
+      <button type="button" onClick={()=>setStageFilter("all")} className="ml-auto rounded-lg px-3 py-2 text-xs font-medium text-slate-500 hover:bg-slate-100">All stages</button>
+    </div>
+    {(view === "active" ? query.isLoading : completedQuery.isLoading) ? <Card><CardContent className="p-8 text-center text-sm text-slate-500">Loading B2B orders…</CardContent></Card> : (view === "active" ? query.isError : completedQuery.isError) ? <Card><CardContent className="p-6 text-sm text-red-700">Could not load {view === "completed" ? "completed" : "active"} B2B orders. Check API response and warehouse permissions, then refresh.</CardContent></Card> : !displayedOrders.length ? <Card><CardContent className="p-10 text-center text-slate-500">{view === "completed" ? "No completed B2B orders are archived for this warehouse yet." : "No B2B orders are currently in the pickup or fulfillment workflow."}</CardContent></Card> : null}
+    {!((view === "active" ? query.isLoading : completedQuery.isLoading) || (view === "active" ? query.isError : completedQuery.isError)) && displayedOrders.length > 0 && <div className="grid min-w-0 gap-4 xl:grid-cols-[220px_minmax(0,1fr)_340px]">
+      <aside className="h-fit rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="mb-3 flex items-center gap-2"><Filter className="h-4 w-4 text-emerald-700"/><h2 className="font-semibold text-slate-900">Filter Orders</h2></div>
+        <label className="mb-1 block text-xs font-semibold text-slate-700">RFQ / Order No.</label>
+        <div className="relative mb-3"><Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400"/><Input value={searchText} onChange={e=>setSearchText(e.target.value)} placeholder="Search order, RFQ..." className="pl-9"/></div>
+        <label className="mb-1 block text-xs font-semibold text-slate-700">Farm</label><select value={farmFilter} onChange={e=>setFarmFilter(e.target.value)} className="mb-3 h-10 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm"><option value="all">All Farms</option>{uniqueValues(farmNameOf).map(v=><option key={v} value={v}>{v}</option>)}</select>
+        <label className="mb-1 block text-xs font-semibold text-slate-700">Product</label><select value={productFilter} onChange={e=>setProductFilter(e.target.value)} className="mb-3 h-10 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm"><option value="all">All Products</option>{uniqueValues(productNameOf).map(v=><option key={v} value={v}>{v}</option>)}</select>
+        <label className="mb-1 block text-xs font-semibold text-slate-700">Pickup Area</label><select value={areaFilter} onChange={e=>setAreaFilter(e.target.value)} className="mb-3 h-10 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm"><option value="all">All Areas</option>{uniqueValues(areaNameOf).map(v=><option key={v} value={v}>{v}</option>)}</select>
+        <label className="mb-1 block text-xs font-semibold text-slate-700">Delivery Type</label><select value={deliveryFilter} onChange={e=>setDeliveryFilter(e.target.value)} className="mb-4 h-10 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm"><option value="all">All Types</option><option value="nearby_single_farmer">Direct Delivery</option><option value="nearby_multi_farmer">Consolidation</option><option value="long_distance">To Warehouse</option><option value="to_warehouse">To Warehouse (not routed)</option></select>
+        <div className="grid grid-cols-2 gap-2"><Button variant="outline" className="w-full" onClick={()=>{setSearchText("");setFarmFilter("all");setProductFilter("all");setAreaFilter("all");setDeliveryFilter("all");setStageFilter("all");}}>Reset</Button><Button className="w-full" onClick={()=>{setSelectedOrderId(filteredOrders[0]?.id || "");}}>Apply</Button></div>
+      </aside>
+      <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-4"><div><h2 className="text-base font-bold text-slate-900">{stageFilter==="all"?"B2B Orders":label(stageFilter)+" Orders"}</h2><p className="text-xs text-slate-500">Select an order to view details and available workflow actions</p></div><p className="text-xs font-semibold text-slate-600">{filteredOrders.length} orders · {new Set(filteredOrders.map((o:any)=>farmNameOf(o))).size} farms</p></div>
+        <div className="overflow-x-auto"><table className="w-full min-w-[720px] text-left text-xs"><thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500"><tr><th className="px-3 py-3">Order / RFQ</th><th className="px-3 py-3">Farm</th><th className="px-3 py-3">Products & Qty</th><th className="px-3 py-3">Pickup Area</th><th className="px-3 py-3">Delivery Type</th><th className="px-3 py-3">Expected Pickup</th><th className="px-3 py-3">Status</th></tr></thead><tbody className="divide-y divide-slate-100">{filteredOrders.map((o:any)=>{const orderName=o.orderNumber||`B2B-${o.id.slice(-6)}`;const isSelected=selectedOrder?.id===o.id;return <tr key={o.id} onClick={()=>setSelectedOrderId(o.id)} className={`cursor-pointer transition hover:bg-emerald-50/60 ${isSelected?"bg-emerald-50/80":""}`}><td className="px-3 py-3"><p className="font-bold text-slate-900">{orderName}</p><p className="mt-0.5 text-[10px] text-slate-500">{o.rfqNumber||o.rfqId||"RFQ reference unavailable"}</p></td><td className="px-3 py-3"><p className="font-semibold text-slate-800">{farmNameOf(o)}</p><p className="text-[10px] text-slate-500">{areaNameOf(o)}</p></td><td className="px-3 py-3"><p className="font-semibold text-slate-800">{productNameOf(o)}</p><p className="text-[10px] text-slate-500">{o.quantityKg??"—"} kg</p></td><td className="px-3 py-3">{areaNameOf(o)}</td><td className="px-3 py-3"><Badge variant="outline">{label(o.fulfillmentRoute||o.deliveryType||(o.status==="warehouse_received"?"routing_required":"to_warehouse"))}</Badge></td><td className="px-3 py-3"><p className="font-medium text-slate-700">{o.pickupDate?new Date(o.pickupDate).toLocaleDateString("en-IN"):(o.deliveryDeadline||o.requiredDate?new Date(o.deliveryDeadline||o.requiredDate).toLocaleDateString("en-IN"):"Not scheduled")}</p><p className="text-[10px] text-slate-500">{o.pickupWindowStart||o.deliveryTimeSlot||"Time not set"}</p></td><td className="px-3 py-3"><Badge>{label(o.status)}</Badge></td></tr>})}</tbody></table></div>
+        <div className="border-t border-slate-100 px-4 py-3 text-xs text-slate-500">Showing {filteredOrders.length} of {displayedOrders.length} orders</div>
+      </section>
+      <aside className="min-w-0 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+        {selectedOrder ? <><div className="mb-3 flex items-start justify-between gap-2 border-b border-slate-100 pb-3"><div className="min-w-0"><p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">Selected B2B order</p><h2 className="mt-1 break-all text-lg font-bold text-slate-900">{selectedOrder.orderNumber||`B2B-${selectedOrder.id.slice(-6)}`}</h2><p className="text-xs text-slate-500">{selectedOrder.rfqNumber||selectedOrder.rfqId||"RFQ reference unavailable"}</p></div><Badge>{label(selectedOrder.status)}</Badge></div><div className="mb-3 grid grid-cols-2 gap-2 text-xs"><div className="rounded-lg bg-slate-50 p-2"><p className="text-slate-500">Farm</p><p className="mt-1 break-words font-semibold text-slate-900">{farmNameOf(selectedOrder)}</p></div><div className="rounded-lg bg-slate-50 p-2"><p className="text-slate-500">Pickup area</p><p className="mt-1 break-words font-semibold text-slate-900">{areaNameOf(selectedOrder)}</p></div><div className="rounded-lg bg-slate-50 p-2"><p className="text-slate-500">Product & Qty</p><p className="mt-1 break-words font-semibold text-slate-900">{productNameOf(selectedOrder)} · {selectedOrder.quantityKg??"—"} kg</p></div><div className="rounded-lg bg-slate-50 p-2"><p className="text-slate-500">Delivery type</p><p className="mt-1 break-words font-semibold text-slate-900">{label(selectedOrder.fulfillmentRoute||selectedOrder.deliveryType||"to_warehouse")}</p></div><div className="col-span-2 rounded-lg bg-slate-50 p-2"><p className="text-slate-500">Business buyer</p><p className="mt-1 break-words font-semibold text-slate-900">{businessNameOf(selectedOrder)}</p></div></div><div className="mb-2 flex items-center gap-2 text-xs font-semibold text-slate-700"><CalendarDays className="h-4 w-4 text-emerald-700"/>Expected pickup: {selectedOrder.pickupDate?new Date(selectedOrder.pickupDate).toLocaleDateString("en-IN"):"Not scheduled"}</div></> : <p className="py-8 text-center text-sm text-slate-500">Select an order to view its details.</p>}
+        <div className="max-h-[70vh] overflow-y-auto border-t border-slate-100 pt-3"><div className="space-y-4">{[selectedOrder].filter(Boolean).map((o: any) => {
+      const f = form(o.id);
+      const teamId = String(f.pickupTeam || o.pickupTeam || "");
+      const team = teams.find((t: any) => String(t.deliveryPartnerId || t.userId || t.id || t._id) === teamId);
+      const vehicle = team ? [team.vehicleNumber, team.vehicleRegistrationNumber, team.registrationNumber, team.vehicleType].filter(Boolean).join(" · ") : (o.pickupVehicle || "");
+      const orderName = o.orderNumber || `B2B-${o.id.slice(-6)}`;
+      return <Card key={o.id || orderName} className="overflow-hidden rounded-2xl border-slate-200 shadow-sm transition-shadow hover:shadow-md"><CardContent className="space-y-4 p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2"><h2 className="font-semibold">{orderName}</h2><Badge>{o.pickupTeam && o.status === "ready_for_pickup" ? "pickup assigned" : label(o.status)}</Badge></div>
+          <p className="mt-1 text-sm text-slate-700">{o.productName || "B2B produce"} · Ordered {o.quantityKg ?? "—"} kg · Packed {o.packedQuantityKg ?? "—"} kg · Received {o.receivedQuantityKg ?? o.destinationReceivedQuantityKg ?? "—"} kg</p>
+          <div className="mt-2 grid gap-1 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950 sm:grid-cols-2">
+            <p><strong>Business delivery:</strong> {o.deliveryDeadline || o.requiredDate || o.scheduledDeliveryDate ? new Date(o.deliveryDeadline || o.requiredDate || o.scheduledDeliveryDate).toLocaleDateString("en-IN") : "Confirm delivery date"} · {o.deliveryTimeSlot || "Morning slot not specified"}</p>
+            <p><strong>Farmer preparation:</strong> {o.farmerPrepareBy ? new Date(o.farmerPrepareBy).toLocaleString("en-IN") : "Set by delivery schedule"}</p>
+            <p><strong>Pickup date:</strong> {o.pickupDate ? new Date(o.pickupDate).toLocaleDateString("en-IN") : "Awaiting pickup plan"}</p>
+            <p><strong>Pickup window:</strong> {o.pickupWindowStart || "18:00"}–{o.pickupWindowEnd || "23:59"} (route cutoff may require earlier collection)</p>
+            {o.transferDispatchDate && <p className="sm:col-span-2"><strong>Long-distance transfer target:</strong> {new Date(o.transferDispatchDate).toLocaleDateString("en-IN")} — one day before delivery, subject to route cutoff and transit feasibility.</p>}
+          </div><p className="mt-1 text-sm text-slate-700">Business: {o.businessInfo?.businessName || o.businessName || "Business buyer"} · Farmer: {o.farmerInfo?.farmName || o.farmName || o.farmerName || "Farmer"}</p>
+          {o.pickupTeam && <p className="mt-1 text-sm text-emerald-800">Pickup partner: {o.pickupTeamName || o.pickupTeam} · Vehicle: {o.pickupVehicle || "Registered vehicle"} · {label(o.warehouseCollectionStatus || "team_assigned")}</p>}
+          <p className="mt-1 text-sm text-slate-500"><MapPin className="mr-1 inline h-4 w-4"/>{o.deliveryAddress || o.deliveryCity || o.deliveryLocation?.formattedAddress || "Business delivery address not available"}</p>
+          <p className="text-xs text-slate-500">Farm location: {o.farmerInfo?.farmLocation || o.farmLocation || o.farmerInfo?.city || o.farmCity || "Location unavailable"} · Original order ID: {o.id}</p><p className="text-xs text-slate-500">Actual source warehouse: {routeRecommendations[o.id]?.sourceWarehouseName || o.sourceWarehouseName || o.sourceWarehouseId || "Not recorded"} · Destination warehouse: {o.destinationWarehouseName || o.destinationWarehouseId || (o.fulfillmentRoute === "long_distance" ? "Awaiting destination assignment" : routeRecommendations[o.id]?.available && routeRecommendations[o.id]?.fulfillmentRoute === "long_distance" ? routeRecommendations[o.id]?.destinationWarehouseName || "Awaiting confirmation" : routeRecommendations[o.id]?.available ? "Direct from source warehouse" : "Not selected")} · Route: {label(o.fulfillmentRoute || routeRecommendations[o.id]?.fulfillmentRoute || "routing_required")}</p>
+          {o.status === "transfer_in_transit" && <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-950"><p className="font-semibold">{o.warehouseTransferSide === "source_outgoing" ? "Outgoing transfer · Source warehouse" : o.warehouseTransferSide === "destination_incoming" ? "Incoming transfer · Destination warehouse" : "Warehouse-to-warehouse transfer in transit"}</p><p className="mt-1">From: {o.sourceWarehouseName || o.sourceWarehouseId || "Source warehouse not recorded"}</p><p>To: {o.destinationWarehouseName || o.destinationWarehouseId || "Destination warehouse not recorded"}</p><p className="mt-1 text-xs">Original B2B order ID: {o.id} · Transfer dispatched: {o.transferDispatchedAt ? new Date(o.transferDispatchedAt).toLocaleString() : "Timestamp unavailable"}</p>{o.warehouseTransferSide === "destination_incoming" && <p className="mt-2 font-medium">This order is awaiting physical receipt and quality inspection at this destination warehouse.</p>}{o.warehouseTransferSide === "source_outgoing" && <p className="mt-2 font-medium">This order is outgoing from this source warehouse and awaiting destination receipt.</p>}</div>}
+        </div><p className="font-semibold text-emerald-700">₹{Number(o.totalAmount || 0).toFixed(2)}</p></div>
+
+        {view === "completed" ? <section className="space-y-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+          <h3 className="font-semibold"><CheckCircle2 className="mr-2 inline h-4 w-4"/>Completed workflow — read only</h3>
+          <p>This order is archived and cannot be processed again from this page.</p>
+          {o.destinationReceivedAt && <p>Destination warehouse receipt: {new Date(o.destinationReceivedAt).toLocaleString("en-IN")} · Quality: {label(o.destinationQualityCheck || "unknown")} · Received: {o.destinationReceivedQuantityKg ?? "—"} kg</p>}
+          {o.deliveredAt && <p>Business delivery recorded: {new Date(o.deliveredAt).toLocaleString("en-IN")}</p>}
+          {o.completedAt && <p>Completion recorded: {new Date(o.completedAt).toLocaleString("en-IN")}</p>}
+        </section> : <>
+        {o.status === "ready_for_pickup" && (o.pickupTeam ? <section className="space-y-3 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
+  <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold text-emerald-950"><CheckCircle2 className="mr-2 inline h-4 w-4"/>Farm pickup already assigned</h3><Badge className="border-emerald-200 bg-white text-emerald-800">Assignment synchronized</Badge></div>
+  <div className="grid gap-2 sm:grid-cols-2"><div className="rounded-lg border border-emerald-100 bg-white p-3"><p className="text-xs text-slate-500">Pickup partner</p><p className="mt-1 font-semibold text-slate-900">{o.pickupTeamName || team?.name || o.pickupTeam}</p></div><div className="rounded-lg border border-emerald-100 bg-white p-3"><p className="text-xs text-slate-500">Vehicle</p><p className="mt-1 font-semibold text-slate-900">{o.pickupVehicle || vehicle || "Registered vehicle"}</p></div></div>
+  <div className="rounded-lg border border-emerald-100 bg-white p-3"><p className="font-medium text-emerald-900">Next process: Awaiting farm collection</p><p className="mt-1 text-sm text-slate-600">This pickup was assigned from {o.pickupAssignmentSource === "pickup_routes" ? "Pickup Routes" : "B2B Pickup & Fulfillment"}. The assignment is shared between both pages. Do not assign another partner.</p></div>
+</section> : <section className="space-y-3 rounded-xl border bg-slate-50 p-4">
+  <h3 className="font-medium"><Truck className="mr-2 inline h-4 w-4"/>Farm pickup assignment</h3>
+  <p className="text-sm text-slate-600">Select a registered approved pickup team. Vehicle details come from the team record; the same assignment will appear in Pickup Routes.</p>
+  {teams.length ? <div className="grid gap-3 sm:grid-cols-2"><div><label className="mb-1 block text-sm font-medium">Approved pickup team</label><select className="h-10 w-full rounded-md border bg-white px-3 text-sm" value={String(f.pickupTeam || "")} onChange={e => setForm(o.id, { pickupTeam: e.target.value })}><option value="">Select registered team</option>{teams.map((t: any) => <option key={String(t.deliveryPartnerId || t.userId || t.id || t._id)} value={String(t.deliveryPartnerId || t.userId || t.id || t._id)}>{t.name || t.fullName || "Pickup team"}{t.vehicleType ? " · " + t.vehicleType : ""}{t.vehicleNumber ? " · " + t.vehicleNumber : ""}</option>)}</select></div><div><label className="mb-1 block text-sm font-medium">Registered vehicle</label><div className="flex min-h-10 items-center rounded-md border bg-white px-3 text-sm">{vehicle || "Select a team to view its vehicle"}</div></div></div> : <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{teamsQuery.isError ? "Could not load the approved pickup-team roster." : "No approved pickup team with registered vehicle capacity is available. Configure one in Pickup Partners."}</p>}
+  <Button disabled={mutation.isPending || !f.pickupTeam || !team || !vehicle} onClick={() => act(o.id, { action: "assign_pickup", pickupTeam: String(team.deliveryPartnerId || team.userId || team.user_id || team.id || team._id), vehicle, pickupTeamName: team.name || team.fullName || "Pickup team" })}>Confirm Pickup Assignment</Button>
+</section>)}
+
+
+        {o.cooperativeId && ["picked_up", "warehouse_received"].includes(String(o.status || "").toLowerCase()) && <section className="space-y-3 rounded-xl border border-violet-200 bg-violet-50/40 p-4">
+          <div><h3 className="font-semibold text-violet-950">Cooperative farmer-wise receipt & quality</h3><p className="mt-1 text-sm text-violet-900">Record the actual quantity and inspection result for each farmer contribution. The combined B2B order total is not split automatically.</p></div>
+          {cooperativeContributionsQuery.isLoading ? <p className="text-sm text-slate-600">Loading farmer contributions…</p> : cooperativeContributionsQuery.isError ? <p className="text-sm text-red-700">Could not load cooperative contributions. Refresh before receiving this order.</p> : (cooperativeContributionRows[o.id] || []).length === 0 ? <p className="text-sm text-slate-600">No farmer contribution allocations were found for this cooperative order. Verify its accepted B2B supply allocation before receipt.</p> : <div className="space-y-3">{(cooperativeContributionRows[o.id] || []).map((line: any) => {
+            const key = o.id + ":" + line.id;
+            const current = form(key);
+            return <div key={line.id} className="rounded-lg border border-violet-100 bg-white p-3">
+              <div className="flex flex-wrap items-start justify-between gap-2"><div><p className="font-semibold text-slate-900">{line.farmerName}</p><p className="text-xs text-slate-500">{line.productName} · Assigned {line.assignedQuantityKg} kg · Accepted {line.acceptedQuantityKg} kg</p></div><Badge>{label(line.qualityStatus)}</Badge></div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                <div><label className="mb-1 block text-xs font-medium">Actual received (kg)</label><Input type="number" min="0" step="0.01" max={line.assignedQuantityKg} value={current.actualQuantityKg ?? String(line.actualQuantityKg ?? line.assignedQuantityKg)} onChange={e => setForm(key, { actualQuantityKg: e.target.value })}/></div>
+                <div><label className="mb-1 block text-xs font-medium">Quality result</label><select className="h-10 w-full rounded-md border bg-white px-3 text-sm" value={current.qualityCheck || (line.qualityStatus === "passed" || line.qualityStatus === "failed" ? line.qualityStatus : "passed")} onChange={e => setForm(key, { qualityCheck: e.target.value })}><option value="passed">Passed</option><option value="failed">Failed</option></select></div>
+                <div className="flex items-end"><Button size="sm" disabled={cooperativeContributionMutation.isPending || !(Number(current.actualQuantityKg ?? line.actualQuantityKg ?? line.assignedQuantityKg) >= 0) || Number(current.actualQuantityKg ?? line.actualQuantityKg ?? line.assignedQuantityKg) > Number(line.assignedQuantityKg)} onClick={() => cooperativeContributionMutation.mutate({ orderId: o.id, contributionId: line.id, payload: { actualQuantityKg: Number(current.actualQuantityKg ?? line.actualQuantityKg ?? line.assignedQuantityKg), qualityCheck: current.qualityCheck || (line.qualityStatus === "passed" || line.qualityStatus === "failed" ? line.qualityStatus : "passed"), notes: current.notes || "" } })}>Save farmer receipt</Button></div>
+              </div>
+              <Input className="mt-2" value={current.notes || line.notes || ""} onChange={e => setForm(key, { notes: e.target.value })} placeholder="Farmer-specific quality or shortage notes"/>
+            </div>;
+          })}</div>}
+        </section>}
+        {(!o.warehouseReceivedAt && !o.destinationReceivedAt && !o.receivedAtWarehouseId && !["warehouse_received", "transfer_in_transit", "destination_warehouse_received", "in_transit", "delivered", "completed"].includes(String(o.status || "").toLowerCase()) && (o.status === "picked_up" || ["warehouse_arrived", "arrived_warehouse", "departed_farm", "collected"].includes(String(o.warehouseFulfillmentStage || o.warehouseCollectionStatus || "").toLowerCase()))) && <section className="space-y-3 rounded-xl border bg-slate-50 p-4"><h3 className="font-medium"><PackageCheck className="mr-2 inline h-4 w-4"/>Warehouse receipt</h3><p className="text-sm text-slate-600">The pickup partner has collected this B2B order. Confirm the actual quantity received at this warehouse and the quality result here. This action updates the original B2B order; no separate Incoming Stock page is required for this workflow.</p><div className="grid gap-3 sm:grid-cols-2"><div><label className="mb-1 block text-sm font-medium">Actual received quantity (kg)</label><Input type="number" min="0.01" step="0.01" value={f.receivedQuantityKg ?? String(o.packedQuantityKg || o.quantityKg || "")} onChange={e => setForm(o.id, { receivedQuantityKg: e.target.value })}/></div><div><label className="mb-1 block text-sm font-medium">Quality inspection</label><select className="h-10 w-full rounded-md border bg-white px-3 text-sm" value={f.qualityCheck || "passed"} onChange={e => setForm(o.id, { qualityCheck: e.target.value })}><option value="passed">Passed</option><option value="failed">Failed</option></select></div></div><Input value={f.notes || ""} onChange={e => setForm(o.id, { notes: e.target.value })} placeholder="Receipt and inspection notes (optional)"/><Button disabled={mutation.isPending || !(Number(f.receivedQuantityKg ?? o.packedQuantityKg ?? o.quantityKg) > 0)} onClick={() => act(o.id, { action: "receive_stock", receivedQuantityKg: Number(f.receivedQuantityKg ?? o.packedQuantityKg ?? o.quantityKg), qualityCheck: f.qualityCheck || "passed", notes: f.notes })}><ClipboardCheck className="mr-2 h-4 w-4"/>Confirm Warehouse Receipt</Button></section>}
+
+        {o.status === "warehouse_received" && (
+          <section className="space-y-3 rounded-xl border bg-slate-50 p-4">
+            <h3 className="font-medium"><Warehouse className="mr-2 inline h-4 w-4" />Fulfillment routing</h3>
+            {o.warehouseQualityCheck !== "passed" ? (
+              <p className="text-sm text-red-700">Routing and dispatch are blocked until source warehouse quality is passed.</p>
+            ) : (
+              <>
+                <div className="flex flex-wrap gap-2">
+                  <Button variant={(routingMode[o.id] || "automatic") === "automatic" ? "default" : "outline"} onClick={() => setRoutingMode(prev => ({ ...prev, [o.id]: "automatic" }))}>Automatic routing</Button>
+                  <Button variant={routingMode[o.id] === "manual" ? "default" : "outline"} onClick={() => setRoutingMode(prev => ({ ...prev, [o.id]: "manual" }))}>Choose route manually</Button>
+                </div>
+                {(routingMode[o.id] || "automatic") === "automatic" ? (
+                  <div className="space-y-3">
+                    <p className="text-sm text-slate-600">Automatic routing compares the source warehouse district with the business delivery district. The 15 km threshold is not used for B2B orders.</p>
+                    {recommendationQuery.isLoading ? <p className="rounded-lg border bg-white p-3 text-sm">Calculating route…</p> :
+                     recommendationQuery.isError ? <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700"><p>{(recommendationQuery.error as any)?.message || "Automatic route lookup failed."}</p><Button variant="outline" onClick={() => recommendationQuery.refetch()}>Retry</Button></div> :
+                     !routeRecommendations[o.id]?.available ? <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><p>{routeRecommendations[o.id]?.reason || "Delivery address or warehouse coordinates are missing."}</p><Button variant="outline" disabled={recommendationQuery.isFetching} onClick={() => recommendationQuery.refetch()}>Retry Automatic Route</Button></div> :
+                     <div className="space-y-1 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900"><p className="font-medium">Recommended: {label(routeRecommendations[o.id].fulfillmentRoute)}</p><p>Actual source warehouse: {routeRecommendations[o.id].sourceWarehouseName || o.sourceWarehouseName || o.sourceWarehouseId || "Source warehouse not recorded"}</p><p>Destination: {routeRecommendations[o.id].fulfillmentRoute === "long_distance" ? routeRecommendations[o.id].destinationWarehouseName || "No designated warehouse for business district" : "Source district warehouse"}</p><p>Routing basis: District</p><p>Source district: {routeRecommendations[o.id].sourceDistrict || "Not configured"}</p><p>Business district: {routeRecommendations[o.id].businessDistrict || "Not configured"}</p>{routeRecommendations[o.id].destinationAvailableCapacityKg != null && <p>Destination available capacity: {routeRecommendations[o.id].destinationAvailableCapacityKg} kg</p>}<p>{routeRecommendations[o.id].reason}</p>
+                      {routeRecommendations[o.id].schedulePlan && <div className={`mt-2 rounded-md border p-2 ${routeRecommendations[o.id].schedulePlan.status === "urgent" ? "border-red-400 bg-red-50 text-red-950" : routeRecommendations[o.id].schedulePlan.status === "needs_review" ? "border-amber-300 bg-amber-50 text-amber-950" : "border-blue-200 bg-blue-50 text-blue-950"}`}>
+                        <p className="font-semibold">Delivery timing status: {routeRecommendations[o.id].schedulePlan.status === "urgent" ? "URGENT" : routeRecommendations[o.id].schedulePlan.status === "feasible" ? "ON TIME" : String(routeRecommendations[o.id].schedulePlan.status).replaceAll("_", " ").toUpperCase()}</p>
+                        {routeRecommendations[o.id].schedulePlan.currentTime && <p>Current time: {new Date(routeRecommendations[o.id].schedulePlan.currentTime + (routeRecommendations[o.id].schedulePlan.currentTime.endsWith("Z") ? "" : "Z")).toLocaleString()}</p>}
+                        {routeRecommendations[o.id].schedulePlan.estimatedTransitHours != null && <p>Estimated transfer time: {routeRecommendations[o.id].schedulePlan.estimatedTransitHours} hours ({routeRecommendations[o.id].schedulePlan.transitEstimateBasis === "configured" ? "configured warehouse value" : "distance-based estimate"})</p>}
+                        {routeRecommendations[o.id].schedulePlan.estimatedArrivalAt && <p>Estimated arrival at destination warehouse: {new Date(routeRecommendations[o.id].schedulePlan.estimatedArrivalAt + (routeRecommendations[o.id].schedulePlan.estimatedArrivalAt.endsWith("Z") ? "" : "Z")).toLocaleString()}</p>}
+                        {routeRecommendations[o.id].schedulePlan.deliveryDeadline && <p>Business delivery deadline: {new Date(routeRecommendations[o.id].schedulePlan.deliveryDeadline + (routeRecommendations[o.id].schedulePlan.deliveryDeadline.endsWith("Z") ? "" : "Z")).toLocaleString()}</p>}
+                        {routeRecommendations[o.id].schedulePlan.arrivalComparison && <p className="font-semibold">Estimated destination arrival is {routeRecommendations[o.id].schedulePlan.arrivalComparison === "after_deadline" ? "AFTER the business deadline" : "BEFORE the business deadline"}.</p>}
+                        {routeRecommendations[o.id].schedulePlan.transferDistanceKm != null && <p>Warehouse-to-warehouse distance: {routeRecommendations[o.id].schedulePlan.transferDistanceKm} km</p>}
+                        {routeRecommendations[o.id].schedulePlan.recommendedDispatchDate && <p>Target dispatch date: {routeRecommendations[o.id].schedulePlan.recommendedDispatchDate}</p>}
+                        <p>{routeRecommendations[o.id].schedulePlan.reason}</p>
+                      </div>}
+                    </div>}
+                     <Button disabled={mutation.isPending || !routeRecommendations[o.id]?.available} onClick={() => act(o.id, { action: "set_fulfillment_route", fulfillmentRoute: routeRecommendations[o.id]?.fulfillmentRoute, destinationWarehouseId: routeRecommendations[o.id]?.destinationWarehouseId, estimatedTransferHours: f.estimatedTransferHours ? Number(f.estimatedTransferHours) : (routeRecommendations[o.id]?.schedulePlan?.estimatedTransitHours != null ? Number(routeRecommendations[o.id].schedulePlan.estimatedTransitHours) : undefined), transferDispatchCutoff: f.transferDispatchCutoff ? new Date(f.transferDispatchCutoff).toISOString() : undefined, notes: "Automatic district-based route confirmed for B2B business order." })}>Confirm District Route</Button>
+                  </div>
+                ) : (
+                  <div className="space-y-3 rounded-lg border bg-white p-3">
+                    <p className="text-sm text-slate-600">Choose the route manually if needed. Server-side validation uses district matching, warehouse status and available capacity; distance does not determine B2B routing.</p>
+                    <div><label className="mb-1 block text-sm font-medium">Fulfillment route</label><select className="h-10 w-full rounded-md border bg-white px-3 text-sm" value={String(f.fulfillmentRoute || "")} onChange={e => setForm(o.id, { fulfillmentRoute: e.target.value, destinationWarehouseId: "" })}><option value="">Choose route</option><option value="nearby_single_farmer">Nearby — single farmer</option><option value="nearby_multi_farmer">Nearby — multiple farmers (consolidation)</option><option value="long_distance">Long distance — destination warehouse transfer</option></select></div>
+                    {f.fulfillmentRoute === "long_distance" && <div className="space-y-2"><Button variant="outline" disabled={destinationQuery.isFetching} onClick={() => setDestinationOrderId(o.id)}>Load eligible destination warehouses</Button>{destinationOrderId === o.id && (destinationQuery.isLoading ? <p className="text-sm">Checking capacity…</p> : destinationQuery.isError ? <p className="text-sm text-red-700">{(destinationQuery.error as any)?.message || "Could not load destinations."}</p> : <select className="h-10 w-full rounded-md border bg-white px-3 text-sm" value={String(f.destinationWarehouseId || "")} onChange={e => setForm(o.id, { destinationWarehouseId: e.target.value })}><option value="">Select destination</option>{destinationWarehouses.map((w: any) => <option key={String(w.id)} value={String(w.id)}>{w.name} · {w.district || w.districtName || "District not recorded"} · {w.availableCapacityKg} kg free</option>)}</select>)}</div>}
+                    <Button disabled={mutation.isPending || !f.fulfillmentRoute || (f.fulfillmentRoute === "long_distance" && (!f.destinationWarehouseId || !destinationWarehouses.some((w: any) => String(w.id) === String(f.destinationWarehouseId))))} onClick={() => act(o.id, { action: "set_fulfillment_route", fulfillmentRoute: f.fulfillmentRoute, destinationWarehouseId: f.fulfillmentRoute === "long_distance" ? f.destinationWarehouseId : undefined, notes: "Manually selected fulfillment route." })}>Save Manual Route</Button>
+                  </div>
+                )}
+                {o.fulfillmentRoute === "long_distance" && o.destinationWarehouseId && <section className="space-y-3 rounded-xl border border-blue-200 bg-blue-50 p-4"><h3 className="font-medium"><Truck className="mr-2 inline h-4 w-4"/>Inter-warehouse transfer dispatch</h3><p className="text-sm text-slate-700">Select a registered pickup/transfer team and its registered vehicle. Dispatch stays blocked until both are selected.</p><div><label className="mb-1 block text-sm font-medium">Registered transfer team</label><select className="h-10 w-full rounded-md border bg-white px-3 text-sm" value={String(f.transferTeam || "")} onChange={e => { const selected = teams.find((t: any) => String(t.deliveryPartnerId || t.userId || t.id || t._id) === e.target.value); setForm(o.id, { transferTeam: e.target.value, transferTeamName: selected?.name || selected?.fullName || "", transferVehicle: selected ? [selected.vehicleNumber, selected.vehicleRegistrationNumber, selected.registrationNumber, selected.vehicleType].filter(Boolean).join(" · ") : "" }); }}><option value="">Select registered transfer team</option>{teams.map((t: any) => <option key={String(t.deliveryPartnerId || t.userId || t.id || t._id)} value={String(t.deliveryPartnerId || t.userId || t.id || t._id)}>{t.name || t.fullName || "Transfer team"}{t.vehicleType ? ` · ${t.vehicleType}` : ""}{t.vehicleNumber ? ` · ${t.vehicleNumber}` : ""}</option>)}</select></div><div><label className="mb-1 block text-sm font-medium">Registered vehicle</label><div className="flex min-h-10 items-center rounded-md border bg-white px-3 text-sm">{f.transferVehicle || "Select a team to load its registered vehicle"}</div></div>{routeRecommendations[o.id]?.schedulePlan?.status === "urgent" && <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-sm text-amber-900">Urgent recovery: estimated arrival at the destination warehouse is after the business delivery deadline. Dispatch may proceed, but the destination warehouse must prioritize receipt, processing and final delivery. {routeRecommendations[o.id].schedulePlan.reason}</p>}{routeRecommendations[o.id]?.schedulePlan && routeRecommendations[o.id].schedulePlan.status === "needs_review" && <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-sm text-amber-900">Dispatch needs a valid delivery deadline and transfer-time estimate: {routeRecommendations[o.id].schedulePlan.reason}</p>}
+                <Button disabled={mutation.isPending || !f.transferTeam || !f.transferVehicle || !["feasible", "urgent"].includes(routeRecommendations[o.id]?.schedulePlan?.status) || !teams.some((t: any) => String(t.deliveryPartnerId || t.userId || t.id || t._id) === String(f.transferTeam))} onClick={() => act(o.id, { action: "dispatch_to_destination", transferTeam: f.transferTeam, transferTeamName: f.transferTeamName, transferVehicle: f.transferVehicle, notes: f.notes || "Inter-warehouse transfer dispatched with assigned registered team." })}>Dispatch to Destination Warehouse</Button></section>}
+                {o.fulfillmentRoute === "nearby_single_farmer" && <div className="space-y-3 rounded-lg border bg-white p-3"><p className="text-sm font-medium">Ready for direct delivery from source warehouse</p><label className="block text-sm font-medium">Registered delivery team</label><select className="h-10 w-full rounded-md border bg-white px-3 text-sm" value={String(f.deliveryPartner || o.finalDeliveryPartner || "")} onChange={e => setForm(o.id, { deliveryPartner: e.target.value })}><option value="">Select registered team</option>{teams.map((t: any) => <option key={String(t.deliveryPartnerId || t.id || t._id)} value={String(t.deliveryPartnerId || t.id || t._id)}>{t.name || t.fullName || "Delivery team"}{t.vehicleType ? ` · ${t.vehicleType}` : ""}{t.vehicleNumber ? ` · ${t.vehicleNumber}` : ""}</option>)}</select><Button disabled={mutation.isPending || !f.deliveryPartner || !teams.some((t: any) => [t.deliveryPartnerId, t.userId, t.user_id, t.id, t._id].filter((v: any) => v !== undefined && v !== null && v !== "").some((v: any) => String(v) === String(f.deliveryPartner)))} onClick={() => act(o.id, { action: "dispatch_to_buyer", deliveryPartner: f.deliveryPartner, notes: f.notes })}>Assign Delivery Team &amp; Dispatch</Button></div>}
+                {o.fulfillmentRoute === "nearby_multi_farmer" && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Consolidation is required. Delivery remains blocked until every required farmer portion is received, inspected and consolidation is completed.<div className="mt-2"><Button variant="outline" disabled={mutation.isPending} onClick={() => act(o.id, { action: "complete_consolidation", notes: f.notes })}>Verify Portions &amp; Complete Consolidation</Button></div></div>}
+              </>
+            )}
+          </section>
+        )}
+
+        {o.status === "transfer_in_transit" && o.transferPartnerStatus === "arrived_at_destination" && o.warehouseTransferSide === "destination_incoming" && <section className="space-y-3 rounded-xl border bg-slate-50 p-4"><h3 className="font-medium"><Warehouse className="mr-2 inline h-4 w-4"/>Destination warehouse receipt</h3>{String(o.sourceWarehouseId || "") === String(o.destinationWarehouseId || "") || !o.sourceWarehouseId || !o.destinationWarehouseId ? <div className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800"><p className="font-semibold">Invalid warehouse transfer — receipt blocked</p><p className="mt-1">Source and destination must be different, registered warehouses. This order currently shows source: {o.sourceWarehouseName || o.sourceWarehouseId || "missing"}; destination: {o.destinationWarehouseName || o.destinationWarehouseId || "missing"}. Do not confirm receipt until the actual dispatched destination is verified and the transfer record is corrected.</p></div> : <><div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900"><p className="font-medium">Receiving at: {o.destinationWarehouseName || o.destinationWarehouseId}</p><p>Dispatched from: {o.sourceWarehouseName || o.sourceWarehouseId}</p></div><div className="grid gap-3 sm:grid-cols-2"><div><label className="mb-1 block text-sm font-medium">Actual received quantity (kg)</label><Input type="number" min="0.01" step="0.01" value={f.receivedQuantityKg ?? String(o.receivedQuantityKg || o.quantityKg || "")} onChange={e => setForm(o.id, { receivedQuantityKg: e.target.value })}/></div><div><label className="mb-1 block text-sm font-medium">Quality inspection</label><select className="h-10 w-full rounded-md border bg-white px-3 text-sm" value={f.qualityCheck || "passed"} onChange={e => setForm(o.id, { qualityCheck: e.target.value })}><option value="passed">Passed</option><option value="failed">Failed</option></select></div></div><Input value={f.notes || ""} onChange={e => setForm(o.id, { notes: e.target.value })} placeholder="Destination receipt notes (optional)"/><Button disabled={mutation.isPending || !(Number(f.receivedQuantityKg ?? o.receivedQuantityKg ?? o.quantityKg) > 0)} onClick={() => act(o.id, { action: "receive_at_destination", receivedQuantityKg: Number(f.receivedQuantityKg ?? o.receivedQuantityKg ?? o.quantityKg), qualityCheck: f.qualityCheck || "passed", notes: f.notes })}>Confirm Destination Receipt</Button></>}</section>}
+
+        {o.status === "destination_warehouse_received" && o.warehouseTransferSide !== "source_outgoing" && <section className="space-y-3 rounded-xl border bg-slate-50 p-4"><h3 className="font-medium">Destination warehouse received</h3><p className="text-sm text-slate-600">Destination receipt is recorded. For a multi-farmer B2B order, all portions must arrive at this district warehouse and pass quality inspection before consolidation and final delivery.</p>{o.fulfillmentRoute === "long_distance" && Number(o.b2bFarmerCount || 1) > 1 && !o.consolidationCompletedAt && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><p className="font-medium">Multi-farmer consolidation check</p><p className="mt-1">Use this action when the B2B RFQ contains multiple farmer portions. The backend verifies every portion has reached the same destination district warehouse and passed quality inspection; single-farmer orders will be rejected by the server if consolidation is not required.</p><Button className="mt-2" variant="outline" disabled={mutation.isPending} onClick={() => act(o.id, { action: "complete_consolidation", notes: "Verify all B2B farmer portions at destination district warehouse." })}>Verify Portions &amp; Complete Consolidation</Button></div>}{o.destinationQualityCheck !== "passed" ? <p className="text-sm text-red-700">Final delivery blocked until destination quality is passed.</p> : <><div><label className="mb-1 block text-sm font-medium">Assign delivery team</label><select className="h-10 w-full rounded-md border bg-white px-3 text-sm" value={String(f.deliveryPartner || o.finalDeliveryPartner || "")} onChange={e => setForm(o.id, { deliveryPartner: e.target.value })}><option value="">Select a registered team</option>{teams.map((t: any) => <option key={String(t.deliveryPartnerId || t.id || t._id)} value={String(t.deliveryPartnerId || t.id || t._id)}>{t.name || t.fullName || "Delivery team"}{t.vehicleType ? ` · ${t.vehicleType}` : ""}{t.vehicleNumber ? ` · ${t.vehicleNumber}` : ""}</option>)}</select></div><Input value={f.notes || ""} onChange={e => setForm(o.id, { notes: e.target.value })} placeholder="Delivery notes (optional)"/><Button disabled={mutation.isPending || !(f.deliveryPartner || o.finalDeliveryPartner) || !teams.some((t: any) => String(t.deliveryPartnerId || t.userId || t.id || t._id) === String(f.deliveryPartner || o.finalDeliveryPartner)) || Boolean(Number(o.b2bFarmerCount || 1) > 1 && !o.consolidationCompletedAt)} onClick={() => act(o.id, { action: "dispatch_to_buyer", deliveryPartner: f.deliveryPartner || o.finalDeliveryPartner, notes: f.notes })}>Assign Final Delivery Team &amp; Dispatch</Button></>}</section>}
+
+        {o.status === "in_transit" && <section className="space-y-3 rounded-xl border bg-slate-50 p-4"><h3 className="font-medium"><Truck className="mr-2 inline h-4 w-4"/>Delivery to business</h3><p className="text-sm text-slate-600">Assigned delivery partner: {o.finalDeliveryPartnerName || o.finalDeliveryPartner || "Not recorded"}</p><Input value={f.notes || ""} onChange={e => setForm(o.id, { notes: e.target.value })} placeholder="Required proof of delivery / handoff notes"/><Button disabled={mutation.isPending || !String(f.notes || "").trim()} onClick={() => act(o.id, { action: "confirm_delivery", notes: f.notes })}><CheckCircle2 className="mr-2 h-4 w-4"/>Confirm Delivered to Business</Button></section>}
+
+        {["at_risk", "needs_review"].includes(routeRecommendations[o.id]?.schedulePlan?.status) && !["delivered", "completed", "cancelled"].includes(o.status) && <section className="space-y-3 rounded-xl border border-amber-300 bg-amber-50 p-4"><h3 className="font-semibold text-amber-950">Delivery deadline recovery</h3><p className="text-sm text-amber-900">This order needs an operational decision before dispatch. Confirm a new feasible business delivery date and morning time slot with the buyer, then record the agreed change here. Saving notifies the business buyer.</p><div className="grid gap-3 sm:grid-cols-2"><div><label className="mb-1 block text-sm font-medium">New delivery date</label><Input type="date" min={new Date().toISOString().slice(0, 10)} value={f.newDeliveryDeadline || ""} onChange={e => setForm(o.id, { newDeliveryDeadline: e.target.value })}/></div><div><label className="mb-1 block text-sm font-medium">New morning time slot</label><select className="h-10 w-full rounded-md border bg-white px-3 text-sm" value={f.newDeliveryTimeSlot || ""} onChange={e => setForm(o.id, { newDeliveryTimeSlot: e.target.value })}><option value="">Select agreed slot</option><option value="06:00-08:00">6:00–8:00 AM</option><option value="07:00-09:00">7:00–9:00 AM</option><option value="08:00-10:00">8:00–10:00 AM</option><option value="09:00-11:00">9:00–11:00 AM</option></select></div></div><div><label className="mb-1 block text-sm font-medium">Reason agreed with business</label><Input value={f.rescheduleReason || ""} onChange={e => setForm(o.id, { rescheduleReason: e.target.value })} placeholder="Explain the cutoff, transfer, or capacity issue"/></div><Button disabled={mutation.isPending || !f.newDeliveryDeadline || !f.newDeliveryTimeSlot || !String(f.rescheduleReason || "").trim()} onClick={() => act(o.id, { action: "reschedule_delivery", newDeliveryDeadline: f.newDeliveryDeadline, newDeliveryTimeSlot: f.newDeliveryTimeSlot, rescheduleReason: f.rescheduleReason })}>Save agreed schedule &amp; notify business</Button></section>}
+         {["delivered", "completed"].includes(o.status) && <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">Business delivery recorded. Final status: {label(o.status)}.</p>}
+        </>}
+      </CardContent></Card>;
+    })}</div></div>
+      </aside>
+    </div>}
+
+  </div>;
+}

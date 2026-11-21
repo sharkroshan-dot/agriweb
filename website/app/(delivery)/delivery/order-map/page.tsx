@@ -2,11 +2,14 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CheckCircle,
   Crosshair,
+  PackageCheck,
+  QrCode,
   Loader2,
   MapPin,
   Navigation,
@@ -130,8 +133,9 @@ const contactCustomer = (phone?: string) => {
   window.location.href = `tel:${phone.replace(/[^\d+]/g, "")}`;
 };
 
-export default function DeliveryOrderMapPage() {
+export default function DeliveryOrderMapPage({ compact = false }: { compact?: boolean }) {
   const queryClient = useQueryClient();
+  const router = useRouter();
   const { data: session } = useSession();
   const accessToken = (session as any)?.accessToken;
   const [radiusKm, setRadiusKm] = useState<RadiusFilter>(10);
@@ -142,6 +146,8 @@ export default function DeliveryOrderMapPage() {
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [acceptingOrderId, setAcceptingOrderId] = useState<string | null>(null);
   const [acceptingRoute, setAcceptingRoute] = useState(false);
+  const [processingOrder, setProcessingOrder] = useState(false);
+  const [selectedRouteOrderIds, setSelectedRouteOrderIds] = useState<string[]>([]);
   const lastLocationSyncAt = useRef(0);
 
   const todayQuery = useQuery({
@@ -244,29 +250,37 @@ export default function DeliveryOrderMapPage() {
 
   const allOrders = useMemo(() => {
     const todayOrders = asArray(todayQuery.data?.data?.deliveries || todayQuery.data?.deliveries || todayQuery.data?.data);
-    const dashboardOrders = asArray(dashboardQuery.data?.data?.todayDeliveries || dashboardQuery.data?.todayDeliveries);
     const assignmentOrders = asArray(
       assignmentsQuery.data?.data?.assignments
       || assignmentsQuery.data?.data?.deliveries
+      || assignmentsQuery.data?.data?.data
       || assignmentsQuery.data?.assignments
       || assignmentsQuery.data?.data
     );
     const nearbyOrders = asArray(nearbyQuery.data?.data?.orders || nearbyQuery.data?.orders || nearbyQuery.data?.data);
     const merged = new globalThis.Map<string, any>();
 
-    [...nearbyOrders, ...assignmentOrders, ...todayOrders, ...dashboardOrders].forEach((order) => {
+    // Nearby endpoint returns only unassigned ready orders; today/assignments
+    // endpoints return only this authenticated partner's own jobs.
+    [...nearbyOrders, ...assignmentOrders, ...todayOrders].forEach((order) => {
       const id = getOrderId(order);
       if (!id || merged.has(id)) return;
       merged.set(id, order);
     });
 
     return [...merged.values()];
-  }, [assignmentsQuery.data, dashboardQuery.data, nearbyQuery.data, todayQuery.data]);
+  }, [assignmentsQuery.data, nearbyQuery.data, todayQuery.data]);
 
   const visibleOrders = useMemo(() => (
     allOrders
       .filter((order) => !HIDDEN_STATUSES.includes(getStatus(order)))
-      .filter((order) => radiusKm === "all" || canAcceptOrder(order))
+      // Radius limits only the unassigned marketplace. Existing jobs owned by
+      // this partner remain visible even when outside the discovery radius.
+      .filter((order) => !canAcceptOrder(order) || radiusKm === "all" || (() => {
+        const coords = getCoordinates(order);
+        if (!liveLocation || !coords) return true;
+        return distanceBetweenKm(liveLocation, coords) <= radiusKm;
+      })())
       .map((order) => {
         const coordinates = getCoordinates(order);
         const distanceFromPartnerKm = liveLocation && coordinates
@@ -278,11 +292,29 @@ export default function DeliveryOrderMapPage() {
           distanceFromPartnerKm: Number.isFinite(distanceFromPartnerKm) ? distanceFromPartnerKm : null,
         };
       })
-      .filter((order) => radiusKm === "all" || !liveLocation || order.distanceFromPartnerKm == null || order.distanceFromPartnerKm <= radiusKm)
+      .filter((order) => !canAcceptOrder(order) || radiusKm === "all" || !liveLocation || order.distanceFromPartnerKm == null || order.distanceFromPartnerKm <= radiusKm)
       .sort((a, b) => Number(a.distanceFromPartnerKm ?? 9999) - Number(b.distanceFromPartnerKm ?? 9999))
   ), [allOrders, liveLocation, radiusKm]);
 
   const acceptReadyOrders = useMemo(() => visibleOrders.filter(canAcceptOrder), [visibleOrders]);
+  const selectedRouteOrders = useMemo(() => visibleOrders.filter((order) => selectedRouteOrderIds.includes(getOrderId(order))), [visibleOrders, selectedRouteOrderIds]);
+  const selectableRouteOrders = useMemo(() => visibleOrders.filter(canAcceptOrder), [visibleOrders]);
+  const toggleRouteOrder = (orderId: string) => setSelectedRouteOrderIds((current) => current.includes(orderId) ? current.filter((id) => id !== orderId) : [...current, orderId]);
+  const handleProceedToRoute = async () => {
+    if (!selectedRouteOrderIds.length) { toast.error("Select at least one order to build your route"); return; }
+    setAcceptingRoute(true);
+    try {
+      for (const order of selectedRouteOrders) {
+        if (!canAcceptOrder(order)) continue;
+        const orderId = getOrderId(order); const assignmentId = getAssignmentId(order);
+        const response = assignmentId ? await api.put("/delivery/assignments/" + assignmentId + "/accept") : await api.put("/delivery/orders/" + orderId + "/accept");
+        if (response?.success === false) throw new Error(response?.detail || "Could not accept " + orderId);
+      }
+      await refetchOrders();
+      router.push("/delivery/route?orderIds=" + encodeURIComponent(selectedRouteOrderIds.join(",")));
+    } catch (error: any) { toast.error(error?.message || "Could not prepare the selected route"); }
+    finally { setAcceptingRoute(false); }
+  };
 
   const selectedOrder = visibleOrders.find((order) => getOrderId(order) === selectedOrderId) || visibleOrders[0] || null;
 
@@ -344,6 +376,48 @@ export default function DeliveryOrderMapPage() {
     }
   };
 
+  const refreshDeliveryData = async () => {
+    await Promise.all([
+      todayQuery.refetch(),
+      dashboardQuery.refetch(),
+      assignmentsQuery.refetch(),
+      nearbyQuery.refetch(),
+      queryClient.invalidateQueries({ queryKey: ["deliveryDashboardFallback"] }),
+    ]);
+  };
+
+  const handleSelectedWorkflowAction = async (action: "pickup" | "dispatch" | "deliver") => {
+    if (!selectedOrder) return;
+    const assignmentId = getAssignmentId(selectedOrder);
+    if (!assignmentId) {
+      toast.error("A delivery assignment is required for this action.");
+      return;
+    }
+    let otp = "";
+    if (action === "deliver") {
+      const entered = window.prompt("Enter the customer's 6-digit delivery OTP. If QR was already verified, leave blank.");
+      if (entered === null) return;
+      otp = entered.trim();
+      if (otp && !/^\\d{6}$/.test(otp)) {
+        toast.error("Enter a valid 6-digit delivery OTP.");
+        return;
+      }
+    }
+    setProcessingOrder(true);
+    try {
+      const response = action === "pickup"
+        ? await api.put(`/delivery/assignments/${assignmentId}/pickup`)
+        : await api.put(`/delivery/assignments/${assignmentId}/deliver`, action === "deliver" ? { otp } : undefined);
+      if (response?.success === false) throw new Error(response?.detail || "Could not update delivery");
+      toast.success(action === "pickup" ? "Pickup confirmed" : action === "dispatch" ? "Order dispatched and now in transit" : "Delivery completed");
+      await refreshDeliveryData();
+    } catch (error: any) {
+      toast.error(error?.message || "Could not update delivery");
+    } finally {
+      setProcessingOrder(false);
+    }
+  };
+
   const isLoading = todayQuery.isLoading || assignmentsQuery.isLoading;
   const routeOrderIds = acceptReadyOrders.map(getOrderId).filter(Boolean);
   const routeHref = `/delivery/route?orderIds=${encodeURIComponent(routeOrderIds.join(","))}${radiusKm === "all" ? "" : `&radius=${radiusKm}`}`;
@@ -352,10 +426,10 @@ export default function DeliveryOrderMapPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      {!compact && <div className="delivery-page-header flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="text-sm font-medium text-primary">Delivery workbench</p>
-          <h1 className="text-3xl font-semibold tracking-tight">Order Map</h1>
+          <h1 className="delivery-page-title text-3xl font-semibold tracking-tight">Order Map</h1>
           <p className="mt-1 text-sm text-muted-foreground">View available delivery orders by location and accept them from one place.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -385,9 +459,9 @@ export default function DeliveryOrderMapPage() {
             Refresh
           </Button>
         </div>
-      </div>
+      </div>}
 
-      <div className="grid gap-4 md:grid-cols-3">
+      {!compact && <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardContent className="flex items-center justify-between p-4">
             <div>
@@ -416,9 +490,22 @@ export default function DeliveryOrderMapPage() {
             <Crosshair className="h-5 w-5 text-muted-foreground" />
           </CardContent>
         </Card>
-      </div>
+      </div>}
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.8fr)]">
+      {compact && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-100 bg-white p-3 shadow-sm">
+        <div>
+          <p className="text-sm font-semibold text-slate-900">Live Order Map</p>
+          <p className="text-xs text-muted-foreground">{visibleOrders.length} orders within {radiusKm === "all" ? "all areas" : `${radiusKm} km`} · {liveLocation ? "GPS active" : "Waiting for location"}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {RADIUS_OPTIONS.map((distance) => <Button key={distance} size="sm" variant={radiusKm === distance ? "default" : "outline"} onClick={() => setRadiusKm(distance)}>{distance} km</Button>)}
+          <Button size="sm" variant={radiusKm === "all" ? "default" : "outline"} onClick={() => setRadiusKm("all")}>All</Button>
+          <Button size="sm" variant="outline" onClick={requestLiveLocation} disabled={locationLoading}>{locationLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Crosshair className="h-4 w-4" />}<span className="ml-1">Locate</span></Button>
+          <Button size="sm" variant="outline" onClick={refetchOrders}><RefreshCw className="mr-1 h-4 w-4" />Refresh</Button>
+        </div>
+      </div>}
+
+      <div className={compact ? "grid gap-3 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]" : "grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.8fr)]"}>
         <Card>
           <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -434,35 +521,45 @@ export default function DeliveryOrderMapPage() {
               </Button>
             )}
           </CardHeader>
-          <CardContent className="p-0">
+          <CardContent className="relative p-0">
             {isLoading ? (
-              <div className="h-[560px] animate-pulse rounded-b-lg bg-muted" />
-            ) : visibleOrders.length === 0 ? (
-              <div className="flex h-[420px] flex-col items-center justify-center gap-3 rounded-b-lg border-t bg-muted/20 p-6 text-center">
-                <MapPin className="h-10 w-10 text-muted-foreground" />
-                <div>
-                  <p className="font-medium">No available orders on the map</p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {liveLocation && radiusKm !== "all" ? `Try increasing the ${radiusKm} km radius, choose All, or refresh orders.` : "Allow location access to find nearby orders."}
-                  </p>
-                </div>
-              </div>
+              <div className={compact ? "h-[520px] animate-pulse rounded-b-lg bg-muted" : "h-[560px] animate-pulse rounded-b-lg bg-muted"} />
             ) : (
-              <Map
-                center={mapCenter}
-                zoom={12}
-                markers={mapMarkers}
-                trackUserLocation
-                userLocation={liveLocation}
-                height="560px"
-                onMarkerClick={(marker) => setSelectedOrderId(String(marker.id))}
-              />
+              <>
+                <Map
+                  center={mapCenter}
+                  zoom={radiusKm === "all" ? 11 : Math.max(9, 14 - Math.round(Math.log2(Number(radiusKm) || 10) / 2))}
+                  markers={mapMarkers}
+                  trackUserLocation
+                  userLocation={liveLocation}
+                  circle={radiusKm === "all" ? undefined : { center: liveLocation || FALLBACK_CENTER, radiusKm }}
+                  height={compact ? "520px" : "560px"}
+                  onMarkerClick={(marker) => setSelectedOrderId(String(marker.id))}
+                />
+                {visibleOrders.length === 0 && (
+                  <div className="pointer-events-none absolute inset-x-3 bottom-3 z-10 flex justify-center">
+                    <div className="max-w-lg rounded-xl border border-amber-200 bg-white/95 px-4 py-3 text-center shadow-lg backdrop-blur">
+                      <p className="text-sm font-semibold text-slate-900">
+                        {liveLocation
+                          ? radiusKm === "all" ? "No available delivery orders right now" : `No available orders within ${radiusKm} km`
+                          : "Waiting for your current location"}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-600">
+                        {liveLocation
+                          ? "The map and radius are still visible. Try a larger radius or refresh to check again."
+                          : "Enable location access to draw the radius around you and find nearby orders."}
+                      </p>
+                      {locationError && <p className="mt-1 text-xs font-medium text-rose-600">Location permission is unavailable. Use Locate to try again.</p>}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </CardContent>
         </Card>
 
-        <div className="space-y-4">
-          <Card>
+        <div className={compact ? "grid gap-3 xl:grid-cols-2 xl:items-start" : "space-y-4"}>
+          <Card className={compact ? "xl:order-2" : ""}>
             <CardHeader>
               <CardTitle>Selected Order</CardTitle>
               <CardDescription>Accept one order or build a route from all visible orders.</CardDescription>
@@ -486,32 +583,45 @@ export default function DeliveryOrderMapPage() {
                       <p className="mt-1 text-sm text-muted-foreground">Order value: Rs {selectedOrder.totalAmount}</p>
                     )}
                   </div>
-                  <div className="flex flex-col gap-2 sm:flex-row">
+                  <div className="space-y-2">
                     {canAcceptOrder(selectedOrder) && (
-                      <Button
-                        className="flex-1"
-                        onClick={() => handleAccept(selectedOrder)}
-                        disabled={acceptingOrderId === getOrderId(selectedOrder) || acceptingRoute}
-                      >
-                        {acceptingOrderId === getOrderId(selectedOrder) ? (
-                          <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                        ) : (
-                          <CheckCircle className="mr-1.5 h-4 w-4" />
-                        )}
-                        Accept
+                      <Button className="w-full" onClick={() => handleAccept(selectedOrder)} disabled={acceptingOrderId === getOrderId(selectedOrder) || acceptingRoute}>
+                        {acceptingOrderId === getOrderId(selectedOrder) ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-1.5 h-4 w-4" />}
+                        Accept Delivery
                       </Button>
                     )}
-                    <Button variant="outline" onClick={() => contactCustomer(selectedOrder.customerPhone || selectedOrder.customer?.phone)}>
-                      <Phone className="mr-1.5 h-4 w-4" />
-                      Call
-                    </Button>
+                    {getStatus(selectedOrder) === "accepted" && (
+                      <Button className="w-full" onClick={() => handleSelectedWorkflowAction("pickup")} disabled={processingOrder}>
+                        <PackageCheck className="mr-1.5 h-4 w-4" />Confirm Pickup
+                      </Button>
+                    )}
+                    {getStatus(selectedOrder) === "picked_up" && (
+                      <Button className="w-full" onClick={() => handleSelectedWorkflowAction("dispatch")} disabled={processingOrder}>
+                        <Navigation className="mr-1.5 h-4 w-4" />Dispatch & Start Transit
+                      </Button>
+                    )}
+                    {getStatus(selectedOrder) === "in_transit" && (
+                      <Button className="w-full" onClick={() => handleSelectedWorkflowAction("deliver")} disabled={processingOrder}>
+                        <CheckCircle className="mr-1.5 h-4 w-4" />Confirm Delivery (OTP)
+                      </Button>
+                    )}
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant="outline" onClick={() => contactCustomer(selectedOrder.customerPhone || selectedOrder.customer?.phone)}>
+                        <Phone className="mr-1.5 h-4 w-4" />Call Customer
+                      </Button>
+                      <Button asChild variant="outline">
+                        <Link href={`/delivery/route?orderId=${encodeURIComponent(getOrderId(selectedOrder))}`}>
+                          <Navigation className="mr-1.5 h-4 w-4" />Navigate
+                        </Link>
+                      </Button>
+                    </div>
                   </div>
                 </div>
               )}
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className={compact ? "xl:order-1" : ""}>
             <CardHeader>
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -531,12 +641,9 @@ export default function DeliveryOrderMapPage() {
                   const orderId = getOrderId(order);
                   const selected = orderId === selectedOrderId || (!selectedOrderId && index === 0);
                   return (
-                    <button
-                      key={orderId}
-                      type="button"
-                      onClick={() => setSelectedOrderId(orderId)}
-                      className={`w-full rounded-lg border p-3 text-left transition ${selected ? "border-emerald-500 bg-emerald-50" : "bg-white hover:bg-slate-50"}`}
-                    >
+                    <div key={orderId} className="flex w-full items-start gap-3 rounded-lg border bg-white p-3">
+                      <input type="checkbox" aria-label="Add order to route" checked={selectedRouteOrderIds.includes(orderId)} disabled={!canAcceptOrder(order)} onChange={() => toggleRouteOrder(orderId)} className="mt-1 h-4 w-4 shrink-0 accent-emerald-600" />
+                      <button type="button" onClick={() => setSelectedOrderId(orderId)} className="min-w-0 flex-1 text-left">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <p className="truncate text-sm font-semibold">{index + 1}. {order.customerName || order.orderNumber || "Delivery order"}</p>
@@ -548,7 +655,8 @@ export default function DeliveryOrderMapPage() {
                         )}
                         <Badge variant={canAcceptOrder(order) ? "success" : "outline"}>{getStatus(order).replace(/_/g, " ") || "unknown"}</Badge>
                       </div>
-                    </button>
+                      </button>
+                    </div>
                   );
                 })
               )}
@@ -556,6 +664,21 @@ export default function DeliveryOrderMapPage() {
           </Card>
         </div>
       </div>
+      <Card className="border-emerald-200 bg-emerald-50/40">
+        <CardHeader className="pb-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div><CardTitle>Selected Orders for Route</CardTitle><CardDescription>{selectedRouteOrderIds.length} selected · Choose nearby orders above, then continue to route planning.</CardDescription></div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" onClick={() => setSelectedRouteOrderIds(selectableRouteOrders.map(getOrderId))} disabled={!selectableRouteOrders.length}>Select All Available</Button>
+              <Button variant="ghost" size="sm" onClick={() => setSelectedRouteOrderIds([])} disabled={!selectedRouteOrderIds.length}>Clear Selection</Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {selectedRouteOrders.length ? <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">{selectedRouteOrders.map((order, index) => <div key={getOrderId(order)} className="flex items-center justify-between gap-2 rounded-lg border bg-white p-3"><div className="min-w-0"><p className="text-sm font-semibold">{index + 1}. {order.customerName || order.orderNumber || "Delivery order"}</p><p className="truncate text-xs text-muted-foreground">{formatAddress(getDeliveryAddress(order))}</p></div><Button size="sm" variant="ghost" onClick={() => toggleRouteOrder(getOrderId(order))}>Remove</Button></div>)}</div> : <p className="rounded-lg border border-dashed bg-white px-4 py-6 text-center text-sm text-muted-foreground">No orders selected. Select one or more available orders from the list to create a delivery route.</p>}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3"><p className="text-xs text-muted-foreground">Selected ready orders will be accepted before opening the route. Existing accepted orders keep their current status.</p><Button onClick={handleProceedToRoute} disabled={!selectedRouteOrderIds.length || acceptingRoute}>{acceptingRoute ? "Preparing Route..." : "Proceed to Delivery Route (" + selectedRouteOrderIds.length + ")"}</Button></div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

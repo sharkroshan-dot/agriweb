@@ -316,8 +316,16 @@ class ProductService:
     
     @staticmethod
     async def update_product(product_id: str, data: ProductUpdate) -> Optional[Dict[str, Any]]:
-        """Update product."""
-        # Check if product exists
+        """Update a product from either a ProductUpdate model or an internal update dictionary."""
+        # API patch requests use ProductUpdate, while lifecycle operations inside
+        # product creation pass dictionaries containing fields such as status,
+        # qualityStatus and batchId that are intentionally not part of ProductUpdate.
+        if isinstance(data, dict):
+            update_data = dict(data)
+        else:
+            update_data = data.dict(exclude_unset=True)
+
+        # Check if product exists.
         product = await product_repository.get_by_id(product_id)
         if not product:
             return None
@@ -326,45 +334,46 @@ class ProductService:
         # independently verified grade to hide quality issues; they must create
         # a new batch/lot instead.
         from app.core.quality import VERIFICATION_STATUS_VERIFIED, VERIFICATION_STATUS_BUYER
-        update_data = data.dict(exclude_unset=True)
         if product.get("verificationStatus") in (VERIFICATION_STATUS_VERIFIED, VERIFICATION_STATUS_BUYER):
             if "qualityGrade" in update_data and update_data["qualityGrade"] != product.get("qualityGrade"):
                 return None
-            if "qualityGrade" in update_data:
-                update_data.pop("qualityGrade", None)
+            update_data.pop("qualityGrade", None)
 
-        # Check if slug is unique
-        if data.slug:
-            existing = await product_repository.get_by_slug(data.slug)
+        # Check if slug is unique when one is provided.
+        slug = update_data.get("slug")
+        if slug:
+            existing = await product_repository.get_by_slug(slug)
             if existing and str(existing["_id"]) != product_id:
                 return None
 
-        update_data = data.dict(exclude_unset=True)
         ProductService._enrich_location_fields(update_data)
         success = await product_repository.update_product(product_id, update_data)
         if not success:
             return None
-        
-        # Sync quantity to inventory record
-        if data.quantity is not None:
+
+        # Sync quantity to inventory record only when quantity is part of this update.
+        quantity = update_data.get("quantity")
+        unit = update_data.get("unit") or product.get("unit", "kg")
+        if quantity is not None:
             await inventory_repository.ensure_inventory_exists(
-                product_id, str(product["farmerId"]), data.quantity, data.unit or product.get("unit", "kg")
+                product_id, str(product["farmerId"]), quantity, unit
             )
-        
-        # Update price history if price changed
-        if data.price is not None and data.price != product.get("price"):
+
+        # Update price history if price changed.
+        price = update_data.get("price")
+        if price is not None and price != product.get("price"):
             await price_history_repository.create_price_history({
                 "productId": ObjectId(product_id),
-                "price": data.price,
+                "price": price,
                 "date": datetime.utcnow()
             })
 
-        # Fire back-in-stock / price-drop alerts
+        # Fire back-in-stock / price-drop alerts.
         from app.services.product_alert_service import product_alert_service
         await product_alert_service.check_and_notify(product_id)
-        
+
         return await product_repository.get_by_id(product_id)
-    
+
     @staticmethod
     async def delete_product(product_id: str) -> bool:
         """Delete product."""
