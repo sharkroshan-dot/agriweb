@@ -350,15 +350,16 @@ export function FarmerQualityPanel() {
       </Card>
 
       {(() => {
-        const evidenceQueue = apiRecords.filter((r: any) => !["approved", "rejected"].includes(r.inspectionStatus || ""));
-        const awaitingReview = evidenceQueue.filter((r: any) => ["evidence_submitted", "in_progress"].includes(r.inspectionStatus || "")).length;
+        const evidenceQueue = apiRecords.filter((r: any) => !["approved", "rejected", "verified", "buyer_verified"].includes(String(r.inspectionStatus || r.verificationStatus || "").toLowerCase()));
+        const awaitingReview = evidenceQueue.filter((r: any) => getEvidenceStatus(r) === "awaiting").length;
         const needsEvidence = evidenceQueue.length - awaitingReview;
-        const uploadable = evidenceQueue.filter((r: any) => !["evidence_submitted", "in_progress"].includes(r.inspectionStatus || ""));
-        const selectedEvidence = uploadable.find((r: any) => r.id === selectedEvidenceId) || uploadable[0];
+        const uploadable = evidenceQueue.filter((r: any) => getEvidenceStatus(r) === "required");
+        const selectedEvidence = evidenceQueue.find((r: any) => r.id === selectedEvidenceId) || uploadable[0] || evidenceQueue[0];
+        const selectedNeedsEvidence = selectedEvidence ? getEvidenceStatus(selectedEvidence) === "required" : false;
         const selectedFiles = selectedEvidence ? evidenceFiles[selectedEvidence.id] || [] : [];
         const isUploadingThis = selectedEvidence && evidenceMutation.isPending && evidenceMutation.variables?.id === selectedEvidence.id;
         return (
-          <Card className="h-full overflow-hidden border-slate-200 shadow-sm">
+          <Card id="evidence-submission" className="h-full scroll-mt-24 overflow-hidden border-slate-200 shadow-sm">
             <CardHeader className="border-b border-slate-100 bg-white px-4 py-3">
               <div className="flex items-center gap-3">
                 <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><Camera className="h-5 w-5" /></span>
@@ -370,7 +371,7 @@ export function FarmerQualityPanel() {
             </CardHeader>
             <CardContent className="space-y-2 p-3">
               {evidenceQueue.map((r: any) => {
-                const submitted = ["evidence_submitted", "in_progress"].includes(r.inspectionStatus || "");
+                const submitted = getEvidenceStatus(r) === "awaiting";
                 const active = selectedEvidence?.id === r.id;
                 return (
                   <button key={r.id} type="button" onClick={() => !submitted && setSelectedEvidenceId(r.id)} disabled={submitted}
@@ -390,34 +391,29 @@ export function FarmerQualityPanel() {
                 <div className="rounded-lg border border-dashed border-slate-200 px-3 py-5 text-center text-xs text-slate-500">No evidence submissions pending. Request an inspection for a harvest batch when it is ready.</div>
               )}
               {selectedEvidence && (
-                <div className="grid gap-2 border-t border-slate-100 pt-3 sm:grid-cols-[minmax(0,0.9fr)_minmax(180px,1fr)_auto] sm:items-end">
-                  <div>
-                    <label htmlFor={`evidence-${selectedEvidence.id}`} className="flex min-h-[68px] cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50/70 px-2 py-2 text-center transition hover:border-emerald-400 hover:bg-emerald-50/40">
-                      <Camera className="mb-1 h-5 w-5 text-emerald-700" />
-                      <span className="text-xs font-semibold text-slate-700">Choose photos or video</span>
-                      <span className="text-[10px] text-slate-500">JPG, PNG, MP4, WEBM, MOV · Max 50 MB per file</span>
-                    </label>
-                    <input id={`evidence-${selectedEvidence.id}`} type="file" accept="image/*,video/mp4,video/webm,video/quicktime" multiple
-                      onChange={e => { const chosen = Array.from(e.target.files || []); if (chosen.length) setEvidenceFiles(current => ({ ...current, [selectedEvidence.id]: [...(current[selectedEvidence.id] || []), ...chosen] })); e.currentTarget.value = ""; }}
-                      className="sr-only" />
-                    {selectedFiles.length > 0 && (
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        {selectedFiles.map((file, index) => (
-                          <span key={`${file.name}-${file.lastModified}-${index}`} className="inline-flex max-w-full items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[10px] text-slate-600">
-                            <span className="max-w-[120px] truncate">{file.name}</span>
-                            <button type="button" aria-label={`Remove ${file.name}`} onClick={() => setEvidenceFiles(current => ({ ...current, [selectedEvidence.id]: (current[selectedEvidence.id] || []).filter((_, fileIndex) => fileIndex !== index) }))}><XCircle className="h-3 w-3 text-rose-600" /></button>
-                          </span>
-                        ))}
+                <div className="space-y-3 border-t border-slate-100 pt-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-slate-900">{selectedEvidence.cropName || "Harvest batch"} · {selectedEvidence.lotNumber || "Lot pending"}</p>
+                      <p className="text-[11px] text-slate-500">{selectedEvidence.weightKg || 0} kg · {selectedEvidence.photos?.length || 0} photos · {selectedEvidence.videos?.length || 0} videos</p>
+                    </div>
+                    {selectedNeedsEvidence ? <Badge variant="warning">Evidence required</Badge> : <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">Awaiting warehouse review</Badge>}
+                  </div>
+                  {selectedNeedsEvidence ? (
+                    <div className="grid gap-2 sm:grid-cols-[minmax(0,0.9fr)_minmax(180px,1fr)_auto] sm:items-end">
+                      <div>
+                        <label htmlFor={`evidence-${selectedEvidence.id}`} className="flex min-h-[68px] cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50/70 px-2 py-2 text-center transition hover:border-emerald-400 hover:bg-emerald-50/40">
+                          <Camera className="mb-1 h-5 w-5 text-emerald-700" />
+                          <span className="text-xs font-semibold text-slate-700">Choose photos or video</span>
+                          <span className="text-[10px] text-slate-500">JPG, PNG, MP4, WEBM, MOV · Max 50 MB per file</span>
+                        </label>
+                        <input id={`evidence-${selectedEvidence.id}`} type="file" accept="image/*,video/mp4,video/webm,video/quicktime" multiple onChange={e => { const chosen = Array.from(e.target.files || []); if (chosen.length) setEvidenceFiles(current => ({ ...current, [selectedEvidence.id]: [...(current[selectedEvidence.id] || []), ...chosen] })); e.currentTarget.value = ""; }} className="sr-only" />
+                        {selectedFiles.length > 0 && <div className="mt-2 flex flex-wrap gap-1.5">{selectedFiles.map((file, index) => <span key={`${file.name}-${file.lastModified}-${index}`} className="inline-flex max-w-full items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[10px] text-slate-600"><span className="max-w-[120px] truncate">{file.name}</span><button type="button" aria-label={`Remove ${file.name}`} onClick={() => setEvidenceFiles(current => ({ ...current, [selectedEvidence.id]: (current[selectedEvidence.id] || []).filter((_, fileIndex) => fileIndex !== index) }))}><XCircle className="h-3 w-3 text-rose-600" /></button></span>)}</div>}
                       </div>
-                    )}
-                  </div>
-                  <div>
-                    <label htmlFor={`evidence-notes-${selectedEvidence.id}`} className="mb-1 block text-[11px] font-semibold text-slate-600">Note for warehouse (optional)</label>
-                    <textarea id={`evidence-notes-${selectedEvidence.id}`} value={evidenceNotes[selectedEvidence.id] || ""} onChange={e => setEvidenceNotes(current => ({ ...current, [selectedEvidence.id]: e.target.value }))} placeholder="Mention visible defects, harvest time or handling details…" rows={2} className="min-h-[68px] w-full resize-y rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100" />
-                  </div>
-                  <Button size="sm" className="h-10 w-full sm:w-auto" onClick={() => evidenceMutation.mutate({ id: selectedEvidence.id, files: selectedFiles, notes: evidenceNotes[selectedEvidence.id] || "" })} disabled={evidenceMutation.isPending || selectedFiles.length === 0}>
-                    {isUploadingThis ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Uploading…</> : "Submit for warehouse review"}
-                  </Button>
+                      <div><label htmlFor={`evidence-notes-${selectedEvidence.id}`} className="mb-1 block text-[11px] font-semibold text-slate-600">Note for warehouse (optional)</label><textarea id={`evidence-notes-${selectedEvidence.id}`} value={evidenceNotes[selectedEvidence.id] || ""} onChange={e => setEvidenceNotes(current => ({ ...current, [selectedEvidence.id]: e.target.value }))} placeholder="Mention visible defects, harvest time or handling details…" rows={2} className="min-h-[68px] w-full resize-y rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100" /></div>
+                      <Button size="sm" className="h-10 w-full sm:w-auto" onClick={() => evidenceMutation.mutate({ id: selectedEvidence.id, files: selectedFiles, notes: evidenceNotes[selectedEvidence.id] || "" })} disabled={evidenceMutation.isPending || selectedFiles.length === 0}>{isUploadingThis ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Uploading…</> : "Submit for warehouse review"}</Button>
+                    </div>
+                  ) : <p className="rounded-lg border border-emerald-100 bg-emerald-50/60 px-3 py-3 text-xs text-emerald-800">Your evidence has been submitted. The warehouse quality team must complete the review before this batch can proceed to product listing.</p>}
                 </div>
               )}
               <div className="flex flex-wrap gap-3 border-t border-slate-100 pt-2 text-[11px]">
