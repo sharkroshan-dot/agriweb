@@ -39,7 +39,8 @@ const resolveQualityMediaUrl = (value?: string | null) => {
   if (!value) return "";
   const url = String(value).trim();
   if (!url) return "";
-  if (/^(data:|blob:|https?:\/\/)/i.test(url)) return url;
+  if (/^blob:/i.test(url)) return "";
+  if (/^(data:|https?:\/\/)/i.test(url)) return url;
   const backendOrigin = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1").replace(/\/api\/v1\/?$/, "").replace(/\/$/, "");
   return `${backendOrigin}/${url.replace(/^\/+/, "")}`;
 };
@@ -276,7 +277,7 @@ export function FarmerQualityPanel() {
               <div key={record.id} className="overflow-hidden rounded-xl border border-slate-100 bg-white transition hover:border-emerald-200">
                 <button type="button" aria-expanded={expanded} onClick={() => openEvidenceForRecord(record)} className="flex w-full min-w-0 items-center gap-3 px-2.5 py-2 text-left">
                   <div className="h-11 w-12 shrink-0 overflow-hidden rounded-lg border border-slate-100 bg-slate-50">
-                    {thumbnail ? <img src={thumbnail} alt={record.cropName || "Harvest batch"} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-emerald-700"><FileCheck className="h-5 w-5" /></div>}
+                    {thumbnail ? <img src={thumbnail} alt={record.cropName || "Harvest batch"} className="h-full w-full object-cover" onError={(event) => { event.currentTarget.style.display = "none"; }} /> : <div className="flex h-full items-center justify-center text-emerald-700"><FileCheck className="h-5 w-5" /></div>}
                   </div>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-semibold text-slate-900">{record.lotNumber} · {record.cropName}</span>
@@ -345,7 +346,7 @@ export function FarmerQualityPanel() {
                           </Button>
                         )}
                       </div>
-                      {record.photos?.length > 0 && <div className="flex flex-wrap gap-2">{record.photos.map((photo: string, index: number) => <img key={index} src={resolveQualityMediaUrl(photo)} alt="Inspection evidence" className="h-14 w-14 rounded-lg border object-cover" onError={(event) => { event.currentTarget.style.display = "none"; }} />)}</div>}
+                      {record.photos?.some((photo: string) => !!resolveQualityMediaUrl(photo)) && <div className="flex flex-wrap gap-2">{record.photos.filter((photo: string) => !!resolveQualityMediaUrl(photo)).map((photo: string, index: number) => <img key={index} src={resolveQualityMediaUrl(photo)} alt="Inspection evidence" className="h-14 w-14 rounded-lg border object-cover" onError={(event) => { event.currentTarget.style.display = "none"; }} />)}</div>}
                       {record.videos?.length > 0 && <p className="text-xs text-slate-500">{record.videos.length} inspection video(s) attached</p>}
                     </div>
                     {gradeInfo && (
@@ -393,7 +394,7 @@ export function FarmerQualityPanel() {
                   <button key={r.id} type="button" onClick={() => !submitted && setSelectedEvidenceId(r.id)} disabled={submitted}
                     className={cn("grid w-full grid-cols-[42px_minmax(0,1fr)_auto] items-center gap-2 rounded-lg border px-2 py-1.5 text-left transition", active ? "border-emerald-300 bg-emerald-50/60" : "border-slate-100 bg-white", submitted && "cursor-default")}>
                     <span className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-lg bg-slate-100 text-emerald-700">
-                      {r.photos?.[0] ? <img src={resolveQualityMediaUrl(r.photos[0])} alt="" className="h-full w-full object-cover" onError={(event) => { event.currentTarget.style.display = "none"; }} /> : <Camera className="h-4 w-4" />}
+                      {resolveQualityMediaUrl(r.photos?.[0]) ? <img src={resolveQualityMediaUrl(r.photos[0])} alt="" className="h-full w-full object-cover" onError={(event) => { event.currentTarget.style.display = "none"; }} /> : <Camera className="h-4 w-4" />}
                     </span>
                     <span className="min-w-0">
                       <span className="block truncate text-xs font-semibold text-slate-900">{r.cropName || "Harvest batch"} <span className="ml-1 font-mono text-[10px] font-normal text-slate-500">({r.lotNumber || "Lot pending"})</span></span>
