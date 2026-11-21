@@ -306,8 +306,6 @@ export default function FarmerRoutePage() {
   const [tracking, setTracking] = useState(false);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const watchRef = useRef<number | null>(null);
-  const navigationWindowRef = useRef<Window | null>(null);
-  const navigationOriginRef = useRef("Current Location");
   const { data: session } = useSession();
   const accessToken = (session as any)?.accessToken as string | undefined;
 
@@ -352,45 +350,23 @@ export default function FarmerRoutePage() {
     mutationFn: () => api.put(`/farmers/me/route/start${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`),
     onSuccess: (res: any) => {
       const updatedStops = Number(res?.data?.updatedStops ?? res?.updatedStops ?? 0);
-      if (!updatedStops) {
-        if (navigationWindowRef.current && !navigationWindowRef.current.closed) navigationWindowRef.current.close();
-        navigationWindowRef.current = null;
-        toast(
-          "No delivery stops were dispatched. Pickup orders must be completed with the customer's pickup code or QR; no navigation was opened.",
-          { icon: "📦", duration: 6500 }
-        );
-        return;
-      }
       setStarted(true);
       refetch();
-      const navigationStops = stops.filter((stop) => stop.status !== "delivered" && stop.status !== "picked_up" && stop.deliveryType !== "pickup");
-      const usableStops = navigationStops.length ? navigationStops : stops.filter((stop) => stop.deliveryType !== "pickup");
-      const destinationStop = usableStops.find((stop) => stop.lat != null && stop.lng != null) || usableStops.find((stop) => Boolean((stop.location || "").trim() || (stop.city || "").trim()));
-      if (!destinationStop) {
-        if (navigationWindowRef.current && !navigationWindowRef.current.closed) navigationWindowRef.current.close();
-        navigationWindowRef.current = null;
-        toast("Route started, but no customer destination is available for map navigation. Check the delivery address.", { icon: "📍", duration: 6500 });
-        return;
+      if (navigator.geolocation) {
+        setTracking(true);
+        watchRef.current = navigator.geolocation.watchPosition(
+          (position) => setUserLocation({ lat: position.coords.latitude, lng: position.coords.longitude }),
+          () => { setTracking(false); toast.error("Live GPS unavailable. You can still navigate to each stop."); },
+          { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
+        );
       }
-      const orderedStops = usableStops.filter((stop) => stop.lat != null && stop.lng != null || Boolean((stop.location || "").trim() || (stop.city || "").trim()));
-      const destination = destinationStop.lat != null && destinationStop.lng != null ? destinationStop.lat + "," + destinationStop.lng : destinationStop.location + (destinationStop.city ? ", " + destinationStop.city : "");
-      const waypoints = orderedStops.filter((stop) => stop.orderId !== destinationStop.orderId).map((stop) => stop.lat != null && stop.lng != null ? stop.lat + "," + stop.lng : stop.location + (stop.city ? ", " + stop.city : "")).filter(Boolean);
-      const mapsParams = new URLSearchParams({ api: "1", origin: navigationOriginRef.current || "Current Location", destination, travelmode: "driving" });
-      if (waypoints.length) mapsParams.set("waypoints", waypoints.join("|"));
-      const mapsUrl = "https://www.google.com/maps/dir/?" + mapsParams.toString();
-      if (navigationWindowRef.current && !navigationWindowRef.current.closed) {
-        navigationWindowRef.current.location.replace(mapsUrl);
-        navigationWindowRef.current.focus();
+      if (updatedStops > 0) {
+        toast.success("Delivery route started. Live location tracking is active; follow the next-stop guidance on this page.");
       } else {
-        toast.error("Your browser blocked the navigation tab. Allow pop-ups and click Start Route again.");
+        toast("Route view started. The server reported no new status changes; verify order statuses before delivery.", { icon: "📍", duration: 6500 });
       }
-      toast.success("Route started. Opening your delivery directions in Google Maps.");
     },
-    onError: () => {
-      if (navigationWindowRef.current && !navigationWindowRef.current.closed) navigationWindowRef.current.close();
-      navigationWindowRef.current = null;
-      toast.error("Failed to start route. No navigation was opened.");
-    },
+    onError: () => toast.error("Could not start the delivery route. Please refresh and try again."),
   });
 
   const completeMutation = useMutation({
@@ -479,19 +455,12 @@ export default function FarmerRoutePage() {
 
   const handleStartRoute = () => {
     if (startMutation.isPending || started) return;
-    navigationWindowRef.current = window.open("about:blank", "_blank");
-    if (!navigationWindowRef.current) toast.error("Allow pop-ups for this site to open turn-by-turn navigation.");
-    if (!navigator.geolocation) {
-      navigationOriginRef.current = farm.address || "Current Location";
-      startMutation.mutate();
+    if (!stops.some((stop) => stop.status !== "delivered" && stop.status !== "picked_up")) {
+      toast("There are no pending delivery stops on this route.", { icon: "📦" });
       return;
     }
-    navigator.geolocation.getCurrentPosition(
-      (position) => { navigationOriginRef.current = position.coords.latitude + "," + position.coords.longitude; startMutation.mutate(); },
-      () => { navigationOriginRef.current = farm.address || "Current Location"; toast("Could not read GPS. Opening navigation from your current location.", { icon: "📍" }); startMutation.mutate(); },
-      { enableHighAccuracy: true, timeout: 12000, maximumAge: 10000 }
-    );
-  };
+    startMutation.mutate();
+  };;
 
   const handleComplete = async (stop: Stop) => {
     if (completeMutation.isPending) return;
