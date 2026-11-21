@@ -35,6 +35,15 @@ const GRADES = [
 
 const SIZES = ["Extra Large", "Large", "Medium", "Small"];
 
+const resolveQualityMediaUrl = (value?: string | null) => {
+  if (!value) return "";
+  const url = String(value).trim();
+  if (!url) return "";
+  if (/^(data:|blob:|https?:\/\/)/i.test(url)) return url;
+  const backendOrigin = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1").replace(/\/api\/v1\/?$/, "").replace(/\/$/, "");
+  return `${backendOrigin}/${url.replace(/^\/+/, "")}`;
+};
+
 interface InspectionRecord {
   id: string;
   batchId?: string;
@@ -75,18 +84,6 @@ export function FarmerQualityPanel() {
   const [cameraOpen, setCameraOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [evidenceFiles, setEvidenceFiles] = useState<Record<string, File[]>>({});
-  const [evidencePreviews, setEvidencePreviews] = useState<Record<string, string[]>>({});
-
-  useEffect(() => {
-    const previews: Record<string, string[]> = {};
-    Object.entries(evidenceFiles).forEach(([inspectionId, files]) => {
-      previews[inspectionId] = files.map(file => URL.createObjectURL(file));
-    });
-    setEvidencePreviews(previews);
-    return () => {
-      Object.values(previews).flat().forEach(url => URL.revokeObjectURL(url));
-    };
-  }, [evidenceFiles]);
   const [evidenceNotes, setEvidenceNotes] = useState<Record<string, string>>({});
 
   const { data: recordsData, isLoading } = useQuery({
@@ -271,7 +268,7 @@ export function FarmerQualityPanel() {
                 ? "border-rose-200 bg-rose-50 text-rose-700"
                 : "border-amber-200 bg-amber-50 text-amber-700";
             const StatusIcon = status === "passed" ? CheckCircle2 : status === "failed" ? XCircle : FlaskConical;
-            const thumbnail = record.photos?.[0] || batch?.imageUrl || batch?.productImage;
+            const thumbnail = resolveQualityMediaUrl(record.photos?.[0] || batch?.imageUrl || batch?.productImage);
             const gradeInfo = GRADES.find((grade) => grade.value === record.grade);
             const meets = meetsRequirement(record);
             const expanded = expandedInspectionId === record.id;
@@ -348,7 +345,7 @@ export function FarmerQualityPanel() {
                           </Button>
                         )}
                       </div>
-                      {record.photos?.length > 0 && <div className="flex flex-wrap gap-2">{record.photos.map((photo: string, index: number) => <img key={index} src={photo} alt="Inspection evidence" className="h-14 w-14 rounded-lg border object-cover" />)}</div>}
+                      {record.photos?.length > 0 && <div className="flex flex-wrap gap-2">{record.photos.map((photo: string, index: number) => <img key={index} src={resolveQualityMediaUrl(photo)} alt="Inspection evidence" className="h-14 w-14 rounded-lg border object-cover" onError={(event) => { event.currentTarget.style.display = "none"; }} />)}</div>}
                       {record.videos?.length > 0 && <p className="text-xs text-slate-500">{record.videos.length} inspection video(s) attached</p>}
                     </div>
                     {gradeInfo && (
@@ -396,7 +393,7 @@ export function FarmerQualityPanel() {
                   <button key={r.id} type="button" onClick={() => !submitted && setSelectedEvidenceId(r.id)} disabled={submitted}
                     className={cn("grid w-full grid-cols-[42px_minmax(0,1fr)_auto] items-center gap-2 rounded-lg border px-2 py-1.5 text-left transition", active ? "border-emerald-300 bg-emerald-50/60" : "border-slate-100 bg-white", submitted && "cursor-default")}>
                     <span className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-lg bg-slate-100 text-emerald-700">
-                      {r.photos?.[0] ? <img src={r.photos[0]} alt="" className="h-full w-full object-cover" /> : <Camera className="h-4 w-4" />}
+                      {r.photos?.[0] ? <img src={resolveQualityMediaUrl(r.photos[0])} alt="" className="h-full w-full object-cover" onError={(event) => { event.currentTarget.style.display = "none"; }} /> : <Camera className="h-4 w-4" />}
                     </span>
                     <span className="min-w-0">
                       <span className="block truncate text-xs font-semibold text-slate-900">{r.cropName || "Harvest batch"} <span className="ml-1 font-mono text-[10px] font-normal text-slate-500">({r.lotNumber || "Lot pending"})</span></span>
