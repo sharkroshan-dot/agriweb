@@ -248,29 +248,36 @@ export function FarmerQualityPanel() {
               </div>
             </div>
           </div>
-          {batches.filter((b: any) => b.qualityStatus !== "approved" && b.qualityStatus !== "rejected").map((b: any) => {
-            const inspection = apiRecords.find((r: any) => String(r.batchId || "") === String(b._id || b.id));
+          {records.map((record: any) => {
+            const batch = batches.find((item: any) => String(item._id || item.id) === String(record.batchId || ""));
+            const status = record.status || "review";
+            const statusTone = status === "passed"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+              : status === "failed"
+                ? "border-rose-200 bg-rose-50 text-rose-700"
+                : "border-amber-200 bg-amber-50 text-amber-700";
+            const StatusIcon = status === "passed" ? CheckCircle2 : status === "failed" ? XCircle : FlaskConical;
+            const thumbnail = record.photos?.[0] || batch?.imageUrl || batch?.productImage;
             return (
-              <div key={b._id || b.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
-                <div>
-                  <p className="font-semibold">{b.lotNumber} · {b.cropName}</p>
-                  <p className="text-xs text-slate-500">{b.quantityKg} kg · {b.storageType || "normal"} · {b.qualityStatus || "pending_inspection"}</p>
+              <div key={record.id} className="flex min-w-0 items-center gap-3 border-b border-slate-100 px-1 py-2.5 last:border-b-0">
+                <div className="h-11 w-12 shrink-0 overflow-hidden rounded-lg border border-slate-100 bg-slate-50">
+                  {thumbnail ? <img src={thumbnail} alt={record.cropName || "Harvest batch"} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-emerald-700"><FileCheck className="h-5 w-5" /></div>}
                 </div>
-                <div className="flex gap-2">
-                  {!inspection && (
-                    <Button size="sm" onClick={() => requestInspectionMutation.mutate(String(b._id || b.id))} disabled={requestInspectionMutation.isPending}>
-                      <FlaskConical className="mr-1.5 h-4 w-4" /> Request Inspection
-                    </Button>
-                  )}
-                  {inspection && !["approved", "rejected"].includes(inspection.inspectionStatus || "") && (
-                    <span className="text-xs font-medium text-amber-700">{["evidence_submitted", "in_progress"].includes(inspection.inspectionStatus || "") ? "Sent to warehouse · Awaiting decision" : "Inspection requested · Evidence required"}</span>
-                  )}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-slate-900">{record.lotNumber} · {record.cropName}</p>
+                  <p className="text-xs text-slate-500">{record.weightKg || batch?.quantityKg || 0} kg · Harvest: {formatDate(batch?.harvestDate || record.inspectedAt)}</p>
                 </div>
+                <span className={cn("inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold", statusTone)}>
+                  <StatusIcon className="h-3.5 w-3.5" />{status === "passed" ? "Passed" : status === "failed" ? "Failed" : "Review"}
+                </span>
+                <button type="button" aria-label={`Open inspection for ${record.lotNumber}`} onClick={() => document.getElementById("inspection-history")?.scrollIntoView({ behavior: "smooth", block: "start" })} className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 sm:inline-flex">
+                  <span aria-hidden="true" className="text-xl">›</span>
+                </button>
               </div>
             );
           })}
-          {batches.filter((b: any) => b.qualityStatus !== "approved" && b.qualityStatus !== "rejected").length === 0 && (
-            <p className="text-sm text-slate-500">No pending batches. Complete a harvest and create a batch first.</p>
+          {records.length === 0 && (
+            <p className="rounded-lg border border-dashed border-slate-200 px-3 py-6 text-center text-sm text-slate-500">{apiRecords.length === 0 ? "No inspection records yet. Request an inspection for a harvested batch to get started." : "No inspections match this status. Choose another filter to see more batches."}</p>
           )}
         </CardContent>
       </Card>
