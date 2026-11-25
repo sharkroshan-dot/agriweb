@@ -386,9 +386,8 @@ export default function FarmerRoutePage() {
 
   // Use the same optimized stop sequence as Smart Route Planner so the map,
   // delivery list and navigation all follow the shortest available road route.
-  const [routeOptimizationRevision, setRouteOptimizationRevision] = useState(0);
   const { data: optimizedRouteData, refetch: refetchOptimizedRoute } = useQuery({
-    queryKey: ["farmerRouteOptimizedStops", workflowOrderIds, routeOptimizationRevision],
+    queryKey: ["farmerRouteOptimizedStops", workflowOrderIds, userLocation?.lat, userLocation?.lng],
     queryFn: () => {
       const params = new URLSearchParams();
       if (workflowOrderIds) params.set("orderIds", workflowOrderIds);
