@@ -525,6 +525,10 @@ export default function FarmerRoutePage() {
 
   const handleStartRoute = () => {
     if (startMutation.isPending || started) return;
+    if (!userLocation) {
+      toast.error("Waiting for your current GPS location. Allow location access and try again.");
+      return;
+    }
     if (!stops.some((stop) => stop.status !== "delivered" && stop.status !== "picked_up")) {
       toast("There are no pending delivery stops on this route.", { icon: "📦" });
       return;
