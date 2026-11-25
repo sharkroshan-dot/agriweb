@@ -201,7 +201,7 @@ function RouteMap({
       height="420px"
       markers={markers}
       route={[]}
-      trackUserLocation={started}
+      trackUserLocation={true}
       userLocation={userLocation}
       className="rounded-lg"
     />
@@ -293,6 +293,49 @@ export default function FarmerRoutePage() {
   const [tracking, setTracking] = useState(false);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const watchRef = useRef<number | null>(null);
+
+  // Request location permission and begin live GPS tracking as soon as the
+  // farmer opens My Delivery Route. The same live fix drives the map and the
+  // Google Maps navigation origin; it is not necessary to press Track Me.
+  useEffect(() => {
+    if (!("geolocation" in navigator)) {
+      toast.error("This browser does not support live location tracking.");
+      return;
+    }
+
+    let active = true;
+    setTracking(true);
+    watchRef.current = navigator.geolocation.watchPosition(
+      (position) => {
+        if (!active) return;
+        setUserLocation({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+        });
+        setTracking(true);
+      },
+      (error) => {
+        if (!active) return;
+        setTracking(false);
+        if (error.code === error.PERMISSION_DENIED) {
+          toast.error("Allow location access in your browser to track your position and build the delivery route.");
+        } else if (error.code === error.TIMEOUT) {
+          toast.error("Getting your current location is taking too long. Check GPS and try again.");
+        } else {
+          toast.error("Your current location is unavailable. Check GPS and browser location permission.");
+        }
+      },
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 3000 }
+    );
+
+    return () => {
+      active = false;
+      if (watchRef.current != null) {
+        navigator.geolocation.clearWatch(watchRef.current);
+        watchRef.current = null;
+      }
+    };
+  }, []);
   const { data: session } = useSession();
   const accessToken = (session as any)?.accessToken as string | undefined;
 
@@ -379,14 +422,8 @@ export default function FarmerRoutePage() {
           window.open(navigationUrl, "_blank", "noopener,noreferrer");
         }
       }
-      if (navigator.geolocation) {
-        setTracking(true);
-        watchRef.current = navigator.geolocation.watchPosition(
-          (position) => setUserLocation({ lat: position.coords.latitude, lng: position.coords.longitude }),
-          () => { setTracking(false); toast.error("Live GPS unavailable. You can still navigate to each stop."); },
-          { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
-        );
-      }
+      // GPS tracking is already active from page entry; retain the latest
+      // location fix for the navigation origin and route-following map.
       if (updatedStops > 0) {
         toast.success("Delivery route started. Live location tracking is active; follow the next-stop guidance on this page.");
       } else {
