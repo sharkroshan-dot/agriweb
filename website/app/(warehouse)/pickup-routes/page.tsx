@@ -213,7 +213,18 @@ export default function PickupRoutesPage() {
       : Array.isArray(jobsQ.data?.configuredFarmCollectionDistricts)
         ? jobsQ.data.configuredFarmCollectionDistricts
         : [];
-  const configuredDistricts: string[] = profileDistricts.length ? profileDistricts : collectionDistricts;
+  const directoryDistricts = Array.isArray(areasQ.data?.data?.data?.districts)
+    ? areasQ.data.data.data.districts
+    : Array.isArray(areasQ.data?.data?.districts)
+      ? areasQ.data.data.districts
+      : Array.isArray(areasQ.data?.districts)
+        ? areasQ.data.districts
+        : [];
+  const configuredDistricts: string[] = profileDistricts.length
+    ? profileDistricts
+    : collectionDistricts.length
+      ? collectionDistricts
+      : directoryDistricts;
   const allowedDistrictKeys = new Set(configuredDistricts.map(normalizeDistrict).filter(Boolean));
   // The API already scopes this collection list to the signed-in warehouse.
   // Keep its assigned/in-progress/completed pickup jobs visible even when an
@@ -221,13 +232,15 @@ export default function PickupRoutesPage() {
   // Explicit district mismatches remain excluded from this warehouse's plan.
   // Pickup Routes is only for farm-stock collection inside this warehouse's
   // configured district. Completed/assigned pickup history is not assignable.
-  const districtJobs = allowedDistrictKeys.size
-    ? allJobs.filter((job) => {
-        const districtKey = normalizeDistrict(districtOf(job));
-        if (districtKey) return allowedDistrictKeys.has(districtKey);
-        return String(job.districtMatchStatus || "") !== "district_mismatch";
-      })
-    : [];
+  const districtJobs = allJobs.filter((job) => {
+    const districtKey = normalizeDistrict(districtOf(job));
+    if (districtKey && allowedDistrictKeys.size) return allowedDistrictKeys.has(districtKey);
+    // /me/collections is already scoped to the authenticated warehouse.
+    // If older warehouse/profile records do not expose district coverage, keep
+    // those warehouse-linked jobs visible unless the backend explicitly marks
+    // them as belonging to a different district.
+    return String(job.districtMatchStatus || "") !== "district_mismatch";
+  });
   // Keep assigned and in-progress jobs visible so B2B assignments made from
   // either page are reflected here; only ready, unassigned jobs are selectable.
   const PICKUP_VISIBLE = new Set([
