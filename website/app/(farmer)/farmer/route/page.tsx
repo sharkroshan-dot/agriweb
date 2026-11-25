@@ -322,28 +322,38 @@ export default function FarmerRoutePage() {
   const navigationWindowRef = useRef<Window | null>(null);
 
   const buildGoogleNavigationUrl = (target: Stop, includeRemainingStops = false) => {
-    const destination = target.lat != null && target.lng != null
-      ? `${target.lat},${target.lng}`
-      : `${target.location}${target.city ? `, ${target.city}` : ""}`;
     const pendingStops = stops.filter((stop) =>
       stop.status !== "delivered" && stop.status !== "picked_up"
     );
     const targetIndex = pendingStops.findIndex((stop) => stop.id === target.id);
-    const remaining = includeRemainingStops && targetIndex >= 0
-      ? pendingStops.slice(targetIndex + 1)
-      : [];
-    const waypoints = remaining
-      .map((stop) => stop.lat != null && stop.lng != null
+    const orderedStops = includeRemainingStops && targetIndex >= 0
+      ? pendingStops.slice(targetIndex)
+      : [target];
+
+    const toGooglePlace = (stop: Stop) =>
+      stop.lat != null && stop.lng != null
         ? `${stop.lat},${stop.lng}`
-        : `${stop.location}${stop.city ? `, ${stop.city}` : ""}`)
-      .filter(Boolean);
+        : [stop.location, stop.city].filter(Boolean).join(", ");
+
+    // Google Maps uses destination as the FINAL point and waypoints as
+    // intermediate points. Preserve the exact sequence shown in the schedule.
+    const finalStop = orderedStops[orderedStops.length - 1];
     const params = new URLSearchParams({
       api: "1",
-      destination,
+      destination: toGooglePlace(finalStop),
       travelmode: "driving",
       dir_action: "navigate",
     });
-    if (userLocation) params.set("origin", `${userLocation.lat},${userLocation.lng}`);
+
+    if (userLocation) {
+      params.set("origin", `${userLocation.lat},${userLocation.lng}`);
+    } else if (farm.lat != null && farm.lng != null) {
+      params.set("origin", `${farm.lat},${farm.lng}`);
+    } else if (farm.address) {
+      params.set("origin", farm.address);
+    }
+
+    const waypoints = orderedStops.slice(0, -1).map(toGooglePlace).filter(Boolean);
     if (waypoints.length) params.set("waypoints", waypoints.join("|"));
     return `https://www.google.com/maps/dir/?${params.toString()}`;
   };
