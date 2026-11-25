@@ -399,7 +399,7 @@ export default function FarmerRoutePage() {
   // same address become one physical stop in the schedule, while each order
   // retains its own status, contact and completion actions.
   const locationGroups = (() => {
-    const groups = new Map<string, { key: string; location: string; city: string; stops: Stop[] }>();
+    const groups = new globalThis.Map<string, { key: string; location: string; city: string; stops: Stop[] }>();
     for (const stop of stops) {
       const normalizedAddress = String(stop.location || "").trim().toLowerCase().replace(/[.,#]/g, " ").replace(/\\s+/g, " ");
       const normalizedCity = String(stop.city || "").trim().toLowerCase().replace(/[.,#]/g, " ").replace(/\\s+/g, " ");
