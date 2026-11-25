@@ -5,6 +5,26 @@ export const dynamic = "force-dynamic";
 
 type GeoResult = { lat: number; lng: number } | null;
 
+async function searchPhoton(query: string): Promise<GeoResult> {
+  const url = new URL("https://photon.komoot.io/api/");
+  url.searchParams.set("limit", "1");
+  url.searchParams.set("lang", "en");
+  url.searchParams.set("q", query);
+  const response = await fetch(url.toString(), {
+    headers: { "Accept": "application/json", "User-Agent": "AgriConnect/1.0 (farm pickup geocoding)" },
+    signal: AbortSignal.timeout(10000),
+    next: { revalidate: 86400 },
+  });
+  if (!response.ok) return null;
+  const data = await response.json();
+  const coordinates = data?.features?.[0]?.geometry?.coordinates;
+  if (!Array.isArray(coordinates) || coordinates.length < 2) return null;
+  const lng = Number(coordinates[0]);
+  const lat = Number(coordinates[1]);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+  return { lat, lng };
+}
+
 async function searchNominatim(query: string): Promise<GeoResult> {
   const url = new URL("https://nominatim.openstreetmap.org/search");
   url.searchParams.set("format", "jsonv2");
@@ -18,7 +38,7 @@ async function searchNominatim(query: string): Promise<GeoResult> {
       "Accept-Language": "en",
       "User-Agent": "AgriConnect/1.0 (farm pickup geocoding)",
     },
-    // Nominatim results are safe to cache briefly and this avoids repeated lookups.
+    signal: AbortSignal.timeout(10000),
     next: { revalidate: 86400 },
   });
   if (!response.ok) return null;
@@ -54,10 +74,22 @@ export async function GET(request: NextRequest) {
 
   try {
     for (const candidate of candidates) {
-      const result = await searchNominatim(candidate);
-      if (result) return NextResponse.json(result, { headers: { "Cache-Control": "public, s-maxage=86400, stale-while-revalidate=604800" } });
+      // Nominatim is preferred, but its public endpoint can rate-limit or be
+      // temporarily unreachable. Try Photon before marking the address failed.
+      try {
+        const result = await searchNominatim(candidate);
+        if (result) return NextResponse.json(result, { headers: { "Cache-Control": "public, s-maxage=86400, stale-while-revalidate=604800" } });
+      } catch (error) {
+        console.warn("Nominatim lookup unavailable; trying fallback provider.", error);
+      }
+      try {
+        const result = await searchPhoton(candidate);
+        if (result) return NextResponse.json(result, { headers: { "Cache-Control": "public, s-maxage=86400, stale-while-revalidate=604800" } });
+      } catch (error) {
+        console.warn("Photon lookup unavailable for farm address.", error);
+      }
     }
-    return NextResponse.json({ error: "No matching farm location found" }, { status: 404 });
+    return NextResponse.json({ error: "No matching farm location found from available geocoding providers" }, { status: 404 });
   } catch (error) {
     console.error("Farm address geocoding failed:", error);
     return NextResponse.json({ error: "Geocoding service is temporarily unavailable" }, { status: 502 });
