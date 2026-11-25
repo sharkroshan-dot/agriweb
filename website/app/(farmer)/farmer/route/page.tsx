@@ -377,7 +377,7 @@ export default function FarmerRoutePage() {
           String(stop.id) === String(optimized.orderId) ||
           String(stop.orderNumber) === String(optimized.orderNumber)
         ))
-        .filter(Boolean) as Stop[]
+        .filter((stop): stop is Stop => Boolean(stop))
         .concat(rawStops.filter((stop) =>
           !optimizedStops.some((optimized) =>
             String(stop.orderId) === String(optimized.orderId) ||
