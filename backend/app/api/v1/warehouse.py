@@ -1845,6 +1845,21 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
     def canonical_area(value: Optional[str]) -> Optional[dict]:
         return master_by_alias.get(normalized_area(value)) if value else None
 
+    def explicit_farm_district(*sources: Any) -> Optional[str]:
+        """Read an explicitly recorded farm district without treating locality as district."""
+        for source in sources:
+            if not isinstance(source, dict):
+                continue
+            candidates = [source.get("farmDistrict"), source.get("district")]
+            for nested_key in ("farmAddress", "farmLocation", "pickupLocation", "address", "location"):
+                nested = source.get(nested_key)
+                if isinstance(nested, dict):
+                    candidates.extend([nested.get("farmDistrict"), nested.get("district")])
+            for candidate in candidates:
+                if isinstance(candidate, str) and candidate.strip():
+                    return normalize_collection_district(candidate)
+        return None
+
     def taluk_from_profile(profile: dict) -> Optional[str]:
         taluk_keys = {"farmtaluk", "taluk", "subdistrict", "tehsil", "mandal"}
         pending = [profile]
@@ -1937,7 +1952,13 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
             ) if value
         }
         district_match = farmer_collection_district(profile, location, coverage)
-        if district_match not in coverage and not (profile_ids & job_farmer_refs):
+        recorded_district = explicit_farm_district(profile, location)
+        # A collection-job relationship must never override a known farm
+        # district mismatch. It is only a fallback for legacy profiles whose
+        # district has not been recorded at all.
+        if recorded_district and recorded_district not in coverage:
+            continue
+        if district_match not in coverage and not (profile_ids & job_farmer_refs and not recorded_district):
             continue
         area_name = area_from_profile(profile)
         matched_master = canonical_area(area_name)
@@ -2240,6 +2261,18 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
             if linked_profile:
                 farmer_id = str(linked_profile.get("userId") or farmer_key)
                 break
+
+        # Use the farm's actual district as the source of truth. A job may
+        # be linked to this warehouse through legacy assignment data, but it
+        # must not be counted under this district's pickup areas when the
+        # farmer address explicitly belongs to another district.
+        job_location = job.get("farmLocation") or job.get("pickupLocation") or {}
+        linked_district = farmer_collection_district(linked_profile or {}, job_location, coverage)
+        recorded_job_district = explicit_farm_district(linked_profile or {}, linked_incoming or {}, job, job_location)
+        if recorded_job_district and recorded_job_district not in coverage:
+            continue
+        if linked_district and linked_district not in coverage:
+            continue
 
         raw_name = (
             profile_area_name_by_id.get(farmer_id)
