@@ -1720,6 +1720,15 @@ class RouteStopUpdateRequest(BaseModel):
     status: str = "delivered"
     note: Optional[str] = None
 
+class FarmerRouteLocationRequest(BaseModel):
+    lat: float = Field(..., ge=-90, le=90)
+    lng: float = Field(..., ge=-180, le=180)
+    accuracy: Optional[float] = Field(None, ge=0, le=100000)
+    heading: Optional[float] = Field(None, ge=0, lt=360)
+    speed: Optional[float] = Field(None, ge=0, le=500)
+    recordedAt: Optional[datetime] = None
+
+
 
 _ACTIVE_DELIVERY_STATUSES = [
     "pending",
@@ -2062,6 +2071,50 @@ async def start_my_route(
         if ok:
             updated += 1
     return {"success": True, "data": {"updatedStops": updated}, "message": "Route started"}
+
+
+@router.post("/me/route/location")
+async def update_my_route_location(
+    body: FarmerRouteLocationRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Persist the farmer's latest GPS fix against their active self-delivery orders."""
+    _ensure_farmer(current_user)
+    farmer_id = str(current_user["_id"])
+    now = datetime.utcnow()
+    recorded_at = body.recordedAt or now
+    query = {
+        "farmerId": ObjectId(farmer_id),
+        "deletedAt": None,
+        "deliveryType": DeliveryType.DELIVERY.value,
+        "fulfillmentMethod": "farmer",
+        "deliveryResponsibility": "farmer",
+        "selfDelivery": True,
+        "deliveryDecisionStatus": "route_started",
+        "orderStatus": {"$in": ["ready_for_delivery", "in_transit"]},
+    }
+    active_orders = await order_repository.find_many(query) or []
+    location = {
+        "lat": body.lat,
+        "lng": body.lng,
+        "accuracy": body.accuracy,
+        "heading": body.heading,
+        "speed": body.speed,
+        "recordedAt": recorded_at,
+    }
+    updated = 0
+    for order in active_orders:
+        if await order_repository.update({"_id": order["_id"]}, {
+            "farmerLiveLocation": location,
+            "farmerLastLocationAt": now,
+            "updatedAt": now,
+        }):
+            updated += 1
+    return {
+        "success": True,
+        "data": {"updatedOrders": updated, "recordedAt": recorded_at},
+        "message": "Farmer route location updated",
+    }
 
 
 @router.put("/me/route/{order_id}/status")
