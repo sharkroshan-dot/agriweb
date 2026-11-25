@@ -44,7 +44,10 @@ export async function GET(request: NextRequest) {
   const candidates = [address];
   // Retry progressively shorter address suffixes, but never fall back to a
   // country/state-only result that would place every farm at one generic pin.
-  for (let start = 1; start < parts.length - 1; start += 1) {
+  // Strip only the leading street/building segment. Keep locality,
+  // district, state and country together so a broad district/state centroid
+  // is never returned as if it were the farm's exact location.
+  for (let start = 1; start <= parts.length - 4; start += 1) {
     const candidate = parts.slice(start).join(", ");
     if (candidate && !candidates.includes(candidate)) candidates.push(candidate);
   }
