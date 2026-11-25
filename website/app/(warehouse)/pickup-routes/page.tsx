@@ -110,6 +110,9 @@ function normalizeDistrict(value: unknown) {
     trichirapalli: "tiruchirappalli",
     tiruchirapalli: "tiruchirappalli",
     tiruchirappalli: "tiruchirappalli",
+    manachanallur: "tiruchirappalli",
+    "manachanallur taluk": "tiruchirappalli",
+    chettikulam: "perambalur",
     kanyakumari: "kanniyakumari",
     pudukottai: "pudukkottai",
     thirunelveli: "tirunelveli",
@@ -143,7 +146,7 @@ export default function PickupRoutesPage() {
   const [expandedTaluks, setExpandedTaluks] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState("all");
   const [collectionType, setCollectionType] = useState("all");
-  const [datePeriod, setDatePeriod] = useState<"all" | "today" | "yesterday" | "week" | "month">("today");
+  const [datePeriod, setDatePeriod] = useState<"all" | "today" | "yesterday" | "week" | "month">("all");
   const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [teamId, setTeamId] = useState("");
