@@ -433,10 +433,18 @@ export default function PickupRoutesPage() {
         return id && address && !coordinatesOf(job) && !geocodedCoords[id];
       });
       if (!pending.length) {
-        setGeocodingIds([]);
+        // Avoid creating a fresh [] state on every render; that caused the
+        // map page's effect chain to repeatedly render when all addresses
+        // were already resolved or none had a usable address.
+        setGeocodingIds((current) => current.length ? [] : current);
         return;
       }
-      setGeocodingIds(pending.map(idOf));
+      const pendingIds = pending.map(idOf);
+      setGeocodingIds((current) =>
+        current.length === pendingIds.length && current.every((id, index) => id === pendingIds[index])
+          ? current
+          : pendingIds
+      );
       for (const job of pending) {
         if (cancelled) return;
         const id = idOf(job);
