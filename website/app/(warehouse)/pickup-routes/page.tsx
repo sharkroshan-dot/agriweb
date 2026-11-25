@@ -186,6 +186,7 @@ export default function PickupRoutesPage() {
   const [areaSearch, setAreaSearch] = useState("");
   const [geocodedCoords, setGeocodedCoords] = useState<Record<string, [number, number]>>({});
   const [geocodingIds, setGeocodingIds] = useState<string[]>([]);
+  const [geocodeAttempted, setGeocodeAttempted] = useState<Record<string, boolean>>({});
 
   const warehouseQ = useQuery({
     queryKey: ["warehousePickupDistrictProfile"],
@@ -430,7 +431,7 @@ export default function PickupRoutesPage() {
       const pending = filtered.filter((job) => {
         const id = idOf(job);
         const address = String(job.pickupAddress || job.farmAddress || job.farmLocation?.address || job.pickupLocation?.address || "").trim();
-        return id && address && !coordinatesOf(job) && !geocodedCoords[id];
+        return id && address && !coordinatesOf(job) && !geocodedCoords[id] && !geocodeAttempted[id];
       });
       if (!pending.length) {
         // Avoid creating a fresh [] state on every render; that caused the
@@ -459,14 +460,17 @@ export default function PickupRoutesPage() {
         } catch {
           // Keep the order visible in the coordinate-verification list.
         }
-        if (!cancelled) setGeocodingIds((current) => current.filter((value) => value !== id));
-        // Nominatim's public service requests should be paced.
+        if (!cancelled) {
+          setGeocodeAttempted((current) => current[id] ? current : { ...current, [id]: true });
+          setGeocodingIds((current) => current.filter((value) => value !== id));
+        }
+        // Keep requests paced for public geocoding providers.
         await new Promise((resolve) => setTimeout(resolve, 1100));
       }
     };
     void resolveMissingFarmCoordinates();
     return () => { cancelled = true; };
-  }, [filtered, geocodedCoords]);
+  }, [filtered, geocodedCoords, geocodeAttempted]);
 
   const farmGroups = useMemo(() => {
     const groups = new Map<string, { key: string; farmerName: string; pickupAddress: string; jobs: Job[] }>();
