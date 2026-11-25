@@ -1009,7 +1009,7 @@ export default function FarmerRoutePage() {
                       </div>
                       <Badge variant="secondary">{group.stops.length} {group.stops.length === 1 ? "order" : "orders"}</Badge>
                     </div>
-                    {group.stops.map((stop) => {
+                    {group.stops.map((stop, orderIndex) => {
                   const done = stop.status === "delivered" || stop.status === "picked_up";
                   return (
                     <div
@@ -1025,7 +1025,7 @@ export default function FarmerRoutePage() {
                           done ? "bg-emerald-600 text-white" : "bg-primary/10 text-primary"
                         )}
                       >
-                        {done ? <CheckCircle className="h-5 w-5" /> : index + 1}
+                        {done ? <CheckCircle className="h-5 w-5" /> : orderIndex + 1}
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
