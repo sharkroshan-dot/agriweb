@@ -386,10 +386,19 @@ export default function FarmerRoutePage() {
 
   // Use the same optimized stop sequence as Smart Route Planner so the map,
   // delivery list and navigation all follow the shortest available road route.
-  const { data: optimizedRouteData } = useQuery({
-    queryKey: ["farmerRouteOptimizedStops", workflowOrderIds],
-    queryFn: () => api.get(`/farmers/me/smart-route${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`),
-    enabled: Boolean(accessToken),
+  const [routeOptimizationRevision, setRouteOptimizationRevision] = useState(0);
+  const { data: optimizedRouteData, refetch: refetchOptimizedRoute } = useQuery({
+    queryKey: ["farmerRouteOptimizedStops", workflowOrderIds, routeOptimizationRevision],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (workflowOrderIds) params.set("orderIds", workflowOrderIds);
+      if (userLocation) {
+        params.set("originLat", String(userLocation.lat));
+        params.set("originLng", String(userLocation.lng));
+      }
+      return api.get(`/farmers/me/smart-route${params.toString() ? `?${params.toString()}` : ""}`);
+    },
+    enabled: Boolean(accessToken && userLocation),
     retry: 1,
   });
 
@@ -579,19 +588,31 @@ export default function FarmerRoutePage() {
         status: stop.deliveryType === "pickup" ? "picked_up" : "delivered",
         note: "Farmer completed stop on route",
       }),
-    onSuccess: (_data, stop) => {
-      toast.success(`${stop.buyerName} stop completed!`);
-      const remainingStops = stops.filter((item) =>
+    onSuccess: async (_data, stop) => {
+      toast.success(`${stop.buyerName} stop completed! Recalculating the shortest remaining route from your current location…`);
+      await refetch();
+      // Re-run the road-distance optimizer from the latest GPS fix after each
+      // delivery, then navigate to the first still-pending stop in that order.
+      const optimizedResult = await refetchOptimizedRoute();
+      const optimized = (optimizedResult.data as any)?.stops ?? (optimizedResult.data as any)?.data?.stops ?? [];
+      const currentRawStops: Stop[] = (routeData?.route ?? []).filter((item: Stop) =>
         item.id !== stop.id && item.status !== "delivered" && item.status !== "picked_up"
       );
-      const next = remainingStops[0];
+      const orderedRemaining = optimized
+        .map((item: any) => currentRawStops.find((raw) =>
+          String(raw.orderId) === String(item.orderId) ||
+          String(raw.id) === String(item.orderId) ||
+          String(raw.orderNumber) === String(item.orderNumber)
+        ))
+        .filter((item: Stop | undefined): item is Stop => Boolean(item));
+      const next = orderedRemaining[0] ?? currentRawStops[0];
       if (next && navigationWindowRef.current && !navigationWindowRef.current.closed) {
         navigationWindowRef.current.location.href = buildGoogleNavigationUrl(next, true, stop.id);
       } else if (!next && navigationWindowRef.current && !navigationWindowRef.current.closed) {
         navigationWindowRef.current.close();
         navigationWindowRef.current = null;
+        toast.success("All delivery locations have been completed. Route finished!");
       }
-      refetch();
     },
     onError: () => toast.error("Failed to complete stop"),
   });
