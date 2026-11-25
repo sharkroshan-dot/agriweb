@@ -64,40 +64,44 @@ const STATUS_LABEL: Record<string, string> = {
 
 function idOf(job: Job) { return String(job.id || job._id || ""); }
 function areaOf(job: Job) {
-  const location = job.pickupLocation || job.farmLocation || job.farmAddress || {};
+  // Only read farm-origin fields. Generic order fields such as area, town,
+  // locality or district can describe the buyer/delivery destination.
   const farmer = job.farmerProfile || job.farmer || job.profile || {};
-  const farmerLocation = farmer.farmLocation || farmer.farmAddress || farmer.address || {};
+  const farmLocation = job.farmLocation || job.pickupLocation || farmer.farmLocation || farmer.farmAddress || {};
+  const farmerLocation = farmer.farmLocation || farmer.farmAddress || {};
   const candidates = [
-    job.farmVillage, job.village, job.villageName, location.village, farmer.farmVillage, farmer.village,
-    job.farmAreaName, job.farmLocality, job.locality, job.area, location.locality, location.area,
-    farmer.farmAreaName, farmer.farmLocality, farmer.locality, farmer.area,
-    job.farmTaluk, job.taluk, job.subDistrict, location.taluk, location.subDistrict,
-    farmer.farmTaluk, farmer.taluk, farmerLocation.village, farmerLocation.locality,
-    farmerLocation.taluk, farmerLocation.town,
-    job.farmTown, job.town, location.town, farmer.farmTown, farmer.town,
+    job.farmVillage, job.farmAreaName, job.farmLocality, job.farmTaluk, job.farmTown,
+    farmLocation.farmVillage, farmLocation.village, farmLocation.locality,
+    farmLocation.farmAreaName, farmLocation.farmLocality, farmLocation.taluk,
+    farmLocation.subDistrict, farmLocation.town,
+    farmer.farmVillage, farmer.farmAreaName, farmer.farmLocality, farmer.farmTaluk, farmer.farmTown,
+    farmerLocation.village, farmerLocation.locality, farmerLocation.taluk,
+    farmerLocation.subDistrict, farmerLocation.town,
   ];
-  const directArea = candidates.find((value) => typeof value === "string" && value.trim() &&
-    !["unknown", "n/a", "na", "not available"].includes(value.trim().toLowerCase()) &&
-    !isRoadOrAddressLabel(value));
+  const districtLabels = new Set([
+    "ariyalur", "chengalpattu", "chennai", "coimbatore", "cuddalore",
+    "dharmapuri", "dindigul", "erode", "kallakurichi", "kancheepuram",
+    "kanniyakumari", "karur", "krishnagiri", "madurai", "mayiladuthurai",
+    "nagapattinam", "namakkal", "nilgiris", "perambalur", "pudukkottai",
+    "ramanathapuram", "ranipet", "salem", "sivaganga", "tenkasi",
+    "thanjavur", "theni", "thoothukudi", "tiruchirappalli", "tirunelveli",
+    "tirupathur", "tiruppur", "tiruvallur", "tiruvannamalai", "tiruvarur",
+    "vellore", "virudhunagar", "trichy", "trichirapalli", "tiruchirapalli",
+  ]);
+  const directArea = candidates.find((value) => {
+    if (typeof value !== "string" || !value.trim()) return false;
+    const cleaned = value.trim();
+    const normalized = normalizeDistrict(cleaned);
+    return !["unknown", "n/a", "na", "not available", "none", "null"].includes(cleaned.toLowerCase())
+      && !districtLabels.has(cleaned.toLowerCase().replace(/[^a-z]/g, ""))
+      && !districtLabels.has(normalized)
+      && !isRoadOrAddressLabel(cleaned);
+  });
   if (directArea) return String(directArea).trim();
 
-  // Prefer a known locality appearing anywhere in the address over a GPS
-  // status or the district/city suffix.
-  const address = [
-    job.pickupAddress, job.farmAddress, location.address, location.formattedAddress,
-    farmer.pickupAddress, farmer.farmAddress, farmerLocation.address, job.address,
-  ].find((value) => typeof value === "string" && value.trim());
-  if (address) {
-    const parts = String(address).split(/[,;|]/).map((part) => part.trim()).filter(Boolean);
-    const district = normalizeDistrict(districtOf(job));
-    const usable = parts.filter((part) => {
-      const normalized = normalizeDistrict(part);
-      return normalized && normalized !== district && !/^(road|street|main road|india|tamil nadu)$/i.test(part);
-    });
-    const candidate = usable.filter((part) => !isRoadOrAddressLabel(part)).at(-1) || "";
-    if (candidate) return candidate.replace(/\\s*[-–].*$/, "").trim();
-  }
-  return "Area not identified";
+  // A street address alone is not enough to infer a village. Never use the
+  // trailing generic district appended to an order/delivery address.
+  return "Farm locality not recorded";
 }
 function districtOf(job: Job) {
   // Pickup routing is based only on the farm/pickup origin. Do not use the
@@ -350,18 +354,11 @@ export default function PickupRoutesPage() {
       const matchedKey = explicitAreas.map((value) => areaAliases.get(areaKey(value))).find(Boolean)
         || addressParts.map((value) => areaAliases.get(value)).find(Boolean)
         || aliasMatches[0]?.[1];
-      // GPS is never used to decide the pickup area. If the order has a
-      // registered village/taluk/locality that is not yet in the area master,
-      // keep it under that actual locality instead of a GPS-verification bucket.
-      const inferredArea = areaOf(job);
-      const hasInferredArea = inferredArea !== "Area not identified" &&
-        normalizeDistrict(inferredArea) !== normalizeDistrict(districtOf(job));
-      const key = collectionToZone.get(id) || matchedKey ||
-        (hasInferredArea ? "area:" + areaKey(inferredArea) : "district-unassigned");
-      if (!groups.has(key)) {
-        const name = key === "district-unassigned" ? "Area not identified" : (hasInferredArea ? inferredArea : areaOf(job));
-        groups.set(key, { key, name, areaType: key === "district-unassigned" ? "Farm locality not available in profile/address" : "Registered farm locality", jobs: [], totalOrders: 0, readyToAssign: 0, collectionIds: [] });
-      }
+      // Only place a collection in a canonical pickup-area directory entry.
+      // Do not manufacture an area from generic order fields or destination
+      // address fragments when the farm locality cannot be verified.
+      const key = collectionToZone.get(id) || matchedKey;
+      if (!key || !groups.has(key)) return;
       const group = groups.get(key)!;
       group.jobs.push(job);
     });
