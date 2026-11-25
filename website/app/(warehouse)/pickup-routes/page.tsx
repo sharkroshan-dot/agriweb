@@ -100,8 +100,30 @@ function areaOf(job: Job) {
   return "Area not identified";
 }
 function districtOf(job: Job) {
-  const location = job.pickupLocation || job.farmLocation || {};
-  return String(job.farmDistrict || job.district || location.district || "").trim();
+  // Pickup routing is based only on the farm/pickup origin. Do not use the
+  // generic job.district field: legacy order records may store the delivery
+  // destination district there.
+  const farmer = job.farmerProfile || job.farmer || job.profile || {};
+  const location = job.farmLocation || job.pickupLocation || farmer.farmLocation || farmer.farmAddress || {};
+  const candidates = [
+    job.farmDistrict, location.farmDistrict, location.district,
+    farmer.farmDistrict, farmer.farmLocation?.district, farmer.farmAddress?.district,
+  ].filter((value) => typeof value === "string" && value.trim());
+  if (candidates.length) return String(candidates[0]).trim();
+
+  const farmAddress = [
+    job.pickupAddress, job.farmAddress, location.address, location.formattedAddress,
+    farmer.pickupAddress, farmer.farmAddress,
+  ].filter((value) => typeof value === "string").join(" ").toLowerCase();
+  const addressDistrictAliases: Record<string, string> = {
+    trichy: "tiruchirappalli", trichirapalli: "tiruchirappalli",
+    tiruchirapalli: "tiruchirappalli", tiruchirappalli: "tiruchirappalli",
+    perambalur: "perambalur", coimbatore: "coimbatore",
+    krishnagiri: "krishnagiri", chennai: "chennai",
+  };
+  const match = Object.entries(addressDistrictAliases)
+    .find(([alias]) => new RegExp("\\b" + alias + "\\b", "i").test(farmAddress));
+  return match?.[1] || "";
 }
 function normalizeDistrict(value: unknown) {
   const normalized = String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -233,13 +255,10 @@ export default function PickupRoutesPage() {
   // Pickup Routes is only for farm-stock collection inside this warehouse's
   // configured district. Completed/assigned pickup history is not assignable.
   const districtJobs = allJobs.filter((job) => {
-    const districtKey = normalizeDistrict(districtOf(job));
-    if (districtKey && allowedDistrictKeys.size) return allowedDistrictKeys.has(districtKey);
-    // /me/collections is already scoped to the authenticated warehouse.
-    // If older warehouse/profile records do not expose district coverage, keep
-    // those warehouse-linked jobs visible unless the backend explicitly marks
-    // them as belonging to a different district.
-    return String(job.districtMatchStatus || "") !== "district_mismatch";
+    const farmDistrictKey = normalizeDistrict(districtOf(job));
+    // Only a confirmed farm-origin district may enter this warehouse's pickup
+    // workflow. Never fall back to destination/job.district or warehouse link.
+    return Boolean(farmDistrictKey && allowedDistrictKeys.size && allowedDistrictKeys.has(farmDistrictKey));
   });
   // Keep assigned and in-progress jobs visible so B2B assignments made from
   // either page are reflected here; only ready, unassigned jobs are selectable.
@@ -279,7 +298,10 @@ export default function PickupRoutesPage() {
         // The endpoint is already warehouse-scoped. When a directory row does
         // include its district, enforce the warehouse district again here so
         // aliases or stale area-master entries cannot leak into this page.
-        if (areaDistrict && allowedDistrictKeys.size && !allowedDistrictKeys.has(areaDistrict)) return;
+        // Directory rows must carry a district that matches this warehouse.
+        // Missing district metadata is not permission to show a row from an
+        // unknown/other district.
+        if (allowedDistrictKeys.size && (!areaDistrict || !allowedDistrictKeys.has(areaDistrict))) return;
         const name = String(area.name || "").trim();
         if (!name) return;
         const key = String(area.key || area.hubId || areaKey(name));
