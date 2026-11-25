@@ -307,38 +307,6 @@ export default function PickupRoutesPage() {
     return Array.from(groups.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [jobs, areasQ.data]);
 
-  const farmGroups = useMemo(() => {
-    const groups = new Map<string, { key: string; farmerName: string; pickupAddress: string; jobs: Job[] }>();
-    for (const job of filtered) {
-      const key = getFarmRouteKey(job);
-      if (!groups.has(key)) groups.set(key, {
-        key,
-        farmerName: String(job.farmerName || "Farmer details unavailable"),
-        pickupAddress: String(job.pickupAddress || areaOf(job)),
-        jobs: [],
-      });
-      groups.get(key)!.jobs.push(job);
-    }
-    return Array.from(groups.values()).map((farm) => {
-      const readyJobs = farm.jobs.filter((job) => READY.has(String(job.status || "").toLowerCase()) && !job.pickupRouteId && !job.collectionTeamId);
-      const readyIds = readyJobs.map(idOf);
-      const selectedCount = readyIds.filter((id) => selectedIds.includes(id)).length;
-      const statuses = farm.jobs.map((job) => String(job.status || "scheduled"));
-      const progressIndex = Math.min(...statuses.map((status) => Math.max(0, COLLECTION_STATUS.findIndex(([key]) => key === status))));
-      return {
-        ...farm,
-        readyJobs,
-        readyIds,
-        selectedCount,
-        allReadySelected: readyIds.length > 0 && selectedCount === readyIds.length,
-        totalQuantity: farm.jobs.reduce((sum, job) => sum + Number(job.quantity || 0), 0),
-        currentStage: COLLECTION_STATUS[progressIndex]?.[1] || "Collection in progress",
-        mixedStages: new Set(statuses).size > 1,
-        routeCount: new Set(farm.jobs.map((job) => job.pickupRouteId).filter(Boolean).map(String)).size,
-      };
-    });
-  }, [filtered, selectedIds]);
-
   const farmCountForArea = (area: Job) => new Set((area.jobs || []).map((job: Job) => getFarmRouteKey(job))).size;
   const readyCountForArea = (area: Job) => (area.jobs || []).filter((job: Job) =>
     READY.has(String(job.status || "").toLowerCase()) && !job.pickupRouteId && !job.collectionTeamId
@@ -387,6 +355,38 @@ export default function PickupRoutesPage() {
       return areaMatch && statusMatch && typeMatch && dateMatch && (!term || text.includes(term));
     });
   }, [jobs, areas, taluks, selectedArea, statusFilter, collectionType, datePeriod, search]);
+
+  const farmGroups = useMemo(() => {
+    const groups = new Map<string, { key: string; farmerName: string; pickupAddress: string; jobs: Job[] }>();
+    for (const job of filtered) {
+      const key = getFarmRouteKey(job);
+      if (!groups.has(key)) groups.set(key, {
+        key,
+        farmerName: String(job.farmerName || "Farmer details unavailable"),
+        pickupAddress: String(job.pickupAddress || areaOf(job)),
+        jobs: [],
+      });
+      groups.get(key)!.jobs.push(job);
+    }
+    return Array.from(groups.values()).map((farm) => {
+      const readyJobs = farm.jobs.filter((job) => READY.has(String(job.status || "").toLowerCase()) && !job.pickupRouteId && !job.collectionTeamId);
+      const readyIds = readyJobs.map(idOf);
+      const selectedCount = readyIds.filter((id) => selectedIds.includes(id)).length;
+      const statuses = farm.jobs.map((job) => String(job.status || "scheduled"));
+      const progressIndex = Math.min(...statuses.map((status) => Math.max(0, COLLECTION_STATUS.findIndex(([key]) => key === status))));
+      return {
+        ...farm,
+        readyJobs,
+        readyIds,
+        selectedCount,
+        allReadySelected: readyIds.length > 0 && selectedCount === readyIds.length,
+        totalQuantity: farm.jobs.reduce((sum, job) => sum + Number(job.quantity || 0), 0),
+        currentStage: COLLECTION_STATUS[progressIndex]?.[1] || "Collection in progress",
+        mixedStages: new Set(statuses).size > 1,
+        routeCount: new Set(farm.jobs.map((job) => job.pickupRouteId).filter(Boolean).map(String)).size,
+      };
+    });
+  }, [filtered, selectedIds]);
 
   const selectedJobs = jobs.filter((job) => selectedIds.includes(idOf(job)));
   const selectedWeight = selectedJobs.reduce((sum, job) => sum + Number(job.quantity || 0), 0);
