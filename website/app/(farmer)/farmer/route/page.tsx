@@ -395,6 +395,27 @@ export default function FarmerRoutePage() {
   const summary = routeData?.summary;
   const farm: Farm = routeData?.farm ?? { name: "My Farm", lat: null, lng: null, address: "" };
 
+  // Group orders by their actual delivery destination. Multiple orders for the
+  // same address become one physical stop in the schedule, while each order
+  // retains its own status, contact and completion actions.
+  const locationGroups = (() => {
+    const groups = new Map<string, { key: string; location: string; city: string; stops: Stop[] }>();
+    for (const stop of stops) {
+      const normalizedAddress = String(stop.location || "").trim().toLowerCase().replace(/[.,#]/g, " ").replace(/\\s+/g, " ");
+      const normalizedCity = String(stop.city || "").trim().toLowerCase().replace(/[.,#]/g, " ").replace(/\\s+/g, " ");
+      const coordinateKey = stop.lat != null && stop.lng != null
+        ? `${Number(stop.lat).toFixed(5)},${Number(stop.lng).toFixed(5)}`
+        : "";
+      const key = normalizedAddress || normalizedCity
+        ? `${normalizedAddress}| ${normalizedCity}`
+        : coordinateKey || `order:${stop.id}`;
+      const existing = groups.get(key);
+      if (existing) existing.stops.push(stop);
+      else groups.set(key, { key, location: stop.location || "Address unavailable", city: stop.city || "", stops: [stop] });
+    }
+    return Array.from(groups.values());
+  })();
+
   const doneCount = stops.filter((s) => s.status === "delivered" || s.status === "picked_up").length;
   const progress = stops.length ? Math.round((doneCount / stops.length) * 100) : 0;
   const nextStop = stops.find((s) => s.status !== "delivered" && s.status !== "picked_up") ?? null;
@@ -953,7 +974,7 @@ export default function FarmerRoutePage() {
                   <Truck className="h-5 w-5 text-primary" />
                   Pickup &amp; Delivery Schedule
                 </CardTitle>
-                <CardDescription>{stops.length} orders in route sequence</CardDescription>
+                <CardDescription>{locationGroups.length} delivery locations · {stops.length} total orders in optimized sequence</CardDescription>
               </div>
               <Button size="sm" onClick={handleStartRoute} disabled={started || startMutation.isPending}>
                 <Play className="mr-2 h-4 w-4" />
@@ -972,7 +993,23 @@ export default function FarmerRoutePage() {
                   </div>
                 </div>
 
-                {stops.map((stop, index) => {
+                <div className="mb-2 rounded-lg border border-emerald-200 bg-emerald-50/60 px-4 py-3">
+                  <p className="text-sm font-semibold text-emerald-800">{locationGroups.length} unique delivery locations</p>
+                  <p className="text-xs text-emerald-700">{stops.length} orders grouped under their destination addresses</p>
+                </div>
+                {locationGroups.map((group, locationIndex) => (
+                  <div key={group.key} className="space-y-2 rounded-xl border border-slate-200 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">{locationIndex + 1}</span>
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold">Delivery Location {locationIndex + 1}</p>
+                          <p className="truncate text-xs text-muted-foreground">{group.location}{group.city ? `, ${group.city}` : ""}</p>
+                        </div>
+                      </div>
+                      <Badge variant="secondary">{group.stops.length} {group.stops.length === 1 ? "order" : "orders"}</Badge>
+                    </div>
+                    {group.stops.map((stop) => {
                   const done = stop.status === "delivered" || stop.status === "picked_up";
                   return (
                     <div
@@ -1096,6 +1133,8 @@ export default function FarmerRoutePage() {
                     </div>
                   );
                 })}
+                  </div>
+                ))}
 
                 <div className="flex items-start gap-4 pt-2">
                   <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-100">
