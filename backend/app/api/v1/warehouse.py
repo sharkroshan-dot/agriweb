@@ -1787,6 +1787,7 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
             "tehsil", "mandal", "block", "farmtown", "town", "townname",
         ]
         found: Dict[str, str] = {}
+        address_texts: List[str] = []
         pending = [profile]
         visited = set()
         while pending:
@@ -1795,6 +1796,12 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
                 continue
             visited.add(id(node))
             for key, value in node.items():
+                normalized_key = str(key).casefold().replace("_", "").replace("-", "").replace(" ", "")
+                if normalized_key in {
+                    "address", "formattedaddress", "fulladdress", "pickupaddress",
+                    "farmaddress", "farmaddressline", "addressline", "streetaddress",
+                } and isinstance(value, str) and value.strip():
+                    address_texts.append(" ".join(value.strip().split()))
                 # Farmer profile schemas exist in both camelCase and
                 # snake_case. Normalize key spelling before testing locality fields.
                 normalized_key = str(key).casefold().replace("_", "").replace("-", "").replace(" ", "")
@@ -1832,6 +1839,20 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
         for key in preferred:
             if found.get(key):
                 return found[key]
+
+        # Legacy farmer profiles sometimes store the village/locality only
+        # inside a single formatted address string. Match that address against
+        # the active district pickup-area master aliases (longest alias first).
+        # Do not infer a locality from road names or the district/city itself.
+        address_blob = " | ".join(address_texts)
+        if address_blob:
+            normalized_blob = normalized_area(address_blob)
+            aliases = sorted(master_by_alias.items(), key=lambda item: len(item[0]), reverse=True)
+            for alias, master in aliases:
+                if not alias or len(alias) < 3:
+                    continue
+                if re.search(r"(?<![a-z0-9])" + re.escape(alias) + r"(?![a-z0-9])", normalized_blob):
+                    return str(master.get("name") or alias).strip() or None
         return None
 
     profiles_collection = MongoDB.get_collection("farmer_profiles")
