@@ -155,6 +155,13 @@ export default function PickupRoutesPage() {
   const [activeFarmId, setActiveFarmId] = useState("");
   const [areaSearch, setAreaSearch] = useState("");
 
+  const warehouseQ = useQuery({
+    queryKey: ["warehousePickupDistrictProfile"],
+    queryFn: () => api.get("/warehouse/me"),
+    staleTime: 60000,
+    refetchInterval: 60000,
+  });
+
   const jobsQ = useQuery({
     queryKey: ["warehousePickupAreaPlanning"],
     queryFn: () => api.get("/warehouse/me/collections", { params: { status: "all" } }),
@@ -180,14 +187,30 @@ export default function PickupRoutesPage() {
   const rawTeams = teamsQ.data?.data?.members ?? teamsQ.data?.members ?? teamsQ.data?.teams ?? teamsQ.data?.data?.teams;
   const allJobs: Job[] = Array.isArray(rawJobs) ? rawJobs.filter((job: unknown): job is Job => Boolean(job) && typeof job === "object") : [];
   const teams: Job[] = Array.isArray(rawTeams) ? rawTeams.filter((team: unknown): team is Job => Boolean(team) && typeof team === "object") : [];
-  // Use the same district coverage returned by Farm Collection. The backend
-  // defaults this to the warehouse Settings location district when no explicit
-  // Farm Collection district coverage has been configured.
-  const configuredDistricts: string[] = Array.isArray(jobsQ.data?.data?.configuredFarmCollectionDistricts)
-    ? jobsQ.data.data.configuredFarmCollectionDistricts
-    : Array.isArray(jobsQ.data?.configuredFarmCollectionDistricts)
-      ? jobsQ.data.configuredFarmCollectionDistricts
-      : [];
+  // Resolve the signed-in warehouse's district from the authoritative
+  // warehouse profile first, then use the same coverage returned by collections.
+  // This prevents the page from silently showing zero areas/orders while the
+  // collections request is still loading or an older API response omits coverage.
+  const warehouseProfile = warehouseQ.data?.data?.data ?? warehouseQ.data?.data ?? warehouseQ.data ?? {};
+  const warehouseAddress = warehouseProfile.address && typeof warehouseProfile.address === "object" ? warehouseProfile.address : {};
+  const warehouseLocation = warehouseProfile.location && typeof warehouseProfile.location === "object" ? warehouseProfile.location : {};
+  const profileDistricts = [
+    ...(Array.isArray(warehouseProfile.farmCollectionDistricts) ? warehouseProfile.farmCollectionDistricts : []),
+    warehouseProfile.farmCollectionDistrict,
+    warehouseProfile.district,
+    warehouseAddress.district,
+    warehouseAddress.city,
+    warehouseLocation.district,
+    warehouseLocation.city,
+  ].filter((value): value is string => typeof value === "string" && Boolean(value.trim()));
+  const collectionDistricts = Array.isArray(jobsQ.data?.data?.data?.configuredFarmCollectionDistricts)
+    ? jobsQ.data.data.data.configuredFarmCollectionDistricts
+    : Array.isArray(jobsQ.data?.data?.configuredFarmCollectionDistricts)
+      ? jobsQ.data.data.configuredFarmCollectionDistricts
+      : Array.isArray(jobsQ.data?.configuredFarmCollectionDistricts)
+        ? jobsQ.data.configuredFarmCollectionDistricts
+        : [];
+  const configuredDistricts: string[] = profileDistricts.length ? profileDistricts : collectionDistricts;
   const allowedDistrictKeys = new Set(configuredDistricts.map(normalizeDistrict).filter(Boolean));
   // The API already scopes this collection list to the signed-in warehouse.
   // Keep its assigned/in-progress/completed pickup jobs visible even when an
@@ -236,6 +259,11 @@ export default function PickupRoutesPage() {
       : (areasQ.data?.data?.zones ?? areasQ.data?.data?.areas ?? areasQ.data?.zones ?? areasQ.data?.areas ?? []);
     if (Array.isArray(directoryRows)) {
       directoryRows.forEach((area: Job) => {
+        const areaDistrict = normalizeDistrict(area.district || area.districtName || "");
+        // The endpoint is already warehouse-scoped. When a directory row does
+        // include its district, enforce the warehouse district again here so
+        // aliases or stale area-master entries cannot leak into this page.
+        if (areaDistrict && allowedDistrictKeys.size && !allowedDistrictKeys.has(areaDistrict)) return;
         const name = String(area.name || "").trim();
         if (!name) return;
         const key = String(area.key || area.hubId || areaKey(name));
@@ -305,7 +333,7 @@ export default function PickupRoutesPage() {
       group.readyToAssign = Math.max(Number(group.readyToAssign || 0), readyFromJobs);
     });
     return Array.from(groups.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [jobs, areasQ.data]);
+  }, [jobs, areasQ.data, allowedDistrictKeys]);
 
   const farmCountForArea = (area: Job) => new Set((area.jobs || []).map((job: Job) => getFarmRouteKey(job))).size;
   const readyCountForArea = (area: Job) => (area.jobs || []).filter((job: Job) =>
