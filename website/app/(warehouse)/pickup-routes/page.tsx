@@ -307,6 +307,43 @@ export default function PickupRoutesPage() {
     return Array.from(groups.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [jobs, areasQ.data]);
 
+  const farmGroups = useMemo(() => {
+    const groups = new Map<string, { key: string; farmerName: string; pickupAddress: string; jobs: Job[] }>();
+    for (const job of filtered) {
+      const key = getFarmRouteKey(job);
+      if (!groups.has(key)) groups.set(key, {
+        key,
+        farmerName: String(job.farmerName || "Farmer details unavailable"),
+        pickupAddress: String(job.pickupAddress || areaOf(job)),
+        jobs: [],
+      });
+      groups.get(key)!.jobs.push(job);
+    }
+    return Array.from(groups.values()).map((farm) => {
+      const readyJobs = farm.jobs.filter((job) => READY.has(String(job.status || "").toLowerCase()) && !job.pickupRouteId && !job.collectionTeamId);
+      const readyIds = readyJobs.map(idOf);
+      const selectedCount = readyIds.filter((id) => selectedIds.includes(id)).length;
+      const statuses = farm.jobs.map((job) => String(job.status || "scheduled"));
+      const progressIndex = Math.min(...statuses.map((status) => Math.max(0, COLLECTION_STATUS.findIndex(([key]) => key === status))));
+      return {
+        ...farm,
+        readyJobs,
+        readyIds,
+        selectedCount,
+        allReadySelected: readyIds.length > 0 && selectedCount === readyIds.length,
+        totalQuantity: farm.jobs.reduce((sum, job) => sum + Number(job.quantity || 0), 0),
+        currentStage: COLLECTION_STATUS[progressIndex]?.[1] || "Collection in progress",
+        mixedStages: new Set(statuses).size > 1,
+        routeCount: new Set(farm.jobs.map((job) => job.pickupRouteId).filter(Boolean).map(String)).size,
+      };
+    });
+  }, [filtered, selectedIds]);
+
+  const farmCountForArea = (area: Job) => new Set((area.jobs || []).map((job: Job) => getFarmRouteKey(job))).size;
+  const readyCountForArea = (area: Job) => (area.jobs || []).filter((job: Job) =>
+    READY.has(String(job.status || "").toLowerCase()) && !job.pickupRouteId && !job.collectionTeamId
+  ).length;
+
   const taluks: Job[] = useMemo(() => {
     const registered = areasQ.data?.data?.registeredAreas;
     if (Array.isArray(registered) && registered.length) return [];
@@ -468,7 +505,9 @@ export default function PickupRoutesPage() {
   };
 
   const searchedAreas = areas.filter((area) => area.name.toLowerCase().includes(areaSearch.trim().toLowerCase()));
-  const registeredFarmTotal = areas.reduce((sum, area) => sum + Number((area as any).registeredFarmCount || 0), 0);
+  // Derive live farm counts from the actual collection queue. The area-directory
+  // endpoint can contain stale/zero registeredFarmCount values even when jobs exist.
+  const registeredFarmTotal = new Set(jobs.map((job) => getFarmRouteKey(job))).size;
   const readyFarmTotal = new Set(jobs.filter((job) => READY.has(String(job.status || "")) && !job.pickupRouteId && !job.collectionTeamId).map((job) => String(job.farmerId || job.farmerUserId || job.farmId || idOf(job)))).size;
 
   return (
@@ -504,14 +543,14 @@ export default function PickupRoutesPage() {
               className={"w-full rounded-lg border p-3 text-left transition-colors " + (selectedArea === "all" ? "border-emerald-300 bg-emerald-50" : "border-slate-200 hover:bg-slate-50")}
             >
               <span className="flex items-center justify-between gap-3 text-sm font-semibold text-slate-900">
-                <span>All farm pickup areas</span><span className="tabular-nums">{areas.reduce((sum, area) => sum + Number((area as any).registeredFarmCount || 0), 0)} farms</span>
+                <span>All farm pickup areas</span><span className="tabular-nums">{registeredFarmTotal} farms</span>
               </span>
-              <span className="mt-1 block text-xs text-slate-500">{jobs.length} farm pickup records ready for partner assignment</span>
+              <span className="mt-1 block text-xs text-slate-500">{jobs.length} collection orders · {readyFarmTotal} farms with pickup-ready stock</span>
             </button>
 
             {searchedAreas.length ? searchedAreas.map((area) => {
               const active = selectedArea === area.key;
-              const registeredFarmCount = Number((area as any).registeredFarmCount || 0);
+              const registeredFarmCount = farmCountForArea(area);
               return (
                 <button
                   type="button"
@@ -525,8 +564,8 @@ export default function PickupRoutesPage() {
                       {registeredFarmCount} {registeredFarmCount === 1 ? "farm" : "farms"}
                     </span>
                   </span>
-                  <span className="mt-1 block text-xs text-slate-500">Registered farms in this pickup area</span>
-                  <span className="mt-2 flex items-center justify-between gap-2 text-xs"><span className="text-slate-500">{area.jobs.length} ready for pickup</span><ChevronRight className={"h-4 w-4 " + (active ? "text-emerald-700" : "text-slate-300")}/></span>
+                  <span className="mt-1 block text-xs text-slate-500">Farms with collection records in this area</span>
+                  <span className="mt-2 flex items-center justify-between gap-2 text-xs"><span className="text-slate-500">{readyCountForArea(area)} orders ready · {area.jobs.length} total orders</span><ChevronRight className={"h-4 w-4 " + (active ? "text-emerald-700" : "text-slate-300")}/></span>
                 </button>
               );
             }) : (
@@ -570,43 +609,6 @@ export default function PickupRoutesPage() {
             </div>
           </Card>}
 
-          <Card className="border-emerald-200 shadow-sm">
-            <div className="flex flex-col gap-3 border-b p-4 lg:flex-row lg:items-center lg:justify-between">
-              <div><h2 className="font-semibold text-slate-950">Bulk collection planning</h2><p className="mt-1 text-xs text-slate-500">Select ready orders across farms, optimize or manually arrange farm stops, then assign or offer the pickup route.</p></div>
-              <Button size="sm" variant="outline" onClick={selectAllEligibleFarms} disabled={!eligibleAreaFarms.length}><CheckCircle2 className="mr-2 h-4 w-4"/>{allEligibleSelected ? "Clear eligible selections" : "Select all eligible orders"} ({eligibleAreaFarms.length})</Button>
-            </div>
-            <CardContent className="space-y-4 p-4">
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Available for planning</p><p className="text-2xl font-bold">{eligibleAreaFarms.length}</p></div>
-                <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Selected orders</p><p className="text-2xl font-bold">{selectedIds.length}</p></div>
-                <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Selected farms / stops</p><p className="text-2xl font-bold">{selectedFarmStops.length}</p></div>
-                <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Selected load</p><p className="text-2xl font-bold">{selectedWeight.toFixed(1)} kg</p></div>
-              </div>
-              <div className="grid gap-3 lg:grid-cols-3">
-                <label className="space-y-1.5 text-xs font-semibold text-slate-700">Route planning mode
-                  <select value={routePlanningMode} onChange={(e)=>setRoutePlanningMode(e.target.value as "automatic"|"manual")} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-normal"><option value="automatic">Automatic · optimize farm stop order</option><option value="manual">Manual · choose farm stop order</option></select>
-                </label>
-                <label className="space-y-1.5 text-xs font-semibold text-slate-700">Assignment method
-                  <select value={assignmentMode} onChange={(e)=>setAssignmentMode(e.target.value as "auto_assign"|"offer"|"assign_team")} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-normal"><option value="auto_assign">Auto-plan and assign teams</option><option value="offer">Offer to approved pickup partners</option><option value="assign_team">Assign selected orders to one team</option></select>
-                </label>
-                <label className="space-y-1.5 text-xs font-semibold text-slate-700">Pickup team / vehicle
-                  <select value={teamId} onChange={(e)=>setTeamId(e.target.value)} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-normal"><option value="">Select pickup vehicle</option>{eligibleTeams.map((team)=><option key={team.id} value={team.id}>{team.name || "Pickup Team"} · {team.vehicleType || "Vehicle"} · {getTeamCapacity(team)} kg</option>)}</select>
-                  {selectedTeam && <span className="block text-[11px] font-normal text-slate-500">{selectedTeam.name} · capacity {getTeamCapacity(selectedTeam)} kg</span>}
-                </label>
-              </div>
-              {routePlanningMode === "manual" && <div className="space-y-2 rounded-xl border border-blue-200 bg-blue-50/40 p-3">
-                <div><h3 className="text-sm font-semibold text-slate-900">Manual pickup stop order</h3><p className="text-xs text-slate-600">Use arrows to choose the exact farm visit sequence. Farms without GPS remain selectable but cannot provide distance or ETA.</p></div>
-                {orderedManualFarmStops.length ? <ol className="space-y-2">{orderedManualFarmStops.map((farm,index)=><li key={farm.key} className="flex items-center gap-2 rounded-lg border bg-white p-2">
-                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-100 text-xs font-bold">{index+1}</span><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{farm.farmerName}</p><p className="truncate text-xs text-slate-500">{farm.pickupAddress} · {farm.jobIds.length} orders · {farm.quantity} kg</p>{!farm.hasCoordinates&&<p className="text-[11px] text-amber-700">GPS missing · manual order only</p>}</div>
-                  <div className="flex gap-1"><Button size="icon" variant="outline" disabled={index===0} onClick={()=>moveManualFarmStop(farm.key,-1)}><ArrowUp className="h-3.5 w-3.5"/></Button><Button size="icon" variant="outline" disabled={index===orderedManualFarmStops.length-1} onClick={()=>moveManualFarmStop(farm.key,1)}><ArrowDown className="h-3.5 w-3.5"/></Button></div>
-                </li>)}</ol> : <p className="text-xs text-slate-500">Select ready orders below to build the route sequence.</p>}
-              </div>}
-              <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3">
-                <p className="text-xs text-slate-600">Only Ready for Pickup orders without an existing route can be selected. Vehicle capacity and duplicate-route checks are validated by the backend.</p>
-                <Button onClick={assignAreaOrders} disabled={assigning || !selectedIds.length || (assignmentMode==="assign_team" && (!selectedTeam || !selectedTeam.deliveryPartnerId || selectedWeight>getTeamCapacity(selectedTeam))) || (assignmentMode!=="assign_team" && eligibleTeams.length===0)} className="bg-emerald-700 hover:bg-emerald-800"><Route className="mr-2 h-4 w-4"/>{assigning ? "Planning pickups…" : routePlanningMode==="manual" ? "Create manual route" : "Plan selected pickups"}</Button>
-              </div>
-            </CardContent>
-          </Card>
           <Card className="border-slate-200 shadow-sm">
             <div className="flex flex-col gap-3 border-b p-4 lg:flex-row lg:items-center lg:justify-between">
               <div><h2 className="font-semibold text-slate-900">Farms ready for collection</h2><p className="mt-1 text-xs text-slate-500">Only farm stock marked Ready for Pickup in this warehouse district is shown for pickup-partner assignment.</p></div>
@@ -631,20 +633,39 @@ export default function PickupRoutesPage() {
               </div>
             </div>
             {jobsQ.isLoading ? <div className="p-10 text-center text-sm text-slate-500">Loading pickup orders…</div> : jobsQ.isError ? <div className="p-8 text-center"><AlertTriangle className="mx-auto h-8 w-8 text-rose-500"/><p className="mt-2 text-sm font-medium">Unable to load pickup orders</p><Button className="mt-3" variant="outline" onClick={() => jobsQ.refetch()}>Try again</Button></div> : filtered.length === 0 ? <div className="p-10 text-center text-sm text-slate-500">No orders match the selected filters.</div> : <div className="max-h-[480px] divide-y overflow-y-auto">
-              {filtered.map((job) => {
-                const id = idOf(job); const canAssign = READY.has(String(job.status || "")) && !job.pickupRouteId && !job.collectionTeamId; const coords = coordinatesOf(job);
-                return <div key={id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start">
-                  <input type="checkbox" aria-label={`Select order ${job.orderNumber || id}`} checked={selectedIds.includes(id)} disabled={!canAssign} onChange={() => toggleOrder(id)} className="mt-1 h-4 w-4 accent-emerald-700 disabled:opacity-40"/>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-slate-900">{job.orderNumber || job.eventOrderNumber || "Pickup order"}</span><Badge className="border-emerald-200 bg-emerald-50 text-emerald-800">Farm pickup</Badge><Badge variant="outline">{STATUS_LABEL[String(job.status)] || String(job.status || "Unknown").replace(/_/g, " ")}</Badge></div>
-                    <p className="mt-1 text-sm text-slate-700">{job.farmerName || "Farmer details unavailable"} · {job.productName || "Product details unavailable"}</p>
-                    <p className="mt-1 flex items-start gap-1.5 text-xs text-slate-500"><MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0"/>{job.pickupAddress || "Farm address not provided"} · {areaOf(job)}</p>
-                    <p className="mt-1 text-xs text-slate-500">{Number(job.quantity || 0)} kg {job.collectionTeamName && `· ${job.collectionTeamName}`}</p>
-                    {job.districtMatchStatus && job.districtMatchStatus !== "matched" && <p className="mt-2 flex items-center gap-1 text-xs text-amber-700"><AlertTriangle className="h-3.5 w-3.5"/>{job.districtMatchMessage || "Verify farm district before assignment."}</p>}
+              {farmGroups.map((farm) => {
+                const farmId = "pickup-farm-" + farm.key.replace(/[^a-zA-Z0-9_-]/g, "-");
+                const expanded = Boolean(expandedFarmCards[farm.key]);
+                return <div key={farm.key} className="border-b last:border-b-0">
+                  <div className="flex flex-col gap-3 bg-emerald-50/50 p-4 sm:flex-row sm:items-center">
+                    <input type="checkbox" aria-label={`Select all ready orders from ${farm.farmerName}`} checked={farm.allReadySelected} disabled={!farm.readyIds.length} onChange={(event)=>setSelectedIds((current)=>event.target.checked?Array.from(new Set([...current,...farm.readyIds])):current.filter((id)=>!farm.readyIds.includes(id)))} className="h-5 w-5 accent-emerald-700 disabled:opacity-40"/>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2"><p className="font-semibold text-slate-950">{farm.farmerName}</p><Badge className="bg-emerald-100 text-emerald-800">{farm.readyJobs.length} ready</Badge><Badge variant="outline">{farm.jobs.length} total orders</Badge>{farm.routeCount>0&&<Badge className="bg-violet-100 text-violet-800">{farm.routeCount} route(s) planned</Badge>}</div>
+                      <p className="mt-1 flex items-start gap-1.5 text-xs text-slate-600"><MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0"/>{farm.pickupAddress || "Farm address not provided"} · {areaOf(farm.jobs[0])}</p>
+                      <p className="mt-1 text-xs font-medium text-slate-700">{farm.totalQuantity.toLocaleString()} kg expected · Current stage: {farm.currentStage}{farm.mixedStages?" · Mixed order stages":""}</p>
+                    </div>
+                    <Button type="button" size="sm" variant="outline" aria-expanded={expanded} aria-controls={farmId} onClick={()=>setExpandedFarmCards((current)=>({...current,[farm.key]:!current[farm.key]}))}>{expanded?"Hide orders":`View ${farm.jobs.length} orders`} <ChevronRight className={`ml-1 h-4 w-4 transition-transform ${expanded?"rotate-90":""}`}/></Button>
                   </div>
-                  <div className="flex shrink-0 items-center gap-2"><span className={`text-xs font-medium ${canAssign ? "text-emerald-700" : "text-slate-400"}`}>{canAssign ? "Eligible" : "Not assignable"}</span><Button size="sm" variant="outline" onClick={() => openLocation(job)} disabled={!coords && !job.pickupAddress}>Map</Button></div>
+                  {expanded&&<div id={farmId} className="space-y-2 bg-white p-3 sm:p-4">
+                    {farm.jobs.map((job)=>{
+                      const id=idOf(job); const canAssign=READY.has(String(job.status||"").toLowerCase())&&!job.pickupRouteId&&!job.collectionTeamId; const coords=coordinatesOf(job);
+                      const isSelected=selectedIds.includes(id);
+                      return <div key={id} className="flex flex-col gap-3 rounded-xl border border-slate-200 p-3 sm:flex-row sm:items-center">
+                        <input type="checkbox" aria-label={`Select order ${job.orderNumber||id}`} checked={isSelected} disabled={!canAssign} onChange={()=>toggleOrder(id)} className="h-4 w-4 accent-emerald-700 disabled:opacity-40"/>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2"><span className="text-sm font-semibold text-slate-900">{job.orderNumber||job.eventOrderNumber||"Pickup order"}</span><Badge variant="outline">{STATUS_LABEL[String(job.status)]||String(job.status||"Unknown").replace(/_/g," ")}</Badge>{job.pickupRouteId&&<Badge className="bg-violet-100 text-violet-800">{job.routeNumber?"Route "+job.routeNumber:"Route planned"}</Badge>}</div>
+                          <p className="mt-1 text-sm text-slate-700">{job.productName||"Product details unavailable"} · {Number(job.quantity||0)} kg · {job.packageCount||1} package(s)</p>
+                          <p className="mt-1 text-xs text-slate-500">Collection team: {job.collectionTeamName|| (job.collectionTeamId?"Assigned":"Not assigned")} · {job.warehouseName||"Destination warehouse"}</p>
+                          {job.actualCollectedQuantity!=null&&<p className="mt-1 text-xs font-semibold text-emerald-700">Collected: {job.actualCollectedQuantity} kg</p>}
+                          {job.districtMatchStatus&&job.districtMatchStatus!=="matched"&&<p className="mt-1 text-xs text-amber-700">{job.districtMatchMessage||"Verify farm district before assignment."}</p>}
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2"><span className={`text-xs font-medium ${canAssign?"text-emerald-700":"text-slate-400"}`}>{canAssign?"Eligible":"Not assignable"}</span><Button size="sm" variant="outline" onClick={()=>openLocation(job)} disabled={!coords&&!job.pickupAddress}>Map</Button></div>
+                      </div>;
+                    })}
+                  </div>}
                 </div>;
               })}
+
             </div>}
           </Card>
         </div>
@@ -660,16 +681,31 @@ export default function PickupRoutesPage() {
           <label className="block min-w-0 space-y-1.5 text-xs font-semibold text-slate-700">Approved pickup partner and vehicle
             <select value={teamId} onChange={(e) => setTeamId(e.target.value)} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"><option value="">Select partner / vehicle</option>{eligibleTeams.map((team) => <option key={team.id} value={team.id}>{team.name || "Pickup partner"} · {team.vehicleType || "Vehicle"} · {team.capacity || team.vehicleCapacity} kg</option>)}</select>
           </label>
+          <label className="block space-y-1.5 text-xs font-semibold text-slate-700">Route planning
+            <select value={routePlanningMode} onChange={(e)=>setRoutePlanningMode(e.target.value as "automatic"|"manual")} className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal"><option value="automatic">Automatic · optimize farm stops</option><option value="manual">Manual · choose farm stop order</option></select>
+          </label>
+          <label className="block space-y-1.5 text-xs font-semibold text-slate-700">Assignment method
+            <select value={assignmentMode} onChange={(e)=>setAssignmentMode(e.target.value as "auto_assign"|"offer"|"assign_team")} className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal"><option value="auto_assign">Auto-plan and assign teams</option><option value="offer">Offer to approved pickup partners</option><option value="assign_team">Assign to selected team</option></select>
+          </label>
+          {routePlanningMode==="manual"&&<div className="rounded-xl border border-blue-200 bg-blue-50/50 p-3">
+            <p className="text-xs font-semibold text-slate-800">Manual farm stop order · {orderedManualFarmStops.length} stops</p>
+            {orderedManualFarmStops.length?<ol className="mt-2 space-y-2">{orderedManualFarmStops.map((farm,index)=><li key={farm.key} className="flex items-center gap-2 rounded-lg bg-white p-2"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100 text-xs font-bold">{index+1}</span><span className="min-w-0 flex-1 truncate text-xs font-medium">{farm.farmerName} · {farm.jobIds.length} orders · {farm.quantity} kg</span><div className="flex gap-1"><Button size="icon" variant="outline" disabled={index===0} onClick={()=>moveManualFarmStop(farm.key,-1)}><ArrowUp className="h-3 w-3"/></Button><Button size="icon" variant="outline" disabled={index===orderedManualFarmStops.length-1} onClick={()=>moveManualFarmStop(farm.key,1)}><ArrowDown className="h-3 w-3"/></Button></div></li>)}</ol>:<p className="mt-1 text-xs text-slate-500">Select farm orders to build the stop sequence.</p>}
+          </div>}
+          <div className="rounded-xl border border-slate-200 px-3.5 py-2.5">
+            <p className="text-xs font-medium text-slate-500">Planning summary</p>
+            <p className="mt-1 text-sm font-semibold text-slate-900">{selectedIds.length} orders · {selectedFarmStops.length} farms · {selectedWeight.toFixed(1)} kg</p>
+            <p className="mt-1 text-[11px] text-slate-500">{selectedTeam? `Vehicle capacity: ${getTeamCapacity(selectedTeam)} kg`:"Choose a pickup vehicle to validate capacity."}</p>
+          </div>
           <div className="rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5">
             <p className="text-xs font-medium text-slate-500">Selected pickup load</p>
-            <p className="mt-1 text-lg font-bold tabular-nums text-slate-950">{selectedJobs.length} farms <span className="text-slate-300">·</span> {selectedWeight.toFixed(1)} kg</p>
+            <p className="mt-1 text-lg font-bold tabular-nums text-slate-950">{selectedIds.length} orders <span className="text-slate-300">·</span> {selectedWeight.toFixed(1)} kg</p>
             <p className="mt-0.5 text-[11px] text-slate-500">{selectedTeam ? `Vehicle capacity: ${selectedTeam.capacity || selectedTeam.vehicleCapacity} kg` : "Select a partner to check capacity"}</p>
           </div>
           <div className="rounded-xl border border-slate-200 px-3.5 py-2.5">
             <p className="text-xs font-medium text-slate-500">Assignment status</p>
             <p className={`mt-1 text-sm font-semibold ${selectedTeam && selectedWeight > Number(selectedTeam.capacity || selectedTeam.vehicleCapacity || 0) ? "text-rose-700" : "text-slate-800"}`}>{selectedTeam && selectedWeight > Number(selectedTeam.capacity || selectedTeam.vehicleCapacity || 0) ? "Capacity exceeded" : selectedIds.length ? "Ready to assign" : "Awaiting farm selection"}</p>
           </div>
-          <Button onClick={assignAreaOrders} disabled={assigning || !selectedIds.length || !selectedTeam || selectedWeight > Number(selectedTeam?.capacity || selectedTeam?.vehicleCapacity || 0)} className="h-11 w-full rounded-xl bg-emerald-700 px-4 font-semibold text-white hover:bg-emerald-800"><Truck className="mr-2 h-4 w-4"/>{assigning ? "Assigning…" : "Assign pickup route"}</Button>
+          <Button onClick={assignAreaOrders} disabled={assigning || !selectedIds.length || (assignmentMode==="assign_team" && (!selectedTeam || !selectedTeam.deliveryPartnerId || selectedWeight>getTeamCapacity(selectedTeam))) || (assignmentMode!=="assign_team" && eligibleTeams.length===0)} className="h-11 w-full rounded-xl bg-emerald-700 px-4 font-semibold text-white hover:bg-emerald-800"><Route className="mr-2 h-4 w-4"/>{assigning ? "Planning pickups…" : routePlanningMode==="manual" ? "Create manual route" : "Plan selected pickups"}</Button>
         </CardContent>
         {selectedTeam && selectedWeight > Number(selectedTeam.capacity || selectedTeam.vehicleCapacity || 0) && <p className="border-t border-rose-100 bg-rose-50 px-5 py-2.5 text-xs text-rose-700">Selected quantity exceeds this vehicle's capacity. Remove farms or select a vehicle with sufficient capacity.</p>}
         {eligibleTeams.length === 0 && <p className="border-t border-amber-100 bg-amber-50 px-5 py-2.5 text-xs text-amber-800">No approved pickup partner with registered vehicle capacity is available. Review Pickup Partners first.</p>}
