@@ -28,31 +28,24 @@ async function getGoogleGeocoder(): Promise<any | null> {
   }
 }
 
-async function geocodeWithNominatim(address: string): Promise<Coords | null> {
-  const parts = address
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const candidates: string[] = [address];
-  for (let i = 0; i < parts.length; i++) {
-    const q = parts.slice(i).join(", ");
-    if (!candidates.includes(q)) candidates.push(q);
-  }
-  for (const q of candidates) {
-    try {
-      const r = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`,
-        { headers: { "Accept-Language": "en" } }
-      );
-      const data = await r.json();
-      if (data && data[0]) {
-        return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
-      }
-    } catch {
-      // try next candidate
+async function geocodeThroughServer(address: string): Promise<Coords | null> {
+  try {
+    const response = await fetch(`/api/geocode?address=${encodeURIComponent(address)}`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      cache: "force-cache",
+    });
+    if (!response.ok) return null;
+    const data = await response.json();
+    const lat = Number(data?.lat);
+    const lng = Number(data?.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      return null;
     }
+    return { lat, lng };
+  } catch {
+    return null;
   }
-  return null;
 }
 
 export async function geocodeAddress(address: string): Promise<Coords | null> {
@@ -77,5 +70,5 @@ export async function geocodeAddress(address: string): Promise<Coords | null> {
       // fall through to Nominatim
     }
   }
-  return geocodeWithNominatim(trimmed);
+  return geocodeThroughServer(trimmed);
 }
