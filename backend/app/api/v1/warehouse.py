@@ -1778,6 +1778,8 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
             "grampanchayat", "panchayat", "hamlet", "ward",
             "farmtaluk", "taluk", "subdistrict", "sub_district",
             "tehsil", "mandal", "block", "farmtown", "town", "townname",
+            "farmcity", "city", "cityname", "registeredvillage",
+            "districtarea", "farmarea", "panchayatname", "gramapanchayat",
         }
         preferred = [
             "farmvillage", "village", "villagename", "farmareaname",
@@ -1785,6 +1787,8 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
             "grampanchayat", "panchayat", "hamlet", "ward",
             "farmtaluk", "taluk", "subdistrict", "sub_district",
             "tehsil", "mandal", "block", "farmtown", "town", "townname",
+            "farmcity", "city", "cityname", "registeredvillage",
+            "districtarea", "farmarea", "panchayatname", "gramapanchayat",
         ]
         found: Dict[str, str] = {}
         address_texts: List[str] = []
