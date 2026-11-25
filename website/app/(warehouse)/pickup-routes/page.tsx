@@ -374,10 +374,18 @@ export default function PickupRoutesPage() {
     return Array.from(groups.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [jobs, areasQ.data, allowedDistrictKeys]);
 
-  const farmCountForArea = (area: Job) => new Set((area.jobs || []).map((job: Job) => getFarmRouteKey(job))).size;
-  const readyCountForArea = (area: Job) => (area.jobs || []).filter((job: Job) =>
-    READY.has(String(job.status || "").toLowerCase()) && !job.pickupRouteId && !job.collectionTeamId
-  ).length;
+  // Prefer server-computed counts linked to farmer profiles when legacy collection IDs
+  // cannot be joined to the browser's current collection payload.
+  const farmCountForArea = (area: Job) => Math.max(
+    Number((area as any).registeredFarmCount || 0),
+    new Set((area.jobs || []).map((job: Job) => getFarmRouteKey(job))).size
+  );
+  const readyCountForArea = (area: Job) => Math.max(
+    Number((area as any).readyOrders ?? (area as any).readyToAssign ?? 0),
+    (area.jobs || []).filter((job: Job) =>
+      READY.has(String(job.status || "").toLowerCase()) && !job.pickupRouteId && !job.collectionTeamId
+    ).length
+  );
 
   const taluks: Job[] = useMemo(() => {
     const registered = areasQ.data?.data?.registeredAreas;
@@ -623,7 +631,10 @@ export default function PickupRoutesPage() {
   const searchedAreas = areas.filter((area) => area.name.toLowerCase().includes(areaSearch.trim().toLowerCase()));
   // Derive live farm counts from the actual collection queue. The area-directory
   // endpoint can contain stale/zero registeredFarmCount values even when jobs exist.
-  const registeredFarmTotal = new Set(jobs.map((job) => getFarmRouteKey(job))).size;
+  const registeredFarmTotal = Math.max(
+    new Set(jobs.map((job) => getFarmRouteKey(job))).size,
+    areas.reduce((sum, area) => sum + farmCountForArea(area), 0)
+  );
   const readyFarmTotal = new Set(jobs.filter((job) => READY.has(String(job.status || "")) && !job.pickupRouteId && !job.collectionTeamId).map((job) => String(job.farmerId || job.farmerUserId || job.farmId || idOf(job)))).size;
 
   return (
@@ -681,7 +692,7 @@ export default function PickupRoutesPage() {
                     </span>
                   </span>
                   <span className="mt-1 block text-xs text-slate-500">Farms with collection records in this area</span>
-                  <span className="mt-2 flex items-center justify-between gap-2 text-xs"><span className="text-slate-500">{readyCountForArea(area)} orders ready · {area.jobs.length} total orders</span><ChevronRight className={"h-4 w-4 " + (active ? "text-emerald-700" : "text-slate-300")}/></span>
+                  <span className="mt-2 flex items-center justify-between gap-2 text-xs"><span className="text-slate-500">{readyCountForArea(area)} orders ready · {Math.max(Number(area.totalOrders || 0), area.jobs.length)} total orders</span><ChevronRight className={"h-4 w-4 " + (active ? "text-emerald-700" : "text-slate-300")}/></span>
                 </button>
               );
             }) : (
