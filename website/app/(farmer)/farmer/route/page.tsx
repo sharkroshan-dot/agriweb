@@ -141,12 +141,14 @@ function RouteMap({
   started,
   nextStop,
   userLocation,
+  routePoints,
 }: {
   farm: Farm;
   stops: Stop[];
   started: boolean;
   nextStop: Stop | null;
   userLocation: { lat: number; lng: number } | null;
+  routePoints: { lat: number; lng: number }[];
 }) {
   const completedIds = new Set(
     stops.filter((s) => s.status === "delivered" || s.status === "picked_up").map((s) => s.id)
@@ -200,7 +202,7 @@ function RouteMap({
       zoom={hasFarmCoords || locatedStops.length > 0 ? 10 : 5}
       height="420px"
       markers={markers}
-      route={[]}
+      route={routePoints}
       trackUserLocation={true}
       userLocation={userLocation}
       className="rounded-lg"
@@ -353,8 +355,37 @@ export default function FarmerRoutePage() {
     enabled: Boolean(accessToken),
   });
 
+  // Use the same optimized stop sequence as Smart Route Planner so the map,
+  // delivery list and navigation all follow the shortest available road route.
+  const { data: optimizedRouteData } = useQuery({
+    queryKey: ["farmerRouteOptimizedStops", workflowOrderIds],
+    queryFn: () => api.get(`/farmers/me/smart-route${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`),
+    enabled: Boolean(accessToken),
+    retry: 1,
+  });
+
   const routeData: RouteData | undefined = data?.data;
-  const stops: Stop[] = routeData?.route ?? [];
+  const rawStops: Stop[] = routeData?.route ?? [];
+  const optimizedStops: any[] =
+    (optimizedRouteData as any)?.stops ??
+    (optimizedRouteData as any)?.data?.stops ??
+    [];
+  const stops: Stop[] = optimizedStops.length
+    ? optimizedStops
+        .map((optimized) => rawStops.find((stop) =>
+          String(stop.orderId) === String(optimized.orderId) ||
+          String(stop.id) === String(optimized.orderId) ||
+          String(stop.orderNumber) === String(optimized.orderNumber)
+        ))
+        .filter(Boolean) as Stop[]
+        .concat(rawStops.filter((stop) =>
+          !optimizedStops.some((optimized) =>
+            String(stop.orderId) === String(optimized.orderId) ||
+            String(stop.id) === String(optimized.orderId) ||
+            String(stop.orderNumber) === String(optimized.orderNumber)
+          )
+        ))
+    : rawStops;
   const summary = routeData?.summary;
   const farm: Farm = routeData?.farm ?? { name: "My Farm", lat: null, lng: null, address: "" };
 
@@ -737,6 +768,12 @@ export default function FarmerRoutePage() {
                   started={started || doneCount > 0}
                   nextStop={nextStop}
                   userLocation={userLocation}
+                  routePoints={[
+                    ...(userLocation ? [userLocation] : farm.lat != null && farm.lng != null ? [{ lat: farm.lat, lng: farm.lng }] : []),
+                    ...stops
+                      .filter((stop) => stop.status !== "delivered" && stop.status !== "picked_up" && stop.lat != null && stop.lng != null)
+                      .map((stop) => ({ lat: stop.lat as number, lng: stop.lng as number })),
+                  ]}
                 />
                 {started && nextStop && (
                   <div className="absolute left-4 right-4 top-4 z-[1000] flex items-center justify-between gap-3 rounded-xl border bg-white/95 p-3 shadow-lg backdrop-blur">
