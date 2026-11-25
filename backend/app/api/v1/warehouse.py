@@ -1842,7 +1842,12 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
                     pending.extend(item for item in value if isinstance(item, dict))
         for key in preferred:
             if found.get(key):
-                return found[key]
+                candidate = found[key]
+                matched = canonical_area(candidate)
+                if matched:
+                    return str(matched.get("name") or candidate).strip()
+                # Continue to address aliases if this field was a composite
+                # address or a district-level value rather than a known area.
 
         # Legacy farmer profiles sometimes store the village/locality only
         # inside a single formatted address string. Match that address against
@@ -1881,7 +1886,22 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
             master_by_alias[normalized_area(alias)] = master
 
     def canonical_area(value: Optional[str]) -> Optional[dict]:
-        return master_by_alias.get(normalized_area(value)) if value else None
+        if not value:
+            return None
+        normalized = normalized_area(value)
+        exact = master_by_alias.get(normalized)
+        if exact:
+            return exact
+        # Farm addresses are frequently stored as composite strings such as
+        # "Lalgudi, Tiruchirappalli, Tamil Nadu" or "Village - Taluk - District".
+        # Match a complete locality alias inside that farm-origin string, using
+        # the longest alias first so a taluk name wins over a shorter substring.
+        for alias, master in sorted(master_by_alias.items(), key=lambda item: len(item[0]), reverse=True):
+            if len(alias) < 3:
+                continue
+            if re.search(r"(?<![a-z0-9])" + re.escape(alias) + r"(?![a-z0-9])", normalized):
+                return master
+        return None
 
     def explicit_farm_district(*sources: Any) -> Optional[str]:
         """Read an explicitly recorded farm district without treating locality as district."""
