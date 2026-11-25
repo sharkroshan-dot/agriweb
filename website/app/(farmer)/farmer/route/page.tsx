@@ -158,67 +158,49 @@ function RouteMap({
   const hasFarmCoords = farm.lat != null && farm.lng != null;
 
   const markers = [
-    ...(hasFarmCoords
-      ? [
-          {
-            id: "farm",
-            lat: farm.lat as number,
-            lng: farm.lng as number,
-            title: farm.name,
-            color: "#7c3aed",
-            label: "F",
-            info: farm.address || "Start & end of the route",
-          },
-        ]
+    ...(!started && (hasFarmCoords || farm.address)
+      ? [{
+          id: "farm",
+          ...(hasFarmCoords ? { lat: farm.lat as number, lng: farm.lng as number } : {}),
+          title: farm.name,
+          color: "#7c3aed",
+          label: "F",
+          address: farm.address,
+          info: farm.address || "Start & end of the route",
+        }]
       : []),
-    ...locatedStops.map((stop, i) => {
-      const done = completedIds.has(stop.id);
-      const isNext = started && stop.id === nextStop?.id;
-      return {
-        id: stop.id,
-        lat: stop.lat,
-        lng: stop.lng,
-        title: `${done ? "✓ " : ""}${i + 1}. ${stop.buyerName}`,
-        color: done ? "#10b981" : isNext ? "#3b82f6" : "#059669",
-        label: done ? "✓" : String(i + 1),
-        info: `${stop.location || "No address"} · ${stop.product} · ${stop.quantity}`,
-      };
-    }),
+    ...stops
+      .filter((stop) => !completedIds.has(stop.id))
+      .map((stop, i) => {
+        const isNext = started && stop.id === nextStop?.id;
+        const address = [stop.location, stop.city].filter(Boolean).join(", ");
+        return {
+          id: stop.id,
+          ...(stop.lat != null && stop.lng != null ? { lat: stop.lat, lng: stop.lng } : {}),
+          title: `${i + 1}. ${stop.buyerName}`,
+          color: isNext ? "#3b82f6" : "#059669",
+          label: String(i + 1),
+          address,
+          info: `${address || "No address"} · ${stop.product} · ${stop.quantity}`,
+        };
+      }),
   ];
 
+  // Pass address-only stops to the shared map so it can geocode them and
+  // include them in the displayed driving route instead of dropping them.
   const center = hasFarmCoords
     ? { lat: farm.lat as number, lng: farm.lng as number }
     : locatedStops.length > 0
       ? { lat: locatedStops[0].lat, lng: locatedStops[0].lng }
-      : undefined;
-
-  if (!center) {
-    return (
-      <div className="flex h-[420px] w-full flex-col items-center justify-center rounded-lg border border-dashed text-center">
-        <Navigation className="h-8 w-8 text-gray-300" />
-        <p className="mt-2 text-sm font-medium text-gray-500">No mapped locations yet</p>
-        <p className="text-xs text-gray-400">
-          Add a location to your farm profile or orders to see today&apos;s route on the map.
-        </p>
-      </div>
-    );
-  }
+      : { lat: 20.5937, lng: 78.9629 };
 
   return (
     <Map
       center={center}
-      zoom={farm.lat != null ? 10 : 5}
+      zoom={hasFarmCoords || locatedStops.length > 0 ? 10 : 5}
       height="420px"
       markers={markers}
-      route={started
-        ? locatedStops
-            .filter((stop) => !completedIds.has(stop.id))
-            .map((stop) => ({ lat: stop.lat, lng: stop.lng }))
-        : [
-            ...(hasFarmCoords ? [{ lat: farm.lat as number, lng: farm.lng as number }] : []),
-            ...locatedStops.map((stop) => ({ lat: stop.lat, lng: stop.lng })),
-            ...(hasFarmCoords && locatedStops.length ? [{ lat: farm.lat as number, lng: farm.lng as number }] : []),
-          ]}
+      route={[]}
       trackUserLocation={started}
       userLocation={userLocation}
       className="rounded-lg"
