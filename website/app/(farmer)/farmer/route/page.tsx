@@ -31,6 +31,8 @@ import {
   Wallet,
   XCircle,
   Loader2,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
@@ -294,6 +296,7 @@ export default function FarmerRoutePage() {
   const [started, setStarted] = useState(false);
   const [tracking, setTracking] = useState(false);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [voiceGuidanceEnabled, setVoiceGuidanceEnabled] = useState(true);
   const watchRef = useRef<number | null>(null);
 
   // Request location permission and begin live GPS tracking as soon as the
@@ -395,13 +398,16 @@ export default function FarmerRoutePage() {
 
   const navigationWindowRef = useRef<Window | null>(null);
 
-  const buildGoogleNavigationUrl = (target: Stop, includeRemainingStops = false) => {
+  const buildGoogleNavigationUrl = (target: Stop, includeRemainingStops = false, completedStopId?: string) => {
     const pendingStops = stops.filter((stop) =>
+      stop.id !== completedStopId &&
       stop.status !== "delivered" && stop.status !== "picked_up"
     );
     const targetIndex = pendingStops.findIndex((stop) => stop.id === target.id);
+    // Google Maps Directions URLs support up to 9 intermediate waypoints.
+    // Continue with the next group after each completed delivery.
     const orderedStops = includeRemainingStops && targetIndex >= 0
-      ? pendingStops.slice(targetIndex)
+      ? pendingStops.slice(targetIndex, targetIndex + 10)
       : [target];
 
     const toGooglePlace = (stop: Stop) =>
@@ -435,6 +441,20 @@ export default function FarmerRoutePage() {
   const navigateToStop = (stop: Stop) => {
     window.open(buildGoogleNavigationUrl(stop), "_blank", "noopener,noreferrer");
   };
+
+  // Announce each new destination in the page. Google Maps remains responsible
+  // for continuous turn-by-turn voice guidance and live road rerouting.
+  useEffect(() => {
+    if (!started || !nextStop || !voiceGuidanceEnabled || typeof window === "undefined") return;
+    if (!("speechSynthesis" in window)) return;
+    window.speechSynthesis.cancel();
+    const announcement = new SpeechSynthesisUtterance(
+      `Next delivery: ${nextStop.buyerName}. ${[nextStop.location, nextStop.city].filter(Boolean).join(", ")}.`
+    );
+    announcement.rate = 1;
+    window.speechSynthesis.speak(announcement);
+    return () => window.speechSynthesis.cancel();
+  }, [started, nextStop?.id, voiceGuidanceEnabled]);
 
   const startMutation = useMutation({
     mutationFn: () => api.put(`/farmers/me/route/start${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`),
@@ -478,6 +498,16 @@ export default function FarmerRoutePage() {
       }),
     onSuccess: (_data, stop) => {
       toast.success(`${stop.buyerName} stop completed!`);
+      const remainingStops = stops.filter((item) =>
+        item.id !== stop.id && item.status !== "delivered" && item.status !== "picked_up"
+      );
+      const next = remainingStops[0];
+      if (next && navigationWindowRef.current && !navigationWindowRef.current.closed) {
+        navigationWindowRef.current.location.href = buildGoogleNavigationUrl(next, true, stop.id);
+      } else if (!next && navigationWindowRef.current && !navigationWindowRef.current.closed) {
+        navigationWindowRef.current.close();
+        navigationWindowRef.current = null;
+      }
       refetch();
     },
     onError: () => toast.error("Failed to complete stop"),
@@ -768,12 +798,9 @@ export default function FarmerRoutePage() {
                   started={started || doneCount > 0}
                   nextStop={nextStop}
                   userLocation={userLocation}
-                  routePoints={[
-                    ...(userLocation ? [userLocation] : farm.lat != null && farm.lng != null ? [{ lat: farm.lat, lng: farm.lng }] : []),
-                    ...stops
-                      .filter((stop) => stop.status !== "delivered" && stop.status !== "picked_up" && stop.lat != null && stop.lng != null)
-                      .map((stop) => ({ lat: stop.lat as number, lng: stop.lng as number })),
-                  ]}
+                  routePoints={stops
+                    .filter((stop) => stop.status !== "delivered" && stop.status !== "picked_up" && stop.lat != null && stop.lng != null)
+                    .map((stop) => ({ lat: stop.lat as number, lng: stop.lng as number }))}
                 />
                 {started && nextStop && (
                   <div className="absolute left-4 right-4 top-4 z-[1000] flex items-center justify-between gap-3 rounded-xl border bg-white/95 p-3 shadow-lg backdrop-blur">
@@ -820,10 +847,21 @@ export default function FarmerRoutePage() {
                         </span>
                       </p>
                     </div>
-                    <Button size="sm" onClick={() => navigateToStop(nextStop)} className="shrink-0">
-                      <Navigation className="mr-2 h-4 w-4" />
-                      Navigate
-                    </Button>
+                    <div className="flex shrink-0 flex-col gap-2">
+                      <Button size="sm" onClick={() => navigateToStop(nextStop)}>
+                        <Navigation className="mr-2 h-4 w-4" />
+                        Navigate
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setVoiceGuidanceEnabled((enabled) => !enabled)}
+                        title={voiceGuidanceEnabled ? "Turn off spoken next-stop announcements" : "Turn on spoken next-stop announcements"}
+                      >
+                        {voiceGuidanceEnabled ? <Volume2 className="mr-2 h-4 w-4" /> : <VolumeX className="mr-2 h-4 w-4" />}
+                        Voice {voiceGuidanceEnabled ? "On" : "Off"}
+                      </Button>
+                    </div>
                   </div>
                 )}
               </CardContent>
