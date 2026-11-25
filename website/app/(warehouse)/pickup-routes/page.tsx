@@ -5,7 +5,8 @@ import { useQuery } from "@tanstack/react-query";
 import {
   MapPin, Truck, RefreshCw, Search, Package,
   AlertTriangle, CheckCircle2, Map as MapIcon,
-  Sprout, ChevronRight, Users,
+  Sprout, ChevronRight, Users, ArrowUp, ArrowDown,
+  Clock3, Route, Warehouse,
 } from "lucide-react";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
@@ -17,6 +18,43 @@ import toast from "react-hot-toast";
 
 type Job = Record<string, any>;
 const READY = new Set(["ready_for_pickup"]);
+const COLLECTION_STATUS = [
+  ["scheduled", "Waiting for Farmer"],
+  ["ready_for_pickup", "Ready for Pickup"],
+  ["team_assigned", "Team Assigned"],
+  ["en_route", "En Route"],
+  ["arrived_at_farm", "At Farm"],
+  ["collected", "Collected"],
+  ["departed_farm", "Departed"],
+  ["arrived_warehouse", "At Warehouse"],
+] as const;
+const getFarmRouteKey = (job: Job): string => {
+  for (const field of ["farmId", "farmProfileId", "sourceFarmId"]) {
+    const value = String(job?.[field] || "").trim();
+    if (value) return "farm:" + value.toLowerCase();
+  }
+  const location = job?.pickupLocation && typeof job.pickupLocation === "object" ? job.pickupLocation : {};
+  const address = location.formattedAddress || location.address || location.farmAddress || job?.pickupAddress;
+  if (address && String(address).trim()) return "address:" + String(address).trim().toLowerCase().split(/\\s+/).join(" ");
+  const farmerId = String(job?.farmerId || "").trim();
+  if (farmerId) return "farmer:" + farmerId.toLowerCase();
+  const farmerName = String(job?.farmerName || job?.farmName || "").trim();
+  if (farmerName && !["farmer", "farm", "unknown farmer"].includes(farmerName.toLowerCase())) return "name:" + farmerName.toLowerCase().split(/\\s+/).join(" ");
+  const coordinates = location.coordinates;
+  if (Array.isArray(coordinates) && coordinates.length >= 2) {
+    const lat = Number(Number(coordinates[1]).toFixed(4));
+    const lng = Number(Number(coordinates[0]).toFixed(4));
+    if (Number.isFinite(lat) && Number.isFinite(lng)) return "location:" + lng + ":" + lat;
+  }
+  return "collection:" + idOf(job);
+};
+const getTeamCapacity = (team: Job) => Number(team.capacity || team.vehicleCapacity || 0);
+const getFarmProgress = (farmJobs: Job[]) => {
+  const rank = new Map<string, number>(COLLECTION_STATUS.map(([key], index) => [key, index]));
+  const ranked = farmJobs.map((job) => rank.get(String(job.status || "scheduled")) ?? 0);
+  const current = ranked.length ? Math.min(...ranked) : 0;
+  return { stage: COLLECTION_STATUS[current]?.[1] || "Waiting for Farmer", count: ranked.filter((value) => value === current).length, total: ranked.length, mixed: new Set(farmJobs.map((job) => job.status)).size > 1 };
+};
 const STATUS_LABEL: Record<string, string> = {
   scheduled: "Waiting for farmer", ready_for_pickup: "Ready for pickup",
   team_assigned: "Partner assigned", en_route: "En route", arrived_at_farm: "At farm",
@@ -104,9 +142,15 @@ export default function PickupRoutesPage() {
   const [selectedArea, setSelectedArea] = useState("all");
   const [expandedTaluks, setExpandedTaluks] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState("all");
+  const [collectionType, setCollectionType] = useState("all");
+  const [datePeriod, setDatePeriod] = useState<"all" | "today" | "yesterday" | "week" | "month">("today");
   const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [teamId, setTeamId] = useState("");
+  const [assignmentMode, setAssignmentMode] = useState<"auto_assign" | "offer" | "assign_team">("auto_assign");
+  const [routePlanningMode, setRoutePlanningMode] = useState<"automatic" | "manual">("automatic");
+  const [manualFarmOrder, setManualFarmOrder] = useState<string[]>([]);
+  const [expandedFarmCards, setExpandedFarmCards] = useState<Record<string, boolean>>({});
   const [assigning, setAssigning] = useState(false);
   const [activeFarmId, setActiveFarmId] = useState("");
   const [areaSearch, setAreaSearch] = useState("");
@@ -277,14 +321,35 @@ export default function PickupRoutesPage() {
     const zone = areas.find((area) => area.key === selectedArea);
     const taluk = taluks.find((item) => item.key === selectedArea);
     const orderIds = new Set(taluk?.collectionIds || zone?.collectionIds || []);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+    const week = new Date(today);
+    week.setDate(week.getDate() - ((week.getDay() + 6) % 7));
+    const month = new Date(now.getFullYear(), now.getMonth(), 1);
     return jobs.filter((job) => {
       const areaMatch = selectedArea === "all" || orderIds.has(idOf(job)) || zone?.jobs.some((item) => idOf(item) === idOf(job));
       const statusMatch = statusFilter === "all" || String(job.status || "") === statusFilter;
+      const typeMatch = collectionType === "all" || String(job.collectionType || "bulk_harvest") === collectionType;
+      const rawDate = job.readyAt || job.readyForPickupAt || job.scheduledAt || job.createdAt || job.updatedAt;
+      const jobDate = rawDate ? new Date(rawDate) : null;
+      const validDate = Boolean(jobDate && !Number.isNaN(jobDate.getTime()));
+      let dateMatch = true;
+      if (datePeriod === "today") {
+        const active = ["ready_for_pickup", "team_assigned", "en_route", "arrived_at_farm", "collected", "departed_farm"].includes(String(job.status || "").toLowerCase());
+        dateMatch = validDate ? ((jobDate as Date) >= today && (jobDate as Date) < tomorrow) || (active && (jobDate as Date) < today) : active;
+      } else if (datePeriod !== "all") {
+        dateMatch = validDate && (datePeriod === "yesterday"
+          ? (jobDate as Date) >= yesterday && (jobDate as Date) < today
+          : datePeriod === "week" ? (jobDate as Date) >= week && (jobDate as Date) < tomorrow
+          : (jobDate as Date) >= month && (jobDate as Date) < tomorrow);
+      }
       const term = search.trim().toLowerCase();
-      const text = [job.farmerName, job.orderNumber, job.orderId, job.productName, job.pickupAddress, areaOf(job), districtOf(job)].join(" ").toLowerCase();
-      return areaMatch && statusMatch && (!term || text.includes(term));
+      const text = [job.farmerName, job.orderNumber, job.orderId, job.productName, job.pickupAddress, areaOf(job), districtOf(job), job.status].join(" ").toLowerCase();
+      return areaMatch && statusMatch && typeMatch && dateMatch && (!term || text.includes(term));
     });
-  }, [jobs, areas, taluks, selectedArea, statusFilter, search]);
+  }, [jobs, areas, taluks, selectedArea, statusFilter, collectionType, datePeriod, search]);
 
   const selectedJobs = jobs.filter((job) => selectedIds.includes(idOf(job)));
   const selectedWeight = selectedJobs.reduce((sum, job) => sum + Number(job.quantity || 0), 0);
@@ -334,28 +399,65 @@ export default function PickupRoutesPage() {
     : { lat: 10.7905, lng: 78.7047 }, [farmMarkers]);
 
   const toggleOrder = (id: string) => setSelectedIds((current) => current.includes(id) ? current.filter((x) => x !== id) : [...current, id]);
+  const selectedFarmStops = useMemo(() => {
+    const selected = new Set(selectedIds);
+    const groups = new Map<string, { key: string; farmerName: string; pickupAddress: string; jobIds: string[]; quantity: number; hasCoordinates: boolean }>();
+    for (const job of jobs) {
+      const id = idOf(job);
+      if (!selected.has(id) || !READY.has(String(job.status || "")) || job.pickupRouteId || job.collectionTeamId) continue;
+      const key = getFarmRouteKey(job);
+      if (!groups.has(key)) {
+        const coords = coordinatesOf(job);
+        groups.set(key, { key, farmerName: String(job.farmerName || "Farmer details unavailable"), pickupAddress: String(job.pickupAddress || areaOf(job)), jobIds: [], quantity: 0, hasCoordinates: Boolean(coords) });
+      }
+      const group = groups.get(key)!;
+      group.jobIds.push(id);
+      group.quantity += Number(job.quantity || 0);
+    }
+    return Array.from(groups.values());
+  }, [jobs, selectedIds]);
+  const orderedManualFarmStops = useMemo(() => {
+    const byKey = new Map(selectedFarmStops.map((farm) => [farm.key, farm]));
+    const result = manualFarmOrder.filter((key) => byKey.has(key)).map((key) => byKey.get(key)!);
+    selectedFarmStops.forEach((farm) => { if (!manualFarmOrder.includes(farm.key)) result.push(farm); });
+    return result;
+  }, [selectedFarmStops, manualFarmOrder]);
+  const moveManualFarmStop = (farmKey: string, direction: -1 | 1) => {
+    const order = orderedManualFarmStops.map((farm) => farm.key);
+    const index = order.indexOf(farmKey);
+    const next = index + direction;
+    if (index < 0 || next < 0 || next >= order.length) return;
+    [order[index], order[next]] = [order[next], order[index]];
+    setManualFarmOrder(order);
+  };
   const assignAreaOrders = async () => {
     if (!selectedIds.length) { toast.error("Select eligible pickup orders first."); return; }
-    if (!selectedTeam) { toast.error("Select an approved pickup partner with registered vehicle capacity."); return; }
-    if (!selectedTeam.deliveryPartnerId) { toast.error("The selected pickup team has no linked delivery partner."); return; }
-    if (selectedWeight > Number(selectedTeam.capacity || selectedTeam.vehicleCapacity || 0)) {
-      toast.error(`Selected orders total ${selectedWeight.toFixed(1)} kg, above this vehicle's capacity.`); return;
-    }
     const invalid = selectedJobs.filter((job) => !READY.has(String(job.status || "")) || job.pickupRouteId || job.collectionTeamId);
     if (invalid.length) { toast.error("Some selected orders are no longer eligible. Refresh and select again."); return; }
+    if (assignmentMode === "assign_team" && (!selectedTeam || !selectedTeam.deliveryPartnerId)) {
+      toast.error("Select an approved pickup team with a linked delivery partner."); return;
+    }
+    if (assignmentMode === "assign_team" && selectedWeight > getTeamCapacity(selectedTeam)) {
+      toast.error(`Selected orders total ${selectedWeight.toFixed(1)} kg, above this vehicle's capacity.`); return;
+    }
+    if (assignmentMode !== "assign_team" && !eligibleTeams.length) {
+      toast.error("Approve a pickup team and register its vehicle capacity before planning routes."); return;
+    }
     setAssigning(true);
     try {
-      const result = await api.post("/warehouse/me/pickup-routes", {
+      const response = await api.post("/warehouse/me/pickup-routes", {
         collectionIds: selectedIds,
-        maxWeightKg: Number(selectedTeam.capacity || selectedTeam.vehicleCapacity),
-        assignmentMode: "assign_team",
-        deliveryPartnerId: selectedTeam.deliveryPartnerId,
+        maxWeightKg: assignmentMode === "assign_team" ? getTeamCapacity(selectedTeam) : Math.max(...eligibleTeams.map(getTeamCapacity)),
+        assignmentMode,
+        ...(routePlanningMode === "manual" ? { manualStopOrder: orderedManualFarmStops.map((farm) => farm.key) } : {}),
+        ...(assignmentMode === "assign_team" ? { deliveryPartnerId: selectedTeam.deliveryPartnerId } : {}),
       });
-      toast.success(result?.message || result?.data?.message || "Selected area pickups assigned successfully.");
+      toast.success(response?.message || response?.data?.message || `Pickup planning completed for ${selectedIds.length} selected order(s).`);
       setSelectedIds([]);
+      setManualFarmOrder([]);
       await Promise.all([jobsQ.refetch(), teamsQ.refetch(), areasQ.refetch()]);
     } catch (error: any) {
-      toast.error(error?.message || "Unable to assign selected pickups.");
+      toast.error(error?.message || "Unable to plan selected pickups.");
     } finally { setAssigning(false); }
   };
 
@@ -468,6 +570,43 @@ export default function PickupRoutesPage() {
             </div>
           </Card>}
 
+          <Card className="border-emerald-200 shadow-sm">
+            <div className="flex flex-col gap-3 border-b p-4 lg:flex-row lg:items-center lg:justify-between">
+              <div><h2 className="font-semibold text-slate-950">Bulk collection planning</h2><p className="mt-1 text-xs text-slate-500">Select ready orders across farms, optimize or manually arrange farm stops, then assign or offer the pickup route.</p></div>
+              <Button size="sm" variant="outline" onClick={selectAllEligibleFarms} disabled={!eligibleAreaFarms.length}><CheckCircle2 className="mr-2 h-4 w-4"/>{allEligibleSelected ? "Clear eligible selections" : "Select all eligible orders"} ({eligibleAreaFarms.length})</Button>
+            </div>
+            <CardContent className="space-y-4 p-4">
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Available for planning</p><p className="text-2xl font-bold">{eligibleAreaFarms.length}</p></div>
+                <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Selected orders</p><p className="text-2xl font-bold">{selectedIds.length}</p></div>
+                <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Selected farms / stops</p><p className="text-2xl font-bold">{selectedFarmStops.length}</p></div>
+                <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Selected load</p><p className="text-2xl font-bold">{selectedWeight.toFixed(1)} kg</p></div>
+              </div>
+              <div className="grid gap-3 lg:grid-cols-3">
+                <label className="space-y-1.5 text-xs font-semibold text-slate-700">Route planning mode
+                  <select value={routePlanningMode} onChange={(e)=>setRoutePlanningMode(e.target.value as "automatic"|"manual")} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-normal"><option value="automatic">Automatic · optimize farm stop order</option><option value="manual">Manual · choose farm stop order</option></select>
+                </label>
+                <label className="space-y-1.5 text-xs font-semibold text-slate-700">Assignment method
+                  <select value={assignmentMode} onChange={(e)=>setAssignmentMode(e.target.value as "auto_assign"|"offer"|"assign_team")} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-normal"><option value="auto_assign">Auto-plan and assign teams</option><option value="offer">Offer to approved pickup partners</option><option value="assign_team">Assign selected orders to one team</option></select>
+                </label>
+                <label className="space-y-1.5 text-xs font-semibold text-slate-700">Pickup team / vehicle
+                  <select value={teamId} onChange={(e)=>setTeamId(e.target.value)} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-normal"><option value="">Select pickup vehicle</option>{eligibleTeams.map((team)=><option key={team.id} value={team.id}>{team.name || "Pickup Team"} · {team.vehicleType || "Vehicle"} · {getTeamCapacity(team)} kg</option>)}</select>
+                  {selectedTeam && <span className="block text-[11px] font-normal text-slate-500">{selectedTeam.name} · capacity {getTeamCapacity(selectedTeam)} kg</span>}
+                </label>
+              </div>
+              {routePlanningMode === "manual" && <div className="space-y-2 rounded-xl border border-blue-200 bg-blue-50/40 p-3">
+                <div><h3 className="text-sm font-semibold text-slate-900">Manual pickup stop order</h3><p className="text-xs text-slate-600">Use arrows to choose the exact farm visit sequence. Farms without GPS remain selectable but cannot provide distance or ETA.</p></div>
+                {orderedManualFarmStops.length ? <ol className="space-y-2">{orderedManualFarmStops.map((farm,index)=><li key={farm.key} className="flex items-center gap-2 rounded-lg border bg-white p-2">
+                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-100 text-xs font-bold">{index+1}</span><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{farm.farmerName}</p><p className="truncate text-xs text-slate-500">{farm.pickupAddress} · {farm.jobIds.length} orders · {farm.quantity} kg</p>{!farm.hasCoordinates&&<p className="text-[11px] text-amber-700">GPS missing · manual order only</p>}</div>
+                  <div className="flex gap-1"><Button size="icon" variant="outline" disabled={index===0} onClick={()=>moveManualFarmStop(farm.key,-1)}><ArrowUp className="h-3.5 w-3.5"/></Button><Button size="icon" variant="outline" disabled={index===orderedManualFarmStops.length-1} onClick={()=>moveManualFarmStop(farm.key,1)}><ArrowDown className="h-3.5 w-3.5"/></Button></div>
+                </li>)}</ol> : <p className="text-xs text-slate-500">Select ready orders below to build the route sequence.</p>}
+              </div>}
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3">
+                <p className="text-xs text-slate-600">Only Ready for Pickup orders without an existing route can be selected. Vehicle capacity and duplicate-route checks are validated by the backend.</p>
+                <Button onClick={assignAreaOrders} disabled={assigning || !selectedIds.length || (assignmentMode==="assign_team" && (!selectedTeam || !selectedTeam.deliveryPartnerId || selectedWeight>getTeamCapacity(selectedTeam))) || (assignmentMode!=="assign_team" && eligibleTeams.length===0)} className="bg-emerald-700 hover:bg-emerald-800"><Route className="mr-2 h-4 w-4"/>{assigning ? "Planning pickups…" : routePlanningMode==="manual" ? "Create manual route" : "Plan selected pickups"}</Button>
+              </div>
+            </CardContent>
+          </Card>
           <Card className="border-slate-200 shadow-sm">
             <div className="flex flex-col gap-3 border-b p-4 lg:flex-row lg:items-center lg:justify-between">
               <div><h2 className="font-semibold text-slate-900">Farms ready for collection</h2><p className="mt-1 text-xs text-slate-500">Only farm stock marked Ready for Pickup in this warehouse district is shown for pickup-partner assignment.</p></div>
@@ -482,9 +621,14 @@ export default function PickupRoutesPage() {
                 {allEligibleSelected ? "Deselect all eligible farms" : "Select all eligible farms"} ({eligibleAreaFarms.length})
               </Button>
             </div>
-            <div className="grid gap-2 border-b border-slate-100 bg-slate-50/70 p-3 md:grid-cols-2">
-              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"><option value="all">All pickup statuses</option>{Object.entries(STATUS_LABEL).map(([key, value]) => <option key={key} value={key}>{value}</option>)}</select>
-              <div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"/><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search farmer, order, product…" className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"/></div>
+            <div className="grid gap-2 border-b border-slate-100 bg-slate-50/70 p-3 md:grid-cols-2 xl:grid-cols-3">
+              <select value={collectionType} onChange={(e) => setCollectionType(e.target.value)} className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm"><option value="all">All collection types</option><option value="bulk_harvest">Bulk harvest · Warehouse fulfillment</option><option value="event_fulfillment_transfer">Customer event orders</option><option value="packed_orders_transfer">Packed orders · Long distance</option></select>
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm"><option value="all">All pickup statuses</option>{Object.entries(STATUS_LABEL).map(([key, value]) => <option key={key} value={key}>{value}</option>)}</select>
+              <div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"/><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search farmer, order, product…" className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-sm"/></div>
+              <div className="flex flex-wrap gap-1.5 md:col-span-2 xl:col-span-3">
+                {([["all","All time"],["today","Today"],["yesterday","Yesterday"],["week","This week"],["month","This month"]] as const).map(([value,title]) => <Button key={value} size="sm" variant={datePeriod===value?"default":"outline"} className={datePeriod===value?"bg-emerald-700 hover:bg-emerald-800":""} onClick={()=>setDatePeriod(value)}>{title}</Button>)}
+                <span className="ml-auto self-center text-xs text-slate-500">{filtered.length} orders shown</span>
+              </div>
             </div>
             {jobsQ.isLoading ? <div className="p-10 text-center text-sm text-slate-500">Loading pickup orders…</div> : jobsQ.isError ? <div className="p-8 text-center"><AlertTriangle className="mx-auto h-8 w-8 text-rose-500"/><p className="mt-2 text-sm font-medium">Unable to load pickup orders</p><Button className="mt-3" variant="outline" onClick={() => jobsQ.refetch()}>Try again</Button></div> : filtered.length === 0 ? <div className="p-10 text-center text-sm text-slate-500">No orders match the selected filters.</div> : <div className="max-h-[480px] divide-y overflow-y-auto">
               {filtered.map((job) => {
