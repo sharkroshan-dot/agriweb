@@ -743,414 +743,207 @@ export default function FarmerRoutePage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <div className="space-y-5">
+      <DeliveryWorkflowNav current="route" />
+
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Route Planning</h1>
-          <p className="text-muted-foreground">{dateStr}</p>
+          <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+            <Link href="/farmer" className="hover:text-emerald-700">Farmer Workspace</Link>
+            <ChevronRight className="h-3 w-3" />
+            <span className="font-semibold text-emerald-700">My Delivery Route</span>
+          </div>
+          <h1 className="text-3xl font-bold tracking-tight text-slate-900">My Delivery Route</h1>
+          <p className="text-sm text-slate-600">Manage your delivery stops, navigate, and complete deliveries</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button asChild variant="outline" size="sm">
-            <Link href={`/farmer/delivery-calendar${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`}>
-              <Calendar className="mr-2 h-4 w-4" />
-              Delivery Calendar
-            </Link>
-          </Button>
-          <Button asChild variant="outline" size="sm">
-            <Link href={`/farmer/smart-route${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`}>
-              <Sparkles className={cn("mr-2 h-4 w-4", completeMutation.isPending && "animate-pulse")} />
-              Optimize with AI
-            </Link>
-          </Button>
-          <Button size="sm" onClick={handleStartRoute} disabled={started || startMutation.isPending}>
-            <Play className="mr-2 h-4 w-4" />
-            {started ? "Route Started" : "Start Route"}
-          </Button>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {[
+            { icon: Calendar, value: today.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }), label: "Today's Route" },
+            { icon: MapPin, value: `${locationGroups.length} Locations`, label: `${stops.length} Orders` },
+            { icon: Route, value: `${Number(summary?.totalDistance ?? 0).toFixed(1)} km`, label: "Total Distance" },
+            { icon: Clock, value: `${Math.floor(Number(summary?.totalDuration ?? 0) / 60)} h ${Math.round(Number(summary?.totalDuration ?? 0) % 60)} min`, label: "Estimated Time" },
+          ].map((metric) => (
+            <Card key={metric.label} className="min-w-[132px] border-slate-200 shadow-sm">
+              <CardContent className="flex items-center gap-2 p-3">
+                <metric.icon className="h-5 w-5 shrink-0 text-emerald-700" />
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-bold text-slate-900">{metric.value}</p>
+                  <p className="text-[11px] text-slate-500">{metric.label}</p>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
         </div>
       </div>
+
+      <Card className="overflow-hidden border-slate-200 shadow-sm">
+        <CardContent className="grid gap-1 p-2 sm:grid-cols-5">
+          {[
+            ["1", "Order Map", "Select orders", true],
+            ["2", "Smart Route", "Optimize route", true],
+            ["3", "Delivery Route", "View & navigate", true],
+            ["4", "Deliver Orders", "Verify & complete", false],
+            ["5", "Route Complete", "All deliveries done", false],
+          ].map(([number, label, sub, complete]) => (
+            <div key={String(number)} className={cn("flex items-center gap-3 rounded-xl px-3 py-2.5", number === "3" ? "bg-emerald-700 text-white" : "bg-slate-50 text-slate-700")}>
+              <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold", number === "3" ? "bg-white text-emerald-700" : complete ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-600")}>
+                {complete && number !== "3" ? <CheckCircle className="h-4 w-4" /> : number}
+              </span>
+              <div className="min-w-0">
+                <p className="text-xs font-bold">{label}</p>
+                <p className={cn("text-[11px]", number === "3" ? "text-emerald-50" : "text-slate-500")}>{sub}</p>
+              </div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
 
       {stops.length === 0 ? (
         <Card className="p-12 text-center">
           <AlertCircle className="mx-auto h-12 w-12 text-muted-foreground" />
           <h3 className="mt-4 text-lg font-semibold">No pending deliveries</h3>
-          <p className="mt-2 text-muted-foreground">
-            Orders will appear here once buyers purchase your products and they are ready for delivery or pickup.
-          </p>
+          <p className="mt-2 text-muted-foreground">Orders will appear here once they are ready for delivery or pickup.</p>
           <div className="mt-6 flex flex-wrap justify-center gap-3">
-            <Button asChild>
-              <Link href={`/farmer/delivery-calendar${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`}>View Delivery Calendar</Link>
-            </Button>
-            <Button asChild variant="outline">
-              <Link href={`/farmer/smart-route${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`}>Smart Route</Link>
-            </Button>
+            <Button asChild><Link href="/farmer/delivery-calendar">View Delivery Calendar</Link></Button>
+            <Button asChild variant="outline"><Link href="/farmer/smart-route">Smart Route</Link></Button>
           </div>
         </Card>
       ) : (
         <>
-          <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
-            <Card>
-              <CardContent className="p-4 text-center">
-                <Route className="mx-auto h-5 w-5 text-emerald-600" />
-                <p className="mt-2 text-2xl font-bold">{summary?.totalDistance ?? 0} km</p>
-                <p className="text-xs text-muted-foreground">Total Distance</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4 text-center">
-                <Clock className="mx-auto h-5 w-5 text-amber-600" />
-                <p className="mt-2 text-2xl font-bold">{Math.round(summary?.totalDuration ?? 0)} min</p>
-                <p className="text-xs text-muted-foreground">Est. Duration</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4 text-center">
-                <Package className="mx-auto h-5 w-5 text-purple-600" />
-                <p className="mt-2 text-2xl font-bold">{summary?.totalQuantity ?? 0} kg</p>
-                <p className="text-xs text-muted-foreground">Total Quantity</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4 text-center">
-                <DollarSign className="mx-auto h-5 w-5 text-orange-600" />
-                <p className="mt-2 text-2xl font-bold">{formatPrice(summary?.totalRevenue)}</p>
-                <p className="text-xs text-muted-foreground">Expected Revenue</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4 text-center">
-                <Truck className="mx-auto h-5 w-5 text-blue-600" />
-                <p className="mt-2 text-2xl font-bold">{summary?.totalStops ?? 0}</p>
-                <p className="text-xs text-muted-foreground">Orders</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4 text-center">
-                <Users className="mx-auto h-5 w-5 text-indigo-600" />
-                <p className="mt-2 text-2xl font-bold">
-                  {new Set(stops.map((s) => s.buyerName)).size}
-                </p>
-                <p className="text-xs text-muted-foreground">Customers</p>
-              </CardContent>
-            </Card>
-          </div>
-
-          <div className="grid gap-6 lg:grid-cols-[1fr,360px]">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <Navigation className="h-5 w-5 text-primary" />
-                    Route Map
-                  </CardTitle>
-                  <CardDescription>
-                    {farm.name} · {stops.length} stops on today&apos;s route
-                  </CardDescription>
-                </div>
-                <Button variant="outline" size="sm" onClick={toggleTracking}>
-                  <Crosshair className={cn("mr-2 h-4 w-4", tracking && "animate-pulse text-blue-500")} />
-                  {tracking ? "Stop Tracking" : "Track Me"}
-                </Button>
-              </CardHeader>
-              <CardContent className="relative">
-                <RouteMap
-                  farm={farm}
-                  stops={stops}
-                  started={started || doneCount > 0}
-                  nextStop={nextStop}
-                  userLocation={userLocation}
-                  routePoints={stops
-                    .filter((stop) => stop.status !== "delivered" && stop.status !== "picked_up" && stop.lat != null && stop.lng != null)
-                    .map((stop) => ({ lat: stop.lat as number, lng: stop.lng as number }))}
-                />
-                {started && nextStop && (
-                  <div className="absolute left-4 right-4 top-4 z-[1000] flex items-center justify-between gap-3 rounded-xl border bg-white/95 p-3 shadow-lg backdrop-blur">
-                    <div className="min-w-0">
-                      <p className="flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-blue-600">
-                        Next Stop · {stops.indexOf(nextStop) + 1} of {stops.length}
-                        {(() => {
-                          const pi = priorityInfo(nextStop.priority);
-                          return pi ? (
-                            <span className={cn("rounded border px-1.5 py-0.5 normal-case", pi.cls)}>{pi.label}</span>
-                          ) : null;
-                        })()}
-                      </p>
-                      <p className="truncate font-semibold">{nextStop.buyerName}</p>
-                      <p className="truncate text-xs text-muted-foreground">
-                        {nextStop.location}
-                        {nextStop.distance > 0 ? ` · ${nextStop.distance} km · ${nextStop.time}` : " · At farm"}
-                      </p>
-                      <p className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-                        {(() => {
-                          const c = nextStop.lat != null && nextStop.lng != null ? { lat: nextStop.lat, lng: nextStop.lng } : null;
-                          if (userLocation && c) {
-                            const liveKm = distanceKmBetween(userLocation, c);
-                            const etaMin = Math.max(1, Math.round((liveKm / 25) * 60));
-                            return (
-                              <>
-                                <span className="font-medium text-blue-600">
-                                  ETA ~{etaMin} min ({liveKm.toFixed(1)} km from you)
-                                </span>
-                                <span className="text-gray-300">·</span>
-                              </>
-                            );
-                          }
-                          return null;
-                        })()}
-                        <span
-                          className={cn(
-                            "flex items-center gap-1 font-medium",
-                            nextStop.isCOD ? "text-amber-600" : "text-emerald-600"
-                          )}
-                        >
-                          <Wallet className="h-3 w-3" />
-                          {nextStop.isCOD ? `Collect ${formatPrice(nextStop.total)}` : "Paid online"}
-                        </span>
-                      </p>
-                    </div>
-                    <div className="flex shrink-0 flex-col gap-2">
-                      {arrivalStopId === nextStop.id && (
-                        <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">Arrived nearby · OTP required</Badge>
-                      )}
-                      <Button size="sm" onClick={() => navigateToStop(nextStop)}>
-                        <Navigation className="mr-2 h-4 w-4" />
-                        Navigate
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setVoiceGuidanceEnabled((enabled) => !enabled)}
-                        title={voiceGuidanceEnabled ? "Turn off spoken next-stop announcements" : "Turn on spoken next-stop announcements"}
-                      >
-                        {voiceGuidanceEnabled ? <Volume2 className="mr-2 h-4 w-4" /> : <VolumeX className="mr-2 h-4 w-4" />}
-                        Voice {voiceGuidanceEnabled ? "On" : "Off"}
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,0.95fr),minmax(0,1.05fr)]">
             <div className="space-y-4">
-              <WeatherCard farm={farm} />
-
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <MapPin className="h-5 w-5 text-emerald-600" />
-                    Route Progress
-                  </CardTitle>
+              <Card className="overflow-hidden border-slate-200 shadow-sm">
+                <CardHeader className="flex flex-row items-center justify-between pb-3">
+                  <div>
+                    <CardTitle className="flex items-center gap-2"><Navigation className="h-5 w-5 text-emerald-700" />Route Map</CardTitle>
+                    <CardDescription>Live farmer location and optimized delivery stops</CardDescription>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={toggleTracking}>
+                    <Crosshair className={cn("mr-2 h-4 w-4", tracking && "animate-pulse text-blue-600")} />
+                    {tracking ? "Tracking" : "Track Me"}
+                  </Button>
                 </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="h-3 w-full overflow-hidden rounded-full bg-gray-100">
-                    <div
-                      className="h-full rounded-full bg-emerald-600 transition-all"
-                      style={{ width: `${progress}%` }}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">
-                      {doneCount} of {stops.length} stops completed
-                    </span>
-                    <span className="font-bold text-emerald-600">{progress}%</span>
-                  </div>
-                  <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
-                    <p className="flex items-center gap-1.5">
-                      <Home className="h-4 w-4 text-emerald-600" />
-                      Start &amp; end at {farm.name}
-                    </p>
-                    <p className="mt-1">
-                      {Math.round(summary?.totalDuration ?? 0)} min estimated at 25 km/h with 10 min per stop.
-                    </p>
+                <CardContent className="p-3 pt-0">
+                  <RouteMap
+                    farm={farm}
+                    stops={stops}
+                    started={started || doneCount > 0}
+                    nextStop={nextStop}
+                    userLocation={userLocation}
+                    routePoints={stops.filter((stop) => stop.status !== "delivered" && stop.status !== "picked_up" && stop.lat != null && stop.lng != null).map((stop) => ({ lat: stop.lat as number, lng: stop.lng as number }))}
+                  />
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs">
+                    <span className="flex items-center gap-2 text-emerald-800"><span className={cn("h-2.5 w-2.5 rounded-full", userLocation ? "bg-blue-600" : "bg-amber-500")} />{userLocation ? "Your live location is being tracked" : "Waiting for GPS location permission"}</span>
+                    <span className="text-emerald-800">{doneCount} / {stops.length} orders completed · {progress}%</span>
                   </div>
                 </CardContent>
               </Card>
-            </div>
-          </div>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <div>
-                <CardTitle className="flex items-center gap-2">
-                  <Truck className="h-5 w-5 text-primary" />
-                  Pickup &amp; Delivery Schedule
-                </CardTitle>
-                <CardDescription>{locationGroups.length} delivery locations · {stops.length} total orders in optimized sequence</CardDescription>
+              <div className="grid gap-4 md:grid-cols-[1.2fr,0.8fr]">
+                <Card className="border-slate-200 shadow-sm">
+                  <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-base"><Route className="h-5 w-5 text-emerald-700" />Route Summary</CardTitle></CardHeader>
+                  <CardContent className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    {[
+                      [Package, stops.length, "Total Orders"],
+                      [MapPin, locationGroups.length, "Locations"],
+                      [Route, `${Number(summary?.totalDistance ?? 0).toFixed(1)} km`, "Total Distance"],
+                      [Clock, `${Math.round(Number(summary?.totalDuration ?? 0))} min`, "Estimated Time"],
+                    ].map(([Icon, value, label]: any) => (
+                      <div key={String(label)} className="rounded-lg border border-slate-200 p-2 text-center">
+                        <Icon className="mx-auto h-5 w-5 text-emerald-700" />
+                        <p className="mt-1 text-sm font-bold">{value}</p>
+                        <p className="text-[10px] text-slate-500">{label}</p>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+                <Card className="border-emerald-200 bg-emerald-50/60 shadow-sm">
+                  <CardHeader className="pb-2"><CardTitle className="text-base">Next Stop</CardTitle></CardHeader>
+                  <CardContent>
+                    {nextStop ? (
+                      <>
+                        <p className="flex items-center gap-2 text-sm font-bold"><MapPin className="h-5 w-5 text-emerald-700" />{nextStop.location}</p>
+                        <p className="ml-7 text-xs text-slate-600">{nextStop.city}</p>
+                        <p className="ml-7 mt-2 text-xs text-slate-600">{nextStop.distance > 0 ? `${nextStop.distance.toFixed(1)} km from farm` : "Next pending destination"}</p>
+                        <Button className="mt-3 w-full" size="sm" onClick={() => navigateToStop(nextStop)}><Navigation className="mr-2 h-4 w-4" />Navigate</Button>
+                      </>
+                    ) : <p className="text-sm text-emerald-800">All delivery orders are completed.</p>}
+                  </CardContent>
+                </Card>
               </div>
-              <Button size="sm" onClick={handleStartRoute} disabled={started || startMutation.isPending}>
-                <Play className="mr-2 h-4 w-4" />
-                Start Route
-              </Button>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div className="flex items-start gap-4 pb-2">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100">
-                    <Home className="h-4 w-4 text-emerald-600" />
-                  </div>
-                  <div className="pt-1">
-                    <p className="text-sm font-medium">{farm.name}</p>
-                    <p className="text-xs text-muted-foreground">Starting point</p>
-                  </div>
-                </div>
+            </div>
 
-                <div className="mb-2 rounded-lg border border-emerald-200 bg-emerald-50/60 px-4 py-3">
-                  <p className="text-sm font-semibold text-emerald-800">{locationGroups.length} unique delivery locations</p>
-                  <p className="text-xs text-emerald-700">{stops.length} orders grouped under their destination addresses</p>
+            <Card className="border-slate-200 shadow-sm">
+              <CardHeader className="flex flex-row items-center justify-between border-b pb-3">
+                <div>
+                  <CardTitle className="flex items-center gap-2"><Truck className="h-5 w-5 text-emerald-700" />Pickup &amp; Delivery Schedule</CardTitle>
+                  <CardDescription>{locationGroups.length} delivery locations · {stops.length} orders (grouped by location)</CardDescription>
                 </div>
+                <Button size="sm" variant="outline" onClick={() => refetch()}><Route className="mr-2 h-4 w-4" />Refresh</Button>
+              </CardHeader>
+              <CardContent className="max-h-[690px] space-y-3 overflow-y-auto p-3">
                 {locationGroups.map((group, locationIndex) => (
-                  <div key={group.key} className="space-y-2 rounded-xl border border-slate-200 p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">{locationIndex + 1}</span>
-                        <div className="min-w-0">
-                          <p className="text-sm font-semibold">Delivery Location {locationIndex + 1}</p>
-                          <p className="truncate text-xs text-muted-foreground">{group.location}{group.city ? `, ${group.city}` : ""}</p>
-                        </div>
-                      </div>
-                      <Badge variant="secondary">{group.stops.length} {group.stops.length === 1 ? "order" : "orders"}</Badge>
-                    </div>
-                    {group.stops.map((stop, orderIndex) => {
-                  const done = stop.status === "delivered" || stop.status === "picked_up";
-                  return (
-                    <div
-                      key={stop.id}
-                      className={cn(
-                        "flex items-center gap-4 rounded-lg border p-4 transition-all",
-                        done ? "bg-emerald-50/60" : "hover:shadow-md"
-                      )}
-                    >
-                      <div
-                        className={cn(
-                          "flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold",
-                          done ? "bg-emerald-600 text-white" : "bg-primary/10 text-primary"
-                        )}
-                      >
-                        {done ? <CheckCircle className="h-5 w-5" /> : orderIndex + 1}
-                      </div>
+                  <div key={group.key} className="rounded-xl border border-slate-200 bg-white p-2">
+                    <div className="mb-2 flex items-center gap-3 rounded-lg bg-slate-50 px-2 py-2">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 font-bold text-emerald-800">{locationIndex + 1}</span>
+                      <MapPin className="h-4 w-4 shrink-0 text-emerald-800" />
                       <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="font-medium">{stop.buyerName}</p>
-                          {getStatusBadge(stop.status, done)}
-                          {(() => {
-                            const pi = priorityInfo(stop.priority);
-                            return pi ? (
-                              <Badge variant="outline" className={cn("text-xs", pi.cls)}>
-                                {pi.label}
-                              </Badge>
-                            ) : null;
-                          })()}
-                          <span className="text-xs text-muted-foreground">#{stop.orderNumber}</span>
-                        </div>
-                        <p className="truncate text-sm text-muted-foreground">
-                          {stop.location}
-                          {stop.city ? `, ${stop.city}` : ""}
-                        </p>
-                        <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                          <span className="flex items-center gap-1">
-                            <Clock className="h-3 w-3" />
-                            {stop.time}
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <MapPin className="h-3 w-3" />
-                            {stop.distance > 0 ? `${stop.distance} km away` : "At farm"}
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <Package className="h-3 w-3" />
-                            {stop.quantity} {stop.product}
-                          </span>
-                          <span className={cn("flex items-center gap-1 font-medium", stop.isCOD ? "text-amber-600" : "text-emerald-600")}>
-                            <Wallet className="h-3 w-3" />
-                            {stop.isCOD ? `Collect ${formatPrice(stop.total)} on delivery` : "Paid online"}
-                          </span>
-                        </div>
-                        {stop.items.length > 1 && (
-                          <div className="mt-2 flex flex-wrap gap-1">
-                            {stop.items.map((item, i) => (
-                              <Badge key={i} variant="secondary" className="text-[10px]">
-                                {item.name} ({item.quantity})
-                              </Badge>
-                            ))}
-                          </div>
-                        )}
+                        <p className="truncate text-sm font-bold text-slate-900">{group.location}{group.city ? `, ${group.city}` : ""}</p>
+                        <p className="text-xs text-slate-500">{group.stops.length} {group.stops.length === 1 ? "order" : "orders"} at this location</p>
                       </div>
-                      <div className="flex shrink-0 items-center gap-2">
-                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => contact(stop, "phone")}>
-                          <Phone className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => contact(stop, "message")}>
-                          <MessageSquare className="h-4 w-4" />
-                        </Button>
-                        {!done && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-red-500 hover:text-red-600"
-                            title="Report delivery problem"
-                            onClick={() => {
-                              setProblemCategory(PROBLEM_CATEGORIES[0].value);
-                              setProblemNote("");
-                              setProblemTarget(stop);
-                            }}
-                          >
-                            <AlertCircle className="h-4 w-4" />
-                          </Button>
-                        )}
-                        {!done && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => navigateToStop(stop)}
-                          >
-                            <Navigation className="mr-2 h-4 w-4" />
-                            Navigate
-                          </Button>
-                        )}
-                        {!done && isPickupStop(stop) ? (
-                          <Button
-                            size="sm"
-                            onClick={() => {
-                              setPickupCode("");
-                              stopScanner();
-                              setPickupTarget(stop);
-                            }}
-                          >
-                            <ShieldCheck className="mr-2 h-4 w-4" />
-                            Confirm Pickup
-                          </Button>
-                        ) : (
-                          !done && (
-                            <Button
-                              size="sm"
-                              onClick={() => handleComplete(stop)}
-                              disabled={completeMutation.isPending}
-                            >
-                              <CheckCircle className="mr-2 h-4 w-4" />
-                              Complete
-                            </Button>
-                          )
-                        )}
-                      </div>
+                      <Badge variant="secondary">{group.stops.length}</Badge>
                     </div>
-                  );
-                })}
+                    <div className="space-y-2">
+                      {group.stops.map((stop) => {
+                        const done = stop.status === "delivered" || stop.status === "picked_up";
+                        return (
+                          <div key={stop.id} className={cn("rounded-lg border p-2.5", done ? "border-emerald-200 bg-emerald-50/60" : "border-slate-200")}>
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <p className="text-xs font-bold text-slate-900">#{stop.orderNumber}</p>
+                                  {getStatusBadge(stop.status, done)}
+                                  {(() => { const pi = priorityInfo(stop.priority); return pi ? <Badge variant="outline" className={cn("text-[10px]", pi.cls)}>{pi.label}</Badge> : null; })()}
+                                </div>
+                                <p className="mt-1 text-xs text-slate-600">{stop.quantity} {stop.product} · {stop.time}</p>
+                                <p className={cn("mt-1 text-[11px] font-semibold", stop.isCOD ? "text-amber-700" : "text-emerald-700")}>{stop.isCOD ? `Collect ${formatPrice(stop.total)} on delivery` : "Paid online"}</p>
+                              </div>
+                              <div className="flex shrink-0 flex-wrap items-center gap-1">
+                                <Button variant="ghost" size="icon" className="h-8 w-8" title="Call customer" onClick={() => contact(stop, "phone")}><Phone className="h-4 w-4" /></Button>
+                                <Button variant="ghost" size="icon" className="h-8 w-8" title="Message customer" onClick={() => contact(stop, "message")}><MessageSquare className="h-4 w-4" /></Button>
+                                {!done && <Button size="sm" variant="outline" onClick={() => navigateToStop(stop)}><Navigation className="mr-1.5 h-3.5 w-3.5" />Navigate</Button>}
+                                {!done && isPickupStop(stop) ? (
+                                  <Button size="sm" onClick={() => { setPickupCode(""); stopScanner(); setPickupTarget(stop); }}><ShieldCheck className="mr-1.5 h-3.5 w-3.5" />Confirm Pickup</Button>
+                                ) : !done ? (
+                                  <Button size="sm" onClick={() => handleComplete(stop)} disabled={completeMutation.isPending}><CheckCircle className="mr-1.5 h-3.5 w-3.5" />Complete</Button>
+                                ) : null}
+                                {!done && <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500" title="Report delivery problem" onClick={() => { setProblemCategory(PROBLEM_CATEGORIES[0].value); setProblemNote(""); setProblemTarget(stop); }}><AlertCircle className="h-4 w-4" /></Button>}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 ))}
-
-                <div className="flex items-start gap-4 pt-2">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-100">
-                    <Navigation className="h-4 w-4 text-blue-600" />
-                  </div>
-                  <div className="pt-1">
-                    <p className="text-sm font-medium">Return to {farm.name}</p>
-                    <p className="text-xs text-muted-foreground">End of route</p>
-                  </div>
-                  <div className="ml-auto flex items-center gap-1 text-sm font-medium text-emerald-600">
-                    <Link href="/farmer/smart-route" className="flex items-center">
-                      Smart Route <ChevronRight className="h-4 w-4" />
-                    </Link>
-                  </div>
+                <div className="rounded-lg border border-dashed border-slate-300 p-3 text-xs text-slate-500">
+                  <p className="font-semibold text-slate-700">Return to {farm.name}</p>
+                  <p>End of route · {doneCount} of {stops.length} orders completed</p>
                 </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card className="border-emerald-200 shadow-sm">
+            <CardContent className="flex flex-col items-center justify-between gap-3 bg-gradient-to-r from-emerald-700 to-emerald-600 p-4 text-center text-white sm:flex-row sm:text-left">
+              <div>
+                <p className="text-lg font-bold">{started ? "Delivery route is active" : "Ready to start your delivery route?"}</p>
+                <p className="text-sm text-emerald-50">{started ? "Your GPS tracking is active. Follow the next destination in Google Maps." : "Open navigation to the first destination and begin delivery."}</p>
               </div>
+              <Button size="lg" variant="secondary" className="min-w-[220px] bg-white font-bold text-emerald-800 hover:bg-emerald-50" onClick={started ? () => nextStop && navigateToStop(nextStop) : handleStartRoute} disabled={startMutation.isPending || (!started && !userLocation)}>
+                {startMutation.isPending ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Play className="mr-2 h-5 w-5" />}
+                {started ? "Continue Navigation" : "Start Route"}
+              </Button>
             </CardContent>
           </Card>
         </>
