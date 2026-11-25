@@ -155,48 +155,71 @@ function RouteMap({
   const completedIds = new Set(
     stops.filter((s) => s.status === "delivered" || s.status === "picked_up").map((s) => s.id)
   );
+  const pendingStops = stops.filter((s) => !completedIds.has(s.id));
 
-  const locatedStops = stops.filter(
-    (s): s is Stop & { lat: number; lng: number } => s.lat != null && s.lng != null
-  );
-  const hasFarmCoords = farm.lat != null && farm.lng != null;
-
+  // Keep map stop numbers identical to the numbered location groups in the
+  // delivery schedule. Several orders at one address produce one map pin.
+  const groups = new globalThis.Map<string, { location: string; city: string; stops: Stop[] }>();
+  for (const stop of pendingStops) {
+    const normalize = (value: string) => String(value || "").trim().toLowerCase()
+      .replace(/[.,#]/g, " ").replace(/\\s+/g, " ").replace(/\\s*,\\s*/g, ", ");
+    const address = normalize(stop.location);
+    const city = normalize(stop.city);
+    const coordinateKey = stop.lat != null && stop.lng != null
+      ? `${Number(stop.lat).toFixed(5)},${Number(stop.lng).toFixed(5)}`
+      : "";
+    const key = address || city ? `${address}|${city}` : coordinateKey || `order:${stop.id}`;
+    const current = groups.get(key);
+    if (current) current.stops.push(stop);
+    else groups.set(key, { location: stop.location || "Address unavailable", city: stop.city || "", stops: [stop] });
+  }
+  const locationGroups = Array.from(groups.values());
   const markers = [
-    ...(!started && (hasFarmCoords || farm.address)
+    ...(!started && (farm.lat != null && farm.lng != null || farm.address)
       ? [{
           id: "farm",
-          ...(hasFarmCoords ? { lat: farm.lat as number, lng: farm.lng as number } : {}),
+          ...(farm.lat != null && farm.lng != null ? { lat: farm.lat, lng: farm.lng } : {}),
           title: farm.name,
           color: "#7c3aed",
           label: "F",
           address: farm.address,
-          info: farm.address || "Start & end of the route",
+          info: "Route starting point",
         }]
       : []),
-    ...stops
-      .filter((stop) => !completedIds.has(stop.id))
-      .map((stop, i) => {
-        const isNext = started && stop.id === nextStop?.id;
-        const address = [stop.location, stop.city].filter(Boolean).join(", ");
-        return {
-          id: stop.id,
-          ...(stop.lat != null && stop.lng != null ? { lat: stop.lat, lng: stop.lng } : {}),
-          title: `${i + 1}. ${stop.buyerName}`,
-          color: isNext ? "#3b82f6" : "#059669",
-          label: String(i + 1),
-          address,
-          info: `${address || "No address"} · ${stop.product} · ${stop.quantity}`,
-        };
-      }),
+    ...locationGroups.map((group, index) => {
+      const representative = group.stops.find((s) => s.lat != null && s.lng != null);
+      const address = [group.location, group.city].filter(Boolean).join(", ");
+      const orderLines = group.stops.map((s) => `#${s.orderNumber} · ${s.buyerName} · ${s.quantity} ${s.product}`).join("<br/>");
+      const isNext = group.stops.some((s) => s.id === nextStop?.id);
+      return {
+        id: `delivery-location-${index + 1}`,
+        ...(representative ? { lat: representative.lat as number, lng: representative.lng as number } : {}),
+        title: `${index + 1}. ${address} · ${group.stops.length} ${group.stops.length === 1 ? "order" : "orders"}`,
+        color: isNext ? "#2563eb" : "#059669",
+        label: String(index + 1),
+        displayLabel: `${index + 1} · ${group.stops.length} ${group.stops.length === 1 ? "order" : "orders"}`,
+        address,
+        info: `${address}<br/><strong>${group.stops.length} orders at this location</strong><br/>${orderLines}`,
+      };
+    }),
   ];
 
-  // Pass address-only stops to the shared map so it can geocode them and
-  // include them in the displayed driving route instead of dropping them.
-  const center = hasFarmCoords
+  const locatedStops = locationGroups.flatMap((group) =>
+    group.stops.filter((s): s is Stop & { lat: number; lng: number } => s.lat != null && s.lng != null)
+  );
+  const hasFarmCoords = farm.lat != null && farm.lng != null;
+  const center = userLocation || (hasFarmCoords
     ? { lat: farm.lat as number, lng: farm.lng as number }
     : locatedStops.length > 0
       ? { lat: locatedStops[0].lat, lng: locatedStops[0].lng }
-      : { lat: 20.5937, lng: 78.9629 };
+      : { lat: 20.5937, lng: 78.9629 });
+
+  // Use one coordinate per physical delivery location so duplicate orders do
+  // not create repeated route waypoints at the same landmark.
+  const groupedRoutePoints = locationGroups.flatMap((group) => {
+    const point = group.stops.find((s) => s.lat != null && s.lng != null);
+    return point ? [{ lat: point.lat as number, lng: point.lng as number }] : [];
+  });
 
   return (
     <Map
@@ -204,7 +227,7 @@ function RouteMap({
       zoom={hasFarmCoords || locatedStops.length > 0 ? 10 : 5}
       height="420px"
       markers={markers}
-      route={routePoints}
+      route={groupedRoutePoints.length ? groupedRoutePoints : routePoints}
       trackUserLocation={true}
       userLocation={userLocation}
       className="rounded-lg"
