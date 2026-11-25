@@ -1926,6 +1926,68 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
                     pass
         return None
 
+    async def geocode_farm_profile(profile: dict) -> tuple[Optional[tuple], Optional[str]]:
+        """Resolve a missing farm pin from its farm address, never its buyer address."""
+        existing = profile_coordinates(profile)
+        if existing:
+            return existing, None
+        farm_address = profile.get("farmAddress") or profile.get("farmAddressText") or ""
+        farm_location = profile.get("farmLocation") if isinstance(profile.get("farmLocation"), dict) else {}
+        address_obj = farm_address if isinstance(farm_address, dict) else {}
+        address_parts = [
+            address_obj.get("addressLine1") or address_obj.get("address_line1") or address_obj.get("line1") or farm_address if isinstance(farm_address, str) else "",
+            address_obj.get("addressLine2") or address_obj.get("address_line2") or address_obj.get("line2") or "",
+            address_obj.get("village") or address_obj.get("locality") or address_obj.get("town") or "",
+            address_obj.get("district") or profile.get("farmDistrict") or profile.get("district") or "",
+            address_obj.get("state") or profile.get("farmState") or profile.get("state") or "Tamil Nadu",
+            address_obj.get("pincode") or address_obj.get("zipCode") or profile.get("farmPincode") or "",
+            address_obj.get("country") or "India",
+        ]
+        query = ", ".join(" ".join(str(part).split()) for part in address_parts if str(part or "").strip())
+        if not query:
+            return None, None
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                response = await client.get(
+                    "https://nominatim.openstreetmap.org/search",
+                    params={"q": query, "format": "jsonv2", "addressdetails": 1, "limit": 1, "countrycodes": "in"},
+                    headers={"User-Agent": "AgriConnect/1.0 (farm pickup geocoding)"},
+                )
+                response.raise_for_status()
+                results = response.json()
+            if not results:
+                return None, None
+            result = results[0]
+            lat, lon = float(result["lat"]), float(result["lon"])
+            if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                return None, None
+            details = result.get("address") or {}
+            locality = next((str(details.get(key)).strip() for key in (
+                "village", "hamlet", "suburb", "neighbourhood", "quarter", "town"
+            ) if details.get(key)), None)
+            # Do not treat the district/city as a farm locality.
+            if locality and normalize_collection_district(locality) in coverage:
+                locality = None
+            location_update = {
+                "type": "Point",
+                "coordinates": [lon, lat],
+                "geocodingSource": "nominatim",
+                "geocodedAt": datetime.utcnow(),
+                "geocodedAddress": query,
+            }
+            profile_id = profile.get("_id")
+            if profile_id:
+                await profiles_collection.update_one(
+                    {"_id": profile_id},
+                    {"$set": {"farmLocation": {**farm_location, **location_update}}},
+                )
+            profile["farmLocation"] = {**farm_location, **location_update}
+            return (lat, lon), locality
+        except Exception as exc:
+            logger.warning("Farm pickup geocoding failed for farmer profile %s: %s", profile.get("_id"), exc)
+            return None, None
+
     def hub_coordinates(hub: dict) -> Optional[tuple]:
         location = hub.get("location") or {}
         raw = location.get("coordinates") if isinstance(location, dict) else None
@@ -1957,7 +2019,15 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
             value = job.get(field)
             if value:
                 job_farmer_refs.add(str(value))
+    geocoded_farm_count = 0
+    geocoded_farm_limit = 5
     for profile in profiles:
+        profile_ref_values = {
+            str(value) for value in (
+                profile.get("_id"), profile.get("userId"), profile.get("farmerId")
+            ) if value
+        }
+        is_linked_to_pickup = bool(profile_ref_values & job_farmer_refs)
         location = profile.get("farmLocation") or profile.get("farmAddress") or profile.get("location") or profile.get("address") or {}
         profile_ids = {
             str(value) for value in (
@@ -1980,6 +2050,20 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
         area_key = normalized_area(area_name) if area_name else ""
         taluk_name = (str(matched_master.get("taluk") or "").strip() if matched_master else None) or taluk_from_profile(profile)
         coords = profile_coordinates(profile)
+        # Geocode only profiles that have pickup jobs in this warehouse and
+        # only a small batch per request. Coordinates are persisted to avoid
+        # repeatedly calling the public geocoder on page refreshes.
+        geocoded_locality = None
+        if not coords and is_linked_to_pickup and geocoded_farm_count < geocoded_farm_limit:
+            coords, geocoded_locality = await geocode_farm_profile(profile)
+            if coords:
+                geocoded_farm_count += 1
+        if not area_name and geocoded_locality:
+            matched_master = canonical_area(geocoded_locality)
+            area_name = str(matched_master.get("name") or geocoded_locality) if matched_master else geocoded_locality
+            area_key = normalized_area(area_name)
+        if area_name and not taluk_name and matched_master:
+            taluk_name = str(matched_master.get("taluk") or "").strip() or None
         profile_directory.append({"area": area_name, "taluk": taluk_name, "farmerId": str(profile.get("userId") or profile.get("farmerId") or profile.get("_id") or "")})
         for identity in (profile.get("_id"), profile.get("userId"), profile.get("farmerId")):
             if identity:
