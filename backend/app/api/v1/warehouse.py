@@ -1804,6 +1804,8 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
                 if normalized_key in {
                     "address", "formattedaddress", "fulladdress", "pickupaddress",
                     "farmaddress", "farmaddressline", "addressline", "streetaddress",
+                    "addressline1", "addressline2", "line1", "line2",
+                    "farmaddress1", "farmaddress2",
                 } and isinstance(value, str) and value.strip():
                     address_texts.append(" ".join(value.strip().split()))
                 # Farmer profile schemas exist in both camelCase and
