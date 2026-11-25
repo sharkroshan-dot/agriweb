@@ -13,6 +13,7 @@ import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
 import { WarehousePageHeader } from "../../components/warehouse/warehouse-page-header";
 import { api } from "../../lib/api/client";
+import { geocodeAddress } from "../../lib/geo/geocode";
 import { Map as SharedMap } from "../../components/shared/map";
 import toast from "react-hot-toast";
 
@@ -183,6 +184,8 @@ export default function PickupRoutesPage() {
   const [assigning, setAssigning] = useState(false);
   const [activeFarmId, setActiveFarmId] = useState("");
   const [areaSearch, setAreaSearch] = useState("");
+  const [geocodedCoords, setGeocodedCoords] = useState<Record<string, [number, number]>>({});
+  const [geocodingIds, setGeocodingIds] = useState<string[]>([]);
 
   const warehouseQ = useQuery({
     queryKey: ["warehousePickupDistrictProfile"],
@@ -419,6 +422,44 @@ export default function PickupRoutesPage() {
     });
   }, [jobs, areas, taluks, selectedArea, statusFilter, collectionType, datePeriod, search]);
 
+  // Resolve missing farm GPS coordinates from the farm pickup address.
+  // Requests are serialized to avoid sending a burst to the free geocoder.
+  useEffect(() => {
+    let cancelled = false;
+    const resolveMissingFarmCoordinates = async () => {
+      const pending = filtered.filter((job) => {
+        const id = idOf(job);
+        const address = String(job.pickupAddress || job.farmAddress || job.farmLocation?.address || job.pickupLocation?.address || "").trim();
+        return id && address && !coordinatesOf(job) && !geocodedCoords[id];
+      });
+      if (!pending.length) {
+        setGeocodingIds([]);
+        return;
+      }
+      setGeocodingIds(pending.map(idOf));
+      for (const job of pending) {
+        if (cancelled) return;
+        const id = idOf(job);
+        const address = String(job.pickupAddress || job.farmAddress || job.farmLocation?.address || job.pickupLocation?.address || "").trim();
+        // Add known farm district and country context to improve Indian address matches.
+        const query = [address, districtOf(job), "Tamil Nadu", "India"].filter(Boolean).join(", ");
+        try {
+          const result = await geocodeAddress(query);
+          if (!cancelled && result && Number.isFinite(result.lat) && Number.isFinite(result.lng)) {
+            setGeocodedCoords((current) => ({ ...current, [id]: [result.lat, result.lng] }));
+          }
+        } catch {
+          // Keep the order visible in the coordinate-verification list.
+        }
+        if (!cancelled) setGeocodingIds((current) => current.filter((value) => value !== id));
+        // Nominatim's public service requests should be paced.
+        await new Promise((resolve) => setTimeout(resolve, 1100));
+      }
+    };
+    void resolveMissingFarmCoordinates();
+    return () => { cancelled = true; };
+  }, [filtered, geocodedCoords]);
+
   const farmGroups = useMemo(() => {
     const groups = new Map<string, { key: string; farmerName: string; pickupAddress: string; jobs: Job[] }>();
     for (const job of filtered) {
@@ -484,7 +525,7 @@ export default function PickupRoutesPage() {
   }, [jobs, selectedArea, filtered]);
 
   const farmMarkers = useMemo(() => filtered.flatMap((job) => {
-    const coords = coordinatesOf(job);
+    const coords = coordinatesOf(job) || geocodedCoords[idOf(job)] || null;
     if (!coords) return [];
     return [{
       id: idOf(job),
@@ -493,7 +534,7 @@ export default function PickupRoutesPage() {
       title: escapeMapText(job.farmerName || "Farm pickup"),
       info: escapeMapText(`${job.orderNumber || job.eventOrderNumber || "Pickup order"} · ${job.productName || "Product"} · ${Number(job.quantity || 0)} kg · ${STATUS_LABEL[String(job.status)] || String(job.status || "Unknown").replace(/_/g, " ")}`),
     }];
-  }), [filtered]);
+  }), [filtered, geocodedCoords]);
   const mapCenter = useMemo(() => farmMarkers.length
     ? { lat: farmMarkers.reduce((sum, marker) => sum + marker.lat, 0) / farmMarkers.length, lng: farmMarkers.reduce((sum, marker) => sum + marker.lng, 0) / farmMarkers.length }
     : { lat: 10.7905, lng: 78.7047 }, [farmMarkers]);
@@ -644,7 +685,7 @@ export default function PickupRoutesPage() {
         <div className="min-w-0 space-y-4">
           <Card className="overflow-hidden rounded-2xl border-slate-200 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 p-4">
-              <div><h2 className="flex items-center gap-2 font-semibold text-slate-950"><MapPin className="h-4 w-4 text-emerald-700"/> Pickup location map</h2><p className="mt-1 text-xs text-slate-500">{filtered.filter(coordinatesOf).length} located orders · {filtered.filter((job) => !coordinatesOf(job)).length} without coordinates</p></div>
+              <div><h2 className="flex items-center gap-2 font-semibold text-slate-950"><MapPin className="h-4 w-4 text-emerald-700"/> Pickup location map</h2><p className="mt-1 text-xs text-slate-500">{farmMarkers.length} located orders · {filtered.filter((job) => !coordinatesOf(job) && !geocodedCoords[idOf(job)]).length} without coordinates</p></div>
               <Badge variant="outline">{selectedGroupName}</Badge>
             </div>
             {farmMarkers.length ? <SharedMap center={mapCenter} zoom={11} markers={farmMarkers} drawRoute={false} height="300px" className="w-full" onMarkerClick={(marker: any) => setActiveFarmId(String(marker?.id || ""))} /> : <div className="flex h-[260px] flex-col items-center justify-center gap-2 bg-slate-50 text-center"><MapPin className="h-8 w-8 text-slate-400"/><p className="text-sm font-medium text-slate-700">No verified farm coordinates in this area</p><p className="text-xs text-slate-500">Orders remain available below. Add verified GPS coordinates to the farmer's farm profile to show a marker.</p></div>}
@@ -659,15 +700,15 @@ export default function PickupRoutesPage() {
             </CardContent></Card>;
           })()}
 
-          {filtered.some((job) => !coordinatesOf(job)) && <Card className="border-amber-200 shadow-sm">
+          {filtered.some((job) => !coordinatesOf(job) && !geocodedCoords[idOf(job)]) && <Card className="border-amber-200 shadow-sm">
             <div className="border-b border-amber-100 p-4">
               <h3 className="flex items-center gap-2 font-semibold text-slate-900"><AlertTriangle className="h-4 w-4 text-amber-600"/> Farms needing location coordinates</h3>
-              <p className="mt-1 text-xs text-slate-500">{filtered.filter((job) => !coordinatesOf(job)).length} pickup orders remain visible but cannot be pinned until verified farm GPS coordinates are saved.</p>
+              <p className="mt-1 text-xs text-slate-500">{filtered.filter((job) => !coordinatesOf(job) && !geocodedCoords[idOf(job)]).length} pickup orders still need a resolvable farm address. Address matches are being converted to map coordinates automatically where possible.</p>
             </div>
             <div className="max-h-48 divide-y overflow-y-auto">
-              {filtered.filter((job) => !coordinatesOf(job)).map((job) => <div key={idOf(job)} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
+              {filtered.filter((job) => !coordinatesOf(job) && !geocodedCoords[idOf(job)]).map((job) => <div key={idOf(job)} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
                 <div className="min-w-0"><p className="truncate font-medium text-slate-800">{job.farmerName || "Farmer details unavailable"} · {job.orderNumber || job.eventOrderNumber || "Pickup order"}</p><p className="truncate text-xs text-slate-500">{job.pickupAddress || "No farm pickup address saved"} · {areaOf(job)}</p></div>
-                <Badge variant="outline">GPS missing</Badge>
+                <Badge variant="outline">{geocodingIds.includes(idOf(job)) ? "Locating…" : "Address needs review"}</Badge>
               </div>)}
             </div>
           </Card>}
