@@ -1803,8 +1803,21 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
                     if cleaned.casefold() not in {"unknown", "n/a", "na", "not available", "none", "null"}:
                         # A district/city label is not a farm pickup locality.
                         # Keep searching lower-level address fields instead.
+                        # A district/city name must never be promoted to a
+                        # farm locality just because a legacy profile stored it
+                        # in a generic "area", "town" or "locality" field.
                         district_labels = {normalized_area(value) for value in coverage}
                         district_labels.update({
+                            "ariyalur", "chengalpattu", "chennai", "coimbatore",
+                            "cuddalore", "dharmapuri", "dindigul", "erode",
+                            "kallakurichi", "kancheepuram", "kanniyakumari",
+                            "karur", "krishnagiri", "madurai", "mayiladuthurai",
+                            "nagapattinam", "namakkal", "nilgiris", "perambalur",
+                            "pudukkottai", "ramanathapuram", "ranipet", "salem",
+                            "sivaganga", "tenkasi", "thanjavur", "theni",
+                            "thoothukudi", "tiruchirappalli", "tirunelveli",
+                            "tirupathur", "tiruppur", "tiruvallur",
+                            "tiruvannamalai", "tiruvarur", "vellore", "virudhunagar",
                             "trichy", "trichirapalli", "tiruchirapalli",
                             "kanyakumari", "pudukottai", "thirunelveli",
                             "thiruvallur", "thiruvannamalai", "thiruvarur",
