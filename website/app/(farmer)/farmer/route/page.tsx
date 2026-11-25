@@ -297,6 +297,9 @@ export default function FarmerRoutePage() {
   const [tracking, setTracking] = useState(false);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [voiceGuidanceEnabled, setVoiceGuidanceEnabled] = useState(true);
+  const [arrivalStopId, setArrivalStopId] = useState<string | null>(null);
+  const lastLocationSyncRef = useRef(0);
+  const arrivalAnnouncedRef = useRef<string | null>(null);
   const watchRef = useRef<number | null>(null);
 
   // Request location permission and begin live GPS tracking as soon as the
@@ -395,6 +398,42 @@ export default function FarmerRoutePage() {
   const doneCount = stops.filter((s) => s.status === "delivered" || s.status === "picked_up").length;
   const progress = stops.length ? Math.round((doneCount / stops.length) * 100) : 0;
   const nextStop = stops.find((s) => s.status !== "delivered" && s.status !== "picked_up") ?? null;
+
+  // Send GPS heartbeat to the authenticated backend while a delivery route
+  // is active. Throttle updates to avoid writing every high-frequency GPS fix.
+  useEffect(() => {
+    if (!started || !userLocation) return;
+    const now = Date.now();
+    if (now - lastLocationSyncRef.current < 15000) return;
+    lastLocationSyncRef.current = now;
+    api.post("/farmers/me/route/location", {
+      lat: userLocation.lat,
+      lng: userLocation.lng,
+      recordedAt: new Date(now).toISOString(),
+    }).catch(() => {
+      // GPS remains visible locally; a transient network issue must not stop navigation.
+    });
+  }, [started, userLocation]);
+
+  // Detect arrival near the next customer. Delivery is never auto-completed:
+  // the farmer must still verify the customer's OTP.
+  useEffect(() => {
+    if (!started || !nextStop || !userLocation || nextStop.lat == null || nextStop.lng == null) {
+      setArrivalStopId(null);
+      return;
+    }
+    const distance = distanceKmBetween(userLocation, { lat: nextStop.lat, lng: nextStop.lng });
+    if (distance <= 0.15) {
+      setArrivalStopId(nextStop.id);
+      if (arrivalAnnouncedRef.current !== nextStop.id) {
+        arrivalAnnouncedRef.current = nextStop.id;
+        toast.success(`You have arrived near ${nextStop.buyerName}. Verify the customer's OTP to complete delivery.`);
+      }
+    } else {
+      setArrivalStopId(null);
+      if (arrivalAnnouncedRef.current === nextStop.id) arrivalAnnouncedRef.current = null;
+    }
+  }, [started, nextStop?.id, nextStop?.lat, nextStop?.lng, userLocation]);
 
   const navigationWindowRef = useRef<Window | null>(null);
 
@@ -848,6 +887,9 @@ export default function FarmerRoutePage() {
                       </p>
                     </div>
                     <div className="flex shrink-0 flex-col gap-2">
+                      {arrivalStopId === nextStop.id && (
+                        <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">Arrived nearby · OTP required</Badge>
+                      )}
                       <Button size="sm" onClick={() => navigateToStop(nextStop)}>
                         <Navigation className="mr-2 h-4 w-4" />
                         Navigate
