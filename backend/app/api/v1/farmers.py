@@ -1029,12 +1029,24 @@ async def get_delivery_calendar(
 @router.get("/me/smart-route")
 async def get_smart_route(
     orderIds: Optional[str] = Query(None),
+    originLat: Optional[float] = Query(None),
+    originLng: Optional[float] = Query(None),
     current_user: dict = Depends(get_current_user),
 ):
     """Return a road-distance-aware route for confirmed farmer self-delivery orders."""
     _ensure_farmer(current_user)
     farmer_id = str(current_user["_id"])
     origin = await _get_farm_origin(farmer_id)
+    # When the farmer shares a valid live GPS fix, optimize from that exact
+    # position rather than the registered farm. This is refreshed after each
+    # completed delivery so the next leg starts from the farmer's new location.
+    if originLat is not None and originLng is not None and _valid_coord(originLat, originLng):
+        origin = {
+            "name": "Current location",
+            "lat": float(originLat),
+            "lng": float(originLng),
+            "address": "Live GPS position",
+        }
     if not _valid_coord(origin.get("lat"), origin.get("lng")) and origin.get("address"):
         coords = await _geocode(origin["address"])
         if coords:
