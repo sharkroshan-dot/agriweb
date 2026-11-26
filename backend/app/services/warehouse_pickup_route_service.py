@@ -655,6 +655,25 @@ async def enrich_pickup_route_display(route: Dict[str, Any]) -> Dict[str, Any]:
         or _human_text((warehouse or {}).get("warehouseName"))
         or "Assigned warehouse"
     )
+    warehouse_address = (warehouse or {}).get("address") or (warehouse or {}).get("warehouseAddress") or (warehouse or {}).get("fullAddress")
+    result["warehouseAddress"] = (
+        _human_text(result.get("warehouseAddress"))
+        or address_text(warehouse_address)
+        or address_text((warehouse or {}).get("location"))
+        or address_text((warehouse or {}).get("contactAddress"))
+    )
+    result["warehouseLocation"] = (
+        result.get("warehouseLocation")
+        or (warehouse or {}).get("location")
+        or (warehouse_address.get("location") if isinstance(warehouse_address, dict) else None)
+        or (warehouse_address.get("coordinates") if isinstance(warehouse_address, dict) else None)
+    )
+    result["warehousePhone"] = (
+        _human_text(result.get("warehousePhone"))
+        or _human_text((warehouse or {}).get("phone"))
+        or _human_text((warehouse or {}).get("contactNumber"))
+        or _human_text((warehouse or {}).get("phoneNumber"))
+    )
     route_number = _human_text(result.get("routeNumber"))
     if route_number and route_number.isdigit():
         route_number = f"Pickup Route {route_number}"
@@ -690,12 +709,86 @@ async def enrich_pickup_route_display(route: Dict[str, Any]) -> Dict[str, Any]:
         collection_id = str(order_ref.get("collectionId") or "")
         job = await warehouse_collection_repository.get_by_id(collection_id) if ObjectId.is_valid(collection_id) else None
         if not job:
-            order_item_data["farmerName"] = _human_text(order_ref.get("farmerName") or farm_stop.get("farmerName")) or "Farmer details unavailable"
-            order_item_data["farmerPhone"] = _human_text(order_ref.get("farmerPhone") or farm_stop.get("farmerPhone"))
-            order_item_data["productName"] = _human_text(order_ref.get("productName")) or "Product details unavailable"
-            order_item_data["orderNumber"] = _human_text(order_ref.get("orderNumber"))
-            order_item_data["pickupAddress"] = address_text(order_ref.get("pickupLocation") or farm_stop.get("pickupLocation")) or "Farm address not provided"
-            order_item_data["status"] = _human_text(order_ref.get("status")) or "pending"
+            # Older route snapshots may reference a collection job that has since
+            # been archived or may never have had a collectionId. Resolve the
+            # linked order, farmer and product independently so the partner still
+            # sees the real farm and order details instead of placeholder fields.
+            order_id = str(order_ref.get("orderId") or order_ref.get("b2bOrderId") or "")
+            order = await order_by_id(order_id)
+            b2b_order = None
+            if not order and ObjectId.is_valid(order_id):
+                try:
+                    b2b_order = await MongoDB.get_collection("b2b_orders").find_one({"_id": ObjectId(order_id)})
+                except Exception:
+                    b2b_order = None
+            order = order or b2b_order or {}
+            farmer_id = str(order_ref.get("farmerId") or farm_stop.get("farmerId") or order.get("farmerId") or "")
+            farmer = await farmer_by_id(farmer_id)
+            farmer_user = await user_by_id((farmer or {}).get("userId") or farmer_id)
+            product_id = str(order_ref.get("productId") or order.get("productId") or "")
+            product = await product_by_id(product_id)
+            order_items = order.get("items") or []
+            first_item = next((item for item in order_items if not product_id or str(item.get("productId") or item.get("product_id") or "") == product_id), order_items[0] if order_items else {})
+            farmer_name = (
+                _human_text(order_ref.get("farmerName"))
+                or _human_text(farm_stop.get("farmerName"))
+                or _human_text((farmer or {}).get("farmName"))
+                or _human_text((farmer or {}).get("ownerName"))
+                or _human_text((farmer or {}).get("name"))
+                or _person_name(farmer_user)
+                or "Farmer details unavailable"
+            )
+            location = (
+                order_ref.get("pickupLocation")
+                or farm_stop.get("pickupLocation")
+                or order.get("pickupLocation")
+                or order.get("farmLocation")
+                or (farmer or {}).get("farmLocation")
+                or (farmer or {}).get("location")
+                or {}
+            )
+            address = (
+                address_text(order_ref.get("pickupAddress"))
+                or address_text(order_ref.get("pickupLocation"))
+                or address_text(farm_stop.get("pickupAddress"))
+                or address_text(location)
+                or address_text((farmer or {}).get("farmAddress"))
+                or address_text((farmer or {}).get("address"))
+            )
+            product_name = (
+                _human_text(order_ref.get("productName"))
+                or _human_text(order.get("productName"))
+                or _human_text(first_item.get("productName"))
+                or _human_text(first_item.get("name"))
+                or _human_text((product or {}).get("name"))
+                or _human_text((product or {}).get("productName"))
+                or _human_text((product or {}).get("title"))
+                or "Product details unavailable"
+            )
+            order_number = (
+                _human_text(order_ref.get("orderNumber") or order_ref.get("orderNo"))
+                or _human_text(order.get("orderNumber") or order.get("orderNo") or order.get("referenceNumber"))
+            )
+            if order_number and not order_number.upper().startswith(("ORD", "ORDER", "#", "B2B")):
+                order_number = "ORD-" + order_number
+            order_item_data.update({
+                "farmerName": farmer_name,
+                "farmerPhone": (
+                    _human_text(order_ref.get("farmerPhone"))
+                    or _human_text((farmer_user or {}).get("phone"))
+                    or _human_text((farmer_user or {}).get("phoneNumber"))
+                    or _human_text((farmer or {}).get("phone"))
+                ),
+                "farmerEmail": _human_text((farmer_user or {}).get("email")),
+                "productName": product_name,
+                "orderNumber": order_number or "Order reference unavailable",
+                "pickupAddress": address or "Farm address not provided",
+                "pickupLocation": location,
+                "status": _human_text(order_ref.get("status")) or _human_text(farm_stop.get("status")) or "pending",
+                "quantity": float(order_ref.get("quantity") or order.get("packedQuantityKg") or order.get("quantityKg") or order.get("quantity") or first_item.get("quantity") or 0),
+                "actualQuantity": order_ref.get("actualQuantity"),
+                "batchNumber": _human_text(order_ref.get("batchNumber")),
+            })
             return order_item_data
 
         order = await order_by_id(job.get("orderId") or order_ref.get("orderId"))
