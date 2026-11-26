@@ -2359,7 +2359,7 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
             area_groups[key] = {
                 "key": key, "name": name, "taluk": name,
                 "district": canonical_district, "aliases": [],
-                "registeredFarmIds": set(), "readyFarmIds": set(),
+                "villages": set(), "registeredFarmIds": set(), "readyFarmIds": set(),
                 "collectionIds": [], "totalOrders": 0, "readyOrders": 0,
             }
     for master in area_master:
@@ -2369,6 +2369,12 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
         area_groups[key] = {
             "key": key, "name": name, "taluk": master.get("taluk"),
             "district": master.get("district"), "aliases": master.get("aliases") or [],
+            # Admin-maintained aliases represent registered villages/localities
+            # served by this taluk pickup area.
+            "villages": {
+                str(alias).strip() for alias in (master.get("aliases") or [])
+                if str(alias).strip() and normalized_area(alias) != normalized_area(name)
+            },
             "registeredFarmIds": set(), "readyFarmIds": set(),
             "collectionIds": [], "totalOrders": 0, "readyOrders": 0,
         }
