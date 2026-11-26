@@ -750,7 +750,8 @@ export default function FarmerOrdersPage() {
             const orderNumber = order.orderNumber || point.id;
             const customer = order.customerName || order.customer?.name || "Customer";
             const product = primaryItem.productName || primaryItem.name || "Order";
-            const displayStatus = getDisplayStatus(order);\n            const status = statusLabels[displayStatus] || displayStatus;
+            const displayStatus = getDisplayStatus(order);
+            const status = statusLabels[displayStatus] || displayStatus;
             return `<div style="padding:7px 0;border-top:1px solid #e2e8f0;">
               <div style="font-weight:700;color:#0f172a;">${escapeHtml(orderNumber)}</div>
               <div style="font-size:12px;color:#475569;">${escapeHtml(customer)} · ${escapeHtml(product)}</div>
