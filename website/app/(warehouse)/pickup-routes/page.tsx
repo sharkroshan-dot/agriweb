@@ -328,7 +328,7 @@ export default function PickupRoutesPage() {
     const areaAliases = new Map<string, string>();
     groups.forEach((area) => {
       area.collectionIds.forEach((id) => collectionToZone.set(id, area.key));
-      [area.name, (area as any).taluk, ...(area.serviceAreas || [])].forEach((value) => {
+      [area.name, (area as any).taluk, ...(area.serviceAreas || []), ...((area as any).villages || [])].forEach((value) => {
         const normalized = areaKey(String(value || ""));
         if (normalized) areaAliases.set(normalized, area.key);
       });
