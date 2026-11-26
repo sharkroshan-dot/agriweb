@@ -177,7 +177,7 @@ export default function PickupRoutesPage() {
   const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [teamId, setTeamId] = useState("");
-  const [assignmentMode, setAssignmentMode] = useState<"auto_assign" | "offer" | "assign_team">("auto_assign");
+  const [assignmentMode, setAssignmentMode] = useState<"auto_assign" | "offer" | "assign_team">("assign_team");
   const [routePlanningMode, setRoutePlanningMode] = useState<"automatic" | "manual">("automatic");
   const [manualFarmOrder, setManualFarmOrder] = useState<string[]>([]);
   const [expandedFarmCards, setExpandedFarmCards] = useState<Record<string, boolean>>({});
@@ -583,8 +583,9 @@ export default function PickupRoutesPage() {
     for (const job of filtered) {
       const coords = coordinatesOf(job) || geocodedCoords[idOf(job)] || null;
       if (!coords) continue;
-      const farmerKey = String(job.farmId || job.farmProfileId || job.sourceFarmId || job.farmerId || job.farmerUserId || "").trim();
-      const key = farmerKey ? "farm:" + farmerKey.toLowerCase() : getFarmRouteKey(job);
+      // Use the same canonical farm key as the registered-farm summary so
+      // the map and dashboard cannot count the same address as two farms.
+      const key = getFarmRouteKey(job);
       const existing = farmGroups.get(key);
       if (existing) {
         existing.orders.push(job);
@@ -873,7 +874,7 @@ export default function PickupRoutesPage() {
             <select value={routePlanningMode} onChange={(e)=>setRoutePlanningMode(e.target.value as "automatic"|"manual")} className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal"><option value="automatic">Automatic · optimize farm stops</option><option value="manual">Manual · choose farm stop order</option></select>
           </label>
           <label className="block space-y-1.5 text-xs font-semibold text-slate-700">Assignment method
-            <select value={assignmentMode} onChange={(e)=>setAssignmentMode(e.target.value as "auto_assign"|"offer"|"assign_team")} className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal"><option value="auto_assign">Auto-plan and assign teams</option><option value="offer">Offer to approved pickup partners</option><option value="assign_team">Assign to selected team</option></select>
+            <select value={assignmentMode} onChange={(e)=>setAssignmentMode(e.target.value as "auto_assign"|"offer"|"assign_team")} className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal"><option value="assign_team">Assign all selected area orders to this team</option><option value="offer">Offer selected area orders to approved partners</option><option value="auto_assign">Auto-plan and assign teams</option></select>
           </label>
           {routePlanningMode==="manual"&&<div className="rounded-xl border border-blue-200 bg-blue-50/50 p-3">
             <p className="text-xs font-semibold text-slate-800">Manual farm stop order · {orderedManualFarmStops.length} stops</p>
