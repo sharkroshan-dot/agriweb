@@ -490,12 +490,12 @@ export default function WarehouseIncomingPage() {
     setIsSaving(true); let succeeded = 0;
     try {
       for (const item of bulkFarmItems) {
-        await api.put("/warehouse/me/incoming/" + item.id + "/receive-bulk-reference", undefined, { params: { declaredTotal, measuredTotal, quality_check: "pending", notes: [bulkReceiveNotes.trim(), `Bulk lot: ${bulkFarmItems.length} order label references; declared total ${declaredTotal} kg; measured total ${measuredTotal} kg; overall quality ${bulkQualityResult}. Per-order quantities are not weighed at receipt and must be allocated during Order Packing.`].filter(Boolean).join(" | ") } });
+        await api.put("/warehouse/me/incoming/" + String(item.id || item._id) + "/receive-bulk-reference", undefined, { params: { declaredTotal, measuredTotal, quality_check: "pending", notes: [bulkReceiveNotes.trim(), `Bulk lot: ${bulkFarmItems.length} order label references; declared total ${declaredTotal} kg; measured total ${measuredTotal} kg. Physical receipt is recorded; quality inspection is a separate step.`].filter(Boolean).join(" | ") } });
         succeeded++;
         // Each row is marked as a packing reference for this accepted bulk lot.
       }
-      toast.success(`Bulk receipt saved for ${succeeded} order references. Total measured: ${measuredTotal} kg. Quality inspection is now a separate step; approve or reject these received orders next.`);
-      setShowBulkReceiveDialog(false); setBulkMeasuredTotal(""); setBulkQualityResult("passed"); setSelectedIncomingIds([]); await refetch();
+      toast.success(`Bulk receipt saved for ${succeeded} order references. The selected orders remain in Operations so you can complete Quality Check next.`);
+      setShowBulkReceiveDialog(false); setBulkMeasuredTotal(""); await refetch();
     } catch (error: any) {
       const detail = error?.response?.data?.detail || error?.message || "Unknown error"; toast.error(`Bulk receipt saved for ${succeeded} of ${bulkFarmItems.length} order references. Error: ${detail}. Refresh to review the records before retrying.`); await refetch();
     } finally { setIsSaving(false); }
