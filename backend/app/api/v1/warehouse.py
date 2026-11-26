@@ -2053,7 +2053,10 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
         value = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
         return 6371.0 * 2 * math.asin(min(1.0, math.sqrt(value)))
     profile_area_by_id: Dict[str, str] = {}
+    # Pickup cards are taluk-level. Keep the farm's village as a child label
+    # so many villages roll up into one area instead of creating separate cards.
     profile_area_name_by_id: Dict[str, str] = {}
+    profile_village_by_id: Dict[str, str] = {}
     profile_taluk_by_id: Dict[str, str] = {}
     profile_coords_by_id: Dict[str, tuple] = {}
     profile_directory: List[Dict[str, Any]] = []
@@ -2092,10 +2095,21 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
             continue
         area_name = area_from_profile(profile)
         matched_master = canonical_area(area_name)
-        if matched_master:
-            area_name = str(matched_master.get("name") or area_name)
+        # The master may resolve a village alias to its parent taluk. Prefer
+        # that parent for grouping, while retaining the actual village label.
+        explicit_taluk = taluk_from_profile(profile)
+        taluk_name = (
+            str((matched_master or {}).get("taluk") or "").strip()
+            or (str((matched_master or {}).get("name") or "").strip() if matched_master else "")
+            or explicit_taluk
+        )
+        village_name = None
+        if area_name and matched_master and normalized_area(area_name) != normalized_area(matched_master.get("name")):
+            village_name = area_name
+        if not village_name:
+            village_name = area_from_profile(profile)
+        area_name = taluk_name or (str(matched_master.get("name") or "").strip() if matched_master else area_name)
         area_key = normalized_area(area_name) if area_name else ""
-        taluk_name = (str(matched_master.get("taluk") or "").strip() if matched_master else None) or taluk_from_profile(profile)
         coords = profile_coordinates(profile)
         # Geocode only profiles that have pickup jobs in this warehouse and
         # only a small batch per request. Coordinates are persisted to avoid
@@ -2111,13 +2125,19 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
             area_key = normalized_area(area_name)
         if area_name and not taluk_name and matched_master:
             taluk_name = str(matched_master.get("taluk") or "").strip() or None
-        profile_directory.append({"area": area_name, "taluk": taluk_name, "farmerId": str(profile.get("userId") or profile.get("farmerId") or profile.get("_id") or "")})
+        profile_directory.append({
+            "area": village_name,
+            "taluk": taluk_name or area_name,
+            "farmerId": str(profile.get("userId") or profile.get("farmerId") or profile.get("_id") or ""),
+        })
         for identity in (profile.get("_id"), profile.get("userId"), profile.get("farmerId")):
             if identity:
                 identity_key = str(identity)
                 if area_key:
                     profile_area_by_id[identity_key] = area_key
                     profile_area_name_by_id[identity_key] = area_name or ""
+                if village_name:
+                    profile_village_by_id[identity_key] = village_name
                 if taluk_name:
                     profile_taluk_by_id[identity_key] = taluk_name
                 if coords:
@@ -2359,10 +2379,12 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
         canonical = str((master or {}).get("name") or name).strip()
         key = "area:" + normalized_area(canonical)
         group = area_groups.setdefault(key, {
-            "key": key, "name": canonical, "taluk": item.get("taluk"),
-            "district": None, "aliases": [], "registeredFarmIds": set(),
+            "key": key, "name": canonical, "taluk": canonical,
+            "district": None, "aliases": [], "villages": set(), "registeredFarmIds": set(),
             "readyFarmIds": set(), "collectionIds": [], "totalOrders": 0, "readyOrders": 0,
         })
+        if item.get("area"):
+            group.setdefault("villages", set()).add(str(item["area"]).strip())
         if item.get("farmerId"): group["registeredFarmIds"].add(item["farmerId"])
     for job in pickup_jobs:
         farmer_id = str(job.get("farmerId") or job.get("farmerUserId") or job.get("farmId") or "")
@@ -2427,7 +2449,9 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
             or job.get("village") or job.get("locality") or job.get("farmTown")
         )
         master = canonical_area(str(raw_name)) if raw_name else None
-        canonical = str((master or {}).get("name") or raw_name or "").strip()
+        canonical = str((master or {}).get("taluk") or (master or {}).get("name") or raw_name or "").strip()
+        if not canonical:
+            canonical = profile_area_name_by_id.get(farmer_id, "")
         if not canonical:
             # Do not fabricate a taluk from a district/city-level address. Keep
             # these orders out of a false area count until the farm locality is
@@ -2435,11 +2459,16 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
             continue
         key = "area:" + normalized_area(canonical)
         group = area_groups.setdefault(key, {
-            "key": key, "name": canonical, "taluk": (master or {}).get("taluk") or taluk_from_profile(linked_profile or {}) or profile_taluk_by_id.get(farmer_id),
+            "key": key, "name": canonical, "taluk": canonical,
             "district": (master or {}).get("district"), "aliases": (master or {}).get("aliases") or [],
-            "registeredFarmIds": set(), "readyFarmIds": set(),
+            "villages": set(), "registeredFarmIds": set(), "readyFarmIds": set(),
             "collectionIds": [], "totalOrders": 0, "readyOrders": 0,
         })
+        village_name = profile_village_by_id.get(farmer_id)
+        if not village_name:
+            village_name = raw_name if master and normalized_area(raw_name) != normalized_area(canonical) else None
+        if village_name:
+            group.setdefault("villages", set()).add(str(village_name).strip())
         job_id = str(job.get("_id") or job.get("id") or "")
         if job_id: group["collectionIds"].append(job_id)
         group["totalOrders"] += 1
@@ -2450,6 +2479,8 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
     registered_areas = [{
         "key": group["key"], "name": group["name"], "taluk": group["taluk"],
         "district": group["district"], "aliases": group["aliases"],
+        "villages": sorted(group.get("villages") or set(), key=str.casefold),
+        "villageCount": len(group.get("villages") or set()),
         "registeredFarmCount": len(group["registeredFarmIds"]),
         "readyFarmCount": len(group["readyFarmIds"]),
         "totalOrders": group["totalOrders"], "readyOrders": group["readyOrders"],
