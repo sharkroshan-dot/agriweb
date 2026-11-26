@@ -1032,7 +1032,7 @@ export default function DeliveryPickupRoutesPage() {
                             const entries = orders.filter((o: any) => String(o.status || "") === "arrived_at_farm");
                             const canArrive = ["pending","ready_for_pickup","team_assigned","en_route","started"].includes(status);
                             const expectedQuantities = Object.fromEntries(entries
-                              .filter((order: any) => order.collectionId)
+                              .filter((order: any) => order.collectionId && String(order.collectionType || "") !== "packed_orders_transfer")
                               .map((order: any) => [order.collectionId, Number(order.quantity || 0)]));
                             return <div key={stop.farmKey || stop.collectionId || i} className="p-3 sm:p-4"><div className="flex items-start gap-3"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-700 text-sm font-bold text-white">{i+1}</span><div className="min-w-0 flex-1">
                               <div className="flex flex-wrap items-start justify-between gap-3">
