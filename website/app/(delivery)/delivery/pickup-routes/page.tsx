@@ -20,7 +20,7 @@ const routeStatusLabel = (value: string) => ({
 } as Record<string, string>)[value] || value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 
 const routeDayLabel = (route: any) => {
-  const value = route.routeDate || route.createdAt;
+  const value = route.collectionDate || route.scheduledAt || route.routeDate;
   if (!value) return null;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
@@ -262,6 +262,13 @@ export default function DeliveryPickupRoutesPage() {
   // the active route workspace and is shown in Pickup History instead.
   const routes = allRoutes.filter((item: any) => {
     if (isCustomerDeliveryRecord(item) || isPickupCompleted(item)) return false;
+    const routeType = String(item?.routeType || item?.workflowType || "").toLowerCase().replace(/[ -]+/g, "_");
+    const nonPickupTypes = new Set([
+      "warehouse_transfer", "warehouse_to_destination_warehouse",
+      "warehouse_to_local_hub", "hub_transfer", "customer_delivery",
+      "last_mile_delivery", "business_delivery", "b2b_delivery",
+    ]);
+    if (nonPickupTypes.has(routeType)) return false;
     return isInDatePeriod(item, datePeriod, "pickup") ||
       (datePeriod === "today" && isCarryoverRoute(item));
   });
@@ -941,12 +948,21 @@ export default function DeliveryPickupRoutesPage() {
             const farmStops = mergeFarmStopsForDisplay(r.stops || []);
             const totalOrders = farmStops.reduce((sum: number, stop: any) => sum + (stop.orderCount || stop.orders?.length || 1), 0);
             const totalQuantity = farmStops.reduce((sum: number, stop: any) => sum + Number(stop.quantity || 0), 0);
-            const addresses = farmStops.map((stop: any) => stop.pickupAddress).filter((v: any) => typeof v === "string" && v.trim());
+            const mapPoint = (address: any, location: any) => {
+              if (typeof address === "string" && address.trim() && address !== "Farm address not provided") return address.trim();
+              const raw = location?.location || location;
+              const coords = Array.isArray(raw?.coordinates) ? raw.coordinates : null;
+              if (coords && coords.length >= 2) return String(coords[1]) + "," + String(coords[0]);
+              const lat = raw?.lat ?? raw?.latitude;
+              const lng = raw?.lng ?? raw?.lon ?? raw?.longitude;
+              return lat != null && lng != null ? String(lat) + "," + String(lng) : "";
+            };
+            const locations = farmStops.map((stop: any) => mapPoint(stop.pickupAddress, stop.pickupLocation)).filter(Boolean);
             const wh = r.warehouseAddress || r.destinationAddress || r.warehouseLocation?.address || r.warehouseLocation;
-            const destination = typeof wh === "string" ? wh : wh?.address || wh?.formattedAddress || "";
-            const locations = [...addresses, ...(destination ? [destination] : [])];
+            const warehousePoint = mapPoint(typeof wh === "string" ? wh : wh?.address || wh?.formattedAddress || "", wh);
+            if (warehousePoint) locations.push(warehousePoint);
             const mapUrl = locations.length > 1 ? "https://www.google.com/maps?output=embed&saddr=" + encodeURIComponent(locations[0]) + "&daddr=" + encodeURIComponent(locations[locations.length - 1]) + (locations.length > 2 ? "&waypoints=" + encodeURIComponent(locations.slice(1, -1).join("|")) : "") : "";
-            const dateValue = r.scheduledAt || r.routeDate || r.collectionDate || r.createdAt;
+            const dateValue = r.scheduledAt || r.collectionDate || r.routeDate;
             const scheduleDate = dateValue && !Number.isNaN(new Date(dateValue).getTime()) ? new Intl.DateTimeFormat("en-IN", {day:"2-digit",month:"short",year:"numeric"}).format(new Date(dateValue)) : routeDayLabel(r);
             return (
               <Card className="min-w-0 overflow-hidden border-slate-200">
@@ -962,14 +978,14 @@ export default function DeliveryPickupRoutesPage() {
                     <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-3"><p className="text-xs text-emerald-800">Farm stops</p><p className="mt-1 text-xl font-extrabold">{farmStops.length}</p></div>
                     <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-3"><p className="text-xs text-blue-800">Orders</p><p className="mt-1 text-xl font-extrabold">{totalOrders}</p></div>
                     <div className="rounded-xl border border-violet-100 bg-violet-50/70 p-3"><p className="text-xs text-violet-800">Total collection</p><p className="mt-1 text-xl font-extrabold">{totalQuantity} kg</p></div>
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3"><p className="text-xs text-slate-600">Route distance</p><p className="mt-1 text-xl font-extrabold">{r.distanceKm != null ? Number(r.distanceKm).toFixed(1) + " km" : "—"}</p></div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3"><p className="text-xs text-slate-600">Route distance</p><p className="mt-1 text-xl font-extrabold">{r.distanceKm != null ? Number(r.distanceKm).toFixed(1) + " km" : "Not recorded"}</p></div>
                   </div>
                   <div className="grid min-w-0 gap-4 2xl:grid-cols-[minmax(0,1.05fr)_minmax(340px,0.95fr)]">
                     <section className="min-w-0 overflow-hidden rounded-xl border border-slate-200">
                       <div className="flex items-center justify-between border-b bg-slate-50 px-4 py-3"><div><h3 className="text-sm font-bold">Route map</h3><p className="text-xs text-slate-500">Farm stops and assigned warehouse</p></div>{mapUrl && <a className="text-xs font-semibold text-emerald-700 hover:underline" href={mapUrl.replace("output=embed&","")} target="_blank" rel="noreferrer">Open in Maps</a>}</div>
                       {mapUrl ? <iframe title="Farm pickup route map" src={mapUrl} className="h-[300px] w-full border-0 sm:h-[370px]" loading="lazy" referrerPolicy="no-referrer-when-downgrade"/> :
                         <div className="flex h-[300px] flex-col items-center justify-center bg-gradient-to-br from-emerald-50 via-white to-sky-50 px-6 text-center sm:h-[370px]"><MapPin className="h-9 w-9 text-emerald-700"/><p className="mt-3 text-sm font-semibold">Map locations are not available yet</p><p className="mt-1 max-w-sm text-xs leading-5 text-slate-500">Farm addresses and the warehouse destination will appear here when location details are available.</p></div>}
-                      <div className="grid grid-cols-3 divide-x border-t bg-white"><div className="p-3 text-center"><p className="text-sm font-bold">{r.distanceKm != null ? Number(r.distanceKm).toFixed(1) + " km" : "—"}</p><p className="text-[11px] text-slate-500">Total distance</p></div><div className="p-3 text-center"><p className="text-sm font-bold">{r.estimatedDuration || r.estimatedTime || "—"}</p><p className="text-[11px] text-slate-500">Est. travel</p></div><div className="p-3 text-center"><p className="text-sm font-bold">{totalQuantity} kg</p><p className="text-[11px] text-slate-500">Total collection</p></div></div>
+                      <div className="grid grid-cols-3 divide-x border-t bg-white"><div className="p-3 text-center"><p className="text-sm font-bold">{r.distanceKm != null ? Number(r.distanceKm).toFixed(1) + " km" : "Not recorded"}</p><p className="text-[11px] text-slate-500">Total distance</p></div><div className="p-3 text-center"><p className="text-sm font-bold">{r.estimatedDuration || r.estimatedTime || "Not recorded"}</p><p className="text-[11px] text-slate-500">Est. travel</p></div><div className="p-3 text-center"><p className="text-sm font-bold">{totalQuantity} kg</p><p className="text-[11px] text-slate-500">Total collection</p></div></div>
                     </section>
                     <section className="min-w-0 space-y-3">
                       <div className="overflow-hidden rounded-xl border border-slate-200"><div className="flex items-center justify-between border-b bg-slate-50 px-4 py-3"><h3 className="text-sm font-bold">Pickup Stops ({farmStops.length})</h3><span className="text-xs text-slate-500">{totalOrders} orders</span></div>
@@ -1002,8 +1018,8 @@ export default function DeliveryPickupRoutesPage() {
                           })}
                         </div>
                       </div>
-                      <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4"><div className="flex items-center gap-2 text-emerald-900"><Clock className="h-4 w-4"/><p className="text-sm font-bold">Collection Schedule</p></div><p className="mt-2 text-sm font-semibold">{scheduleDate || "Schedule set by warehouse"}</p><p className="mt-1 text-sm text-slate-700">Farm collection window: 8:00 PM – 6:00 AM IST</p><p className="mt-2 text-xs leading-5 text-slate-600">Review your assigned route in advance. Begin farm collection during the scheduled collection window.</p></div>
-                      <div className="rounded-xl border border-slate-200 bg-white p-4"><div className="flex items-center gap-2"><Truck className="h-4 w-4 text-emerald-700"/><p className="text-sm font-bold">My Vehicle</p></div><p className="mt-2 text-sm font-semibold">{r.deliveryPartnerVehicleNumber || r.vehicleNumber || "Vehicle not specified"}</p><p className="mt-1 text-xs text-slate-500">{r.deliveryPartnerVehicleType || r.vehicleType || "Vehicle type not specified"}</p>{r.vehicleCapacity!=null&&<p className="mt-2 text-xs text-slate-600">Capacity: {r.vehicleCapacity} kg · Planned load: {totalQuantity} kg</p>}</div>
+                      <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4"><div className="flex items-center gap-2 text-emerald-900"><Clock className="h-4 w-4"/><p className="text-sm font-bold">Collection Schedule</p></div><p className="mt-2 text-sm font-semibold">{scheduleDate || "Schedule set by warehouse"}</p><p className="mt-1 text-sm text-slate-700">Farm collection window: {r.collectionWindow || r.pickupWindow || (r.pickupWindowStart && r.pickupWindowEnd ? String(r.pickupWindowStart) + " – " + String(r.pickupWindowEnd) : "8:00 PM – 6:00 AM IST")}</p><p className="mt-2 text-xs leading-5 text-slate-600">Review your assigned route in advance. Begin farm collection during the scheduled collection window.</p></div>
+                      <div className="rounded-xl border border-slate-200 bg-white p-4"><div className="flex items-center gap-2"><Truck className="h-4 w-4 text-emerald-700"/><p className="text-sm font-bold">My Vehicle</p></div><p className="mt-2 text-sm font-semibold">{r.deliveryPartnerVehicleNumber || r.vehicleNumber || "Vehicle not specified"}</p><p className="mt-1 text-xs text-slate-500">{r.deliveryPartnerVehicleType || r.vehicleType || "Vehicle type not specified"}</p>{r.vehicleCapacity!=null&&<p className="mt-2 text-xs text-slate-600">Capacity: {r.vehicleCapacity} kg · Planned load: {totalQuantity} kg</p>}{r.warehousePhone&&<p className="mt-2 text-xs text-slate-600">Warehouse contact: {r.warehousePhone}</p>}</div>
                     </section>
                   </div>
                   <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between"><p className="text-xs text-slate-500">Assigned to your account · Other partners cannot accept this route</p><div className="flex flex-wrap gap-2">
