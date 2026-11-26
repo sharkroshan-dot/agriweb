@@ -876,15 +876,20 @@ export default function PickupRoutesPage() {
           <Badge variant="outline" className="w-fit">{selectedIds.length} farms selected</Badge>
         </div>
         <CardContent className="grid gap-3 p-4 sm:p-5">
-          <label className="block min-w-0 space-y-1.5 text-xs font-semibold text-slate-700">Approved pickup partner and vehicle
+          {assignmentMode === "assign_team" && <label className="block min-w-0 space-y-1.5 text-xs font-semibold text-slate-700">Approved pickup partner and vehicle
             <select value={teamId} onChange={(e) => setTeamId(e.target.value)} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"><option value="">Select partner / vehicle</option>{eligibleTeams.map((team) => <option key={team.id} value={team.id}>{team.name || "Pickup partner"} · {team.vehicleType || "Vehicle"} · {team.capacity || team.vehicleCapacity} kg</option>)}</select>
-          </label>
+          </label>}
           <label className="block space-y-1.5 text-xs font-semibold text-slate-700">Route planning
             <select value={routePlanningMode} onChange={(e)=>setRoutePlanningMode(e.target.value as "automatic"|"manual")} className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal"><option value="automatic">Automatic · optimize farm stops</option><option value="manual">Manual · choose farm stop order</option></select>
           </label>
           <label className="block space-y-1.5 text-xs font-semibold text-slate-700">Assignment method
             <select value={assignmentMode} onChange={(e)=>setAssignmentMode(e.target.value as "auto_assign"|"offer"|"assign_team")} className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal"><option value="assign_team">Assign all selected area orders to this team</option><option value="offer">Offer selected area orders to approved partners</option><option value="auto_assign">Auto-plan and assign teams</option></select>
           </label>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-600">
+            {assignmentMode === "assign_team" && "The selected approved partner receives the complete route for this pickup area. Vehicle capacity is checked before assignment."}
+            {assignmentMode === "offer" && "The route is offered to approved pickup partners. The first eligible partner to accept it claims the route; other partners cannot claim it afterward."}
+            {assignmentMode === "auto_assign" && "The system distributes separate routes across idle approved teams, selecting a vehicle with sufficient capacity for each route."}
+          </div>
           {routePlanningMode==="manual"&&<div className="rounded-xl border border-blue-200 bg-blue-50/50 p-3">
             <p className="text-xs font-semibold text-slate-800">Manual farm stop order · {orderedManualFarmStops.length} stops</p>
             {orderedManualFarmStops.length?<ol className="mt-2 space-y-2">{orderedManualFarmStops.map((farm,index)=><li key={farm.key} className="flex items-center gap-2 rounded-lg bg-white p-2"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100 text-xs font-bold">{index+1}</span><span className="min-w-0 flex-1 truncate text-xs font-medium">{farm.farmerName} · {farm.jobIds.length} orders · {farm.quantity} kg</span><div className="flex gap-1"><Button size="icon" variant="outline" disabled={index===0} onClick={()=>moveManualFarmStop(farm.key,-1)}><ArrowUp className="h-3 w-3"/></Button><Button size="icon" variant="outline" disabled={index===orderedManualFarmStops.length-1} onClick={()=>moveManualFarmStop(farm.key,1)}><ArrowDown className="h-3 w-3"/></Button></div></li>)}</ol>:<p className="mt-1 text-xs text-slate-500">Select farm orders to build the stop sequence.</p>}
