@@ -198,10 +198,6 @@ export default function WarehouseIncomingPage() {
   const [incomingForm, setIncomingForm] = useState(emptyIncomingForm);
   const [receiveForm, setReceiveForm] = useState(emptyReceiveForm);
   const [selectedIncoming, setSelectedIncoming] = useState<any>(null);
-  const [pickupSourceFilter, setPickupSourceFilter] = useState("all");
-  const [pickupAreaFilter, setPickupAreaFilter] = useState("all");
-  const [sortOrder, setSortOrder] = useState("newest");
-  const [shipmentPage, setShipmentPage] = useState(1);
   const [qualityNotes, setQualityNotes] = useState("");
   const [showBulkReceiveDialog, setShowBulkReceiveDialog] = useState(false);
   const [bulkFarmItems, setBulkFarmItems] = useState<any[]>([]);
@@ -331,14 +327,6 @@ export default function WarehouseIncomingPage() {
 
 
 
-  const getPickupSource = (item: any) => String(item.pickupPartnerName || item.pickupPartner?.name || item.collectionPartnerName || item.deliveryPartnerName || item.partnerName || "Not assigned");
-  const getPickupArea = (item: any) => String(item.pickupLocation?.area || item.pickupLocation?.village || item.pickupLocation?.town || item.pickupLocation?.address || item.farmAddress || item.district || "Area unavailable");
-  const pickupSourceOptions = Array.from(new Set(incomingList.map((item: any) => getPickupSource(item)))).sort();
-  const pickupAreaOptions = Array.from(new Set(incomingList.map((item: any) => getPickupArea(item)))).sort();
-  const visibleShipments = incomingList.filter((item: any) => pickupSourceFilter === "all" || getPickupSource(item) === pickupSourceFilter).filter((item: any) => pickupAreaFilter === "all" || getPickupArea(item) === pickupAreaFilter).slice().sort((a: any,b: any) => { const da=new Date(a.expectedDate || a.createdAt || 0).getTime(); const db=new Date(b.expectedDate || b.createdAt || 0).getTime(); return sortOrder === "newest" ? db-da : da-db; });
-  const shipmentPageSize = 5;
-  const shipmentPageCount = Math.max(1, Math.ceil(visibleShipments.length / shipmentPageSize));
-  const pagedShipments = visibleShipments.slice((shipmentPage-1)*shipmentPageSize, shipmentPage*shipmentPageSize);
   const updateIncomingForm = (field: keyof typeof incomingForm, value: string) => {
     setIncomingForm((current) => ({ ...current, [field]: value }));
   };
@@ -707,14 +695,12 @@ export default function WarehouseIncomingPage() {
         </section>
         <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="mb-3 flex items-center gap-2"><Search className="h-4 w-4 text-emerald-700"/><h2 className="font-semibold text-slate-900">Find a shipment</h2><span className="text-xs text-slate-500">Use filters only when needed</span></div>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-            <div className="sm:col-span-2 xl:col-span-1"><label className="mb-1.5 block text-xs font-semibold text-slate-600">Search</label><Input placeholder="Order, product or farm..." value={searchTerm} onChange={(e) => {setSearchTerm(e.target.value);setShipmentPage(1);}} /></div>
-            <div><label className="mb-1.5 block text-xs font-semibold text-slate-600">Pickup source</label><Select value={pickupSourceFilter} onValueChange={(v)=>{setPickupSourceFilter(v);setShipmentPage(1);}}><SelectTrigger className="w-full"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="all">All sources</SelectItem>{pickupSourceOptions.map((v)=><SelectItem key={v} value={v}>{v}</SelectItem>)}</SelectContent></Select></div>
-            <div><label className="mb-1.5 block text-xs font-semibold text-slate-600">Pickup area</label><Select value={pickupAreaFilter} onValueChange={(v)=>{setPickupAreaFilter(v);setShipmentPage(1);}}><SelectTrigger className="w-full"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="all">All areas</SelectItem>{pickupAreaOptions.map((v)=><SelectItem key={v} value={v}>{v}</SelectItem>)}</SelectContent></Select></div>
-            <div><label className="mb-1.5 block text-xs font-semibold text-slate-600">Status</label><Select value={statusFilter} onValueChange={(v)=>{setStatusFilter(v);setShipmentPage(1);}}><SelectTrigger className="w-full"><SelectValue placeholder="All statuses" /></SelectTrigger><SelectContent><SelectItem value="all">All statuses</SelectItem><SelectItem value="scheduled">Scheduled</SelectItem><SelectItem value="in_transit">In Transit</SelectItem><SelectItem value="received">Received</SelectItem><SelectItem value="quality_check">Quality Check</SelectItem><SelectItem value="rejected">Rejected</SelectItem></SelectContent></Select></div>
-            <div><label className="mb-1.5 block text-xs font-semibold text-slate-600">Date range</label><Select value={dateFilter} onValueChange={(v)=>{setDateFilter(v);setShipmentPage(1);}}><SelectTrigger className="w-full"><SelectValue placeholder="All time" /></SelectTrigger><SelectContent><SelectItem value="today">Today</SelectItem><SelectItem value="yesterday">Yesterday</SelectItem><SelectItem value="week">This week</SelectItem><SelectItem value="month">This month</SelectItem><SelectItem value="all">All time</SelectItem></SelectContent></Select></div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div><label className="mb-1.5 block text-xs font-semibold text-slate-600">Search order / farm / product</label><Input placeholder="Enter an order number, farm or product..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div>
+            <div><label className="mb-1.5 block text-xs font-semibold text-slate-600">Shipment status</label><Select value={statusFilter} onValueChange={setStatusFilter}><SelectTrigger className="w-full"><SelectValue placeholder="All statuses" /></SelectTrigger><SelectContent><SelectItem value="all">All statuses</SelectItem><SelectItem value="scheduled">Scheduled</SelectItem><SelectItem value="in_transit">In Transit</SelectItem><SelectItem value="received">Received</SelectItem><SelectItem value="quality_check">Quality Check</SelectItem><SelectItem value="rejected">Rejected</SelectItem></SelectContent></Select></div>
+            <div><label className="mb-1.5 block text-xs font-semibold text-slate-600">Date range</label><Select value={dateFilter} onValueChange={setDateFilter}><SelectTrigger className="w-full"><SelectValue placeholder="All time" /></SelectTrigger><SelectContent><SelectItem value="today">Today</SelectItem><SelectItem value="yesterday">Yesterday</SelectItem><SelectItem value="week">This week</SelectItem><SelectItem value="month">This month</SelectItem><SelectItem value="all">All time</SelectItem></SelectContent></Select></div>
           </div>
-          <div className="mt-3 flex justify-end"><Button type="button" variant="ghost" size="sm" onClick={() => {setSearchTerm("");setStatusFilter("all");setDateFilter("all");setPickupSourceFilter("all");setPickupAreaFilter("all");setShipmentPage(1);}}> <RefreshCw className="mr-2 h-4 w-4"/>Clear filters</Button></div>
+          <div className="mt-3 flex justify-end"><Button type="button" variant="ghost" size="sm" onClick={() => {setSearchTerm("");setStatusFilter("all");setDateFilter("all");}}> <RefreshCw className="mr-2 h-4 w-4"/>Clear filters</Button></div>
         </section>
         <main className="min-w-0 space-y-4">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
