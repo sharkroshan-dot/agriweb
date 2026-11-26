@@ -148,6 +148,7 @@ export default function WarehouseIncomingPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [dateFilter, setDateFilter] = useState<string>("all");
+  const [deliveryPartnerFilter, setDeliveryPartnerFilter] = useState<string>("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(5);
   const [fulfillmentFilter, setFulfillmentFilter] = useState<"all" | "received_warehouse" | "farmer" | "warehouse">("all");
@@ -217,6 +218,13 @@ export default function WarehouseIncomingPage() {
     } catch (error: any) { toast.error(error?.message || (action === "receive" ? "Could not confirm destination receipt." : "Could not send order to local hub.")); }
     finally { setTransferActionBusy(null); }
   };
+  const deliveryPartnerOptions = useMemo(() => {
+    const rawIncoming = incomingData?.data?.incoming;
+    const items: any[] = Array.isArray(rawIncoming) ? rawIncoming : Array.isArray(rawIncoming?.items) ? rawIncoming.items : Array.isArray(rawIncoming?.results) ? rawIncoming.results : [];
+    const names = items.map((item: any) => String(item.deliveryPartnerName || item.pickupTeamName || item.collectionTeamName || item.assignedPartnerName || "").trim()).filter((name: string) => name && !["not assigned", "assigned pickup partner"].includes(name.toLowerCase()));
+    return Array.from(new Set(names)).sort((a: string, b: string) => a.localeCompare(b));
+  }, [incomingData]);
+
   const incomingTypeCounts = useMemo(() => {
     const rawIncoming = incomingData?.data?.incoming;
     const items: any[] = Array.isArray(rawIncoming)
@@ -244,6 +252,7 @@ export default function WarehouseIncomingPage() {
           ? rawIncoming.results
           : [];
     const query = searchTerm.trim().toLowerCase();
+    const selectedPartner = deliveryPartnerFilter.trim().toLowerCase();
 
     const readableItems = items
       .map((item: any) => ({
@@ -266,6 +275,8 @@ export default function WarehouseIncomingPage() {
         ),
       }))
       .filter((item: any) => {
+        const partnerName = String(item.deliveryPartnerName || item.pickupTeamName || item.collectionTeamName || item.assignedPartnerName || "").trim().toLowerCase();
+        if (selectedPartner !== "all" && partnerName !== selectedPartner) return false;
         if (statusFilter !== "all" && item.displayStatus !== statusFilter) return false;
         if (fulfillmentFilter === "received_warehouse") return false;
         if (fulfillmentFilter === "farmer") return isFarmerPackedIncoming(item);
@@ -296,7 +307,7 @@ export default function WarehouseIncomingPage() {
       stagePriority(a) - stagePriority(b) ||
       new Date(a.expectedDate || a.createdAt || 0).getTime() - new Date(b.expectedDate || b.createdAt || 0).getTime()
     );
-  }, [incomingData, searchTerm, fulfillmentFilter, dateFilter]);
+  }, [incomingData, searchTerm, fulfillmentFilter, dateFilter, deliveryPartnerFilter]);
 
   const selectedIncomingRow =
     incomingList.find((item: any) => String(item.id || item._id) === selectedIncomingId) ||
@@ -918,7 +929,7 @@ export default function WarehouseIncomingPage() {
         <aside className="space-y-4 xl:sticky xl:top-4">
           <Card className="border-slate-200 shadow-sm">
             <CardContent className="space-y-4 p-4">
-              <div className="flex items-center justify-between"><h2 className="font-semibold text-slate-900">Filter Shipments</h2><Button type="button" variant="ghost" size="sm" onClick={() => { setSearchTerm(""); setStatusFilter("all"); setDateFilter("all"); setFulfillmentFilter("all"); }}>Reset</Button></div>
+              <div className="flex items-center justify-between"><h2 className="font-semibold text-slate-900">Filter Shipments</h2><Button type="button" variant="ghost" size="sm" onClick={() => { setSearchTerm(""); setStatusFilter("all"); setDateFilter("all"); setDeliveryPartnerFilter("all"); setFulfillmentFilter("all"); }}>Reset</Button></div>
               <div className="space-y-2">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Fulfillment Type</p>
                 {([
@@ -949,10 +960,18 @@ export default function WarehouseIncomingPage() {
                 ))}
               </div>
               <div className="space-y-2">
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Delivery Partner</label>
+                <Select value={deliveryPartnerFilter} onValueChange={(value) => { setDeliveryPartnerFilter(value); setCurrentPage(1); }}>
+                  <SelectTrigger><SelectValue placeholder="All delivery partners" /></SelectTrigger>
+                  <SelectContent><SelectItem value="all">All delivery partners</SelectItem>{deliveryPartnerOptions.map((name: string) => <SelectItem key={name} value={name}>{name}</SelectItem>)}</SelectContent>
+                </Select>
+                {deliveryPartnerOptions.length === 0 && <p className="text-xs text-muted-foreground">Partner names appear when a delivery partner is assigned to the pickup route.</p>}
+              </div>
+              <div className="space-y-2">
                 <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Date Range</label>
                 <Select value={dateFilter} onValueChange={(value) => { setDateFilter(value); setCurrentPage(1); }}><SelectTrigger><SelectValue placeholder="All time" /></SelectTrigger><SelectContent><SelectItem value="all">All time</SelectItem><SelectItem value="today">Today</SelectItem><SelectItem value="yesterday">Yesterday</SelectItem><SelectItem value="week">This week</SelectItem><SelectItem value="month">This month</SelectItem></SelectContent></Select>
               </div>
-              <div className="flex gap-2 border-t pt-3"><Button type="button" className="flex-1" onClick={() => setCurrentPage(1)}><Search className="mr-2 h-4 w-4" />Apply Filters</Button><Button type="button" variant="outline" onClick={() => { setSearchTerm(""); setStatusFilter("all"); setDateFilter("all"); setFulfillmentFilter("all"); setCurrentPage(1); }}><RefreshCw className="mr-2 h-4 w-4" />Reset</Button></div>
+              <div className="flex gap-2 border-t pt-3"><Button type="button" className="flex-1" onClick={() => setCurrentPage(1)}><Search className="mr-2 h-4 w-4" />Apply Filters</Button><Button type="button" variant="outline" onClick={() => { setSearchTerm(""); setStatusFilter("all"); setDateFilter("all"); setDeliveryPartnerFilter("all"); setFulfillmentFilter("all"); setCurrentPage(1); }}><RefreshCw className="mr-2 h-4 w-4" />Reset</Button></div>
             </CardContent>
           </Card>
         </aside>
