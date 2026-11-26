@@ -319,7 +319,10 @@ export default function DeliveryPickupRoutesPage() {
   }
   const offers = allOffers.filter((item: any) => {
     if (isCustomerDeliveryRecord(item) || !isInDatePeriod(item, datePeriod, "pickup")) return false;
-    if (normalizeRouteKey(item?.status || "offered") !== "offered") return true;
+    // This card is specifically the marketplace of routes still available to
+    // claim. Assigned routes (including ones claimed by this partner) belong
+    // only in My Farm Pickup Routes and must never appear twice.
+    if (normalizeRouteKey(item?.status || "offered") !== "offered") return false;
     const keys = routeBusinessKeys(item);
     return !Array.from(keys).some((key) => activeRouteKeys.has(key));
   });
@@ -577,7 +580,7 @@ export default function DeliveryPickupRoutesPage() {
           aria-pressed={routeView === "pickup"}
         >
           <Route className="mr-2 h-5 w-5" /> Farm Pickup Routes
-          <Badge className="ml-2" variant={routeView === "pickup" ? "secondary" : "outline"}>{pickupJobs.length + acceptedPickupJobs.length + offers.length + routes.length}</Badge>
+          <Badge className="ml-2" variant={routeView === "pickup" ? "secondary" : "outline"}>{summaryPickupRoutes.length}</Badge>
         </Button>
         <Button
           type="button"
