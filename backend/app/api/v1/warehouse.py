@@ -8429,6 +8429,37 @@ async def get_my_incoming_stock(
                     ])).strip() or "Customer details unavailable"
             except Exception:
                 logger.exception("Could not resolve order details for incoming shipment %s", safe_item["id"])
+        # B2B pickup rows reference the separate b2b_orders collection. Do not
+        # try to hydrate these IDs from customer orders: that leaves the warehouse
+        # receiving page with missing order and product details.
+        b2b_order_id = str(safe_item.get("b2bOrderId") or "")
+        if b2b_order_id and ObjectId.is_valid(b2b_order_id):
+            try:
+                from app.repositories.base_repository import BaseRepository
+                b2b_order = await BaseRepository("b2b_orders").get_by_id(b2b_order_id)
+                if b2b_order:
+                    safe_item["b2bOrderId"] = b2b_order_id
+                    safe_item["orderNumber"] = (
+                        b2b_order.get("orderNumber") or b2b_order.get("orderNo")
+                        or safe_item.get("b2bOrderNumber") or safe_item.get("orderNumber")
+                    )
+                    safe_item["b2bOrderNumber"] = safe_item.get("orderNumber")
+                    safe_item["productName"] = (
+                        b2b_order.get("productName") or b2b_order.get("product")
+                        or safe_item.get("productName")
+                    )
+                    safe_item["farmerName"] = (
+                        b2b_order.get("farmerName") or safe_item.get("farmerName")
+                    )
+                    safe_item["farmName"] = safe_item.get("farmName") or safe_item["farmerName"]
+                    safe_item["b2bOrderStatus"] = b2b_order.get("status")
+                    safe_item["buyerName"] = (
+                        b2b_order.get("businessName") or b2b_order.get("buyerName")
+                        or safe_item.get("buyerName")
+                    )
+            except Exception:
+                logger.exception("Could not resolve B2B order details for incoming shipment %s", safe_item["id"])
+
         # Event/Bulk transfer rows are not linked through the normal customer orderId.
         # Prefer their explicit event reference, then generate a stable readable ID.
         event_order_number = (
