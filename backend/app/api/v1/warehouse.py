@@ -8829,8 +8829,21 @@ async def update_incoming_quality(
         raise HTTPException(status_code=409, detail="Farmer Fulfillment orders are already packed. Skip warehouse quality inspection and continue to Farmer Fulfillment Transfers / Consolidation.")
     # Event portions may be quality-rechecked after a failed inspection, without
     # issuing a second physical receipt or creating a duplicate receipt record.
-    if incoming_status != "received" and not (source_mode == "event_fulfillment_transfer" and incoming_status == "rejected"):
+    physically_received = bool(
+        incoming.get("receivedAt")
+        or incoming.get("receivedDate")
+        or incoming.get("warehouseReceivedAt")
+        or incoming.get("bulkShipmentReceivedAt")
+    )
+    if incoming_status not in {"received", "quality_check"} and not (
+        source_mode == "event_fulfillment_transfer" and incoming_status == "rejected"
+    ):
         raise HTTPException(status_code=400, detail="Receive the physical shipment before quality inspection")
+    # Bulk-lot receiving records are intentionally placed in quality_check
+    # while awaiting the separate inspection decision. Permit that state only
+    # when physical receipt has actually been recorded.
+    if incoming_status == "quality_check" and not physically_received:
+        raise HTTPException(status_code=400, detail="Complete physical receipt before quality inspection")
     if data.usableQuantity is not None and float(data.usableQuantity) > float(incoming.get("quantityReceived") or incoming.get("quantity") or 0):
         raise HTTPException(status_code=400, detail="Usable quantity cannot exceed received quantity")
 
@@ -8846,8 +8859,9 @@ async def update_incoming_quality(
         update["qualityRejectedAt"] = datetime.utcnow()
     elif data.qualityCheck == "passed":
         update["qualityPassedAt"] = datetime.utcnow()
-        if source_mode == "event_fulfillment_transfer" and incoming_status == "rejected":
-            update["status"] = "received"
+        # A successful inspection releases both received and quality_check
+        # shipments to the next warehouse stage (Store / Packing).
+        update["status"] = "received"
     # Keep the permanent receipt snapshot aligned with the latest quality decision
     # while retaining its original receipt number and receipt timestamp.
     existing_receipt = incoming.get("receipt") if isinstance(incoming.get("receipt"), dict) else {}
