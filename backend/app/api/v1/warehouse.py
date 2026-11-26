@@ -8834,8 +8834,8 @@ async def update_incoming_quality(
         raise HTTPException(status_code=404, detail="Incoming shipment not found")
     source_mode = str(incoming.get("sourceMode") or "")
     incoming_status = str(incoming.get("status") or "").lower()
-    if source_mode == "farmer_fulfillment_transfer":
-        raise HTTPException(status_code=409, detail="Farmer Fulfillment orders are already packed. Skip warehouse quality inspection and continue to Farmer Fulfillment Transfers / Consolidation.")
+    # Farmer-packed orders also pass through this explicit warehouse quality
+    # decision. They skip repacking, not the receiving quality gate.
     # Event portions may be quality-rechecked after a failed inspection, without
     # issuing a second physical receipt or creating a duplicate receipt record.
     physically_received = bool(
