@@ -391,10 +391,14 @@ export default function WarehouseIncomingPage() {
         await api.put("/warehouse/me/incoming/" + id + "/receive", undefined, { params: { quantity: Number(item.quantity || 0), usableQuantity: Number(item.quantity || 0), quality_check: "pending", notes: "Batch warehouse receipt confirmed. Awaiting warehouse quality inspection." } });
         succeeded += 1;
       }
-      toast.success("Warehouse receipt confirmed for " + succeeded + " farmer orders.");
+      toast.success("Warehouse receipt confirmed for " + succeeded + " farmer orders. Quality Check (Approve / Reject) is now the next step in Operations.");
+      setStatusFilter("all");
+      setCurrentPage(1);
       await refetch();
     } catch (error: any) {
-      toast.error("Receipt completed for " + succeeded + " of " + eligible.length + " selected orders. " + (error?.response?.data?.detail || error?.message || "Refresh and review before retrying."));
+      toast.error("Receipt completed for " + succeeded + " of " + eligible.length + " selected orders. Review the updated next step in Operations. " + (error?.response?.data?.detail || error?.message || "Refresh and review before retrying."));
+      setStatusFilter("all");
+      setCurrentPage(1);
       await refetch();
     } finally { setIsSaving(false); }
   };
@@ -499,10 +503,21 @@ export default function WarehouseIncomingPage() {
         succeeded++;
         // Each row is marked as a packing reference for this accepted bulk lot.
       }
-      toast.success(`Bulk receipt saved for ${succeeded} order references. The selected orders remain in Operations so you can complete Quality Check next.`);
-      setShowBulkReceiveDialog(false); setBulkMeasuredTotal(""); await refetch();
+      toast.success(`Warehouse receipt completed for ${succeeded} order reference(s). The next step, Quality Check (Approve / Reject), is now available in Operations.`);
+      setShowBulkReceiveDialog(false);
+      setBulkMeasuredTotal("");
+      // A received shipment no longer belongs to the In Transit filter. Switch to
+      // All Incoming before refetching so the selected rows stay visible and the
+      // Operations panel can immediately show their Quality Check actions.
+      setStatusFilter("all");
+      setCurrentPage(1);
+      await refetch();
     } catch (error: any) {
-      const detail = error?.response?.data?.detail || error?.message || "Unknown error"; toast.error(`Bulk receipt saved for ${succeeded} of ${bulkFarmItems.length} order references. Error: ${detail}. Refresh to review the records before retrying.`); await refetch();
+      const detail = error?.response?.data?.detail || error?.message || "Unknown error";
+      toast.error(`Warehouse receipt completed for ${succeeded} of ${bulkFarmItems.length} order references. Review the updated next step in Operations. Error: ${detail}`);
+      setStatusFilter("all");
+      setCurrentPage(1);
+      await refetch();
     } finally { setIsSaving(false); }
   };
   const handleScheduleIncoming = async (event: FormEvent<HTMLFormElement>) => {
