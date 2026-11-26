@@ -61,6 +61,7 @@ export default function WarehousePackingPage() {
   const requestedFarm = searchParams.get("farm") || "";
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedOrderId, setSelectedOrderId] = useState<string>("");
+  const [selectedPackingIds, setSelectedPackingIds] = useState<string[]>([]);
   const [queueTab, setQueueTab] = useState<"queue" | "packing" | "shortage" | "completed">("queue");
   const [printLabelData, setPrintLabelData] = useState<any | null>(null);
   const printQrRef = useRef<HTMLDivElement | null>(null);
@@ -150,6 +151,20 @@ export default function WarehousePackingPage() {
     if (queueTab === "packing") return filteredTasks.filter((task: any) => ["assigned", "packing", "partially_packed"].includes(String(task.status || "").toLowerCase()) && !taskHasOpenShortage(task));
     return filteredTasks.filter((task: any) => String(task.status || "").toLowerCase() === "ready_for_packing" && !taskHasOpenShortage(task));
   }, [filteredTasks, queueTab, shortageData]);
+  const requestedPackingTasks = visibleTasks.filter((task: any) => {
+    const ids = [task.orderId, task.order?._id, task.order?.id, task.orderNumber, task.orderNo, task.id, task._id].filter(Boolean).map(String);
+    return ids.some((id: string) => requestedOrderIdSet.has(id));
+  });
+  useEffect(() => {
+    if (requestedOrderIdSet.size > 0 && requestedPackingTasks.length > 0) {
+      const nextIds = requestedPackingTasks.map((task: any) => String(task.id || task._id));
+      setSelectedPackingIds((current) => current.length === nextIds.length && current.every((id) => nextIds.includes(id)) ? current : nextIds);
+      if (!nextIds.includes(selectedOrderId)) setSelectedOrderId(nextIds[0]);
+    } else if (requestedOrderIdSet.size === 0 && selectedPackingIds.length > 0) {
+      setSelectedPackingIds((current) => current.filter((id) => visibleTasks.some((task: any) => String(task.id || task._id) === id)));
+    }
+  }, [visibleTasks, requestedOrderId, requestedOrderIds.join(",")]);
+  const selectedPackingTasks = visibleTasks.filter((task: any) => selectedPackingIds.includes(String(task.id || task._id)));
   const selectedTask = visibleTasks.find((task: any) => String(task.id || task._id) === selectedOrderId) || visibleTasks[0] || null;
   useEffect(() => {
     if (!visibleTasks.length) {
@@ -390,14 +405,25 @@ export default function WarehousePackingPage() {
                   )
                 ) : (
                   <>
+                    {visibleTasks.length > 0 && <div className="mb-2 flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50/60 px-3 py-2">
+                      <div className="flex items-center gap-2 text-xs font-semibold text-emerald-900">
+                        <input type="checkbox" aria-label="Select all visible packing orders" checked={visibleTasks.length > 0 && visibleTasks.every((task: any) => selectedPackingIds.includes(String(task.id || task._id)))} onChange={(event) => setSelectedPackingIds(event.target.checked ? visibleTasks.map((task: any) => String(task.id || task._id)) : [])} />
+                        {selectedPackingIds.length} order(s) selected
+                      </div>
+                      <button type="button" className="text-xs font-semibold text-emerald-800 hover:underline" onClick={() => setSelectedPackingIds([])}>Clear selection</button>
+                    </div>}
                     {visibleTasks.map((task: any) => {
                   const taskFarm = getFarmDetails(task);
                   const taskStatus = String(task.status || "ready_for_packing").toLowerCase();
                   const active = String(selectedTask?.id) === String(task.id);
                   const taskItems = task.packingItems?.length ? task.packingItems : task.items || [];
                   const quantity = taskItems.reduce((sum: number, item: any) => sum + Number(item.quantityRequired ?? item.quantity ?? 0), 0);
+                  const taskKey = String(task.id || task._id);
+                  const checked = selectedPackingIds.includes(taskKey);
                   return (
-                    <button key={task.id} type="button" onClick={() => setSelectedOrderId(String(task.id))} className={`w-full rounded-xl border p-3 text-left transition-all ${active ? "border-emerald-500 bg-emerald-50/80 shadow-sm ring-1 ring-emerald-100" : "border-slate-200 bg-white hover:border-emerald-300 hover:bg-slate-50"}`}>
+                    <div key={taskKey} className={`flex items-start gap-2 rounded-xl border p-2 transition-all ${active || checked ? "border-emerald-500 bg-emerald-50/80 shadow-sm ring-1 ring-emerald-100" : "border-slate-200 bg-white"}`}>
+                      <input type="checkbox" aria-label={`Select order ${task.orderNumber || taskKey}`} checked={checked} onChange={(event) => setSelectedPackingIds((current) => event.target.checked ? Array.from(new Set([...current, taskKey])) : current.filter((id) => id !== taskKey))} className="mt-3 shrink-0" />
+                      <button key={taskKey + "-open"} type="button" onClick={() => setSelectedOrderId(taskKey)} className="min-w-0 flex-1 rounded-lg p-1 text-left">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <p className="truncate text-sm font-bold text-slate-900">#{task.orderNumber || task.orderId?.slice(-8) || task.id}</p>
@@ -410,7 +436,8 @@ export default function WarehousePackingPage() {
                           <ChevronRight className={`h-4 w-4 ${active ? "text-emerald-700" : "text-slate-400"}`}/>
                         </div>
                       </div>
-                    </button>
+                      </button>
+                    </div>
                   );
                 })}
 
