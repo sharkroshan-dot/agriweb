@@ -638,11 +638,7 @@ export default function WarehouseIncomingPage() {
         title="Incoming Stock"
         description={`${incomingList.length} incoming shipments · ${dateFilter === "today" ? "Today" : dateFilter === "yesterday" ? "Yesterday" : dateFilter === "week" ? "This Week" : dateFilter === "month" ? "This Month" : "All Time"}`}
         actions={
-          <>
-            <Button asChild variant="outline"><Link href="/packing"><ArrowRight className="mr-2 h-4 w-4"/>Continue to Order Packing</Link></Button>
-            <Button asChild><Link href="/warehouse/farmer-fulfillment"><Route className="mr-2 h-4 w-4" />Farmer Fulfillment Transfer</Link></Button>
-            <Button variant="outline" size="icon" aria-label="Refresh incoming stock" onClick={() => { void refetch(); }}><RefreshCw className="h-4 w-4" /></Button>
-          </>
+          <Button variant="outline" size="icon" aria-label="Refresh incoming stock" onClick={() => { void refetch(); }}><RefreshCw className="h-4 w-4" /></Button>
         }
       />
 
@@ -701,20 +697,19 @@ export default function WarehouseIncomingPage() {
         </div>
       </div>
 
-      <div className="grid items-start gap-4 xl:grid-cols-[250px_minmax(0,1fr)_360px]">
-        <aside className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm xl:sticky xl:top-4">
-          <div className="mb-4 flex items-center gap-2"><Search className="h-4 w-4 text-emerald-700"/><h2 className="font-semibold text-slate-900">Filter Collections</h2></div>
-          <Input placeholder="Search collection, order, farm..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-          <div className="mt-4 space-y-4">
-            <div><label className="mb-2 block text-sm font-semibold">Order Type</label><p className="text-xs text-slate-500">Choose a fulfillment tab above to switch order type.</p></div>
-            <div><label className="mb-2 block text-sm font-semibold">Pickup Source</label><Select value={pickupSourceFilter} onValueChange={(v)=>{setPickupSourceFilter(v);setShipmentPage(1);}}><SelectTrigger className="w-full"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="all">All Pickup Sources</SelectItem>{pickupSourceOptions.map((v)=><SelectItem key={v} value={v}>{v}</SelectItem>)}</SelectContent></Select></div>
-            <div><label className="mb-2 block text-sm font-semibold">Pickup Area</label><Select value={pickupAreaFilter} onValueChange={(v)=>{setPickupAreaFilter(v);setShipmentPage(1);}}><SelectTrigger className="w-full"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="all">All Areas</SelectItem>{pickupAreaOptions.map((v)=><SelectItem key={v} value={v}>{v}</SelectItem>)}</SelectContent></Select></div>
-            <div><label className="mb-2 block text-sm font-semibold">Status</label><Select value={statusFilter} onValueChange={setStatusFilter}><SelectTrigger className="w-full"><SelectValue placeholder="Status" /></SelectTrigger><SelectContent><SelectItem value="all">All Status</SelectItem><SelectItem value="scheduled">Scheduled</SelectItem><SelectItem value="in_transit">In Transit</SelectItem><SelectItem value="received">Received</SelectItem><SelectItem value="quality_check">Quality Check</SelectItem><SelectItem value="rejected">Rejected</SelectItem></SelectContent></Select></div>
-            <div><label className="mb-2 block text-sm font-semibold">Date range</label><Select value={dateFilter} onValueChange={setDateFilter}><SelectTrigger className="w-full"><SelectValue placeholder="Date" /></SelectTrigger><SelectContent><SelectItem value="today">Today</SelectItem><SelectItem value="yesterday">Yesterday</SelectItem><SelectItem value="week">This Week</SelectItem><SelectItem value="month">This Month</SelectItem><SelectItem value="all">All Time</SelectItem></SelectContent></Select></div>
-            <Button type="button" variant="outline" className="w-full" onClick={() => {setSearchTerm("");setStatusFilter("all");setDateFilter("all");setPickupSourceFilter("all");setPickupAreaFilter("all");setShipmentPage(1);}}> <RefreshCw className="mr-2 h-4 w-4"/>Reset Filters</Button>
+      <div className="space-y-4">
+        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="mb-3 flex items-center gap-2"><Search className="h-4 w-4 text-emerald-700"/><h2 className="font-semibold text-slate-900">Find a shipment</h2><span className="text-xs text-slate-500">Use filters only when needed</span></div>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <div className="sm:col-span-2 xl:col-span-1"><label className="mb-1.5 block text-xs font-semibold text-slate-600">Search</label><Input placeholder="Order, product or farm..." value={searchTerm} onChange={(e) => {setSearchTerm(e.target.value);setShipmentPage(1);}} /></div>
+            <div><label className="mb-1.5 block text-xs font-semibold text-slate-600">Pickup source</label><Select value={pickupSourceFilter} onValueChange={(v)=>{setPickupSourceFilter(v);setShipmentPage(1);}}><SelectTrigger className="w-full"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="all">All sources</SelectItem>{pickupSourceOptions.map((v)=><SelectItem key={v} value={v}>{v}</SelectItem>)}</SelectContent></Select></div>
+            <div><label className="mb-1.5 block text-xs font-semibold text-slate-600">Pickup area</label><Select value={pickupAreaFilter} onValueChange={(v)=>{setPickupAreaFilter(v);setShipmentPage(1);}}><SelectTrigger className="w-full"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="all">All areas</SelectItem>{pickupAreaOptions.map((v)=><SelectItem key={v} value={v}>{v}</SelectItem>)}</SelectContent></Select></div>
+            <div><label className="mb-1.5 block text-xs font-semibold text-slate-600">Status</label><Select value={statusFilter} onValueChange={(v)=>{setStatusFilter(v);setShipmentPage(1);}}><SelectTrigger className="w-full"><SelectValue placeholder="All statuses" /></SelectTrigger><SelectContent><SelectItem value="all">All statuses</SelectItem><SelectItem value="scheduled">Scheduled</SelectItem><SelectItem value="in_transit">In Transit</SelectItem><SelectItem value="received">Received</SelectItem><SelectItem value="quality_check">Quality Check</SelectItem><SelectItem value="rejected">Rejected</SelectItem></SelectContent></Select></div>
+            <div><label className="mb-1.5 block text-xs font-semibold text-slate-600">Date range</label><Select value={dateFilter} onValueChange={(v)=>{setDateFilter(v);setShipmentPage(1);}}><SelectTrigger className="w-full"><SelectValue placeholder="All time" /></SelectTrigger><SelectContent><SelectItem value="today">Today</SelectItem><SelectItem value="yesterday">Yesterday</SelectItem><SelectItem value="week">This week</SelectItem><SelectItem value="month">This month</SelectItem><SelectItem value="all">All time</SelectItem></SelectContent></Select></div>
           </div>
-        </aside>
-        <main className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="mt-3 flex justify-end"><Button type="button" variant="ghost" size="sm" onClick={() => {setSearchTerm("");setStatusFilter("all");setDateFilter("all");setPickupSourceFilter("all");setPickupAreaFilter("all");setShipmentPage(1);}}> <RefreshCw className="mr-2 h-4 w-4"/>Clear filters</Button></div>
+        </section>
+        <main className="min-w-0 space-y-4">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
         <div>
           <h2 className="text-lg font-bold tracking-tight text-slate-900">{fulfillmentFilter === "received_warehouse" ? "Warehouse Transfers" : "Incoming Shipments"}</h2>
@@ -725,38 +720,6 @@ export default function WarehouseIncomingPage() {
           <Button type="button" variant="ghost" size="icon" aria-label="Refresh shipments" onClick={() => { void refetch(); }}><RefreshCw className="h-4 w-4" /></Button>
         </div>
       </div>
-      {fulfillmentFilter !== "received_warehouse" && (
-        <section className="mb-4 overflow-hidden rounded-xl border border-slate-200">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-3 py-3">
-            <div><h3 className="font-bold text-slate-900">Incoming Shipments ({visibleShipments.length})</h3><p className="text-xs text-slate-500">Records from the current warehouse incoming API</p></div>
-            <Select value={sortOrder} onValueChange={(v)=>{setSortOrder(v);setShipmentPage(1);}}><SelectTrigger className="h-9 w-[145px]"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="oldest">Oldest First</SelectItem><SelectItem value="newest">Newest First</SelectItem></SelectContent></Select>
-          </div>
-          <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm">
-            <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500"><tr><th className="px-3 py-3">Order / Reference</th><th className="px-3 py-3">Type</th><th className="px-3 py-3">Farm / Product</th><th className="px-3 py-3">Quantity</th><th className="px-3 py-3">Status</th><th className="px-3 py-3">Expected</th><th className="px-3 py-3 text-right">Action</th></tr></thead>
-            <tbody className="divide-y divide-slate-100">
-              {pagedShipments.map((item: any) => {
-                const packed = isFarmerPackedIncoming(item);
-                const arrived = Boolean(item.arrivedWarehouseAt || item.warehouseArrivalConfirmed || String(item.collectionStatus || "").toLowerCase() === "arrived_warehouse");
-                const received = hasWarehouseReceipt(item);
-                const active = String(item.id || item._id) === String(selectedDetailId || selectedShipment?.id || selectedShipment?._id);
-                return <tr key={String(item.id || item._id)} onClick={() => {setSelectedIncoming(item);setSelectedDetailId(String(item.id || item._id));}} className={cn("cursor-pointer transition-colors hover:bg-emerald-50/50",active && "bg-emerald-50/70")}>
-                  <td className="whitespace-nowrap px-3 py-3 font-semibold text-slate-900">{item.displayOrderNumber || item.id || "Reference unavailable"}</td>
-                  <td className="px-3 py-3"><Badge variant="outline" className={packed?"border-emerald-200 bg-emerald-50 text-emerald-700":"border-violet-200 bg-violet-50 text-violet-700"}>{packed?"Farmer":"Warehouse"}</Badge></td>
-                  <td className="px-3 py-3"><p className="font-medium text-slate-800">{item.displayFarmName}</p><p className="text-xs text-slate-500">{item.displayProductName}</p><p className="text-xs text-slate-500">{getPickupArea(item)}</p></td>
-                  <td className="whitespace-nowrap px-3 py-3 font-semibold">{item.quantity ?? "—"} {item.unit || "kg"}</td>
-                  <td className="px-3 py-3"><Badge variant="outline" className={cn("whitespace-nowrap",statusColors[getIncomingDisplayStatus(item)] || "border-slate-200 bg-slate-50 text-slate-700")}>{statusLabels[getIncomingDisplayStatus(item)] || getIncomingDisplayStatus(item).replace(/_/g," ")}</Badge></td>
-                  <td className="whitespace-nowrap px-3 py-3 text-slate-600">{formatDate(item.expectedDate)}</td>
-                  <td className="px-3 py-3 text-right" onClick={(event)=>event.stopPropagation()}>{arrived && !received && packed ? <Button size="sm" onClick={()=>openReceiveDialog(item)}>Receive</Button> : received ? <Button size="sm" variant="outline" onClick={()=>{setSelectedIncoming(item);setShowReceiptDialog(true);}}>View</Button> : <Button size="sm" variant="outline" onClick={()=>{setSelectedIncoming(item);setSelectedDetailId(String(item.id || item._id));setShowTrackDialog(true);}}>Details</Button>}</td>
-                </tr>;
-              })}
-              {!pagedShipments.length && <tr><td colSpan={7} className="px-4 py-12 text-center text-sm text-slate-500">No shipments match the selected filters.</td></tr>}
-            </tbody></table></div>
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-3 py-3 text-xs text-slate-500">
-            <span>Showing {visibleShipments.length ? (shipmentPage-1)*shipmentPageSize+1 : 0}–{Math.min(shipmentPage*shipmentPageSize,visibleShipments.length)} of {visibleShipments.length} shipments</span>
-            <div className="flex items-center gap-2"><Button size="sm" variant="outline" disabled={shipmentPage<=1} onClick={()=>setShipmentPage((p)=>Math.max(1,p-1))}>Previous</Button><span className="font-semibold text-slate-700">{shipmentPage} / {shipmentPageCount}</span><Button size="sm" variant="outline" disabled={shipmentPage>=shipmentPageCount} onClick={()=>setShipmentPage((p)=>Math.min(shipmentPageCount,p+1))}>Next</Button></div>
-          </div>
-        </section>
-      )}
       {fulfillmentFilter === "received_warehouse" ? (
         <div className="space-y-3">
           {isLoadingTransfers ? <Card className="p-8 text-center">Loading received warehouse transfers…</Card> : receivedWarehouseOrders.length === 0 ? <Card className="p-10 text-center"><Warehouse className="mx-auto h-10 w-10 text-muted-foreground" /><h3 className="mt-3 font-semibold">No orders received from another warehouse</h3><p className="mt-1 text-sm text-muted-foreground">Confirmed destination-warehouse receipts appear here. These orders are already packed, so they should continue to the local hub and final-mile delivery without bulk receiving or repacking.</p><Button asChild variant="outline" className="mt-4"><Link href="/warehouse/farmer-fulfillment">Open Farmer Fulfillment Transfers</Link></Button></Card> : receivedWarehouseOrders.map((order: any) => <Card key={String(order.id || order.orderId || order._id || order.orderNumber)}><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold">{order.orderNumber || order.displayOrderNumber || "Order number unavailable"}</p><p className="text-sm text-muted-foreground">{order.productName || (Array.isArray(order.items) ? order.items.map((item: any) => item.productName || item.name).filter(Boolean).join(", ") : "") || "Packed customer order"}</p><p className="mt-1 text-xs text-muted-foreground">Already packed · {String(order.transferStatus || order.status || "received").replace(/_/g, " ")}</p></div>{String(order.transferStatus || order.status || "").toLowerCase() === "destination_warehouse_arrived_pending_receipt" ? <Button onClick={() => handleInboundTransferAction(order, "receive")} disabled={transferActionBusy === String(order.id || order.orderId || order._id) + ":receive"}><CheckCircle className="mr-2 h-4 w-4"/>{transferActionBusy === String(order.id || order.orderId || order._id) + ":receive" ? "Confirming…" : "Confirm Destination Receipt"}</Button> : String(order.transferStatus || order.status || "").toLowerCase() === "destination_warehouse_received" ? <Button onClick={() => handleInboundTransferAction(order, "hub")} disabled={transferActionBusy === String(order.id || order.orderId || order._id) + ":hub"}><ArrowRight className="mr-2 h-4 w-4"/>{transferActionBusy === String(order.id || order.orderId || order._id) + ":hub" ? "Sending…" : "Send to Local Hub"}</Button> : <Button asChild variant="outline"><Link href="/warehouse/farmer-fulfillment">Open Transfer Details</Link></Button>}</CardContent></Card>)}
@@ -876,54 +839,6 @@ export default function WarehouseIncomingPage() {
       )}
 
         </main>
-        <aside className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm xl:sticky xl:top-4">
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <h2 className="text-base font-bold tracking-tight text-slate-900">Collection Details</h2>
-            {fulfillmentFilter !== "received_warehouse" && <Badge variant="outline">Selected</Badge>}
-          </div>
-          {fulfillmentFilter === "received_warehouse" ? (
-            receivedWarehouseOrders[0] ? <div className="space-y-3"><div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Warehouse transfer</p><p className="mt-1 font-bold text-slate-900">{receivedWarehouseOrders[0].orderNumber || receivedWarehouseOrders[0].displayOrderNumber || "Order reference"}</p><p className="text-sm text-slate-600">{receivedWarehouseOrders[0].productName || "Packed customer order"}</p><p className="text-xs text-slate-500">{String(receivedWarehouseOrders[0].transferStatus || receivedWarehouseOrders[0].status || "received").replace(/_/g," ")}</p></div><Button className="w-full" asChild><Link href="/warehouse/farmer-fulfillment">Open Transfer Details</Link></Button></div> : <p className="text-sm text-slate-500">Destination warehouse transfers will appear here when available.</p>
-          ) : incomingList.length ? (() => {
-            const item = incomingList.find((row: any) => String(row.id || row._id || "") === selectedDetailId) || incomingList[0];
-            const arrived = Boolean(item.arrivedWarehouseAt || item.warehouseArrivalConfirmed || String(item.collectionStatus || "").toLowerCase() === "arrived_warehouse");
-            const received = ["received","quality_check","stored","rejected"].includes(String(item.status || "").toLowerCase()) || Boolean(item.receivedAt || item.receivedDate || item.warehouseReceivedAt);
-            const rawQuality = String(item.qualityCheck || item.quality_check || "").toLowerCase();
-            const quality = received ? (rawQuality || (getIncomingDisplayStatus(item) === "quality_passed" ? "passed" : "pending")) : "not_started";
-            const displayStatus = getIncomingDisplayStatus(item);
-            const isPacked = isFarmerPackedIncoming(item);
-            return <div className="space-y-4">
-              <div className="flex items-start gap-3">
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><Truck className="h-6 w-6"/></span>
-                <div className="min-w-0"><p className="break-all font-bold text-slate-900">{item.displayOrderNumber || item.id || "Collection"}</p><p className="text-sm font-medium text-slate-700">{item.displayFarmName || getFarmDisplayName(item)}</p><p className="mt-0.5 text-xs text-slate-500">{item.pickupLocation?.address || item.farmAddress || "Farm location unavailable"}</p></div>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="rounded-xl border border-slate-200 p-3"><p className="text-xs text-slate-500">Expected quantity</p><p className="mt-1 text-lg font-bold text-slate-900">{item.quantity ?? "—"} {item.unit || "kg"}</p></div>
-                <div className="rounded-xl border border-slate-200 p-3"><p className="text-xs text-slate-500">Current status</p><p className="mt-1 text-sm font-semibold capitalize text-slate-900">{(statusLabels[displayStatus] || displayStatus.replace(/_/g," "))}</p></div>
-              </div>
-              <div><p className="mb-2 text-sm font-semibold text-slate-900">Shipment information</p><div className="space-y-2.5 text-sm">
-                <div className="flex justify-between gap-3"><span className="text-slate-500">Product</span><span className="text-right font-medium text-slate-800">{item.displayProductName || getProductDisplayName(item)}</span></div>
-                <div className="flex justify-between gap-3"><span className="text-slate-500">Expected date</span><span className="text-right font-medium text-slate-800">{formatDate(item.expectedDate)}</span></div>
-                <div className="flex justify-between gap-3"><span className="text-slate-500">Arrival confirmed</span><span className={cn("font-semibold",arrived?"text-emerald-700":"text-amber-700")}>{arrived ? "Yes" : "No"}</span></div>
-                <div className="flex justify-between gap-3"><span className="text-slate-500">Receipt</span><span className="font-medium text-slate-800">{received ? "Recorded" : "Pending"}</span></div>
-                <div className="flex justify-between gap-3"><span className="text-slate-500">Quality</span><span className={cn("font-semibold capitalize",quality==="passed"?"text-emerald-700":quality==="failed"?"text-red-700":"text-amber-700")}>{quality === "not_started" ? "Not started — awaiting receipt" : quality}</span></div>
-              </div></div>
-              <div><p className="mb-2 text-sm font-semibold text-slate-900">Workflow progress</p><div className="space-y-2">
-                {[
-                  {label:"Farm collection / arrival",done:arrived},
-                  {label:"Receive collection",done:received},
-                  {label:isPacked?"Farmer fulfillment transfer":"Quality check passed",done:isPacked?received:quality==="passed"},
-                ].map((step,index)=><div key={step.label} className="flex items-center gap-2.5"><span className={cn("flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold",step.done?"bg-emerald-100 text-emerald-800":"bg-slate-100 text-slate-500")}>{step.done?<CheckCircle className="h-3.5 w-3.5"/>:index+1}</span><span className={cn("text-xs",step.done?"font-medium text-slate-800":"text-slate-500")}>{step.label}</span></div>)}
-              </div></div>
-              <div className="space-y-2 border-t border-slate-100 pt-3">
-                {arrived && !received && isPacked && <Button className="w-full" onClick={()=>openReceiveDialog(item)}><CheckCircle className="mr-2 h-4 w-4"/>Receive Collection</Button>}
-                {received && <Button variant="outline" className="w-full" onClick={()=>{setSelectedIncoming(item);setShowReceiptDialog(true);}}>View Receipt Details</Button>}
-                {received && getReceiptQuality(item) === "pending" && !isPacked && <Button className="w-full" onClick={()=>openQualityDialog(item)}><ShieldCheck className="mr-2 h-4 w-4"/>Complete Quality Check</Button>}
-                {received && getReceiptQuality(item) !== "pending" && <Button className="w-full" onClick={()=>printIncomingPackingReceipt(item, Number(item.receipt?.receivedQuantity ?? item.quantityReceived ?? item.quantity ?? 0), Number(item.receipt?.usableQuantity ?? item.usableQuantity ?? item.quantityReceived ?? item.quantity ?? 0))}><Package className="mr-2 h-4 w-4"/>Reprint Receipt</Button>}
-                <Button variant="outline" className="w-full" onClick={()=>{setSelectedIncoming(item);setShowTrackDialog(true);}}>View Shipment Details</Button>
-              </div>
-            </div>;
-          })() : <p className="text-sm text-slate-500">No collection matches the current filters.</p>}
-        </aside>
       </div>
       <Dialog open={showBulkReceiveDialog} onOpenChange={setShowBulkReceiveDialog}>
         <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
