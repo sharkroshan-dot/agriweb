@@ -266,6 +266,7 @@ export default function WarehouseIncomingPage() {
         ),
       }))
       .filter((item: any) => {
+        if (statusFilter !== "all" && item.displayStatus !== statusFilter) return false;
         if (fulfillmentFilter === "received_warehouse") return false;
         if (fulfillmentFilter === "farmer") return isFarmerPackedIncoming(item);
         if (fulfillmentFilter === "warehouse") return !isFarmerPackedIncoming(item);
@@ -426,7 +427,7 @@ export default function WarehouseIncomingPage() {
   const selectedStatus = selectedIncomingRow ? (isReceiptQualityPassed(selectedIncomingRow) ? "approved" : String(selectedIncomingRow.status || "").toLowerCase()) : "";
   const selectedPhysicallyArrived = Boolean(selectedIncomingRow?.arrivedWarehouseAt || selectedIncomingRow?.warehouseArrivalConfirmed || String(selectedIncomingRow?.collectionStatus || "").toLowerCase() === "arrived_warehouse");
   const selectedReceiptComplete = selectedIncomingRow ? (
-    ["received", "quality_check", "stored", "rejected"].includes(selectedStatus) ||
+    ["received", "quality_check", "approved", "stored", "rejected"].includes(selectedStatus) ||
     Boolean(selectedIncomingRow.receivedAt || selectedIncomingRow.receivedDate || selectedIncomingRow.warehouseReceivedAt) ||
     (Number(selectedIncomingRow.quantity || 0) > 0 && Number(selectedIncomingRow.quantityReceived ?? selectedIncomingRow.receivedQuantity ?? selectedIncomingRow.actualQuantityReceived ?? 0) >= Number(selectedIncomingRow.quantity || 0) - 0.001)
   ) : false;
@@ -716,9 +717,10 @@ export default function WarehouseIncomingPage() {
   function isReceiptQualityPassed(row: any) {
     const qc = String(row.qualityCheck || row.quality_check || "").toLowerCase();
     const status = String(row.status || "").toLowerCase();
-    const physicallyReceived = Boolean(row.receivedAt || row.receivedDate || row.warehouseReceivedAt || row.bulkShipmentReceivedAt) ||
-      ["received", "quality_check", "stored"].includes(status);
-    return status === "stored" || (qc === "passed" && physicallyReceived);
+    // A saved "passed" quality decision is only possible after receipt; treat it as
+    // the authoritative approved workflow stage even if the legacy shipment status
+    // field was not advanced by an older API response.
+    return qc === "passed" || status === "approved" || status === "stored";
   }
 
   const openStoreDialog = (item: any) => {
@@ -772,7 +774,7 @@ export default function WarehouseIncomingPage() {
           failures.push((item.displayOrderNumber || item.displayProductName || item.id || "Unknown shipment") + ": " + detail);
         }
       }
-      if (stored) toast.success("Stored " + stored + " approved shipment(s). Continue to Order Packing.");
+      if (stored) toast.success("Approved shipment(s) are ready for Order Packing.");
       if (failures.length) {
         toast.error(failures.length + " shipment(s) could not be stored. Review the errors below and correct the affected orders.");
         setBulkStoreItems((current) => current.filter((item) => failures.some((failure) => failure.startsWith(String(item.displayOrderNumber || item.displayProductName || item.id || "Unknown shipment") + ":"))));
@@ -820,7 +822,7 @@ export default function WarehouseIncomingPage() {
           failures.push(item.displayOrderNumber || item.displayProductName || item.id || "Unknown shipment");
         }
       }
-      if (stored) toast.success(`Stored ${stored} approved shipment(s). Continue to Order Packing.`);
+      if (stored) toast.success(`${stored} approved shipment(s) are ready for Order Packing.`);
       if (failures.length) toast.error(`${failures.length} shipment(s) could not be stored. Open each shipment to review its location, quantity, or validation errors.`);
       await refetch();
     } finally {
@@ -848,7 +850,7 @@ export default function WarehouseIncomingPage() {
         storageLocation: storeForm.storageLocation.trim(),
         storageType: storeForm.storageType,
       });
-      toast.success("Stock stored and inventory updated. Continue to Order Packing.");
+      toast.success("Quality-approved stock is ready for Order Packing.");
       setShowStoreDialog(false);
       await refetch();
     } catch (error: any) {
@@ -927,7 +929,7 @@ export default function WarehouseIncomingPage() {
                   <button key={option.key} type="button" onClick={() => { setStatusFilter(statusFilter === option.key ? "all" : option.key); setCurrentPage(1); }} className="flex w-full items-center gap-3 rounded-md px-1.5 py-1.5 text-left text-sm hover:bg-slate-50">
                     <span className={cn("flex h-4 w-4 items-center justify-center rounded border", statusFilter === option.key ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-400 bg-white")}>{statusFilter === option.key ? "✓" : ""}</span>
                     <span className="min-w-0 flex-1">{option.label}</span>
-                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">{incomingList.filter((row: any) => String(row.status || "").toLowerCase() === option.key).length}</span>
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">{incomingList.filter((row: any) => String(row.displayStatus || row.status || "").toLowerCase() === option.key).length}</span>
                   </button>
                 ))}
               </div>
@@ -975,7 +977,7 @@ export default function WarehouseIncomingPage() {
                     return <div key={id} className="rounded-md bg-slate-50 px-3 py-2">
                       <div className="flex items-start justify-between gap-2"><p className="text-xs font-semibold text-slate-900">{item.displayOrderNumber || item.orderNumber || id}</p><button type="button" aria-label={"Remove " + (item.displayOrderNumber || "selected order")} className="text-xs text-slate-500 hover:text-red-600" onClick={() => setSelectedIncomingIds((current) => current.filter((value) => value !== id))}>Remove</button></div>
                       <p className="mt-1 text-xs text-slate-600">{item.displayProductName || getProductDisplayName(item)} · {isFarmerPackedIncoming(item) ? "Farmer" : "Warehouse"} fulfillment</p>
-                      <div className="mt-1 flex flex-wrap gap-1"><Badge variant="outline" className="text-[10px]">{statusLabels[status] || status.replace(/_/g, " ") || "Unknown"}</Badge><Badge variant="outline" className="text-[10px]">{qualityPassed ? "QC Passed" : qualityPending ? "QC Pending" : canReceive ? "Awaiting Receipt" : String(item.qualityCheck || "QC not completed").toUpperCase()}</Badge></div>
+                      <div className="mt-1 flex flex-wrap gap-1"><Badge variant="outline" className="text-[10px]">{statusLabels[item.displayStatus || status] || (item.displayStatus || status).replace(/_/g, " ") || "Unknown"}</Badge><Badge variant="outline" className="text-[10px]">{qualityPassed ? "QC Passed" : qualityPending ? "QC Pending" : canReceive ? "Awaiting Receipt" : String(item.qualityCheck || "QC not completed").toUpperCase()}</Badge></div>
                     </div>;
                   })}
                 </div>
