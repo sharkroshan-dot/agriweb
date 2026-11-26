@@ -468,7 +468,7 @@ export default function DeliveryPickupRoutesPage() {
       await api.put(
         "/delivery/me/pickup-routes/" + route.id + "/status",
         actualQuantities,
-        { params: { status, collectionId, actualQuantity: actualQuantities ? undefined : collectionId ? Number(actual[collectionId] || 0) : undefined } }
+        { params: { status, collectionId } }
       );
       toast.success(status === "collected" && actualQuantities ? "All orders at this farm marked collected" : status.replace(/_/g, " "));
       await routesQ.refetch();
