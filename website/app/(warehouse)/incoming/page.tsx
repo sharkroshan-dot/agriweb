@@ -383,7 +383,6 @@ export default function WarehouseIncomingPage() {
         succeeded += 1;
       }
       toast.success("Warehouse receipt confirmed for " + succeeded + " farmer orders.");
-      setSelectedIncomingIds([]);
       await refetch();
     } catch (error: any) {
       toast.error("Receipt completed for " + succeeded + " of " + eligible.length + " selected orders. " + (error?.response?.data?.detail || error?.message || "Refresh and review before retrying."));
@@ -408,7 +407,6 @@ export default function WarehouseIncomingPage() {
         succeeded += 1;
       }
       toast.success(`${decision === "approve" ? "Approved" : "Rejected"} quality for ${succeeded} orders.`);
-      setSelectedIncomingIds([]);
       await refetch();
     } catch (error: any) {
       toast.error(`Quality decision saved for ${succeeded} of ${eligible.length} orders. ${error?.response?.data?.detail || error?.message || "Refresh and review before retrying."}`);
