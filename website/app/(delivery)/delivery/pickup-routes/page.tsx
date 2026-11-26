@@ -1,11 +1,10 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { MapPin, Route, CheckCircle2, Navigation, Hand, Warehouse, UserCheck, Lock, Truck, Briefcase, ChevronDown, Clock } from "lucide-react";
+import { MapPin, Route, CheckCircle2, Navigation, Hand, Warehouse, UserCheck, Lock, Truck, Briefcase, ChevronDown, Clock, Phone, MessageSquare } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
 import { Badge } from "../../../components/ui/badge";
-import { Input } from "../../../components/ui/input";
 import { api } from "../../../lib/api/client";
 import toast from "react-hot-toast";
 import { useState } from "react";
@@ -241,7 +240,6 @@ export default function DeliveryPickupRoutesPage() {
     refetchInterval: 5000,
   });
   const [b2bProof, setB2bProof] = useState<Record<string, string>>({});
-  const [actual, setActual] = useState<Record<string, string>>({});
   const [expandedFarmStops, setExpandedFarmStops] = useState<Record<string, boolean>>({});
   const marketplaceQ = useQuery({
     queryKey: ["warehousePickupJobs"],
@@ -436,6 +434,28 @@ export default function DeliveryPickupRoutesPage() {
     } catch(e:any) {
       toast.error(e?.message || "Unable to update local-hub transfer");
     }
+  };
+
+  const contactFarm = (stop: any, via: "phone" | "message") => {
+    const phone = String(
+      stop?.farmerPhone ||
+      (Array.isArray(stop?.orders) ? stop.orders.find((order: any) => order?.farmerPhone)?.farmerPhone : "") ||
+      ""
+    ).trim();
+    if (!phone) {
+      toast.error("Farmer contact number is not available");
+      return;
+    }
+    if (via === "phone") {
+      window.location.href = "tel:" + phone;
+      return;
+    }
+    const whatsappNumber = phone.replace(/\\D/g, "");
+    if (!whatsappNumber) {
+      toast.error("Farmer contact number is invalid");
+      return;
+    }
+    window.open("https://wa.me/" + whatsappNumber, "_blank", "noopener,noreferrer");
   };
 
   const act = async (
@@ -1010,21 +1030,28 @@ export default function DeliveryPickupRoutesPage() {
                             const collected = orders.length > 0 && orders.every((o: any) => ["collected","departed_farm"].includes(String(o.status || "")));
                             const departed = orders.length > 0 && orders.every((o: any) => String(o.status || "") === "departed_farm");
                             const entries = orders.filter((o: any) => String(o.status || "") === "arrived_at_farm");
-                            const manual = entries.filter((o: any) => String(o.collectionType || "") !== "packed_orders_transfer");
-                            const allPacked = entries.length > 0 && entries.every((o: any) => String(o.collectionType || "") === "packed_orders_transfer");
-                            const valid = entries.length > 0 && entries.every((o: any) => String(o.collectionType || "") === "packed_orders_transfer" ? Number(o.actualQuantity ?? o.quantity ?? 0) > 0 : Boolean(actual[o.collectionId]) && Number.isFinite(Number(actual[o.collectionId])) && Number(actual[o.collectionId]) > 0);
                             const canArrive = ["pending","ready_for_pickup","team_assigned","en_route","started"].includes(status);
+                            const expectedQuantities = Object.fromEntries(entries
+                              .filter((order: any) => order.collectionId)
+                              .map((order: any) => [order.collectionId, Number(order.quantity || 0)]));
                             return <div key={stop.farmKey || stop.collectionId || i} className="p-3 sm:p-4"><div className="flex items-start gap-3"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-700 text-sm font-bold text-white">{i+1}</span><div className="min-w-0 flex-1">
-                              <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-bold">{stop.farmerName || "Farmer details unavailable"}</p><Badge variant="outline">{stopStatusLabel(status)}</Badge></div>
-                              <p className="mt-1 text-xs text-slate-500">{orders.length} {orders.length===1?"order":"orders"} · Expected {stop.quantity || 0} kg</p><p className="mt-1 flex items-start gap-1 text-xs text-slate-600"><MapPin className="mt-0.5 h-3 w-3 shrink-0 text-emerald-700"/>{stop.pickupAddress || "Farm address not provided"}</p>
-                              {stop.farmerPhone && <p className="mt-1 text-xs text-slate-600">Contact: <a className="font-medium text-emerald-700" href={"tel:"+stop.farmerPhone}>{stop.farmerPhone}</a></p>}
+                              <div className="flex flex-wrap items-start justify-between gap-3">
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-sm font-bold">{stop.farmerName || "Farmer details unavailable"}</p>
+                                  <p className="mt-1 text-xs text-slate-500">{orders.length} {orders.length===1?"order":"orders"} · Expected {stop.quantity || 0} kg</p>
+                                  <p className="mt-1 flex items-start gap-1 text-xs text-slate-600"><MapPin className="mt-0.5 h-3 w-3 shrink-0 text-emerald-700"/>{stop.pickupAddress || "Farm address not provided"}</p>
+                                </div>
+                                <div className="flex shrink-0 items-center gap-1.5">
+                                  <Badge variant="outline">{stopStatusLabel(status)}</Badge>
+                                  <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-emerald-700 hover:bg-emerald-50" title="Call farmer" aria-label={"Call " + (stop.farmerName || "farmer")} onClick={() => contactFarm(stop,"phone")}><Phone className="h-4 w-4"/></Button>
+                                  <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-emerald-700 hover:bg-emerald-50" title="Message farmer on WhatsApp" aria-label={"Message " + (stop.farmerName || "farmer")} onClick={() => contactFarm(stop,"message")}><MessageSquare className="h-4 w-4"/></Button>
+                                </div>
+                              </div>
                               <div className="mt-3 flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => setExpandedFarmStops(prev => ({...prev,[key]:!prev[key]}))} aria-expanded={expanded}>{expanded?"Hide orders":"View orders"}<ChevronDown className={"ml-1 h-3.5 w-3.5 "+(expanded?"rotate-180":"")}/></Button>
                                 {r.status!=="assigned" && canArrive && <Button size="sm" variant="outline" onClick={() => act(r,"arrived_at_farm",stop.collectionId)}><MapPin className="mr-1 h-3.5 w-3.5"/>Arrived</Button>}
-                                {r.status!=="assigned" && status==="arrived_at_farm" && !collected && allPacked && <Button size="sm" onClick={() => act(r,"collected",stop.collectionId,{})}><CheckCircle2 className="mr-1 h-3.5 w-3.5"/>Mark Collected</Button>}
-                                {r.status!=="assigned" && status==="arrived_at_farm" && !collected && !allPacked && !expanded && <Button size="sm" variant="outline" onClick={() => setExpandedFarmStops(prev => ({...prev,[key]:true}))}>Enter quantities</Button>}
-                                {r.status!=="assigned" && expanded && entries.length>0 && !allPacked && <Button size="sm" disabled={!valid} onClick={() => act(r,"collected",stop.collectionId,Object.fromEntries(manual.map((o:any)=>[o.collectionId,Number(actual[o.collectionId])])))}><CheckCircle2 className="mr-1 h-3.5 w-3.5"/>Confirm collection</Button>}
+                                {r.status!=="assigned" && status==="arrived_at_farm" && !collected && <Button size="sm" onClick={() => act(r,"collected",stop.collectionId,expectedQuantities)}><CheckCircle2 className="mr-1 h-3.5 w-3.5"/>Confirm collection</Button>}
                                 {r.status!=="assigned" && collected && !departed && <Button size="sm" onClick={() => act(r,"departed_farm",stop.collectionId)}><Truck className="mr-1 h-3.5 w-3.5"/>Depart farm</Button>}</div>
-                              {expanded && <div id={panelId} className="mt-3 divide-y rounded-lg border bg-slate-50">{orders.map((o:any,oi:number)=><div key={o.collectionId||o.orderId||oi} className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-xs font-semibold">{o.orderNumber?"Order "+o.orderNumber:"Order "+(oi+1)}</p><p className="text-xs text-slate-500">{o.productName||"Product details unavailable"} · {o.quantity||0} kg</p>{o.actualQuantity!=null&&<p className="text-xs font-semibold text-emerald-700">Collected: {o.actualQuantity} kg</p>}</div>{r.status!=="assigned"&&o.status==="arrived_at_farm"&&String(o.collectionType||"")!=="packed_orders_transfer"&&<div className="flex items-center gap-2 sm:w-48"><label className="text-xs">Actual kg</label><Input className="h-9" type="number" min="0.01" step="0.01" value={actual[o.collectionId]||""} onChange={e=>setActual(prev=>({...prev,[o.collectionId]:e.target.value}))} placeholder="Enter kg"/></div>}</div>)}</div>}
+                              {expanded && <div id={panelId} className="mt-3 divide-y rounded-lg border bg-slate-50">{orders.map((o:any,oi:number)=><div key={o.collectionId||o.orderId||oi} className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-xs font-semibold">{o.orderNumber?"Order "+o.orderNumber:"Order "+(oi+1)}</p><p className="text-xs text-slate-500">{o.productName||"Product details unavailable"} · {o.quantity||0} kg</p>{o.actualQuantity!=null&&<p className="text-xs font-semibold text-emerald-700">Collected: {o.actualQuantity} kg</p>}</div></div>)}</div>}
                             </div></div></div>;
                           })}
                         </div>
