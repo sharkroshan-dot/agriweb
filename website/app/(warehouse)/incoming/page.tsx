@@ -23,6 +23,7 @@ const statusColors: Record<string, string> = {
   received: "bg-green-500/10 text-green-600 border-green-500/20",
   quality_check: "bg-yellow-500/10 text-yellow-600 border-yellow-500/20",
   stored: "bg-green-500/10 text-green-600 border-green-500/20",
+  approved: "bg-green-500/10 text-green-700 border-green-500/20",
   rejected: "bg-red-500/10 text-red-600 border-red-500/20",
 };
 
@@ -33,6 +34,7 @@ const statusLabels: Record<string, string> = {
   received: "Received",
   quality_check: "Quality Check Pending",
   stored: "Approved (Quality Passed)",
+  approved: "Approved (Quality Passed)",
   rejected: "Rejected (Quality Failed)",
 };
 
@@ -182,7 +184,6 @@ export default function WarehouseIncomingPage() {
     queryFn: () =>
       api.get("/warehouse/me/incoming", {
         params: {
-          status: statusFilter !== "all" ? statusFilter : undefined,
           limit: 50,
         },
       }),
@@ -247,6 +248,7 @@ export default function WarehouseIncomingPage() {
     const readableItems = items
       .map((item: any) => ({
         ...item,
+        displayStatus: isReceiptQualityPassed(item) ? "approved" : String(item.status || "scheduled").toLowerCase(),
         displayFarmName: getFarmDisplayName(item),
         displayProductName: getProductDisplayName(item),
         displayOrderNumber: humanIdFallback(
@@ -269,6 +271,7 @@ export default function WarehouseIncomingPage() {
         if (fulfillmentFilter === "warehouse") return !isFarmerPackedIncoming(item);
         return true;
       })
+      .filter((item: any) => statusFilter === "all" || item.displayStatus === statusFilter)
       .filter((item: any) => matchesIncomingDateFilter(item, dateFilter))
       .filter((item: any) =>
         !query || [
@@ -280,11 +283,12 @@ export default function WarehouseIncomingPage() {
     // Keep work that still needs a warehouse action at the top. Shipments whose
     // receipt is complete appear after pending receipt/inspection work.
     const stagePriority = (item: any) => {
-      if (["scheduled", "in_transit", "ready_for_pickup"].includes(String(item.status))) return 0;
-      if (item.status === "received") return 1;
-      if (item.status === "quality_check") return 2;
-      if (item.status === "stored") return 3;
-      if (item.status === "rejected") return 4;
+      const stage = String(item.displayStatus || item.status || "").toLowerCase();
+      if (["scheduled", "in_transit", "ready_for_pickup"].includes(stage)) return 0;
+      if (stage === "received") return 1;
+      if (stage === "quality_check") return 2;
+      if (stage === "approved" || stage === "stored") return 3;
+      if (stage === "rejected") return 4;
       return 5;
     };
     return readableItems.sort((a: any, b: any) =>
@@ -419,7 +423,7 @@ export default function WarehouseIncomingPage() {
   };
 
   const selectedPackedFarmer = selectedIncomingRow ? isFarmerPackedIncoming(selectedIncomingRow) : false;
-  const selectedStatus = String(selectedIncomingRow?.status || "").toLowerCase();
+  const selectedStatus = selectedIncomingRow ? (isReceiptQualityPassed(selectedIncomingRow) ? "approved" : String(selectedIncomingRow.status || "").toLowerCase()) : "";
   const selectedPhysicallyArrived = Boolean(selectedIncomingRow?.arrivedWarehouseAt || selectedIncomingRow?.warehouseArrivalConfirmed || String(selectedIncomingRow?.collectionStatus || "").toLowerCase() === "arrived_warehouse");
   const selectedReceiptComplete = selectedIncomingRow ? (
     ["received", "quality_check", "stored", "rejected"].includes(selectedStatus) ||
@@ -882,8 +886,8 @@ export default function WarehouseIncomingPage() {
           {[
             { number: "1", title: "Receive from Partner", detail: "Confirm physical warehouse handover", tone: "emerald" },
             { number: "2", title: "Quality Inspection", detail: "Required for warehouse bulk stock", tone: "blue" },
-            { number: "3", title: "Accept & Store", detail: "Add approved stock to inventory", tone: "violet" },
-            { number: "4", title: "Next Process", detail: "Farmer Transfers or Order Packing", tone: "amber" },
+            { number: "3", title: "Approve / Reject", detail: "Record the quality decision", tone: "violet" },
+            { number: "4", title: "Next Process", detail: "Farmer Fulfillment or Order Packing", tone: "amber" },
           ].map((step) => (
             <div key={step.number} className={cn("flex min-w-0 items-center gap-3 rounded-xl border p-3", step.tone === "emerald" ? "border-emerald-200 bg-emerald-50/70" : step.tone === "blue" ? "border-blue-200 bg-blue-50/70" : step.tone === "violet" ? "border-violet-200 bg-violet-50/70" : "border-amber-200 bg-amber-50/70")}>
               <span className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-sm font-bold shadow-sm", step.tone === "emerald" ? "text-emerald-700" : step.tone === "blue" ? "text-blue-700" : step.tone === "violet" ? "text-violet-700" : "text-amber-700")}>{step.number}</span>
@@ -917,7 +921,7 @@ export default function WarehouseIncomingPage() {
                   { key: "in_transit", label: "In Transit" },
                   { key: "received", label: "Received" },
                   { key: "quality_check", label: "Quality Check Pending" },
-                  { key: "stored", label: "Approved (Quality Passed)" },
+                  { key: "approved", label: "Approved (Quality Passed)" },
                   { key: "rejected", label: "Rejected (Quality Failed)" },
                 ].map((option) => (
                   <button key={option.key} type="button" onClick={() => { setStatusFilter(statusFilter === option.key ? "all" : option.key); setCurrentPage(1); }} className="flex w-full items-center gap-3 rounded-md px-1.5 py-1.5 text-left text-sm hover:bg-slate-50">
@@ -949,7 +953,7 @@ export default function WarehouseIncomingPage() {
               <div className="overflow-x-auto"><table className="w-full min-w-[650px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-4 py-3 font-semibold">Order</th><th className="px-4 py-3 font-semibold">Products</th><th className="px-4 py-3 font-semibold">Transfer status</th><th className="px-4 py-3 font-semibold">Action</th></tr></thead><tbody className="divide-y">{receivedWarehouseOrders.map((order: any) => { const id = String(order.id || order.orderId || order._id || order.orderNumber); const active = id === String(selectedTransfer?.id || selectedTransfer?.orderId || selectedTransfer?._id || selectedTransfer?.orderNumber); return <tr key={id} onClick={() => setSelectedTransferId(id)} className={cn("cursor-pointer transition-colors hover:bg-slate-50", active && "bg-emerald-50/70")}><td className="px-4 py-3 font-semibold text-slate-900">{order.orderNumber || order.displayOrderNumber || "Order reference unavailable"}</td><td className="max-w-[180px] truncate px-4 py-3 text-slate-600">{order.productName || (Array.isArray(order.items) ? order.items.map((item: any) => item.productName || item.name).filter(Boolean).join(", ") : "") || "Packed customer order"}</td><td className="px-4 py-3"><Badge variant="outline">{String(order.transferStatus || order.status || "received").replace(/_/g, " ")}</Badge></td><td className="px-4 py-3 text-xs font-medium text-emerald-700">View operations →</td></tr>; })}</tbody></table></div>
             ) : isLoading ? <div className="p-10 text-center text-sm text-muted-foreground">Loading incoming shipments…</div> :
             incomingList.length === 0 ? <div className="p-10 text-center"><Package className="mx-auto h-9 w-9 text-slate-300" /><p className="mt-3 font-semibold">No incoming shipments found</p><p className="mt-1 text-sm text-muted-foreground">Try changing the filters or search terms.</p></div> :
-            <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr><th className="w-10 px-3 py-3"><input aria-label="Select all visible shipments" type="checkbox" checked={incomingList.some((item: any) => canSelectForBatchAction(item)) && incomingList.filter((item: any) => canSelectForBatchAction(item)).every((item: any) => selectedIncomingIds.includes(String(item.id || item._id)))} onChange={toggleAllVisibleIncoming} className="h-4 w-4 rounded border-slate-300 accent-emerald-600" /></th><th className="px-4 py-3 font-semibold">Order / Shipment</th><th className="px-4 py-3 font-semibold">Farm / Product</th><th className="px-4 py-3 font-semibold">Quantity</th><th className="px-4 py-3 font-semibold">Status</th><th className="px-4 py-3 font-semibold">Expected</th></tr></thead><tbody className="divide-y divide-slate-100">{incomingList.map((item: any) => { const id = String(item.id || item._id); const active = id === String(selectedIncomingRow?.id || selectedIncomingRow?._id); const status = String(item.status || "scheduled").toLowerCase(); return <tr key={id} onClick={() => setSelectedIncomingId(id)} className={cn("cursor-pointer transition-colors hover:bg-slate-50", active && "bg-emerald-50/70", selectedIncomingIds.includes(id) && "bg-emerald-50/50")}><td className="px-3 py-3" onClick={(event) => event.stopPropagation()}><input aria-label={"Select " + item.displayOrderNumber} type="checkbox" checked={selectedIncomingIds.includes(id)} disabled={!canSelectForBatchAction(item)} title={!canSelectForBatchAction(item) ? "No receiving, quality or next-process action is currently available" : "Select this order; its next available process appears in the Operations panel"} onChange={() => toggleIncomingSelection(id)} className="h-4 w-4 rounded border-slate-300 accent-emerald-600 disabled:cursor-not-allowed disabled:opacity-40" /></td><td className="px-4 py-3"><p className="font-semibold text-slate-900">{item.displayOrderNumber || "Order reference unavailable"}</p><p className="mt-0.5 text-xs text-slate-500">{isFarmerPackedIncoming(item) ? "Farmer fulfillment" : "Warehouse fulfillment"}</p></td><td className="px-4 py-3"><p className="font-medium text-slate-800">{item.displayFarmName || getFarmDisplayName(item)}</p><p className="mt-0.5 max-w-[190px] truncate text-xs text-slate-500">{item.displayProductName || getProductDisplayName(item)}</p></td><td className="whitespace-nowrap px-4 py-3 font-medium">{item.quantity ?? "—"} {item.unit || "kg"}</td><td className="px-4 py-3"><div className="flex flex-wrap items-center gap-1.5"><Badge variant="outline" className={cn("border", statusColors[status] || "border-slate-200 bg-slate-50 text-slate-700")}>{statusLabels[status] || status.replace(/_/g, " ")}</Badge>{isReceiptQualityPassed(item) && !["stored", "rejected"].includes(status) && <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">QC Passed</Badge>}</div></td><td className="whitespace-nowrap px-4 py-3 text-slate-600">{formatDate(item.expectedDate)}</td></tr>; })}</tbody></table></div>}
+            <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr><th className="w-10 px-3 py-3"><input aria-label="Select all visible shipments" type="checkbox" checked={incomingList.some((item: any) => canSelectForBatchAction(item)) && incomingList.filter((item: any) => canSelectForBatchAction(item)).every((item: any) => selectedIncomingIds.includes(String(item.id || item._id)))} onChange={toggleAllVisibleIncoming} className="h-4 w-4 rounded border-slate-300 accent-emerald-600" /></th><th className="px-4 py-3 font-semibold">Order / Shipment</th><th className="px-4 py-3 font-semibold">Farm / Product</th><th className="px-4 py-3 font-semibold">Quantity</th><th className="px-4 py-3 font-semibold">Status</th><th className="px-4 py-3 font-semibold">Expected</th></tr></thead><tbody className="divide-y divide-slate-100">{incomingList.map((item: any) => { const id = String(item.id || item._id); const active = id === String(selectedIncomingRow?.id || selectedIncomingRow?._id); const status = String(item.status || "scheduled").toLowerCase(); return <tr key={id} onClick={() => setSelectedIncomingId(id)} className={cn("cursor-pointer transition-colors hover:bg-slate-50", active && "bg-emerald-50/70", selectedIncomingIds.includes(id) && "bg-emerald-50/50")}><td className="px-3 py-3" onClick={(event) => event.stopPropagation()}><input aria-label={"Select " + item.displayOrderNumber} type="checkbox" checked={selectedIncomingIds.includes(id)} disabled={!canSelectForBatchAction(item)} title={!canSelectForBatchAction(item) ? "No receiving, quality or next-process action is currently available" : "Select this order; its next available process appears in the Operations panel"} onChange={() => toggleIncomingSelection(id)} className="h-4 w-4 rounded border-slate-300 accent-emerald-600 disabled:cursor-not-allowed disabled:opacity-40" /></td><td className="px-4 py-3"><p className="font-semibold text-slate-900">{item.displayOrderNumber || "Order reference unavailable"}</p><p className="mt-0.5 text-xs text-slate-500">{isFarmerPackedIncoming(item) ? "Farmer fulfillment" : "Warehouse fulfillment"}</p></td><td className="px-4 py-3"><p className="font-medium text-slate-800">{item.displayFarmName || getFarmDisplayName(item)}</p><p className="mt-0.5 max-w-[190px] truncate text-xs text-slate-500">{item.displayProductName || getProductDisplayName(item)}</p></td><td className="whitespace-nowrap px-4 py-3 font-medium">{item.quantity ?? "—"} {item.unit || "kg"}</td><td className="px-4 py-3"><div className="flex flex-wrap items-center gap-1.5"><Badge variant="outline" className={cn("border", statusColors[status] || "border-slate-200 bg-slate-50 text-slate-700")}>{statusLabels[item.displayStatus || status] || (item.displayStatus || status).replace(/_/g, " ")}</Badge></div></td><td className="whitespace-nowrap px-4 py-3 text-slate-600">{formatDate(item.expectedDate)}</td></tr>; })}</tbody></table></div>}
           </Card>
           <p className="mt-2 text-xs text-muted-foreground">Select one or more shipments. The Operations panel lists every selection and shows the correct next process for each group.</p>
         </main>
@@ -987,21 +991,20 @@ export default function WarehouseIncomingPage() {
                   {selectedBatchApprovedFarmer.length > 0 && <Button type="button" className="w-full" onClick={() => { window.location.href = "/warehouse/farmer-fulfillment"; }}><Route className="mr-2 h-4 w-4" />Continue Farmer Fulfillment ({selectedBatchApprovedFarmer.length})</Button>}
                   {selectedBatchApprovedWarehouse.length > 0 && <div className="space-y-2 rounded-lg border border-emerald-200 bg-emerald-50/50 p-3">
                     <p className="text-sm font-semibold text-slate-900">{selectedBatchApprovedWarehouse.length} warehouse order(s) approved</p>
-                    <Button type="button" className="w-full" onClick={() => openBulkStoreDialog(selectedBatchApprovedWarehouse)}><Warehouse className="mr-2 h-4 w-4" />Store Approved Stock ({selectedBatchApprovedWarehouse.length})</Button>
-                    <Button type="button" variant="outline" className="w-full" onClick={() => { const first = selectedBatchApprovedWarehouse[0]; window.location.href = first?.orderId ? "/packing?orderId=" + encodeURIComponent(String(first.orderId)) : "/packing"; }}><ArrowRight className="mr-2 h-4 w-4" />Continue to Order Packing ({selectedBatchApprovedWarehouse.length})</Button>
+                    <Button type="button" className="w-full" onClick={() => { const first = selectedBatchApprovedWarehouse[0]; window.location.href = first?.orderId ? "/packing?orderId=" + encodeURIComponent(String(first.orderId)) : "/packing"; }}><ArrowRight className="mr-2 h-4 w-4" />Continue to Order Packing ({selectedBatchApprovedWarehouse.length})</Button>
                   </div>}
                   {selectedBatchRejected.length > 0 && <p className="rounded-md bg-red-50 p-3 text-xs text-red-800">{selectedBatchRejected.length} rejected order(s) remain on hold. They cannot proceed to Farmer Fulfillment or Order Packing.</p>}
                   {selectedBatchFarmerReceipts.length + selectedWarehouseReceiptGroups.length + selectedBatchQualityItems.length + selectedBatchApprovedFarmer.length + selectedBatchApprovedWarehouse.length === 0 && selectedBatchRejected.length === 0 && <p className="rounded-md bg-slate-50 p-3 text-xs text-slate-600">No next action is available for these selected shipments. Review their current status below.</p>}
                 </div>              </> : !selectedIncomingRow ? <p className="text-sm text-muted-foreground">Select a shipment from the table to view its operations.</p> : <>
                 <div><p className="text-xs text-muted-foreground">Selected shipment</p><p className="mt-1 break-words font-semibold text-slate-900">{selectedIncomingRow.displayOrderNumber || "Order reference unavailable"}</p><div className="mt-2 flex flex-wrap items-center gap-2"><Badge variant="outline" className={isFarmerPackedIncoming(selectedIncomingRow) ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-blue-200 bg-blue-50 text-blue-800"}>{isFarmerPackedIncoming(selectedIncomingRow) ? "Farmer Fulfillment" : "Warehouse Fulfillment"}</Badge><Badge variant="outline" className={cn("border", statusColors[selectedStatus] || "border-slate-200")}>{statusLabels[selectedStatus] || selectedStatus.replace(/_/g, " ") || "Status unavailable"}</Badge></div><p className="mt-2 text-sm text-muted-foreground">{selectedIncomingRow.displayProductName || getProductDisplayName(selectedIncomingRow)} · {selectedIncomingRow.displayFarmName || getFarmDisplayName(selectedIncomingRow)}</p></div>
-                <div className="rounded-lg border bg-slate-50 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Current stage</p><div className="mt-1 flex flex-wrap items-center gap-2"><Badge variant="outline" className={cn("border", statusColors[selectedStatus] || "border-slate-200")}>{statusLabels[selectedStatus] || selectedStatus.replace(/_/g, " ")}</Badge>{selectedIncomingRow.qualityCheck && <Badge variant="outline">QC: {String(selectedIncomingRow.qualityCheck).toUpperCase()}</Badge>}</div><p className="mt-2 text-xs leading-5 text-slate-600">{!selectedPhysicallyArrived && !selectedReceiptComplete ? "Waiting for the delivery partner to confirm physical arrival at this warehouse." : selectedPackedFarmer ? (selectedReceiptComplete ? "Packed farmer orders must complete the warehouse quality check before continuing to Farmer Fulfillment." : "Count the sealed packets and confirm the physical receipt.") : selectedStatus === "quality_check" ? "Receipt recorded. Complete the quality inspection before storing stock." : selectedReceiptComplete && selectedQualityPassed ? "Receipt and quality requirements are complete. Continue to storage or order packing." : selectedReceiptComplete ? "Receipt recorded. Resolve the quality or quantity hold before continuing." : "Shipment is in the receiving workflow."}</p></div>
+                <div className="rounded-lg border bg-slate-50 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Current stage</p><div className="mt-1 flex flex-wrap items-center gap-2"><Badge variant="outline" className={cn("border", statusColors[selectedStatus] || "border-slate-200")}>{statusLabels[selectedStatus] || selectedStatus.replace(/_/g, " ")}</Badge>{selectedIncomingRow.qualityCheck && <Badge variant="outline">QC: {String(selectedIncomingRow.qualityCheck).toUpperCase()}</Badge>}</div><p className="mt-2 text-xs leading-5 text-slate-600">{!selectedPhysicallyArrived && !selectedReceiptComplete ? "Waiting for the delivery partner to confirm physical arrival at this warehouse." : selectedPackedFarmer ? (selectedReceiptComplete ? "Packed farmer orders must complete the warehouse quality check before continuing to Farmer Fulfillment." : "Count the sealed packets and confirm the physical receipt.") : selectedStatus === "quality_check" ? "Receipt recorded. Complete the quality inspection before the next process." : selectedReceiptComplete && selectedQualityPassed ? "Receipt and quality requirements are complete. Continue to the appropriate fulfillment process." : selectedReceiptComplete ? "Receipt recorded. Resolve the quality or quantity hold before continuing." : "Shipment is in the receiving workflow."}</p></div>
                 <div className="space-y-1 text-sm"><div className="flex justify-between gap-2"><span className="text-muted-foreground">Declared quantity</span><span className="font-medium">{selectedIncomingRow.quantity ?? "—"} {selectedIncomingRow.unit || "kg"}</span></div><div className="flex justify-between gap-2"><span className="text-muted-foreground">Received quantity</span><span className="font-medium">{selectedIncomingRow.quantityReceived ?? selectedIncomingRow.receivedQuantity ?? "—"} {selectedIncomingRow.unit || "kg"}</span></div><div className="flex justify-between gap-2"><span className="text-muted-foreground">Expected date</span><span className="font-medium">{formatDate(selectedIncomingRow.expectedDate)}</span></div></div>
                 <div className="space-y-2 border-t pt-3"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Available actions</p>
                   {selectedStatus === "scheduled" && <Button type="button" variant="outline" className="w-full" onClick={() => { setSelectedIncoming(selectedIncomingRow); setShowTrackDialog(true); }}><Clock className="mr-2 h-4 w-4" />Track Shipment</Button>}
                   {selectedCanReceive && (selectedPackedFarmer ? <Button type="button" className="w-full" onClick={() => openReceiveDialog(selectedIncomingRow)}><CheckCircle className="mr-2 h-4 w-4" />Receive Order</Button> : <Button type="button" className="w-full" onClick={() => openBulkReceiveDialog(selectedEligibleToReceive)} disabled={!selectedEligibleToReceive.length || isSaving}><Package className="mr-2 h-4 w-4" />Receive Orders</Button>)}
                   {selectedCanReceive && <p className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs leading-5 text-amber-900">{selectedPackedFarmer ? "Verify the sealed packets and confirm the warehouse handover. Quality Check is still required before Farmer Fulfillment." : "Record the actual bulk weight first. Quality Check is a separate step; approve or reject after receipt."}</p>}
                   {selectedCanQualityCheck && <Button type="button" className="w-full" onClick={() => openQualityDialog(selectedIncomingRow)}><ShieldCheck className="mr-2 h-4 w-4" />Quality Check (Approve / Reject)</Button>}
-                  {!selectedPackedFarmer && selectedReceiptComplete && selectedQualityPassed && selectedStatus !== "stored" && <Button type="button" className="w-full" onClick={() => openStoreDialog(selectedIncomingRow)}><Warehouse className="mr-2 h-4 w-4" />Store Approved Stock</Button>}
+                  
                   {selectedReceiptComplete && <Button type="button" variant="outline" className="w-full" onClick={() => { setSelectedIncoming(selectedIncomingRow); setShowReceiptDialog(true); }}><Package className="mr-2 h-4 w-4" />View / Reprint Receipt</Button>}
                   {selectedPackedFarmer && selectedReceiptComplete && selectedQualityPassed && <Button type="button" className="w-full" onClick={() => { window.location.href = "/warehouse/farmer-fulfillment"; }}><Route className="mr-2 h-4 w-4" />Continue to Farmer Fulfillment</Button>}
                   {!selectedPackedFarmer && selectedReceiptComplete && selectedQualityPassed && <Button type="button" className="w-full" onClick={() => { window.location.href = selectedIncomingRow.orderId ? "/packing?orderId=" + encodeURIComponent(String(selectedIncomingRow.orderId)) : "/packing"; }}><ArrowRight className="mr-2 h-4 w-4" />Continue to Order Packing</Button>}
