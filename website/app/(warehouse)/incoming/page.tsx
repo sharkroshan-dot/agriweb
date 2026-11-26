@@ -181,7 +181,10 @@ export default function WarehouseIncomingPage() {
   const farmLabelPrintWindowRef = useRef<Window | null>(null);
 
   const { data: incomingData, isLoading, refetch } = useQuery({
-    queryKey: ["warehouseIncoming", statusFilter, dateFilter],
+    // All Incoming Stock filters are applied client-side to the already loaded rows.
+    // Keep a stable query key so changing a filter never replaces the whole page with
+    // the initial loading state or starts an unnecessary duplicate API request.
+    queryKey: ["warehouseIncoming"],
     queryFn: () =>
       api.get("/warehouse/me/incoming", {
         params: {
