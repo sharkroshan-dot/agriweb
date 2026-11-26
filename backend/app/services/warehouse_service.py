@@ -253,7 +253,13 @@ class WarehouseService:
         # order-level, so fan each farm group back into one incoming record per
         # order/collection to preserve product, quantity, batch and order links.
         from app.repositories.order_repository import order_repository
+        from app.repositories.base_repository import BaseRepository
         from app.repositories.warehouse_collection_repository import warehouse_collection_repository
+
+        b2b_order_repository = BaseRepository("b2b_orders")
+        route_status = str(route.get("status") or "").strip().lower()
+        route_has_returned = route_status == "returned_to_warehouse"
+        route_returned_at = route.get("returnedAt") or datetime.utcnow()
 
         route_orders: List[Dict[str, Any]] = []
         for farm_stop in route.get("stops") or []:
@@ -296,14 +302,21 @@ class WarehouseService:
             # fulfillment types can travel through Farm Collection, but they
             # must enter different Incoming Stock workflows after arrival.
             linked_order = None
-            order_id = str(
+            b2b_order_id = str(
                 order.get("b2bOrderId")
-                or order.get("orderId")
                 or (collection_job or {}).get("b2bOrderId")
+                or (existing or {}).get("b2bOrderId")
+                or ""
+            )
+            order_id = str(
+                order.get("orderId")
+                or (collection_job or {}).get("orderId")
                 or (existing or {}).get("orderId")
                 or ""
             )
-            if ObjectId.is_valid(order_id):
+            if ObjectId.is_valid(b2b_order_id):
+                linked_order = await b2b_order_repository.get_by_id(b2b_order_id)
+            elif ObjectId.is_valid(order_id):
                 linked_order = await order_repository.get_by_id(order_id)
             fulfillment_method = str(
                 (linked_order or {}).get("fulfillmentMethod")
@@ -336,22 +349,33 @@ class WarehouseService:
                 )
 
             if existing:
+                # This function is also called by the Incoming Stock GET endpoint
+                # as a recovery/reconciliation pass. It MUST be idempotent: never
+                # reset a receipt, quality decision, usable quantity or stored
+                # inventory state just because the page refreshed.
                 qty = float(quantity_value if quantity_value is not None else existing.get("quantity") or 0)
-                await incoming_stock_repository.update({"_id": existing["_id"]}, {
-                    "quantity": int(qty),
-                    "quantityReceived": 0,
-                    "usableQuantity": 0,
-                    "quantityRejected": 0,
+                preserve_completed_receipt = str(existing.get("status") or "").lower() in {
+                    "received", "quality_check", "quality_passed", "ready_to_store",
+                    "stored", "rejected", "cancelled",
+                } or bool(existing.get("receivedAt") or existing.get("receipt"))
+                update_fields = {
                     "pickupRouteId": ObjectId(route_id),
                     "collectionId": ObjectId(collection_id) if ObjectId.is_valid(collection_id) else collection_id,
                     "sourceMode": source_mode,
                     "fulfillmentMethod": fulfillment_method or ("farmer" if not packing_required else "warehouse"),
                     "packingRequired": packing_required,
-                    "status": "in_transit",
-                    # This is an expected incoming shipment until warehouse staff
-                    # physically receive it; do not stamp warehouse arrival here.
                     "updatedAt": datetime.utcnow(),
-                })
+                }
+                if not preserve_completed_receipt:
+                    update_fields["quantity"] = int(qty)
+                    update_fields.setdefault("status", existing.get("status") or "in_transit")
+                if b2b_order_id and ObjectId.is_valid(b2b_order_id):
+                    update_fields["b2bOrderId"] = ObjectId(b2b_order_id)
+                    update_fields["b2bOrderNumber"] = order.get("b2bOrderNumber") or (collection_job or {}).get("b2bOrderNumber") or (existing or {}).get("b2bOrderNumber")
+                if route_has_returned:
+                    update_fields["arrivedWarehouseAt"] = existing.get("arrivedWarehouseAt") or (collection_job or {}).get("arrivedWarehouseAt") or route_returned_at
+                    update_fields["warehouseArrivalConfirmed"] = True
+                await incoming_stock_repository.update({"_id": existing["_id"]}, update_fields)
                 existing = await incoming_stock_repository.get_by_id(str(existing["_id"]))
                 if existing:
                     created.append(existing)
@@ -364,7 +388,25 @@ class WarehouseService:
                 "deletedAt": None,
             }) if collection_id else None
             if existing:
-                created.append(existing)
+                # A second idempotency lookup catches older rows whose
+                # incomingStockId was not copied back to the collection job.
+                repair_fields = {
+                    "pickupRouteId": ObjectId(route_id),
+                    "collectionId": ObjectId(collection_id) if ObjectId.is_valid(collection_id) else collection_id,
+                    "sourceMode": source_mode,
+                    "fulfillmentMethod": fulfillment_method or ("farmer" if not packing_required else "warehouse"),
+                    "packingRequired": packing_required,
+                    "updatedAt": datetime.utcnow(),
+                }
+                if b2b_order_id and ObjectId.is_valid(b2b_order_id):
+                    repair_fields["b2bOrderId"] = ObjectId(b2b_order_id)
+                    repair_fields["b2bOrderNumber"] = order.get("b2bOrderNumber") or (collection_job or {}).get("b2bOrderNumber") or existing.get("b2bOrderNumber")
+                if route_has_returned:
+                    repair_fields["arrivedWarehouseAt"] = existing.get("arrivedWarehouseAt") or (collection_job or {}).get("arrivedWarehouseAt") or route_returned_at
+                    repair_fields["warehouseArrivalConfirmed"] = True
+                await incoming_stock_repository.update({"_id": existing["_id"]}, repair_fields)
+                refreshed_existing = await incoming_stock_repository.get_by_id(str(existing["_id"]))
+                created.append(refreshed_existing or existing)
                 continue
 
             product_id = str(order.get("productId") or "")
@@ -379,7 +421,9 @@ class WarehouseService:
                 "productId": ObjectId(product_id),
                 "variantId": ObjectId(str(order["variantId"])) if ObjectId.is_valid(str(order.get("variantId") or "")) else None,
                 "farmerId": ObjectId(farmer_id),
-                "orderId": ObjectId(str(order["orderId"])) if ObjectId.is_valid(str(order.get("orderId") or "")) else None,
+                "orderId": ObjectId(order_id) if ObjectId.is_valid(order_id) else None,
+                **({"b2bOrderId": ObjectId(b2b_order_id)} if ObjectId.is_valid(b2b_order_id) else {}),
+                **({"b2bOrderNumber": order.get("b2bOrderNumber") or (collection_job or {}).get("b2bOrderNumber")} if (order.get("b2bOrderNumber") or (collection_job or {}).get("b2bOrderNumber")) else {}),
                 "quantity": int(qty),
                 "expectedDate": datetime.utcnow(),
                 "batchNumber": order.get("batchNumber"),
@@ -390,7 +434,9 @@ class WarehouseService:
                 "sourceMode": source_mode,
                 "fulfillmentMethod": fulfillment_method or ("farmer" if not packing_required else "warehouse"),
                 "packingRequired": packing_required,
-                # Physical arrival is recorded by the warehouse receiving action.
+                **({"arrivedWarehouseAt": route_returned_at, "warehouseArrivalConfirmed": True} if route_has_returned else {}),
+                # Arrival is only stamped after the delivery partner confirms the
+                # physical handover at the assigned warehouse.
             })
             if incoming_id:
                 row = await incoming_stock_repository.get_by_id(incoming_id)
