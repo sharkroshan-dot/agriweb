@@ -304,13 +304,10 @@ export default function PickupRoutesPage() {
     if (Array.isArray(directoryRows)) {
       directoryRows.forEach((area: Job) => {
         const areaDistrict = normalizeDistrict(area.district || area.districtName || "");
-        // The endpoint is already warehouse-scoped. When a directory row does
-        // include its district, enforce the warehouse district again here so
-        // aliases or stale area-master entries cannot leak into this page.
-        // Directory rows must carry a district that matches this warehouse.
-        // Missing district metadata is not permission to show a row from an
-        // unknown/other district.
-        if (allowedDistrictKeys.size && (!areaDistrict || !allowedDistrictKeys.has(areaDistrict))) return;
+        // The API has already restricted this directory to the warehouse's
+        // configured districtKey. Some legacy area-master rows omit their
+        // display district, so only reject a row with an explicit mismatch.
+        if (allowedDistrictKeys.size && areaDistrict && !allowedDistrictKeys.has(areaDistrict)) return;
         const name = String(area.name || "").trim();
         if (!name) return;
         const key = String(area.key || area.hubId || areaKey(name));
