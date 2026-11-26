@@ -264,9 +264,10 @@ export default function PickupRoutesPage() {
   // configured district. Completed/assigned pickup history is not assignable.
   const districtJobs = allJobs.filter((job) => {
     const farmDistrictKey = normalizeDistrict(districtOf(job));
-    // Only a confirmed farm-origin district may enter this warehouse's pickup
-    // workflow. Never fall back to destination/job.district or warehouse link.
-    return Boolean(farmDistrictKey && allowedDistrictKeys.size && allowedDistrictKeys.has(farmDistrictKey));
+    // This endpoint is already scoped to the signed-in warehouse's collection
+    // queue. Keep legacy rows whose farm district is absent from the payload;
+    // exclude only a positively identified farm-origin district mismatch.
+    return !allowedDistrictKeys.size || !farmDistrictKey || allowedDistrictKeys.has(farmDistrictKey);
   });
   // Keep assigned and in-progress jobs visible so B2B assignments made from
   // either page are reflected here; only ready, unassigned jobs are selectable.
@@ -349,13 +350,51 @@ export default function PickupRoutesPage() {
         farmerLocation.village, farmerLocation.locality, farmerLocation.taluk, farmerLocation.subDistrict,
         farmerLocation.town, farmerLocation.area,
       ].filter((value): value is string => typeof value === "string" && Boolean(value.trim()) && !isRoadOrAddressLabel(value));
-      const address = [
+      // Farm addresses can be strings or nested objects (farmAddress,
+      // farmLocation, addressLine1/addressLine2, etc.). Flatten only
+      // farm-origin locality/address fields before matching configured aliases.
+      const addressValues: string[] = [];
+      const collectFarmAddress = (value: unknown, depth = 0) => {
+        if (depth > 4 || value == null) return;
+        if (typeof value === "string" || typeof value === "number") {
+          const text = String(value).trim();
+          if (text) addressValues.push(text);
+          return;
+        }
+        if (Array.isArray(value)) {
+          value.forEach((item) => collectFarmAddress(item, depth + 1));
+          return;
+        }
+        if (typeof value === "object") {
+          Object.entries(value as Record<string, unknown>).forEach(([key, nested]) => {
+            if (/address|line[12]?|village|locality|hamlet|town|taluk|subdistrict|district|city|state|pincode|postal|zip|formatted/i.test(key)) {
+              collectFarmAddress(nested, depth + 1);
+            }
+          });
+        }
+      };
+      [
+        job.pickupAddress, job.farmAddress, job.farmLocation, job.pickupLocation,
+        farmer.pickupAddress, farmer.farmAddress, farmer.farmLocation, farmerLocation,
+        farmer.address,
+      ].forEach((value) => collectFarmAddress(value));
+      const address = addressValues.join(", ");
+      const addressParts = address.split(/[,;|]/).map((part) => part.trim())
+        .filter((part) => part && !isRoadOrAddressLabel(part)).map(areaKey);
+      const normalizedAddress = areaKey(address);
+      const aliasMatches = Array.from(areaAliases.entries())
+        .filter(([alias]) => alias.length >= 3 && new RegExp("(^|[^a-z0-9])" + alias.replace(/[.*+?^${}()|[\]\\]/g, "\\      const address = [
         job.pickupAddress, job.farmAddress, location.address, location.formattedAddress,
         farmer.pickupAddress, farmer.farmAddress, farmerLocation.address, job.address,
       ].filter((value) => typeof value === "string").join(", ");
       const addressParts = address.split(/[,;|]/).map((part) => part.trim()).filter((part) => part && !isRoadOrAddressLabel(part)).map(areaKey);
       const aliasMatches = Array.from(areaAliases.entries())
         .filter(([alias]) => alias.length >= 3 && addressParts.some((part) => part === alias || part.includes(alias) || alias.includes(part)))
+        .sort((a, b) => b[0].length - a[0].length);
+      const matchedKey = explicitAreas.map((value) => areaAliases.get(areaKey(value))).find(Boolean)
+        || addressParts.map((value) => areaAliases.get(value)).find(Boolean)
+        || aliasMatches[0]?.[1];
+") + "([^a-z0-9]|$)").test(normalizedAddress))
         .sort((a, b) => b[0].length - a[0].length);
       const matchedKey = explicitAreas.map((value) => areaAliases.get(areaKey(value))).find(Boolean)
         || addressParts.map((value) => areaAliases.get(value)).find(Boolean)
