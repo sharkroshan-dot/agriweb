@@ -8643,7 +8643,11 @@ async def receive_incoming_stock(
         incoming_record
         and str(incoming_record.get("warehouseId")) == str(warehouse["_id"])
         and str(incoming_record.get("sourceMode") or "") in ("farmer_fulfillment_transfer", "event_fulfillment_transfer")
-        and not incoming_record.get("arrivedWarehouseAt")
+        and not (
+            incoming_record.get("arrivedWarehouseAt")
+            or incoming_record.get("warehouseArrivalConfirmed")
+            or str(incoming_record.get("collectionStatus") or "").lower() == "arrived_warehouse"
+        )
     ):
         raise HTTPException(
             status_code=409,
