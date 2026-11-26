@@ -295,7 +295,7 @@ export default function PickupRoutesPage() {
   }, [jobs]);
 
   const areas = useMemo(() => {
-    const groups = new Map<string, { key: string; name: string; areaType?: string; jobs: Job[]; totalOrders: number; readyToAssign: number; collectionIds: string[]; serviceAreas?: string[]; pickupRadiusKm?: number }>();
+    const groups = new Map<string, { key: string; name: string; areaType?: string; jobs: Job[]; totalOrders: number; readyToAssign: number; collectionIds: string[]; serviceAreas?: string[]; pickupRadiusKm?: number; villages?: string[]; villageCount?: number }>();
     const registeredAreas = areasQ.data?.data?.registeredAreas;
     const directoryRows = Array.isArray(registeredAreas) && registeredAreas.length
       ? registeredAreas
@@ -319,6 +319,8 @@ export default function PickupRoutesPage() {
           readyToAssign: Number(area.readyOrders ?? area.readyToAssign ?? 0),
           collectionIds: Array.isArray(area.collectionIds) ? area.collectionIds.map(String) : [],
           serviceAreas: Array.isArray(area.aliases) ? area.aliases : (Array.isArray(area.serviceAreas) ? area.serviceAreas : []),
+          villages: Array.isArray(area.villages) ? area.villages.map(String) : [],
+          villageCount: Number(area.villageCount || (Array.isArray(area.villages) ? area.villages.length : 0)),
           pickupRadiusKm: Number(area.pickupRadiusKm || 0),
           registeredFarmCount: Number(area.registeredFarmCount || 0),
         } as any);
@@ -691,7 +693,12 @@ export default function PickupRoutesPage() {
                       {registeredFarmCount} {registeredFarmCount === 1 ? "farm" : "farms"}
                     </span>
                   </span>
-                  <span className="mt-1 block text-xs text-slate-500">Farms with collection records in this area</span>
+                  <span className="mt-1 block text-xs text-slate-500">Taluk pickup area · includes registered villages</span>
+                  {Array.isArray((area as any).villages) && (area as any).villages.length > 0 && (
+                    <span className="mt-1 block text-[11px] leading-4 text-slate-500">
+                      Villages: {(area as any).villages.slice(0, 4).join(", ")}{(area as any).villages.length > 4 ? ` +${(area as any).villages.length - 4} more` : ""}
+                    </span>
+                  )}
                   <span className="mt-2 flex items-center justify-between gap-2 text-xs"><span className="text-slate-500">{readyCountForArea(area)} orders ready · {Math.max(Number(area.totalOrders || 0), area.jobs.length)} total orders</span><ChevronRight className={"h-4 w-4 " + (active ? "text-emerald-700" : "text-slate-300")}/></span>
                 </button>
               );
