@@ -330,14 +330,27 @@ export default function WarehouseIncomingPage() {
       String(item.qualityCheck || item.quality_check || "").toLowerCase() === "passed";
     return arrived && !received && ["scheduled", "in_transit", "ready_for_pickup"].includes(status);
   };
+  const canSelectForBatchQuality = (item: any) => {
+    const status = String(item.status || "").toLowerCase();
+    const qc = String(item.qualityCheck || item.quality_check || "").toLowerCase();
+    const physicallyReceived = Boolean(item.receivedAt || item.receivedDate || item.warehouseReceivedAt || item.bulkShipmentReceivedAt);
+    return physicallyReceived && ["received", "quality_check"].includes(status) && !["passed", "failed"].includes(qc);
+  };
+  const selectedBatchQualityItems = selectedBatchItems.filter((item: any) => canSelectForBatchQuality(item));
+  const selectionMode = selectedBatchItems.length
+    ? (canSelectForBatchQuality(selectedBatchItems[0]) ? "quality" : "receive")
+    : null;
+  const canSelectForBatchAction = (item: any) => canSelectForBatchReceipt(item) || canSelectForBatchQuality(item);
   const toggleIncomingSelection = (id: string) => {
     const item = incomingList.find((row: any) => String(row.id || row._id) === id);
-    if (!item || !canSelectForBatchReceipt(item)) return;
+    if (!item || !canSelectForBatchAction(item)) return;
+    const itemMode = canSelectForBatchQuality(item) ? "quality" : "receive";
     setSelectedIncomingIds((current) => {
       if (current.includes(id)) return current.filter((value) => value !== id);
       const existing = incomingList.find((row: any) => current.includes(String(row.id || row._id)));
-      if (existing && isFarmerPackedIncoming(existing) !== isFarmerPackedIncoming(item)) {
-        toast.error("Select orders from one fulfillment type at a time.");
+      if (existing && (isFarmerPackedIncoming(existing) !== isFarmerPackedIncoming(item) ||
+          (canSelectForBatchQuality(existing) ? "quality" : "receive") !== itemMode)) {
+        toast.error("Select orders from the same fulfillment type and processing stage.");
         return current;
       }
       return [...current, id];
@@ -346,8 +359,9 @@ export default function WarehouseIncomingPage() {
   const toggleAllVisibleIncoming = () => {
     const selectedType = selectedBatchType;
     const eligibleVisible = incomingList
-      .filter((item: any) => canSelectForBatchReceipt(item))
+      .filter((item: any) => canSelectForBatchAction(item))
       .filter((item: any) => selectedType === null || isFarmerPackedIncoming(item) === selectedType)
+      .filter((item: any) => selectionMode === null || (canSelectForBatchQuality(item) ? "quality" : "receive") === selectionMode)
       .map((item: any) => String(item.id || item._id));
     if (!eligibleVisible.length) {
       toast.error("There are no arrived, unreceived shipments available for batch receipt.");
@@ -377,6 +391,32 @@ export default function WarehouseIncomingPage() {
       await refetch();
     } finally { setIsSaving(false); }
   };
+  const handleBatchQuality = async (qualityCheck: "passed" | "failed") => {
+    const eligible = selectedBatchQualityItems;
+    if (!eligible.length) { toast.error("Select received orders awaiting quality inspection."); return; }
+    const decision = qualityCheck === "passed" ? "approve" : "reject";
+    if (!window.confirm(`${decision === "approve" ? "Approve" : "Reject"} quality for ${eligible.length} selected orders?`)) return;
+    setIsSaving(true);
+    let succeeded = 0;
+    try {
+      for (const item of eligible) {
+        const id = String(item.id || item._id);
+        await api.put("/warehouse/me/incoming/" + id + "/quality", {
+          qualityCheck,
+          usableQuantity: Number(item.quantityReceived ?? item.receivedQuantity ?? item.quantity ?? 0),
+          notes: qualityCheck === "failed" ? "Rejected during batch warehouse quality inspection." : "Approved during batch warehouse quality inspection.",
+        });
+        succeeded += 1;
+      }
+      toast.success(`${decision === "approve" ? "Approved" : "Rejected"} quality for ${succeeded} orders.`);
+      setSelectedIncomingIds([]);
+      await refetch();
+    } catch (error: any) {
+      toast.error(`Quality decision saved for ${succeeded} of ${eligible.length} orders. ${error?.response?.data?.detail || error?.message || "Refresh and review before retrying."}`);
+      await refetch();
+    } finally { setIsSaving(false); }
+  };
+
   const selectedPackedFarmer = selectedIncomingRow ? isFarmerPackedIncoming(selectedIncomingRow) : false;
   const selectedStatus = String(selectedIncomingRow?.status || "").toLowerCase();
   const selectedPhysicallyArrived = Boolean(selectedIncomingRow?.arrivedWarehouseAt || selectedIncomingRow?.warehouseArrivalConfirmed || String(selectedIncomingRow?.collectionStatus || "").toLowerCase() === "arrived_warehouse");
@@ -896,14 +936,14 @@ export default function WarehouseIncomingPage() {
               <div><h2 className="font-semibold text-slate-900">{fulfillmentFilter === "received_warehouse" ? "Incoming Warehouse Transfers" : "Incoming Shipments (" + incomingList.length + ")"}</h2><p className="text-xs text-muted-foreground">{fulfillmentFilter === "received_warehouse" ? receivedWarehouseOrders.length + " destination transfer(s)" : selectedIncomingIds.length + " selected · Select rows to process multiple orders together"}</p></div>
               {fulfillmentFilter !== "received_warehouse" && <div className="relative w-full sm:max-w-[290px]"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><Input value={searchTerm} onChange={(event) => { setSearchTerm(event.target.value); setCurrentPage(1); }} placeholder="Search by order, farm or product..." className="pl-9" /></div>}
             </div>
-            {fulfillmentFilter !== "received_warehouse" && selectedIncomingIds.length > 0 && <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-emerald-50/70 px-4 py-3"><div><p className="text-sm font-semibold text-emerald-900">{selectedIncomingIds.length} orders selected</p><p className="text-xs text-emerald-800">Only arrived orders of the same fulfillment type can be processed together. One batch action applies to every eligible selected order.</p></div><div className="flex flex-wrap gap-2"><Button type="button" variant="outline" size="sm" onClick={() => setSelectedIncomingIds([])}>Clear selection</Button>{selectedBatchType === true && <Button type="button" size="sm" disabled={isSaving || !batchEligibleItems.length} onClick={handleBatchFarmerReceipt}><CheckCircle className="mr-2 h-4 w-4" />{isSaving ? "Processing…" : "Confirm Receipt for " + batchEligibleItems.length + " Orders"}</Button>}{selectedBatchType === false && <Button type="button" size="sm" disabled={isSaving || !batchEligibleItems.length} onClick={() => openBulkReceiveDialog(batchEligibleItems)}><Package className="mr-2 h-4 w-4" />Receive Bulk for {batchEligibleItems.length} Orders</Button>}</div></div>}
+            {fulfillmentFilter !== "received_warehouse" && selectedIncomingIds.length > 0 && <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-emerald-50/70 px-4 py-3"><div><p className="text-sm font-semibold text-emerald-900">{selectedIncomingIds.length} orders selected</p><p className="text-xs text-emerald-800">Only arrived orders of the same fulfillment type can be processed together. One batch action applies to every eligible selected order.</p></div><div className="flex flex-wrap gap-2"><Button type="button" variant="outline" size="sm" onClick={() => setSelectedIncomingIds([])}>Clear selection</Button>{selectionMode === "quality" && <><Button type="button" size="sm" disabled={isSaving || !selectedBatchQualityItems.length} onClick={() => handleBatchQuality("passed")}><CheckCircle className="mr-1 h-4 w-4" />Approve</Button><Button type="button" size="sm" variant="destructive" disabled={isSaving || !selectedBatchQualityItems.length} onClick={() => handleBatchQuality("failed")}><XCircle className="mr-1 h-4 w-4" />Reject</Button></>}{selectionMode === "receive" && selectedBatchType === true && <Button type="button" size="sm" disabled={isSaving || !batchEligibleItems.length} onClick={handleBatchFarmerReceipt}><CheckCircle className="mr-2 h-4 w-4" />{isSaving ? "Processing…" : "Receive Orders (" + batchEligibleItems.length + ")"}</Button>}{selectionMode === "receive" && selectedBatchType === false && <Button type="button" size="sm" disabled={isSaving || !batchEligibleItems.length} onClick={() => openBulkReceiveDialog(batchEligibleItems)}><Package className="mr-2 h-4 w-4" />Receive Orders ({batchEligibleItems.length})</Button>}</div></div>}
             {fulfillmentFilter === "received_warehouse" ? (
               isLoadingTransfers ? <div className="p-10 text-center text-sm text-muted-foreground">Loading warehouse transfers…</div> :
               receivedWarehouseOrders.length === 0 ? <div className="p-10 text-center"><Warehouse className="mx-auto h-9 w-9 text-slate-300" /><p className="mt-3 font-semibold">No incoming warehouse transfers</p><p className="mt-1 text-sm text-muted-foreground">Destination warehouse transfers will appear here.</p></div> :
               <div className="overflow-x-auto"><table className="w-full min-w-[650px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-4 py-3 font-semibold">Order</th><th className="px-4 py-3 font-semibold">Products</th><th className="px-4 py-3 font-semibold">Transfer status</th><th className="px-4 py-3 font-semibold">Action</th></tr></thead><tbody className="divide-y">{receivedWarehouseOrders.map((order: any) => { const id = String(order.id || order.orderId || order._id || order.orderNumber); const active = id === String(selectedTransfer?.id || selectedTransfer?.orderId || selectedTransfer?._id || selectedTransfer?.orderNumber); return <tr key={id} onClick={() => setSelectedTransferId(id)} className={cn("cursor-pointer transition-colors hover:bg-slate-50", active && "bg-emerald-50/70")}><td className="px-4 py-3 font-semibold text-slate-900">{order.orderNumber || order.displayOrderNumber || "Order reference unavailable"}</td><td className="max-w-[180px] truncate px-4 py-3 text-slate-600">{order.productName || (Array.isArray(order.items) ? order.items.map((item: any) => item.productName || item.name).filter(Boolean).join(", ") : "") || "Packed customer order"}</td><td className="px-4 py-3"><Badge variant="outline">{String(order.transferStatus || order.status || "received").replace(/_/g, " ")}</Badge></td><td className="px-4 py-3 text-xs font-medium text-emerald-700">View operations →</td></tr>; })}</tbody></table></div>
             ) : isLoading ? <div className="p-10 text-center text-sm text-muted-foreground">Loading incoming shipments…</div> :
             incomingList.length === 0 ? <div className="p-10 text-center"><Package className="mx-auto h-9 w-9 text-slate-300" /><p className="mt-3 font-semibold">No incoming shipments found</p><p className="mt-1 text-sm text-muted-foreground">Try changing the filters or search terms.</p></div> :
-            <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr><th className="w-10 px-3 py-3"><input aria-label="Select all visible shipments" type="checkbox" checked={incomingList.some((item: any) => canSelectForBatchReceipt(item)) && incomingList.filter((item: any) => canSelectForBatchReceipt(item)).filter((item: any) => selectedBatchType === null || isFarmerPackedIncoming(item) === selectedBatchType).every((item: any) => selectedIncomingIds.includes(String(item.id || item._id)))} onChange={toggleAllVisibleIncoming} className="h-4 w-4 rounded border-slate-300 accent-emerald-600" /></th><th className="px-4 py-3 font-semibold">Order / Shipment</th><th className="px-4 py-3 font-semibold">Farm / Product</th><th className="px-4 py-3 font-semibold">Quantity</th><th className="px-4 py-3 font-semibold">Status</th><th className="px-4 py-3 font-semibold">Expected</th></tr></thead><tbody className="divide-y divide-slate-100">{incomingList.map((item: any) => { const id = String(item.id || item._id); const active = id === String(selectedIncomingRow?.id || selectedIncomingRow?._id); const status = String(item.status || "scheduled").toLowerCase(); return <tr key={id} onClick={() => setSelectedIncomingId(id)} className={cn("cursor-pointer transition-colors hover:bg-slate-50", active && "bg-emerald-50/70", selectedIncomingIds.includes(id) && "bg-emerald-50/50")}><td className="px-3 py-3" onClick={(event) => event.stopPropagation()}><input aria-label={"Select " + item.displayOrderNumber} type="checkbox" checked={selectedIncomingIds.includes(id)} disabled={!canSelectForBatchReceipt(item) || (selectedBatchType !== null && isFarmerPackedIncoming(item) !== selectedBatchType)} title={!canSelectForBatchReceipt(item) ? "Available for batch receipt after arrival at this warehouse" : selectedBatchType !== null && isFarmerPackedIncoming(item) !== selectedBatchType ? "Select one fulfillment type per batch" : "Select this order for batch receipt"} onChange={() => toggleIncomingSelection(id)} className="h-4 w-4 rounded border-slate-300 accent-emerald-600 disabled:cursor-not-allowed disabled:opacity-40" /></td><td className="px-4 py-3"><p className="font-semibold text-slate-900">{item.displayOrderNumber || "Order reference unavailable"}</p><p className="mt-0.5 text-xs text-slate-500">{isFarmerPackedIncoming(item) ? "Farmer fulfillment" : "Warehouse fulfillment"}</p></td><td className="px-4 py-3"><p className="font-medium text-slate-800">{item.displayFarmName || getFarmDisplayName(item)}</p><p className="mt-0.5 max-w-[190px] truncate text-xs text-slate-500">{item.displayProductName || getProductDisplayName(item)}</p></td><td className="whitespace-nowrap px-4 py-3 font-medium">{item.quantity ?? "—"} {item.unit || "kg"}</td><td className="px-4 py-3"><Badge variant="outline" className={cn("border", statusColors[status] || "border-slate-200 bg-slate-50 text-slate-700")}>{statusLabels[status] || status.replace(/_/g, " ")}</Badge></td><td className="whitespace-nowrap px-4 py-3 text-slate-600">{formatDate(item.expectedDate)}</td></tr>; })}</tbody></table></div>}
+            <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr><th className="w-10 px-3 py-3"><input aria-label="Select all visible shipments" type="checkbox" checked={incomingList.some((item: any) => canSelectForBatchReceipt(item)) && incomingList.filter((item: any) => canSelectForBatchReceipt(item)).filter((item: any) => selectedBatchType === null || isFarmerPackedIncoming(item) === selectedBatchType).every((item: any) => selectedIncomingIds.includes(String(item.id || item._id)))} onChange={toggleAllVisibleIncoming} className="h-4 w-4 rounded border-slate-300 accent-emerald-600" /></th><th className="px-4 py-3 font-semibold">Order / Shipment</th><th className="px-4 py-3 font-semibold">Farm / Product</th><th className="px-4 py-3 font-semibold">Quantity</th><th className="px-4 py-3 font-semibold">Status</th><th className="px-4 py-3 font-semibold">Expected</th></tr></thead><tbody className="divide-y divide-slate-100">{incomingList.map((item: any) => { const id = String(item.id || item._id); const active = id === String(selectedIncomingRow?.id || selectedIncomingRow?._id); const status = String(item.status || "scheduled").toLowerCase(); return <tr key={id} onClick={() => setSelectedIncomingId(id)} className={cn("cursor-pointer transition-colors hover:bg-slate-50", active && "bg-emerald-50/70", selectedIncomingIds.includes(id) && "bg-emerald-50/50")}><td className="px-3 py-3" onClick={(event) => event.stopPropagation()}><input aria-label={"Select " + item.displayOrderNumber} type="checkbox" checked={selectedIncomingIds.includes(id)} disabled={!canSelectForBatchAction(item) || (selectedBatchType !== null && isFarmerPackedIncoming(item) !== selectedBatchType) || (selectionMode !== null && (canSelectForBatchQuality(item) ? "quality" : "receive") !== selectionMode)} title={!canSelectForBatchAction(item) ? "Select after warehouse arrival or physical receipt" : selectionMode !== null && (canSelectForBatchQuality(item) ? "quality" : "receive") !== selectionMode ? "Do not mix receipt and quality actions in one batch" : "Select this order for batch processing"} onChange={() => toggleIncomingSelection(id)} className="h-4 w-4 rounded border-slate-300 accent-emerald-600 disabled:cursor-not-allowed disabled:opacity-40" /></td><td className="px-4 py-3"><p className="font-semibold text-slate-900">{item.displayOrderNumber || "Order reference unavailable"}</p><p className="mt-0.5 text-xs text-slate-500">{isFarmerPackedIncoming(item) ? "Farmer fulfillment" : "Warehouse fulfillment"}</p></td><td className="px-4 py-3"><p className="font-medium text-slate-800">{item.displayFarmName || getFarmDisplayName(item)}</p><p className="mt-0.5 max-w-[190px] truncate text-xs text-slate-500">{item.displayProductName || getProductDisplayName(item)}</p></td><td className="whitespace-nowrap px-4 py-3 font-medium">{item.quantity ?? "—"} {item.unit || "kg"}</td><td className="px-4 py-3"><Badge variant="outline" className={cn("border", statusColors[status] || "border-slate-200 bg-slate-50 text-slate-700")}>{statusLabels[status] || status.replace(/_/g, " ")}</Badge></td><td className="whitespace-nowrap px-4 py-3 text-slate-600">{formatDate(item.expectedDate)}</td></tr>; })}</tbody></table></div>}
           </Card>
           <p className="mt-2 text-xs text-muted-foreground">Select a shipment row to view its details and available actions.</p>
         </main>
