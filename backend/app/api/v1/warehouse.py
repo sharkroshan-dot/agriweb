@@ -8278,7 +8278,16 @@ async def get_my_incoming_stock(
     try:
         routes = await warehouse_pickup_route_repository.get_by_warehouse(str(warehouse["_id"]))
         for route in routes:
-            if str(route.get("status") or "") in ("completed", "returned_to_warehouse"):
+            route_state = str(route.get("status") or "").strip().lower()
+            stops = route.get("stops") or []
+            all_stops_departed = bool(stops) and all(
+                str(stop.get("status") or "").strip().lower() == "departed_farm"
+                for stop in stops
+            )
+            # Make collected shipments visible as soon as the partner finishes
+            # every farm stop. They remain in transit until the partner confirms
+            # physical warehouse handover; warehouse staff cannot receive them yet.
+            if route_state in ("departed_farm", "completed", "returned_to_warehouse") or all_stops_departed:
                 await WarehouseService.create_pickup_route_incoming(str(route.get("_id")))
     except Exception:
         logger.exception("Failed to reconcile completed pickup routes into incoming stock")
