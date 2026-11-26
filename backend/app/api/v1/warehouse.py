@@ -7925,9 +7925,16 @@ async def create_pickup_routes(
             team_capacity = 0
         if team_capacity <= 0:
             raise HTTPException(status_code=400, detail="Selected pickup team has no registered carrying capacity")
-        route_capacity = data.maxWeightKg or team_capacity
-        if route_capacity > team_capacity:
-            route_capacity = team_capacity
+        # "Assign to selected team" is one area -> one partner/vehicle.
+        # Do not silently split one area's workload into multiple routes that
+        # would all be assigned to the same vehicle beyond its carrying limit.
+        selected_total_weight = sum(float(job.get("quantity") or 0) for job in jobs)
+        if selected_total_weight > team_capacity:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Selected area workload is {selected_total_weight:g} kg, above the selected vehicle capacity of {team_capacity:g} kg. Select a larger vehicle or reduce the selected orders.",
+            )
+        route_capacity = team_capacity
     elif data.assignmentMode == "auto_assign":
         if not members:
             raise HTTPException(status_code=400, detail="Approve at least one pickup team before using automatic assignment")
