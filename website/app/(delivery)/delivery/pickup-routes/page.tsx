@@ -967,6 +967,14 @@ export default function DeliveryPickupRoutesPage() {
             const mapUrl = locations.length > 1 ? "https://www.google.com/maps?output=embed&saddr=" + encodeURIComponent(locations[0]) + "&daddr=" + encodeURIComponent(locations[locations.length - 1]) + (locations.length > 2 ? "&waypoints=" + encodeURIComponent(locations.slice(1, -1).join("|")) : "") : "";
             const dateValue = r.scheduledAt || r.collectionDate || r.routeDate;
             const scheduleDate = dateValue && !Number.isNaN(new Date(dateValue).getTime()) ? new Intl.DateTimeFormat("en-IN", {day:"2-digit",month:"short",year:"numeric"}).format(new Date(dateValue)) : routeDayLabel(r);
+            const rawWindow = r.collectionWindow || r.pickupWindow;
+            const scheduleWindow = typeof rawWindow === "string"
+              ? rawWindow
+              : rawWindow && typeof rawWindow === "object"
+                ? [rawWindow.start || rawWindow.startTime, rawWindow.end || rawWindow.endTime].filter(Boolean).join(" – ") || "8:00 PM – 6:00 AM IST"
+                : r.pickupWindowStart && r.pickupWindowEnd
+                  ? String(r.pickupWindowStart) + " – " + String(r.pickupWindowEnd)
+                  : "8:00 PM – 6:00 AM IST";
             return (
               <Card className="min-w-0 overflow-hidden border-slate-200">
                 <CardHeader className="border-b bg-white px-4 py-4 sm:px-5">
@@ -1021,7 +1029,7 @@ export default function DeliveryPickupRoutesPage() {
                           })}
                         </div>
                       </div>
-                      <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4"><div className="flex items-center gap-2 text-emerald-900"><Clock className="h-4 w-4"/><p className="text-sm font-bold">Collection Schedule</p></div><p className="mt-2 text-sm font-semibold">{scheduleDate || "Schedule set by warehouse"}</p><p className="mt-1 text-sm text-slate-700">Farm collection window: {r.collectionWindow || r.pickupWindow || (r.pickupWindowStart && r.pickupWindowEnd ? String(r.pickupWindowStart) + " – " + String(r.pickupWindowEnd) : "8:00 PM – 6:00 AM IST")}</p><p className="mt-2 text-xs leading-5 text-slate-600">Review your assigned route in advance. Begin farm collection during the scheduled collection window.</p></div>
+                      <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4"><div className="flex items-center gap-2 text-emerald-900"><Clock className="h-4 w-4"/><p className="text-sm font-bold">Collection Schedule</p></div><p className="mt-2 text-sm font-semibold">{scheduleDate || "Schedule set by warehouse"}</p><p className="mt-1 text-sm text-slate-700">Farm collection window: {scheduleWindow}</p><p className="mt-2 text-xs leading-5 text-slate-600">Review your assigned route in advance. Begin farm collection during the scheduled collection window.</p></div>
                       <div className="rounded-xl border border-slate-200 bg-white p-4"><div className="flex items-center gap-2"><Truck className="h-4 w-4 text-emerald-700"/><p className="text-sm font-bold">My Vehicle</p></div><p className="mt-2 text-sm font-semibold">{r.deliveryPartnerVehicleNumber || r.vehicleNumber || "Vehicle not specified"}</p><p className="mt-1 text-xs text-slate-500">{r.deliveryPartnerVehicleType || r.vehicleType || "Vehicle type not specified"}</p>{r.vehicleCapacity!=null&&<p className="mt-2 text-xs text-slate-600">Capacity: {r.vehicleCapacity} kg · Planned load: {totalQuantity} kg</p>}{r.warehousePhone&&<p className="mt-2 text-xs text-slate-600">Warehouse contact: {r.warehousePhone}</p>}</div>
                     </section>
                   </div>
