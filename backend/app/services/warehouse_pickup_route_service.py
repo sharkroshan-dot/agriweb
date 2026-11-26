@@ -59,17 +59,18 @@ def select_route_team_assignments(
     memberships: List[Dict[str, Any]],
     busy_partner_ids: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
-    """Choose an approved team for each route using per-route vehicle capacity.
+    """Choose a different idle approved team for each route in this batch.
 
-    Vehicle capacity is a limit for each pickup trip, not a lifetime/daily
-    balance. A previous route must not consume the vehicle's capacity for a new
-    route. The same approved team may therefore be selected for multiple routes
-    in one planning batch; every individual route is still checked against the
-    team's registered capacity.
+    Teams already carrying an active route today are excluded, and a team
+    selected for one route is removed from this batch's remaining pool. Vehicle
+    capacity is validated independently for each route.
     """
+    busy_ids = {str(value) for value in (busy_partner_ids or []) if str(value)}
     available = []
     for member in memberships:
         partner_id = str(member.get("deliveryPartnerId") or "")
+        if not partner_id or partner_id in busy_ids:
+            continue
         try:
             capacity = float(member.get("capacity") or 0)
         except (TypeError, ValueError):
@@ -88,10 +89,11 @@ def select_route_team_assignments(
                 f"No approved pickup team has enough registered vehicle capacity for a "
                 f"{required:g} kg route. Check the approved team's capacity or split the route."
             )
-        # Best-fit by registered capacity. Do not remove the chosen team after
-        # assignment: capacity applies independently to each pickup route.
+        # Best-fit by registered capacity, then reserve this partner for
+        # this route so automatic allocation distributes work across teams.
         chosen = min(suitable, key=lambda member: member["_assignmentCapacity"])
         assignments.append({key: value for key, value in chosen.items() if key != "_assignmentCapacity"})
+        available.remove(chosen)
     return assignments
 
 
