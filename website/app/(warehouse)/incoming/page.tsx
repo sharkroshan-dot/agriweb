@@ -188,7 +188,7 @@ export default function WarehouseIncomingPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [dateFilter, setDateFilter] = useState<string>("all");
-  const [fulfillmentFilter, setFulfillmentFilter] = useState<"received_warehouse" | "farmer" | "warehouse">("farmer");
+  const [fulfillmentFilter, setFulfillmentFilter] = useState<"all" | "received_warehouse" | "farmer" | "warehouse">("all");
   const [showScheduleDialog, setShowScheduleDialog] = useState(false);
   const [showReceiveDialog, setShowReceiveDialog] = useState(false);
   const [showQualityDialog, setShowQualityDialog] = useState(false);
@@ -220,7 +220,7 @@ export default function WarehouseIncomingPage() {
       api.get("/warehouse/me/incoming", {
         params: {
           status: statusFilter !== "all" ? statusFilter : undefined,
-          limit: 50,
+          limit: 100,
         },
       }),
     refetchInterval: 10000,
@@ -263,6 +263,7 @@ export default function WarehouseIncomingPage() {
           ? rawIncoming.results
           : [];
     return {
+      all: items.length,
       received_warehouse: receivedWarehouseOrders.length,
       farmer: items.filter((item: any) => isFarmerPackedIncoming(item)).length,
       warehouse: items.filter((item: any) => !isFarmerPackedIncoming(item)).length,
@@ -659,8 +660,9 @@ export default function WarehouseIncomingPage() {
         })}
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-3" role="tablist" aria-label="Incoming stock fulfillment type">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" role="tablist" aria-label="Incoming stock fulfillment type">
         {([
+          { key: "all", label: "All Incoming", description: "Every farm and warehouse shipment", count: incomingTypeCounts.all },
           { key: "received_warehouse", label: "Received from Other Warehouse", description: "Already-packed inter-district orders", count: incomingTypeCounts.received_warehouse },
           { key: "farmer", label: "Farmer Fulfillment", description: "Packed farmer orders", count: incomingTypeCounts.farmer },
           { key: "warehouse", label: "Warehouse Fulfillment", description: "Bulk stock for inventory", count: incomingTypeCounts.warehouse },
