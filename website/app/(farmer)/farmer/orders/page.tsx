@@ -288,7 +288,29 @@ export default function FarmerOrdersPage() {
     }
   };
 
-  const getStatus = (order: any) => (order.status || order.orderStatus || "pending").toLowerCase();
+  // Keep the persisted orderStatus unchanged for backend actions, but show
+  // warehouse orders in the Ready for Pickup bucket once farm collection has
+  // actually been requested. The warehouse workflow has its own lifecycle.
+  const getStatus = (order: any) => String(order.status || order.orderStatus || "pending").toLowerCase();
+  const isWarehousePickupRequested = (order: any) => {
+    if (String(order?.fulfillmentMethod || "").toLowerCase() !== "warehouse") return false;
+    const collectionStatus = String(order?.warehouseCollectionStatus || "").toLowerCase();
+    const warehouseStage = String(order?.warehouseFulfillmentStage || "").toLowerCase();
+    return warehouseStage === "pickup_requested" || [
+      "ready_for_pickup",
+      "team_assigned",
+      "en_route",
+      "arrived_at_farm",
+      "collected",
+      "departed_farm",
+      "arrived_warehouse",
+    ].includes(collectionStatus);
+  };
+  const getDisplayStatus = (order: any) => {
+    if (isWarehousePickupRequested(order)) return "ready_for_pickup";
+    if (String(order?.fulfillmentStage || "").toLowerCase() === "ready_for_pickup") return "ready_for_pickup";
+    return getStatus(order);
+  };
 
   const orderList = useMemo(() => {
     const candidates = [
@@ -342,10 +364,8 @@ export default function FarmerOrdersPage() {
 
   const normalizedSearch = searchQuery.trim().toLocaleLowerCase();
   const filteredOrderList = useMemo(() => orderList.filter((order: any) => {
-    const status = getStatus(order);
-    const matchesStatus = statusFilter === "all"
-      || status === statusFilter
-      || (statusFilter === "ready_for_pickup" && String(order.fulfillmentStage || "").toLowerCase() === "ready_for_pickup");
+    const status = getDisplayStatus(order);
+    const matchesStatus = statusFilter === "all" || status === statusFilter;
     if (!matchesStatus) return false;
     if (!normalizedSearch) return true;
     const searchableValues = [
@@ -363,12 +383,12 @@ export default function FarmerOrdersPage() {
 
   const orderStats = useMemo(() => {
     const count = (predicate: (order: any, status: string) => boolean) =>
-      orderList.filter((order: any) => predicate(order, getStatus(order))).length;
+      orderList.filter((order: any) => predicate(order, getDisplayStatus(order))).length;
     return {
       total: orderList.length,
       pending: count((_order, status) => status === "pending"),
       processing: count((_order, status) => status === "processing"),
-      readyForPickup: count((order, status) => status === "ready_for_pickup" || String(order.fulfillmentStage || "").toLowerCase() === "ready_for_pickup"),
+      readyForPickup: count((_order, status) => status === "ready_for_pickup"),
       inTransit: count((_order, status) => status === "dispatched" || status === "in_transit"),
       delivered: count((_order, status) => status === "delivered" || status === "picked_up"),
       confirmed: count((_order, status) => status === "confirmed"),
@@ -536,7 +556,7 @@ export default function FarmerOrdersPage() {
               { value: "confirmed", label: "Confirmed", count: orderStats.confirmed },
               { value: "processing", label: "Processing", count: orderStats.processing },
               { value: "ready_for_pickup", label: "Ready for pickup", count: orderStats.readyForPickup },
-              { value: "dispatched", label: "Dispatched", count: orderList.filter((order: any) => getStatus(order) === "dispatched").length },
+              { value: "dispatched", label: "Dispatched", count: orderList.filter((order: any) => getDisplayStatus(order) === "dispatched").length },
               { value: "in_transit", label: "In transit", count: orderStats.inTransit },
               { value: "delivered", label: "Delivered", count: orderStats.delivered },
               { value: "cancelled", label: "Cancelled", count: orderStats.cancelled },
@@ -730,7 +750,7 @@ export default function FarmerOrdersPage() {
             const orderNumber = order.orderNumber || point.id;
             const customer = order.customerName || order.customer?.name || "Customer";
             const product = primaryItem.productName || primaryItem.name || "Order";
-            const status = statusLabels[getStatus(order)] || getStatus(order);
+            const displayStatus = getDisplayStatus(order);\n            const status = statusLabels[displayStatus] || displayStatus;
             return `<div style="padding:7px 0;border-top:1px solid #e2e8f0;">
               <div style="font-weight:700;color:#0f172a;">${escapeHtml(orderNumber)}</div>
               <div style="font-size:12px;color:#475569;">${escapeHtml(customer)} · ${escapeHtml(product)}</div>
@@ -816,7 +836,8 @@ export default function FarmerOrdersPage() {
               : filteredOrderList.filter((order: any) => (order.deliveryAddress?.city || "Unknown").toLowerCase() === activeCity)
             ).map((order: any) => {
                   const orderId = String(order.id || order._id || "");
-                  const status = getStatus(order);
+                  const status = getDisplayStatus(order);
+                  const workflowStatus = getStatus(order);
                   const primaryItem = Array.isArray(order.items) ? order.items[0] || {} : {};
                   const itemCount = Array.isArray(order.items) ? order.items.length : 0;
                   const productName = primaryItem.productName || primaryItem.name || (itemCount > 1 ? `${itemCount} products` : "Order items");
@@ -832,7 +853,7 @@ export default function FarmerOrdersPage() {
                     primaryItem.product?.imageUrl,
                     primaryItem.product?.image,
                   ].find((value) => typeof value === "string" && (value.startsWith("https://") || value.startsWith("http://") || value.startsWith("/")));
-                  const isReadyForPickup = status === "ready_for_pickup" || String(order.fulfillmentStage || "").toLowerCase() === "ready_for_pickup";
+                  const isReadyForPickup = status === "ready_for_pickup" || isWarehousePickupRequested(order) || String(order.fulfillmentStage || "").toLowerCase() === "ready_for_pickup";
                   const progressStages = [
                     { key: "confirmed", label: "Confirmed" },
                     { key: "processing", label: "Processing" },
