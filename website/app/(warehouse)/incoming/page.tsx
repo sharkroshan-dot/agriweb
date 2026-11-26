@@ -707,7 +707,13 @@ export default function WarehouseIncomingPage() {
 
   const openQualityDialog = (item: any) => { setSelectedIncoming(item); setQualityNotes(""); setShowQualityDialog(true); };
 
-  function isReceiptQualityPassed(row: any) { const qc = String(row.qualityCheck || row.quality_check || "").toLowerCase(); return qc === "passed" || String(row.status || "").toLowerCase() === "stored"; }
+  function isReceiptQualityPassed(row: any) {
+    const qc = String(row.qualityCheck || row.quality_check || "").toLowerCase();
+    const status = String(row.status || "").toLowerCase();
+    const physicallyReceived = Boolean(row.receivedAt || row.receivedDate || row.warehouseReceivedAt || row.bulkShipmentReceivedAt) ||
+      ["received", "quality_check", "stored"].includes(status);
+    return status === "stored" || (qc === "passed" && physicallyReceived);
+  }
 
   const openStoreDialog = (item: any) => {
     setSelectedIncoming(item);
@@ -1179,7 +1185,7 @@ export default function WarehouseIncomingPage() {
 
       <Dialog open={showReceiveDialog} onOpenChange={setShowReceiveDialog}>
         <DialogContent>
-          <DialogHeader><DialogTitle>{isFarmerPackedIncoming(selectedIncoming) ? "Receive Farmer Fulfillment Order" : "Receive Warehouse Fulfillment Stock"}</DialogTitle><DialogDescription>{selectedIncoming?.sourceMode === "farmer_fulfillment_transfer" ? "Verify the quantity physically received. This order is already packed, so bulk quality inspection and repacking are skipped." : "Record the actual quantity and complete the quality check here. If quality passes, save and print the receipt for the packing team, then continue to Store. Failed stock stays on hold."}</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>{isFarmerPackedIncoming(selectedIncoming) ? "Receive Farmer Fulfillment Order" : "Receive Warehouse Fulfillment Stock"}</DialogTitle><DialogDescription>{selectedIncoming?.sourceMode === "farmer_fulfillment_transfer" ? "Verify the sealed packets and record physical receipt. Then complete the separate Quality Check by approving or rejecting the shipment." : "Record the physical quantity received only. Then complete the separate Quality Check by approving or rejecting the shipment before Store or Order Packing."}</DialogDescription></DialogHeader>
           <form className="space-y-4" onSubmit={handleReceiveStock}>
             <div className="rounded-lg border bg-slate-50 p-3 text-sm"><p className="font-medium">Farmer declared quantity: {selectedIncoming?.quantity ?? "—"} {selectedIncoming?.unit || "kg"}</p><p className="mt-1 text-muted-foreground">{selectedIncoming?.sourceMode === "farmer_fulfillment_transfer" ? "Count the sealed packets and confirm the number of packed orders received." : "Weigh the bulk stock on the warehouse scale and enter the measured quantity below."}</p></div>
             <div><label className="text-sm font-medium">{selectedIncoming?.sourceMode === "farmer_fulfillment_transfer" ? "Received packet quantity / order units" : "Actual weight measured at warehouse (kg)"}</label><Input type="number" min="0.01" step="0.01" value={receiveForm.quantity} onChange={(event) => updateReceiveForm("quantity", event.target.value)} className="mt-1" required /><p className="mt-1 text-xs text-muted-foreground">Difference: {(Number(receiveForm.quantity || 0) - Number(selectedIncoming?.quantity || 0)).toFixed(2)} {selectedIncoming?.unit || "kg"}</p></div>
