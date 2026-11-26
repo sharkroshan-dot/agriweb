@@ -611,7 +611,7 @@ export default function WarehouseIncomingPage() {
 
   const openQualityDialog = (item: any) => { setSelectedIncoming(item); setQualityNotes(""); setShowQualityDialog(true); };
 
-  const isReceiptQualityPassed = (row: any) => { const qc = String(row.qualityCheck || row.quality_check || "").toLowerCase(); if (qc === "failed") return false; if (qc === "passed") return true; const status = String(row.status || "").toLowerCase(); const declared = Number(row.quantity || 0); const actual = Number(row.quantityReceived ?? row.receivedQuantity ?? row.actualQuantityReceived ?? 0); return ["received", "quality_check", "stored"].includes(status) && declared > 0 && actual >= declared - 0.001; };
+  function isReceiptQualityPassed(row: any) { const qc = String(row.qualityCheck || row.quality_check || "").toLowerCase(); if (qc === "failed") return false; if (qc === "passed") return true; const status = String(row.status || "").toLowerCase(); const declared = Number(row.quantity || 0); const actual = Number(row.quantityReceived ?? row.receivedQuantity ?? row.actualQuantityReceived ?? 0); return ["received", "quality_check", "stored"].includes(status) && declared > 0 && actual >= declared - 0.001; }
 
   const openStoreDialog = (item: any) => {
     setSelectedIncoming(item);
