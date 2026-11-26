@@ -53,6 +53,11 @@ const isUnfinishedPackingTask = (task: any) =>
 export default function WarehousePackingPage() {
   const searchParams = useSearchParams();
   const requestedOrderId = searchParams.get("orderId") || "";
+  const requestedOrderIds = (searchParams.get("orderIds") || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const requestedOrderIdSet = new Set([requestedOrderId, ...requestedOrderIds].filter(Boolean));
   const requestedFarm = searchParams.get("farm") || "";
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedOrderId, setSelectedOrderId] = useState<string>("");
@@ -111,9 +116,9 @@ export default function WarehousePackingPage() {
     const query = searchTerm.trim().toLowerCase();
     return tasks.filter((task: any) => {
       if (!matchesPackingDate(task, dateFilter)) return false;
-      if (requestedOrderId) {
-        const taskOrderIds = [task.orderId, task.order?._id, task.orderNumber, task.orderNo, task.id].filter(Boolean).map(String);
-        if (!taskOrderIds.includes(requestedOrderId)) return false;
+      if (requestedOrderIdSet.size > 0) {
+        const taskOrderIds = [task.orderId, task.order?._id, task.order?.id, task.orderNumber, task.orderNo, task.id, task._id].filter(Boolean).map(String);
+        if (!taskOrderIds.some((id: string) => requestedOrderIdSet.has(id))) return false;
       }
       if (requestedFarm) {
         const target = requestedFarm.includes(":") ? requestedFarm.slice(requestedFarm.indexOf(":") + 1).toLowerCase() : requestedFarm.toLowerCase();
@@ -134,7 +139,7 @@ export default function WarehousePackingPage() {
       ];
       return values.filter(Boolean).some((value) => String(value).toLowerCase().includes(query));
     });
-  }, [tasks, searchTerm, dateFilter, requestedOrderId, requestedFarm]);
+  }, [tasks, searchTerm, dateFilter, requestedOrderId, requestedOrderIds.join(","), requestedFarm]);
 
   const unresolvedShortages = shortages.filter((item: any) => !["resolved", "cancelled", "closed"].includes(String(item.status || "").toLowerCase()));
   const shortageOrderIds = new Set(unresolvedShortages.flatMap((item: any) => [item.orderId, item.orderNumber, item.order?._id, item.order?.id].filter(Boolean).map(String)));
@@ -145,7 +150,16 @@ export default function WarehousePackingPage() {
     if (queueTab === "packing") return filteredTasks.filter((task: any) => ["assigned", "packing", "partially_packed"].includes(String(task.status || "").toLowerCase()) && !taskHasOpenShortage(task));
     return filteredTasks.filter((task: any) => String(task.status || "").toLowerCase() === "ready_for_packing" && !taskHasOpenShortage(task));
   }, [filteredTasks, queueTab, shortageData]);
-  const selectedTask = visibleTasks.find((task: any) => String(task.id) === selectedOrderId) || visibleTasks[0] || null;
+  const selectedTask = visibleTasks.find((task: any) => String(task.id || task._id) === selectedOrderId) || visibleTasks[0] || null;
+  useEffect(() => {
+    if (!visibleTasks.length) {
+      setSelectedOrderId("");
+      return;
+    }
+    if (!visibleTasks.some((task: any) => String(task.id || task._id) === selectedOrderId)) {
+      setSelectedOrderId(String(visibleTasks[0].id || visibleTasks[0]._id));
+    }
+  }, [visibleTasks, selectedOrderId]);
   const selectedShortage = unresolvedShortages.find((item: any) => String(item.id || item._id) === selectedOrderId) || unresolvedShortages[0] || null;
   const selectedShortageTask = selectedShortage ? filteredTasks.find((task: any) => [task.orderId, task.orderNumber, task.order?.id, task.order?._id, task.id].filter(Boolean).some((id: any) => [selectedShortage.orderId, selectedShortage.orderNumber, selectedShortage.order?.id, selectedShortage.order?._id].filter(Boolean).map(String).includes(String(id)))) : null;
   const selectedItems = selectedTask?.packingItems?.length ? selectedTask.packingItems : selectedTask?.items || [];
