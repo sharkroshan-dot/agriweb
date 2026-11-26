@@ -601,6 +601,13 @@ async def enrich_pickup_route_display(route: Dict[str, Any]) -> Dict[str, Any]:
             return None
         if key not in order_cache:
             order_cache[key] = await order_repository.get_by_id(key)
+            # B2B purchase orders are stored separately from retail orders.
+            # Pickup routes may point to either collection, so resolve both.
+            if not order_cache[key]:
+                try:
+                    order_cache[key] = await MongoDB.get_collection("b2b_orders").find_one({"_id": ObjectId(key)})
+                except Exception:
+                    order_cache[key] = None
         return order_cache[key]
 
     async def product_by_id(raw_id: Any) -> Optional[Dict[str, Any]]:
@@ -695,6 +702,12 @@ async def enrich_pickup_route_display(route: Dict[str, Any]) -> Dict[str, Any]:
     result["deliveryPartnerVehicleNumber"] = (
         _human_text(result.get("deliveryPartnerVehicleNumber"))
         or _human_text((partner or {}).get("vehicleNumber"))
+    )
+    result["vehicleCapacity"] = (
+        result.get("vehicleCapacity")
+        or (partner or {}).get("vehicleCapacity")
+        or (partner or {}).get("capacityKg")
+        or (partner or {}).get("capacity")
     )
 
     display_stops = []
