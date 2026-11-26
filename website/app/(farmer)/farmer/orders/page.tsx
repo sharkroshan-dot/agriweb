@@ -147,7 +147,7 @@ export default function FarmerOrdersPage() {
 
   const [bulkRunning, setBulkRunning] = useState(false);
   const [runAllConfirmOpen, setRunAllConfirmOpen] = useState(false);
-  const [bulkActionRunning, setBulkActionRunning] = useState<"farmer_fulfillment" | "warehouse_fulfillment" | null>(null);
+  const [bulkActionRunning, setBulkActionRunning] = useState<"farmer_fulfillment" | "warehouse_fulfillment" | "warehouse_ready_for_pickup" | null>(null);
 
   const handleRunAllEligible = async () => {
     try {
@@ -172,11 +172,52 @@ export default function FarmerOrdersPage() {
     }
   };
 
+  const getApiErrorMessage = (error: any, fallback: string) => {
+    const payload = error?.response?.data;
+    const detail = payload?.detail || payload?.error?.message || payload?.message || error?.data?.detail || error?.message;
+    if (typeof detail === "string" && detail.trim()) return detail;
+    if (Array.isArray(detail)) return detail.map((entry: any) => entry?.msg || JSON.stringify(entry)).join("; ");
+    return fallback;
+  };
+
   const handleBulkWorkflowAction = async (action: "confirm" | "process" | "farmer_fulfillment" | "warehouse_fulfillment" | "warehouse_ready_for_pickup") => {
-    if (action === "farmer_fulfillment" || action === "warehouse_fulfillment") {
+    if (action === "farmer_fulfillment" || action === "warehouse_fulfillment" || action === "warehouse_ready_for_pickup") {
       setBulkActionRunning(action);
     }
     try {
+      // Use the same per-order readiness endpoint as the single-order action.
+      // It returns an actionable reason for each order and prevents one bad
+      // order from aborting the whole "Ready for Pickup All" operation.
+      if (action === "warehouse_ready_for_pickup") {
+        const eligible = orderList.filter((order: any) =>
+          String(order.fulfillmentMethod || "").toLowerCase() === "warehouse"
+          && getStatus(order) === "processing"
+          && String(order._id || order.id || "").trim()
+        );
+        if (!eligible.length) {
+          toast.info("No warehouse-fulfillment orders are currently in Processing and ready to be marked for pickup.");
+          return;
+        }
+        const completed: string[] = [];
+        const failed: string[] = [];
+        for (const order of eligible) {
+          const id = String(order._id || order.id);
+          try {
+            await api.put(`/orders/${id}/warehouse-ready-for-pickup`);
+            completed.push(String(order.orderNumber || id));
+          } catch (error: any) {
+            failed.push(`${order.orderNumber || id}: ${getApiErrorMessage(error, "Could not mark ready for pickup")}`);
+          }
+        }
+        if (completed.length) toast.success(`${completed.length} warehouse order(s) marked Ready for Warehouse Pickup.`);
+        if (failed.length) {
+          const preview = failed.slice(0, 3).join(" | ");
+          toast.error(`${failed.length} order(s) could not be updated: ${preview}${failed.length > 3 ? " | See remaining orders individually." : ""}`);
+        }
+        await refetch();
+        await availabilityQuery.refetch();
+        return;
+      }
       const response = await api.post("/orders/farmer/bulk-advance", { action });
       const result = response?.data || response;
       const processed = Number(result?.processedOrders || 0);
@@ -196,14 +237,10 @@ export default function FarmerOrdersPage() {
       await refetch();
       await availabilityQuery.refetch();
     } catch (error: any) {
-      let msg = "Bulk workflow action failed";
-      try {
-        const j = JSON.parse(error.message);
-        msg = j.detail || j.error?.message || j.message || msg;
-      } catch {}
+      const msg = getApiErrorMessage(error, "Bulk workflow action failed");
       toast.error(msg);
     } finally {
-      if (action === "farmer_fulfillment" || action === "warehouse_fulfillment") {
+      if (action === "farmer_fulfillment" || action === "warehouse_fulfillment" || action === "warehouse_ready_for_pickup") {
         setBulkActionRunning(null);
       }
     }
@@ -443,8 +480,8 @@ export default function FarmerOrdersPage() {
             <Button size="sm" variant="outline" className="h-10 justify-start whitespace-normal text-left" onClick={() => handleBulkWorkflowAction("warehouse_fulfillment")}>
               <Store className="mr-2 h-4 w-4 shrink-0 text-blue-700" />Warehouse Fulfillment All
             </Button>
-            <Button size="sm" variant="outline" className="h-10 justify-start whitespace-normal text-left" onClick={() => handleBulkWorkflowAction("warehouse_ready_for_pickup")}>
-              <Truck className="mr-2 h-4 w-4 shrink-0 text-amber-700" />Warehouse Ready for Pickup All
+            <Button size="sm" variant="outline" className="h-10 justify-start whitespace-normal text-left" onClick={() => handleBulkWorkflowAction("warehouse_ready_for_pickup")} disabled={bulkRunning || bulkActionRunning !== null || orderList.length === 0}>
+              <Truck className="mr-2 h-4 w-4 shrink-0 text-amber-700" />{bulkActionRunning === "warehouse_ready_for_pickup" ? "Updating Warehouse Pickup…" : "Warehouse Ready for Pickup All"}
             </Button>
             <Button size="sm" variant="outline" className="h-10 justify-start whitespace-normal text-left" onClick={() => setShowBulkSummary((current) => !current)}>
               <ShoppingBag className="mr-2 h-4 w-4 shrink-0 text-slate-600" />Bulk Summary
