@@ -8528,6 +8528,34 @@ async def get_my_incoming_stock(
         safe_item["farmerName"] = safe_item.get("farmerName") or safe_item["farmName"]
         safe_item["productName"] = safe_item.get("productName") or "Product name unavailable"
         safe_item["orderNumber"] = safe_item.get("orderNumber") or "Order reference unavailable"
+
+        # Expose the actual assigned farm-pickup delivery partner on each
+        # incoming shipment so the warehouse page can filter by partner name.
+        route_id = str(safe_item.get("pickupRouteId") or "")
+        if route_id and ObjectId.is_valid(route_id):
+            try:
+                pickup_route = await warehouse_pickup_route_repository.get_by_id(route_id)
+                if pickup_route:
+                    route_display = await enrich_pickup_route_display(pickup_route)
+                    safe_item["deliveryPartnerName"] = (
+                        route_display.get("deliveryPartnerName")
+                        or safe_item.get("deliveryPartnerName")
+                    )
+                    safe_item["deliveryPartnerId"] = str(
+                        pickup_route.get("deliveryPartnerId") or safe_item.get("deliveryPartnerId") or ""
+                    ) or None
+                    safe_item["pickupRouteNumber"] = route_display.get("routeNumber")
+            except Exception:
+                logger.exception("Could not resolve delivery partner for incoming shipment %s", safe_item["id"])
+
+        # Preserve an already-hydrated partner name from collection/order records
+        # when a legacy shipment has no pickupRouteId.
+        safe_item["deliveryPartnerName"] = (
+            safe_item.get("deliveryPartnerName")
+            or safe_item.get("pickupTeamName")
+            or safe_item.get("collectionTeamName")
+            or safe_item.get("assignedPartnerName")
+        )
         safe_incoming.append(safe_item)
     return {
         "success": True,
