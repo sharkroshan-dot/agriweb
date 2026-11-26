@@ -100,11 +100,14 @@ router = APIRouter()
 
 
 def _enforce_warehouse_operating_window(window: str) -> None:
-    """Enforce warehouse logistics windows in IST at the API boundary."""
+    """Enforce the daytime dispatch window for downstream warehouse transfers.
+
+    Farm pickup routes may be planned and assigned by warehouse managers at
+    any time. The 20:00-06:00 IST period is the intended farm collection shift,
+    not a restriction on creating or assigning the route in advance.
+    """
     now = datetime.now(ZoneInfo("Asia/Kolkata"))
     is_farm_pickup_window = now.hour >= 20 or now.hour < 6
-    if window == "farm_pickup" and not is_farm_pickup_window:
-        raise HTTPException(status_code=409, detail="Farm pickup routes can only be assigned or started between 20:00 and 06:00 IST.")
     if window == "downstream_transfer" and is_farm_pickup_window:
         raise HTTPException(status_code=409, detail="Warehouse-to-warehouse and local-hub transfers can only be dispatched between 06:00 and 20:00 IST.")
 
@@ -1397,8 +1400,7 @@ async def get_my_collections(
         if not profile:
             return default
         for key in ("farmName", "ownerName", "fullName", "name", "displayName"):
-            candidate = readable(profile.get(key))
-            if candidate:
+            candidate = readable(profile.get(key))            if candidate:
                 return candidate
         owner_user = await get_user(str(profile.get("userId") or ""))
         if owner_user:
@@ -2797,8 +2799,7 @@ async def get_farmer_fulfillment_transfers(
         ):
             continue
         packed_incoming_by_order.setdefault(linked_order_id, []).append(incoming_row)
-        if linked_order_id not in known_order_ids:
-            orders.append(linked_order)
+        if linked_order_id not in known_order_ids:            orders.append(linked_order)
             known_order_ids.add(linked_order_id)
 
     result = []
@@ -4197,8 +4198,7 @@ async def recover_packed_farmer_fulfillment_source_warehouse(
 
     # Never reassign a shipment that already belongs to another warehouse.
     assigned_source = str(order.get("sourceWarehouseId") or order.get("warehouseId") or "")
-    if assigned_source and assigned_source != warehouse_id:
-        raise HTTPException(status_code=409, detail=f"This order is already assigned to another source warehouse ({assigned_source}).")
+    if assigned_source and assigned_source != warehouse_id:        raise HTTPException(status_code=409, detail=f"This order is already assigned to another source warehouse ({assigned_source}).")
 
     now = datetime.utcnow()
     if packed_rows:
@@ -5597,8 +5597,7 @@ async def assign_farmer_fulfillment_destination_warehouse(
         or order.get("sourceDistrict")
         or order.get("sourceWarehouseDistrict")
         or order.get("warehouseDistrict")
-        or order.get("farmerDistrict")
-        or (source_service_areas[0] if len(source_service_areas) == 1 else "")
+        or order.get("farmerDistrict")        or (source_service_areas[0] if len(source_service_areas) == 1 else "")
         or ""
     ).strip().casefold()
     farmer_id = str(order.get("farmerId") or "")
@@ -6997,8 +6996,7 @@ async def choose_farmer_fulfillment_delivery_route(
         "The warehouse published this order to eligible delivery partners for direct customer delivery.",
         actor_id=str(current_user["_id"]), actor_role="warehouse",
         metadata={"warehouseId": warehouse_id, "distanceKm": route_distance_km, "urgent": bool(urgent), "jobId": str(job_id)},
-    )
-    return {
+    )    return {
         "success": True,
         "data": {"orderId": order_id, "jobId": str(job_id), "status": "open", "distanceKm": route_distance_km, "urgent": bool(urgent), "eligiblePartners": len(eligible)},
         "message": "Direct warehouse delivery published. Only verified, available partners with sufficient vehicle capacity are eligible.",
@@ -7883,7 +7881,6 @@ async def create_pickup_routes(
 ):
     if current_user.get("role") != "warehouse":
         raise HTTPException(status_code=403, detail="Only warehouse managers can create pickup routes")
-    _enforce_warehouse_operating_window("farm_pickup")
     warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
     if not warehouse:
         raise HTTPException(status_code=404, detail="Warehouse not found")
@@ -8397,8 +8394,7 @@ async def get_my_incoming_stock(
                     # incoming-stock labels never guess or default every order to online.
                     for payment_key in ("paymentMethod", "payment_method", "paymentMode", "paymentType", "paymentStatus", "payment_status", "totalAmount", "grandTotal", "payableAmount", "total", "cashOnDelivery"):
                         if order.get(payment_key) is not None:
-                            safe_item[payment_key] = make_json_safe(order.get(payment_key))
-                    if isinstance(order.get("payment"), dict):
+                            safe_item[payment_key] = make_json_safe(order.get(payment_key))                    if isinstance(order.get("payment"), dict):
                         safe_item["payment"] = make_json_safe(order["payment"])
                     # Packing labels must use the canonical customer order address, not only the incoming-stock snapshot.
                     delivery_address = order.get("deliveryAddress") or order.get("shippingAddress") or order.get("address")
@@ -9797,8 +9793,7 @@ async def return_farmer_fulfillment_to_farmer(
                 "orderId": order_id,
                 "warehouseId": warehouse_id,
             },
-            priority=NotificationPriority.URGENT,
-            mandatory=True,
+            priority=NotificationPriority.URGENT,            mandatory=True,
         )
     except Exception:
         logger.exception("Failed to notify farmer about warehouse return request")
