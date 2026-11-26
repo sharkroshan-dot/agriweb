@@ -252,7 +252,7 @@ export default function WarehouseIncomingPage() {
           ? rawIncoming.results
           : [];
     const query = searchTerm.trim().toLowerCase();
-    const selectedPartner = deliveryPartnerFilter.trim().toLowerCase();
+    const selectedPartner = String(deliveryPartnerFilter || "all").trim().toLowerCase();
 
     const readableItems = items
       .map((item: any) => ({
@@ -277,7 +277,6 @@ export default function WarehouseIncomingPage() {
       .filter((item: any) => {
         const partnerName = String(item.deliveryPartnerName || item.pickupTeamName || item.collectionTeamName || item.assignedPartnerName || "").trim().toLowerCase();
         if (selectedPartner !== "all" && partnerName !== selectedPartner) return false;
-        if (statusFilter !== "all" && item.displayStatus !== statusFilter) return false;
         if (fulfillmentFilter === "received_warehouse") return false;
         if (fulfillmentFilter === "farmer") return isFarmerPackedIncoming(item);
         if (fulfillmentFilter === "warehouse") return !isFarmerPackedIncoming(item);
@@ -288,7 +287,7 @@ export default function WarehouseIncomingPage() {
       .filter((item: any) =>
         !query || [
           item.displayFarmName, item.displayProductName, item.displayOrderNumber,
-          item.pickupLocation?.address, item.batchNumber, statusLabels[item.status] || item.status,
+          item.pickupLocation?.address, item.batchNumber, item.deliveryPartnerName, item.pickupTeamName, statusLabels[item.status] || item.status,
         ].filter(Boolean).some((value) => String(value).toLowerCase().includes(query))
       );
 
@@ -307,7 +306,7 @@ export default function WarehouseIncomingPage() {
       stagePriority(a) - stagePriority(b) ||
       new Date(a.expectedDate || a.createdAt || 0).getTime() - new Date(b.expectedDate || b.createdAt || 0).getTime()
     );
-  }, [incomingData, searchTerm, fulfillmentFilter, dateFilter, deliveryPartnerFilter]);
+  }, [incomingData, searchTerm, statusFilter, fulfillmentFilter, dateFilter, deliveryPartnerFilter]);
 
   const selectedIncomingRow =
     incomingList.find((item: any) => String(item.id || item._id) === selectedIncomingId) ||
