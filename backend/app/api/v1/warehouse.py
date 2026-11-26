@@ -1887,6 +1887,34 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
         for alias in [canonical, *(master.get("aliases") or [])]:
             master_by_alias[normalized_area(alias)] = master
 
+    # The warehouse pickup directory uses these taluk-level buckets for
+    # Tiruchirappalli even when the admin-maintained village master is empty.
+    # Add them to the same resolver BEFORE farmer profiles and collection jobs
+    # are processed, so composite addresses can resolve consistently.
+    fallback_taluk_names = {
+        "tiruchirappalli": [
+            "Lalgudi", "Manachanallur", "Manapparai", "Marungapuri", "Musiri",
+            "Srirangam", "Thottiam", "Thuraiyur", "Tiruchirapalli (West)",
+            "Tiruchirappalli (East)", "Tiruverumbur",
+        ],
+    }
+    district_aliases_for_areas = {
+        "trichy": "tiruchirappalli",
+        "tiruchirapalli": "tiruchirappalli",
+        "tiruchirappalli": "tiruchirappalli",
+    }
+    for covered_district in coverage:
+        district_key = district_aliases_for_areas.get(normalize_collection_district(covered_district), normalize_collection_district(covered_district))
+        for taluk_name in fallback_taluk_names.get(district_key, []):
+            synthetic = {
+                "name": taluk_name,
+                "taluk": taluk_name,
+                "district": "Tiruchirappalli",
+                "aliases": [],
+                "isFallbackDirectoryEntry": True,
+            }
+            master_by_alias.setdefault(normalized_area(taluk_name), synthetic)
+
     def canonical_area(value: Optional[str]) -> Optional[dict]:
         if not value:
             return None
@@ -2126,7 +2154,10 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
         if area_name and not taluk_name and matched_master:
             taluk_name = str(matched_master.get("taluk") or "").strip() or None
         profile_directory.append({
-            "area": village_name,
+            # "area" is the parent pickup card; the village is retained as
+            # child metadata instead of becoming a separate zero-count card.
+            "area": area_name,
+            "village": village_name,
             "taluk": taluk_name or area_name,
             "farmerId": str(profile.get("userId") or profile.get("farmerId") or profile.get("_id") or ""),
         })
@@ -2382,15 +2413,15 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
         name = item.get("area")
         if not name: continue
         master = canonical_area(name)
-        canonical = str((master or {}).get("name") or name).strip()
+        canonical = str((master or {}).get("taluk") or (master or {}).get("name") or name).strip()
         key = "area:" + normalized_area(canonical)
         group = area_groups.setdefault(key, {
             "key": key, "name": canonical, "taluk": canonical,
             "district": None, "aliases": [], "villages": set(), "registeredFarmIds": set(),
             "readyFarmIds": set(), "collectionIds": [], "totalOrders": 0, "readyOrders": 0,
         })
-        if item.get("area"):
-            group.setdefault("villages", set()).add(str(item["area"]).strip())
+        if item.get("village"):
+            group.setdefault("villages", set()).add(str(item["village"]).strip())
         if item.get("farmerId"): group["registeredFarmIds"].add(item["farmerId"])
     for job in pickup_jobs:
         farmer_id = str(job.get("farmerId") or job.get("farmerUserId") or job.get("farmId") or "")
@@ -2466,7 +2497,8 @@ async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
         key = "area:" + normalized_area(canonical)
         group = area_groups.setdefault(key, {
             "key": key, "name": canonical, "taluk": canonical,
-            "district": (master or {}).get("district"), "aliases": (master or {}).get("aliases") or [],
+            "district": (master or {}).get("district") or ("Tiruchirappalli" if normalized_area(canonical) in {normalized_area(x) for x in fallback_taluk_names.get("tiruchirappalli", [])} else None),
+            "aliases": (master or {}).get("aliases") or [],
             "villages": set(), "registeredFarmIds": set(), "readyFarmIds": set(),
             "collectionIds": [], "totalOrders": 0, "readyOrders": 0,
         })
