@@ -576,17 +576,41 @@ export default function PickupRoutesPage() {
     };
   }, [jobs, selectedArea, filtered]);
 
-  const farmMarkers = useMemo(() => filtered.flatMap((job) => {
-    const coords = coordinatesOf(job) || geocodedCoords[idOf(job)] || null;
-    if (!coords) return [];
-    return [{
-      id: idOf(job),
-      lat: coords[0],
-      lng: coords[1],
-      title: escapeMapText(job.farmerName || "Farm pickup"),
-      info: escapeMapText(`${job.orderNumber || job.eventOrderNumber || "Pickup order"} · ${job.productName || "Product"} · ${Number(job.quantity || 0)} kg · ${STATUS_LABEL[String(job.status)] || String(job.status || "Unknown").replace(/_/g, " ")}`),
-    }];
-  }), [filtered, geocodedCoords]);
+  // The map represents physical farms, not collection-order rows. A farm
+  // with several collection orders must create exactly one map marker.
+  const farmMarkers = useMemo(() => {
+    const farmGroups = new Map<string, { representative: Job; coords: [number, number]; orders: Job[] }>();
+    for (const job of filtered) {
+      const coords = coordinatesOf(job) || geocodedCoords[idOf(job)] || null;
+      if (!coords) continue;
+      const farmerKey = String(job.farmId || job.farmProfileId || job.sourceFarmId || job.farmerId || job.farmerUserId || "").trim();
+      const key = farmerKey ? "farm:" + farmerKey.toLowerCase() : getFarmRouteKey(job);
+      const existing = farmGroups.get(key);
+      if (existing) {
+        existing.orders.push(job);
+        // Prefer coordinates saved on the farm profile over per-order
+        // geocoding so all orders from the same farm share one pin.
+        if (coordinatesOf(job)) existing.coords = coords;
+      } else {
+        farmGroups.set(key, { representative: job, coords, orders: [job] });
+      }
+    }
+    return Array.from(farmGroups.entries()).map(([key, farm]) => {
+      const job = farm.representative;
+      const quantity = farm.orders.reduce((sum, order) => sum + Number(order.quantity || 0), 0);
+      const orderLabels = farm.orders.slice(0, 4).map((order) =>
+        String(order.orderNumber || order.eventOrderNumber || "Pickup order")
+      ).join(", ");
+      return {
+        id: idOf(job),
+        farmKey: key,
+        lat: farm.coords[0],
+        lng: farm.coords[1],
+        title: escapeMapText(job.farmerName || job.farmName || "Farm pickup"),
+        info: escapeMapText(`${farm.orders.length} collection orders · ${quantity.toFixed(1)} kg · ${orderLabels}${farm.orders.length > 4 ? "…" : ""}`),
+      };
+    });
+  }, [filtered, geocodedCoords]);
   const mapCenter = useMemo(() => farmMarkers.length
     ? { lat: farmMarkers.reduce((sum, marker) => sum + marker.lat, 0) / farmMarkers.length, lng: farmMarkers.reduce((sum, marker) => sum + marker.lng, 0) / farmMarkers.length }
     : { lat: 10.7905, lng: 78.7047 }, [farmMarkers]);
@@ -745,11 +769,11 @@ export default function PickupRoutesPage() {
         <div className="min-w-0 space-y-4">
           <Card className="overflow-hidden rounded-2xl border-slate-200 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 p-4">
-              <div><h2 className="flex items-center gap-2 font-semibold text-slate-950"><MapPin className="h-4 w-4 text-emerald-700"/> Pickup location map</h2><p className="mt-1 text-xs text-slate-500">{farmMarkers.length} located orders · {filtered.filter((job) => !coordinatesOf(job) && !geocodedCoords[idOf(job)]).length} without coordinates</p></div>
+              <div><h2 className="flex items-center gap-2 font-semibold text-slate-950"><MapPin className="h-4 w-4 text-emerald-700"/> Pickup location map</h2><p className="mt-1 text-xs text-slate-500">{farmMarkers.length} located farms · {new Set(filtered.filter((job) => !coordinatesOf(job) && !geocodedCoords[idOf(job)]).map(getFarmRouteKey)).size} farms without coordinates</p></div>
               <Badge variant="outline">{selectedGroupName}</Badge>
             </div>
             {farmMarkers.length ? <SharedMap center={mapCenter} zoom={11} markers={farmMarkers} drawRoute={false} height="300px" className="w-full" onMarkerClick={(marker: any) => setActiveFarmId(String(marker?.id || ""))} /> : <div className="flex h-[260px] flex-col items-center justify-center gap-2 bg-slate-50 text-center"><MapPin className="h-8 w-8 text-slate-400"/><p className="text-sm font-medium text-slate-700">No verified farm coordinates in this area</p><p className="text-xs text-slate-500">Orders remain available below. Add verified GPS coordinates to the farmer's farm profile to show a marker.</p></div>}
-            <div className="flex flex-wrap gap-3 border-t bg-slate-50 px-4 py-3 text-xs text-slate-600"><span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5"/> Each marker represents a farm pickup order</span><span>Only farms in this warehouse district are included</span></div>
+            <div className="flex flex-wrap gap-3 border-t bg-slate-50 px-4 py-3 text-xs text-slate-600"><span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5"/> Each marker represents one farm; multiple orders are grouped together</span><span>Only farms in this warehouse district are included</span></div>
           </Card>
           {activeFarmId && (() => {
             const active = filtered.find((job) => idOf(job) === activeFarmId);
