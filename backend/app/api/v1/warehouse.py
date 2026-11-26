@@ -8332,6 +8332,30 @@ async def get_my_incoming_stock(
             except Exception:
                 logger.exception("Could not sync incoming shipment arrival from collection %s", collection_id)
 
+        # Repair legacy incoming rows when the delivery partner recorded the
+        # warehouse handover on the parent pickup route but the collection-job
+        # back-reference is missing or stale. This keeps Receive enabled only
+        # after the route has actually been returned to this warehouse.
+        if not safe_item.get("arrivedWarehouseAt") and item.get("pickupRouteId"):
+            try:
+                pickup_route = await warehouse_pickup_route_repository.get_by_id(str(item.get("pickupRouteId")))
+                if pickup_route and str(pickup_route.get("status") or "").lower() == "returned_to_warehouse":
+                    route_arrival = pickup_route.get("returnedAt") or pickup_route.get("updatedAt") or datetime.utcnow()
+                    await incoming_stock_repository.update(
+                        {"_id": item["_id"]},
+                        {
+                            "arrivedWarehouseAt": route_arrival,
+                            "warehouseArrivalConfirmed": True,
+                            "updatedAt": datetime.utcnow(),
+                        },
+                    )
+                    safe_item["arrivedWarehouseAt"] = route_arrival
+                    safe_item["warehouseArrivalConfirmed"] = True
+                    if str(safe_item.get("status") or "").lower() in ("scheduled", "ready_for_pickup"):
+                        safe_item["status"] = "in_transit"
+            except Exception:
+                logger.exception("Could not repair warehouse arrival from pickup route for incoming %s", safe_item["id"])
+
         # Resolve Mongo IDs into human-readable names for the warehouse receiving UI.
         farmer_id = str(item.get("farmerId") or "")
         if farmer_id and ObjectId.is_valid(farmer_id):
