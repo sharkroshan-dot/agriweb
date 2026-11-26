@@ -422,6 +422,7 @@ export default function WarehouseIncomingPage() {
     if (!window.confirm(`${decision === "approve" ? "Approve" : "Reject"} quality for ${eligible.length} selected orders?`)) return;
     setIsSaving(true);
     let succeeded = 0;
+    const qualityApprovedItems: any[] = [];
     try {
       for (const item of eligible) {
         const id = String(item.id || item._id);
@@ -431,9 +432,14 @@ export default function WarehouseIncomingPage() {
           notes: qualityCheck === "failed" ? "Rejected during batch warehouse quality inspection." : "Approved during batch warehouse quality inspection.",
         });
         succeeded += 1;
+        if (qualityCheck === "passed") qualityApprovedItems.push(item);
       }
       toast.success(`${decision === "approve" ? "Approved" : "Rejected"} quality for ${succeeded} orders.`);
       await refetch();
+      if (qualityCheck === "passed" && qualityApprovedItems.length > 1) {
+        const shouldPrint = window.confirm(`Quality approved for ${qualityApprovedItems.length} orders. Would you like to print all ${qualityApprovedItems.length} order labels now?`);
+        if (shouldPrint) printFarmPackingLabels(qualityApprovedItems);
+      }
     } catch (error: any) {
       toast.error(`Quality decision saved for ${succeeded} of ${eligible.length} orders. ${error?.response?.data?.detail || error?.message || "Refresh and review before retrying."}`);
       await refetch();
@@ -899,6 +905,8 @@ export default function WarehouseIncomingPage() {
   }
 
   return (
+    <>
+    {farmLabelPrintItems.length > 0 && <div aria-hidden="true" style={{ position: "fixed", left: "-10000px", top: 0 }}>{farmLabelPrintItems.map((item: any, index: number) => <div key={String(item.id || item._id || item.orderId || index)} data-farm-label-qr={index}><QRCodeSVG value={typeof window !== "undefined" ? window.location.origin + "/delivery/deliveries?orderId=" + encodeURIComponent(String(item.orderId || item.order?.id || item.order?._id || item.id || item._id || item.orderNumber || "")) : ""} size={160} level="M" /></div>)}</div>}
     <div className="warehouse-incoming-page mx-auto w-full max-w-[1800px] space-y-5 pb-8">
       <WarehousePageHeader
         eyebrow="Inventory receiving"
@@ -1249,5 +1257,6 @@ export default function WarehouseIncomingPage() {
         </DialogContent>
       </Dialog>
     </div>
+    </>
   );
 }
