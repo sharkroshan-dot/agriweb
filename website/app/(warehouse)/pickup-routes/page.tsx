@@ -353,6 +353,8 @@ export default function PickupRoutesPage() {
       // Farm addresses can be strings or nested objects (farmAddress,
       // farmLocation, addressLine1/addressLine2, etc.). Flatten only
       // farm-origin locality/address fields before matching configured aliases.
+      // Farm addresses may be strings or nested objects. Read locality fields
+      // from the farm origin, including addressLine1/addressLine2.
       const addressValues: string[] = [];
       const collectFarmAddress = (value: unknown, depth = 0) => {
         if (depth > 4 || value == null) return;
@@ -381,20 +383,12 @@ export default function PickupRoutesPage() {
       const address = addressValues.join(", ");
       const addressParts = address.split(/[,;|]/).map((part) => part.trim())
         .filter((part) => part && !isRoadOrAddressLabel(part)).map(areaKey);
-      const normalizedAddress = areaKey(address);
+      const normalizedAddress = " " + address.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim() + " ";
       const aliasMatches = Array.from(areaAliases.entries())
-        .filter(([alias]) => alias.length >= 3 && new RegExp("(^|[^a-z0-9])" + alias.replace(/[.*+?^${}()|[\]\\]/g, "\\      const address = [
-        job.pickupAddress, job.farmAddress, location.address, location.formattedAddress,
-        farmer.pickupAddress, farmer.farmAddress, farmerLocation.address, job.address,
-      ].filter((value) => typeof value === "string").join(", ");
-      const addressParts = address.split(/[,;|]/).map((part) => part.trim()).filter((part) => part && !isRoadOrAddressLabel(part)).map(areaKey);
-      const aliasMatches = Array.from(areaAliases.entries())
-        .filter(([alias]) => alias.length >= 3 && addressParts.some((part) => part === alias || part.includes(alias) || alias.includes(part)))
-        .sort((a, b) => b[0].length - a[0].length);
-      const matchedKey = explicitAreas.map((value) => areaAliases.get(areaKey(value))).find(Boolean)
-        || addressParts.map((value) => areaAliases.get(value)).find(Boolean)
-        || aliasMatches[0]?.[1];
-") + "([^a-z0-9]|$)").test(normalizedAddress))
+        .filter(([alias]) => {
+          const normalizedAlias = " " + alias.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim() + " ";
+          return alias.length >= 3 && normalizedAddress.includes(normalizedAlias);
+        })
         .sort((a, b) => b[0].length - a[0].length);
       const matchedKey = explicitAreas.map((value) => areaAliases.get(areaKey(value))).find(Boolean)
         || addressParts.map((value) => areaAliases.get(value)).find(Boolean)
