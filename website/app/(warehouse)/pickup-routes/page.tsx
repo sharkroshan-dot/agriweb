@@ -649,7 +649,16 @@ export default function PickupRoutesPage() {
     setManualFarmOrder(order);
   };
   const assignAreaOrders = async () => {
+    if (selectedArea === "all") {
+      toast.error("Select one pickup area first. A pickup assignment must belong to one area.");
+      return;
+    }
     if (!selectedIds.length) { toast.error("Select eligible pickup orders first."); return; }
+    const areaCollectionIds = new Set(selectedAreaJobs.map(idOf));
+    if (selectedJobs.some((job) => !areaCollectionIds.has(idOf(job)))) {
+      toast.error("Select orders from one pickup area only. Clear the selection and try again.");
+      return;
+    }
     const invalid = selectedJobs.filter((job) => !READY.has(String(job.status || "")) || job.pickupRouteId || job.collectionTeamId);
     if (invalid.length) { toast.error("Some selected orders are no longer eligible. Refresh and select again."); return; }
     if (assignmentMode === "assign_team" && (!selectedTeam || !selectedTeam.deliveryPartnerId)) {
@@ -894,7 +903,7 @@ export default function PickupRoutesPage() {
             <p className="text-xs font-medium text-slate-500">Assignment status</p>
             <p className={`mt-1 text-sm font-semibold ${selectedTeam && selectedWeight > Number(selectedTeam.capacity || selectedTeam.vehicleCapacity || 0) ? "text-rose-700" : "text-slate-800"}`}>{selectedTeam && selectedWeight > Number(selectedTeam.capacity || selectedTeam.vehicleCapacity || 0) ? "Capacity exceeded" : selectedIds.length ? "Ready to assign" : "Awaiting farm selection"}</p>
           </div>
-          <Button onClick={assignAreaOrders} disabled={assigning || !selectedIds.length || (assignmentMode==="assign_team" && (!selectedTeam || !selectedTeam.deliveryPartnerId || selectedWeight>getTeamCapacity(selectedTeam))) || (assignmentMode!=="assign_team" && eligibleTeams.length===0)} className="h-11 w-full rounded-xl bg-emerald-700 px-4 font-semibold text-white hover:bg-emerald-800"><Route className="mr-2 h-4 w-4"/>{assigning ? "Planning pickups…" : routePlanningMode==="manual" ? "Create manual route" : "Plan selected pickups"}</Button>
+          <Button onClick={assignAreaOrders} disabled={assigning || selectedArea==="all" || !selectedIds.length || (assignmentMode==="assign_team" && (!selectedTeam || !selectedTeam.deliveryPartnerId || selectedWeight>getTeamCapacity(selectedTeam))) || (assignmentMode!=="assign_team" && eligibleTeams.length===0)} className="h-11 w-full rounded-xl bg-emerald-700 px-4 font-semibold text-white hover:bg-emerald-800"><Route className="mr-2 h-4 w-4"/>{assigning ? "Planning pickups…" : selectedArea==="all" ? "Select one pickup area" : routePlanningMode==="manual" ? "Create manual route" : "Plan selected pickups"}</Button>
         </CardContent>
         {selectedTeam && selectedWeight > Number(selectedTeam.capacity || selectedTeam.vehicleCapacity || 0) && <p className="border-t border-rose-100 bg-rose-50 px-5 py-2.5 text-xs text-rose-700">Selected quantity exceeds this vehicle's capacity. Remove farms or select a vehicle with sufficient capacity.</p>}
         {eligibleTeams.length === 0 && <p className="border-t border-amber-100 bg-amber-50 px-5 py-2.5 text-xs text-amber-800">No approved pickup partner with registered vehicle capacity is available. Review Pickup Partners first.</p>}
