@@ -742,6 +742,10 @@ export default function WarehouseIncomingPage() {
       });
       toast.success(qualityCheck === "passed" ? "Quality approved. Continue to the next fulfillment process." : "Quality rejected. Shipment is on hold and cannot proceed.");
       setShowQualityDialog(false); setQualityNotes(""); await refetch();
+      if (qualityCheck === "passed") {
+        const shouldPrint = window.confirm("Quality approved for this order. Would you like to print its order label now?");
+        if (shouldPrint) printFarmPackingLabels([selectedIncoming]);
+      }
     } catch (error: any) { toast.error(error?.message || "Failed to update quality result"); }
     finally { setIsSaving(false); }
   };
