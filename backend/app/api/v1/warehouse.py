@@ -1397,7 +1397,8 @@ async def get_my_collections(
     jobs = await warehouse_collection_repository.get_by_warehouse(warehouse_id, status_filter, limit=1000)
 
     async def display_name_for_profile(profile: Optional[Dict[str, Any]], default: str) -> str:
-        if not profile:            return default
+        if not profile:
+            return default
         for key in ("farmName", "ownerName", "fullName", "name", "displayName"):
             candidate = readable(profile.get(key))
             if candidate:
@@ -2797,8 +2798,10 @@ async def get_farmer_fulfillment_transfers(
             linked_status in ("delivered", "completed", "cancelled", "refunded")
             and not include_completed
         ):
-            continue        packed_incoming_by_order.setdefault(linked_order_id, []).append(incoming_row)
-        if linked_order_id not in known_order_ids:            orders.append(linked_order)
+            continue
+        packed_incoming_by_order.setdefault(linked_order_id, []).append(incoming_row)
+        if linked_order_id not in known_order_ids:
+            orders.append(linked_order)
             known_order_ids.add(linked_order_id)
 
     result = []
@@ -4196,7 +4199,9 @@ async def recover_packed_farmer_fulfillment_source_warehouse(
         raise HTTPException(status_code=409, detail="Configure this warehouse's map location before assigning source shipments.")
 
     # Never reassign a shipment that already belongs to another warehouse.
-    assigned_source = str(order.get("sourceWarehouseId") or order.get("warehouseId") or "")    if assigned_source and assigned_source != warehouse_id:        raise HTTPException(status_code=409, detail=f"This order is already assigned to another source warehouse ({assigned_source}).")
+    assigned_source = str(order.get("sourceWarehouseId") or order.get("warehouseId") or "")
+    if assigned_source and assigned_source != warehouse_id:
+        raise HTTPException(status_code=409, detail=f"This order is already assigned to another source warehouse ({assigned_source}).")
 
     now = datetime.utcnow()
     if packed_rows:
@@ -5595,7 +5600,9 @@ async def assign_farmer_fulfillment_destination_warehouse(
         or order.get("sourceDistrict")
         or order.get("sourceWarehouseDistrict")
         or order.get("warehouseDistrict")
-        or order.get("farmerDistrict")        or (source_service_areas[0] if len(source_service_areas) == 1 else "")        or ""
+        or order.get("farmerDistrict")
+        or (source_service_areas[0] if len(source_service_areas) == 1 else "")
+        or ""
     ).strip().casefold()
     farmer_id = str(order.get("farmerId") or "")
     if not source_district and farmer_id and ObjectId.is_valid(farmer_id):
@@ -6993,8 +7000,10 @@ async def choose_farmer_fulfillment_delivery_route(
         "The warehouse published this order to eligible delivery partners for direct customer delivery.",
         actor_id=str(current_user["_id"]), actor_role="warehouse",
         metadata={"warehouseId": warehouse_id, "distanceKm": route_distance_km, "urgent": bool(urgent), "jobId": str(job_id)},
-    )    return {
-        "success": True,        "data": {"orderId": order_id, "jobId": str(job_id), "status": "open", "distanceKm": route_distance_km, "urgent": bool(urgent), "eligiblePartners": len(eligible)},
+    )
+    return {
+        "success": True,
+        "data": {"orderId": order_id, "jobId": str(job_id), "status": "open", "distanceKm": route_distance_km, "urgent": bool(urgent), "eligiblePartners": len(eligible)},
         "message": "Direct warehouse delivery published. Only verified, available partners with sufficient vehicle capacity are eligible.",
     }
 
@@ -8390,10 +8399,12 @@ async def get_my_incoming_stock(
                     # incoming-stock labels never guess or default every order to online.
                     for payment_key in ("paymentMethod", "payment_method", "paymentMode", "paymentType", "paymentStatus", "payment_status", "totalAmount", "grandTotal", "payableAmount", "total", "cashOnDelivery"):
                         if order.get(payment_key) is not None:
-                            safe_item[payment_key] = make_json_safe(order.get(payment_key))                    if isinstance(order.get("payment"), dict):
+                            safe_item[payment_key] = make_json_safe(order.get(payment_key))
+                    if isinstance(order.get("payment"), dict):
                         safe_item["payment"] = make_json_safe(order["payment"])
                     # Packing labels must use the canonical customer order address, not only the incoming-stock snapshot.
-                    delivery_address = order.get("deliveryAddress") or order.get("shippingAddress") or order.get("address")                    if not delivery_address and order.get("deliveryAddressId") and order.get("customerId"):
+                    delivery_address = order.get("deliveryAddress") or order.get("shippingAddress") or order.get("address")
+                    if not delivery_address and order.get("deliveryAddressId") and order.get("customerId"):
                         try:
                             saved_addresses = await UserService.get_addresses(str(order.get("customerId")))
                             delivery_address = next((address for address in (saved_addresses or []) if str(address.get("_id") or address.get("id") or "") == str(order.get("deliveryAddressId"))), None)
