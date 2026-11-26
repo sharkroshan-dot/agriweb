@@ -145,6 +145,8 @@ export default function WarehouseIncomingPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [dateFilter, setDateFilter] = useState<string>("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [rowsPerPage, setRowsPerPage] = useState(5);
   const [fulfillmentFilter, setFulfillmentFilter] = useState<"all" | "received_warehouse" | "farmer" | "warehouse">("all");
   const [showScheduleDialog, setShowScheduleDialog] = useState(false);
   const [showReceiveDialog, setShowReceiveDialog] = useState(false);
@@ -789,48 +791,45 @@ export default function WarehouseIncomingPage() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        {[
-          { label: "Total Incoming", value: incomingTypeCounts.all, icon: Package },
-          { label: "Farmer Fulfillment", value: incomingTypeCounts.farmer, icon: Truck },
-          { label: "Warehouse Transfers", value: incomingTypeCounts.received_warehouse, icon: Route },
-        ].map((metric) => {
-          const MetricIcon = metric.icon;
-          return <Card key={metric.label} className="border-slate-200 shadow-sm"><CardContent className="flex items-center gap-3 p-3"><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><MetricIcon className="h-5 w-5" /></span><div><p className="text-xs text-muted-foreground">{metric.label}</p><p className="text-xl font-bold text-slate-900">{metric.value}</p></div></CardContent></Card>;
-        })}
-      </div>
-
-      <div className="grid items-start gap-4 xl:grid-cols-[230px_minmax(0,1fr)_320px]">
+      <div className="grid items-start gap-3 2xl:grid-cols-[270px_minmax(620px,1fr)_410px] xl:grid-cols-[245px_minmax(0,1fr)_350px]">
         <aside className="space-y-4 xl:sticky xl:top-4">
           <Card className="border-slate-200 shadow-sm">
             <CardContent className="space-y-4 p-4">
-              <div className="flex items-center justify-between"><h2 className="font-semibold text-slate-900">Filters</h2><Button type="button" variant="ghost" size="sm" onClick={() => { setSearchTerm(""); setStatusFilter("all"); setDateFilter("all"); setFulfillmentFilter("all"); }}>Reset</Button></div>
+              <div className="flex items-center justify-between"><h2 className="font-semibold text-slate-900">Filter Shipments</h2><Button type="button" variant="ghost" size="sm" onClick={() => { setSearchTerm(""); setStatusFilter("all"); setDateFilter("all"); setFulfillmentFilter("all"); }}>Reset</Button></div>
               <div className="space-y-2">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Shipment type</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Fulfillment Type</p>
                 {([
                   { key: "all", label: "All Incoming", count: incomingTypeCounts.all },
                   { key: "farmer", label: "Farmer Fulfillment", count: incomingTypeCounts.farmer },
                   { key: "warehouse", label: "Warehouse Fulfillment", count: incomingTypeCounts.warehouse },
-                  { key: "received_warehouse", label: "From Other Warehouse", count: incomingTypeCounts.received_warehouse },
+                  { key: "received_warehouse", label: "Received from Other WH", count: incomingTypeCounts.received_warehouse },
                 ] as const).map((tab) => (
-                  <button key={tab.key} type="button" onClick={() => setFulfillmentFilter(tab.key)} className={cn("flex w-full items-center justify-between rounded-lg border px-3 py-2.5 text-left text-sm transition-colors", fulfillmentFilter === tab.key ? "border-emerald-600 bg-emerald-50 font-semibold text-emerald-800" : "border-slate-200 text-slate-700 hover:border-emerald-300 hover:bg-slate-50")}>
+                  <button key={tab.key} type="button" onClick={() => setFulfillmentFilter(tab.key)} className={cn("flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm transition-colors", fulfillmentFilter === tab.key ? "border-emerald-600 bg-emerald-50 font-semibold text-emerald-800" : "border-slate-200 text-slate-700 hover:border-emerald-300 hover:bg-slate-50")}>
                     <span>{tab.label}</span><span className={cn("rounded-full px-2 py-0.5 text-xs", fulfillmentFilter === tab.key ? "bg-emerald-700 text-white" : "bg-slate-100 text-slate-600")}>{tab.count}</span>
                   </button>
                 ))}
               </div>
               <div className="space-y-2">
-                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Search</label>
-                <div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><Input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Order, farm, product..." className="pl-9" /></div>
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Shipment Status</label>
+                {[
+                  { key: "scheduled", label: "Awaiting Receipt" },
+                  { key: "quality_check", label: "Quality Pending" },
+                  { key: "stored", label: "Quality Passed / Stored" },
+                  { key: "rejected", label: "Quality Failed" },
+                  { key: "received", label: "Received" },
+                ].map((option) => (
+                  <button key={option.key} type="button" onClick={() => { setStatusFilter(statusFilter === option.key ? "all" : option.key); setCurrentPage(1); }} className="flex w-full items-center gap-3 rounded-md px-1.5 py-1.5 text-left text-sm hover:bg-slate-50">
+                    <span className={cn("flex h-4 w-4 items-center justify-center rounded border", statusFilter === option.key ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-400 bg-white")}>{statusFilter === option.key ? "✓" : ""}</span>
+                    <span className="min-w-0 flex-1">{option.label}</span>
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">{incomingList.filter((row: any) => String(row.status || "").toLowerCase() === option.key).length}</span>
+                  </button>
+                ))}
               </div>
               <div className="space-y-2">
-                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Shipment status</label>
-                <Select value={statusFilter} onValueChange={setStatusFilter}><SelectTrigger><SelectValue placeholder="All statuses" /></SelectTrigger><SelectContent><SelectItem value="all">All statuses</SelectItem><SelectItem value="scheduled">Scheduled</SelectItem><SelectItem value="in_transit">In Transit</SelectItem><SelectItem value="received">Received</SelectItem><SelectItem value="quality_check">Quality Check</SelectItem><SelectItem value="stored">Stored</SelectItem><SelectItem value="rejected">Rejected</SelectItem></SelectContent></Select>
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Date Range</label>
+                <Select value={dateFilter} onValueChange={(value) => { setDateFilter(value); setCurrentPage(1); }}><SelectTrigger><SelectValue placeholder="All time" /></SelectTrigger><SelectContent><SelectItem value="all">All time</SelectItem><SelectItem value="today">Today</SelectItem><SelectItem value="yesterday">Yesterday</SelectItem><SelectItem value="week">This week</SelectItem><SelectItem value="month">This month</SelectItem></SelectContent></Select>
               </div>
-              <div className="space-y-2">
-                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Date range</label>
-                <Select value={dateFilter} onValueChange={setDateFilter}><SelectTrigger><SelectValue placeholder="All time" /></SelectTrigger><SelectContent><SelectItem value="all">All time</SelectItem><SelectItem value="today">Today</SelectItem><SelectItem value="yesterday">Yesterday</SelectItem><SelectItem value="week">This week</SelectItem><SelectItem value="month">This month</SelectItem></SelectContent></Select>
-              </div>
-              <p className="border-t pt-3 text-xs leading-5 text-muted-foreground">Choose a shipment type or status to narrow the list. Select any row to see its available operations on the right.</p>
+              <div className="flex gap-2 border-t pt-3"><Button type="button" className="flex-1" onClick={() => setCurrentPage(1)}><Search className="mr-2 h-4 w-4" />Apply Filters</Button><Button type="button" variant="outline" onClick={() => { setSearchTerm(""); setStatusFilter("all"); setDateFilter("all"); setFulfillmentFilter("all"); setCurrentPage(1); }}><RefreshCw className="mr-2 h-4 w-4" />Reset</Button></div>
             </CardContent>
           </Card>
         </aside>
@@ -838,8 +837,8 @@ export default function WarehouseIncomingPage() {
         <main className="min-w-0">
           <Card className="overflow-hidden border-slate-200 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-slate-50/70 px-4 py-3">
-              <div><h2 className="font-semibold text-slate-900">{fulfillmentFilter === "received_warehouse" ? "Incoming Warehouse Transfers" : "Incoming Shipments"}</h2><p className="text-xs text-muted-foreground">{fulfillmentFilter === "received_warehouse" ? receivedWarehouseOrders.length + " destination transfer(s)" : incomingList.length + " shipment(s) found"}</p></div>
-              <Badge variant="outline">{fulfillmentFilter === "received_warehouse" ? "Transfer queue" : "Receiving queue"}</Badge>
+              <div><h2 className="font-semibold text-slate-900">{fulfillmentFilter === "received_warehouse" ? "Incoming Warehouse Transfers" : "Incoming Shipments (" + incomingList.length + ")"}</h2><p className="text-xs text-muted-foreground">{fulfillmentFilter === "received_warehouse" ? receivedWarehouseOrders.length + " destination transfer(s)" : "Select a shipment to view its operations"}</p></div>
+              {fulfillmentFilter !== "received_warehouse" && <div className="relative w-full sm:max-w-[290px]"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><Input value={searchTerm} onChange={(event) => { setSearchTerm(event.target.value); setCurrentPage(1); }} placeholder="Search by order, farm or product..." className="pl-9" /></div>}
             </div>
             {fulfillmentFilter === "received_warehouse" ? (
               isLoadingTransfers ? <div className="p-10 text-center text-sm text-muted-foreground">Loading warehouse transfers…</div> :
