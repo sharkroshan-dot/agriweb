@@ -314,56 +314,60 @@ export default function WarehouseIncomingPage() {
       !alreadyReceived;
   });
   const selectedBatchItems = incomingList.filter((item: any) => selectedIncomingIds.includes(String(item.id || item._id)));
-  const selectedBatchType = selectedBatchItems.length ? isFarmerPackedIncoming(selectedBatchItems[0]) : null;
-  const batchEligibleItems = selectedBatchItems.filter((item: any) => {
-    const status = String(item.status || "").toLowerCase();
-    const arrived = Boolean(item.arrivedWarehouseAt || item.warehouseArrivalConfirmed || String(item.collectionStatus || "").toLowerCase() === "arrived_warehouse");
-    const received = ["received", "quality_check", "stored", "rejected", "packed", "completed"].includes(status) || Boolean(item.receivedAt || item.receivedDate || item.warehouseReceivedAt);
-    return arrived && !received && ["scheduled", "in_transit", "ready_for_pickup"].includes(status) && isFarmerPackedIncoming(item) === selectedBatchType;
-  });
   const canSelectForBatchReceipt = (item: any) => {
     const status = String(item.status || "").toLowerCase();
     const arrived = Boolean(item.arrivedWarehouseAt || item.warehouseArrivalConfirmed || String(item.collectionStatus || "").toLowerCase() === "arrived_warehouse");
     const received = ["received", "quality_check", "stored", "rejected", "packed", "completed"].includes(status) ||
-      Boolean(item.receivedAt || item.receivedDate || item.warehouseReceivedAt) ||
+      Boolean(item.receivedAt || item.receivedDate || item.warehouseReceivedAt || item.bulkShipmentReceivedAt) ||
       String(item.qualityCheck || item.quality_check || "").toLowerCase() === "passed";
     return arrived && !received && ["scheduled", "in_transit", "ready_for_pickup"].includes(status);
   };
   const canSelectForBatchQuality = (item: any) => {
     const status = String(item.status || "").toLowerCase();
     const qc = String(item.qualityCheck || item.quality_check || "").toLowerCase();
-    const physicallyReceived = Boolean(item.receivedAt || item.receivedDate || item.warehouseReceivedAt || item.bulkShipmentReceivedAt);
+    const physicallyReceived = Boolean(item.receivedAt || item.receivedDate || item.warehouseReceivedAt || item.bulkShipmentReceivedAt) ||
+      ["received", "quality_check"].includes(status);
     return physicallyReceived && ["received", "quality_check"].includes(status) && !["passed", "failed"].includes(qc);
   };
+  const canSelectForNextProcess = (item: any) => {
+    const status = String(item.status || "").toLowerCase();
+    return isReceiptQualityPassed(item) && (isFarmerPackedIncoming(item)
+      ? status !== "rejected"
+      : status !== "stored");
+  };
+  const canSelectForBatchAction = (item: any) =>
+    canSelectForBatchReceipt(item) || canSelectForBatchQuality(item) || canSelectForNextProcess(item) ||
+    String(item.status || "").toLowerCase() === "rejected";
+  const batchEligibleItems = selectedBatchItems.filter((item: any) => canSelectForBatchReceipt(item));
+  const selectedBatchFarmerReceipts = batchEligibleItems.filter((item: any) => isFarmerPackedIncoming(item));
+  const selectedBatchWarehouseReceipts = batchEligibleItems.filter((item: any) => !isFarmerPackedIncoming(item));
   const selectedBatchQualityItems = selectedBatchItems.filter((item: any) => canSelectForBatchQuality(item));
-  const selectionMode = selectedBatchItems.length
-    ? (canSelectForBatchQuality(selectedBatchItems[0]) ? "quality" : "receive")
-    : null;
-  const canSelectForBatchAction = (item: any) => canSelectForBatchReceipt(item) || canSelectForBatchQuality(item);
+  const selectedBatchApprovedFarmer = selectedBatchItems.filter((item: any) => canSelectForNextProcess(item) && isFarmerPackedIncoming(item));
+  const selectedBatchApprovedWarehouse = selectedBatchItems.filter((item: any) => canSelectForNextProcess(item) && !isFarmerPackedIncoming(item));
+  const selectedBatchRejected = selectedBatchItems.filter((item: any) =>
+    String(item.status || "").toLowerCase() === "rejected" ||
+    String(item.qualityCheck || item.quality_check || "").toLowerCase() === "failed"
+  );
+  const selectedWarehouseReceiptGroups = selectedBatchWarehouseReceipts.reduce((groups: any[], item: any) => {
+    const key = getFarmGroupKey(item);
+    const existing = groups.find((group) => group.key === key);
+    if (existing) existing.items.push(item);
+    else groups.push({ key, label: item.displayFarmName || getFarmDisplayName(item) || "Farm", items: [item] });
+    return groups;
+  }, []);
   const toggleIncomingSelection = (id: string) => {
     const item = incomingList.find((row: any) => String(row.id || row._id) === id);
     if (!item || !canSelectForBatchAction(item)) return;
-    const itemMode = canSelectForBatchQuality(item) ? "quality" : "receive";
-    setSelectedIncomingIds((current) => {
-      if (current.includes(id)) return current.filter((value) => value !== id);
-      const existing = incomingList.find((row: any) => current.includes(String(row.id || row._id)));
-      if (existing && (isFarmerPackedIncoming(existing) !== isFarmerPackedIncoming(item) ||
-          (canSelectForBatchQuality(existing) ? "quality" : "receive") !== itemMode)) {
-        toast.error("Select orders from the same fulfillment type and processing stage.");
-        return current;
-      }
-      return [...current, id];
-    });
+    setSelectedIncomingIds((current) => current.includes(id)
+      ? current.filter((value) => value !== id)
+      : [...current, id]);
   };
   const toggleAllVisibleIncoming = () => {
-    const selectedType = selectedBatchType;
     const eligibleVisible = incomingList
       .filter((item: any) => canSelectForBatchAction(item))
-      .filter((item: any) => selectedType === null || isFarmerPackedIncoming(item) === selectedType)
-      .filter((item: any) => selectionMode === null || (canSelectForBatchQuality(item) ? "quality" : "receive") === selectionMode)
       .map((item: any) => String(item.id || item._id));
     if (!eligibleVisible.length) {
-      toast.error("There are no arrived, unreceived shipments available for batch receipt.");
+      toast.error("There are no shipments ready for receipt, quality inspection or next processing.");
       return;
     }
     setSelectedIncomingIds((current) => eligibleVisible.every((id) => current.includes(id))
@@ -371,7 +375,7 @@ export default function WarehouseIncomingPage() {
       : Array.from(new Set([...current, ...eligibleVisible])));
   };
   const handleBatchFarmerReceipt = async () => {
-    const eligible = batchEligibleItems.filter((item: any) => isFarmerPackedIncoming(item));
+    const eligible = selectedBatchFarmerReceipts;
     if (!eligible.length) { toast.error("Select arrived, packed farmer orders that are awaiting warehouse receipt."); return; }
     if (!window.confirm("Confirm warehouse receipt for " + eligible.length + " selected packed farmer orders? This records warehouse receipt only. Complete the separate quality inspection after receipt.")) return;
     setIsSaving(true);
