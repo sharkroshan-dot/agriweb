@@ -758,27 +758,65 @@ class WarehouseService:
         # Farmer Fulfillment transfers are already packed and sealed. They are
         # held as reserved physical stock only; they never enter warehouse
         # packing or the normal outgoing/dispatch queue.
-        if incoming.get("orderId") and str(incoming.get("sourceMode") or "") == "farmer_fulfillment_transfer" and incoming.get("packingRequired") is False:
+        b2b_order_id = str(incoming.get("b2bOrderId") or "")
+        linked_order_id = str(incoming.get("orderId") or "")
+
+        if incoming.get("sourceMode") == "farmer_fulfillment_transfer" and incoming.get("packingRequired") is False:
             try:
                 from app.repositories.order_repository import order_repository
-                await order_repository.update(
-                    {"_id": ObjectId(str(incoming["orderId"]))},
+                from app.repositories.base_repository import BaseRepository
+                target_repository = order_repository
+                target_id = linked_order_id
+                if b2b_order_id and ObjectId.is_valid(b2b_order_id):
+                    target_repository = BaseRepository("b2b_orders")
+                    target_id = b2b_order_id
+                if target_id and ObjectId.is_valid(target_id):
+                    await target_repository.update(
+                        {"_id": ObjectId(target_id)},
+                        {
+                            "warehouseFulfillmentStage": "stored_transfer",
+                            "transferStatus": "warehouse_received_stored",
+                            "warehouseStoredAt": datetime.utcnow(),
+                            "updatedAt": datetime.utcnow(),
+                        },
+                    )
+                    await target_repository.append_tracking_event(
+                        target_id,
+                        "farmer_fulfillment_transfer_stored",
+                        "Packed farmer order held at warehouse",
+                        "The warehouse verified and stored the sealed farmer-packed shipment. No warehouse repacking is required.",
+                        actor_role="warehouse",
+                        metadata={"incomingStockId": str(incoming["_id"]), "warehouseId": warehouse_id},
+                    )
+            except Exception:
+                logger.exception("Failed to update farmer transfer after storage")
+            return await incoming_stock_repository.get_by_id(incoming_id)
+
+        # B2B business orders are stored in b2b_orders, not customer orders.
+        # Synchronize their warehouse stage here and keep them out of the
+        # customer order-packing task pipeline.
+        if b2b_order_id and ObjectId.is_valid(b2b_order_id):
+            try:
+                from app.repositories.base_repository import BaseRepository
+                b2b_repository = BaseRepository("b2b_orders")
+                await b2b_repository.update(
+                    {"_id": ObjectId(b2b_order_id)},
                     {
-                        "warehouseFulfillmentStage": "stored_transfer",
-                        "transferStatus": "warehouse_received_stored",
+                        "warehouseFulfillmentStage": "stored",
+                        "warehouseStoredAt": datetime.utcnow(),
                         "updatedAt": datetime.utcnow(),
                     },
                 )
-                await order_repository.append_tracking_event(
-                    str(incoming["orderId"]),
-                    "farmer_fulfillment_transfer_stored",
-                    "Packed farmer order held at warehouse",
-                    "The warehouse verified and stored the sealed farmer-packed shipment. No warehouse repacking is required.",
+                await b2b_repository.append_tracking_event(
+                    b2b_order_id,
+                    "warehouse_stock_stored",
+                    "B2B stock stored at warehouse",
+                    "The warehouse has completed receipt, quality approval and storage for this business order.",
                     actor_role="warehouse",
                     metadata={"incomingStockId": str(incoming["_id"]), "warehouseId": warehouse_id},
                 )
             except Exception:
-                logger.exception("Failed to update farmer transfer after storage")
+                logger.exception("Failed to synchronize B2B order after warehouse storage")
             return await incoming_stock_repository.get_by_id(incoming_id)
 
         # Warehouse fulfillment creates exactly one order-level packing task.
