@@ -1031,7 +1031,7 @@ class WarehouseService:
             warehouse_id, status, skip, limit
         )
         total = await incoming_stock_repository.count({
-            "warehouseId": ObjectId(warehouse_id),
+            "warehouseId": {"$in": [ObjectId(warehouse_id), warehouse_id]},
             "deletedAt": None
         })
         return incoming, total
