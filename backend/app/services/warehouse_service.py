@@ -508,43 +508,59 @@ class WarehouseService:
                     await event_fulfillment_repo.update({"_id": ObjectId(str(fulfillment_id))}, {"status": "warehouse_received", "warehouseStatus": "received", "warehouseReceivedAt": datetime.utcnow(), "updatedAt": datetime.utcnow()})
             except Exception:
                 logger.exception("Failed to synchronize event fulfillment after warehouse receipt")
-        if incoming.get("orderId") and str(incoming.get("sourceMode") or "") == "farmer_fulfillment_transfer" and str(incoming.get("status")) == "received":
-            try:
-                # Physical receipt advances the transfer stage. Farmer-packed
-                # orders do not pass through bulk-stock quality inspection.
-                from app.repositories.order_repository import order_repository
-                await order_repository.update(
-                    {"_id": ObjectId(str(incoming["orderId"]))},
-                    {
-                        "warehouseFulfillmentStage": "received_transfer",
-                        "warehouseCollectionStatus": "arrived_warehouse",
-                        "warehouseReceivedAt": incoming.get("receivedAt") or datetime.utcnow(),
-                        "updatedAt": datetime.utcnow(),
-                    },
-                )
-                await order_repository.append_tracking_event(
-                    str(incoming["orderId"]),
-                    "farmer_fulfillment_warehouse_received",
-                    "Farmer-packed order received at warehouse",
-                    "The warehouse confirmed physical receipt. Continue to the transfer or consolidation workflow; do not repack this order.",
-                    actor_role="warehouse",
-                    metadata={"incomingStockId": str(incoming["_id"]), "nextAction": "farmer_fulfillment_transfer_or_consolidation"},
-                )
-            except Exception:
-                logger.exception("Failed to update farmer transfer order after receipt")
+        # Use the refreshed record: the original `incoming` object still has
+        # its pre-receipt status (usually in_transit). Checking it here silently
+        # skipped every linked-order update after a successful warehouse receipt.
+        if received:
+            source_mode = str(received.get("sourceMode") or "")
+            b2b_order_id = str(received.get("b2bOrderId") or "")
+            order_id = str(received.get("orderId") or "")
+            is_farmer_transfer = source_mode == "farmer_fulfillment_transfer"
+            should_sync_order = (
+                received.get("status") == "received"
+                and (is_farmer_transfer or quality_check == "passed")
+            )
+            if should_sync_order and (b2b_order_id or order_id):
+                try:
+                    from app.repositories.order_repository import order_repository
+                    from app.repositories.base_repository import BaseRepository
 
-        if incoming.get("orderId") and str(incoming.get("sourceMode") or "") != "farmer_fulfillment_transfer" and quality_check == "passed" and str(incoming.get("status")) == "received":
-            try:
-                from app.repositories.order_repository import order_repository
-                await order_repository.update(
-                    {"_id": ObjectId(str(incoming["orderId"]))},
-                    {"warehouseFulfillmentStage": "received", "updatedAt": datetime.utcnow()},
-                )
-                await order_repository.append_tracking_event(str(incoming["orderId"]), "warehouse_received", "Warehouse received the shipment", "Warehouse staff received the shipment after collection. Quality and storage remain separate steps.", actor_role="warehouse", metadata={"incomingStockId": str(incoming["_id"]), "nextAction": "quality_inspection_then_store"})
-            except Exception:
-                logger.exception("Failed to update warehouse order stage after receipt")
+                    target_repository = order_repository
+                    target_id = order_id
+                    if b2b_order_id and ObjectId.is_valid(b2b_order_id):
+                        target_repository = BaseRepository("b2b_orders")
+                        target_id = b2b_order_id
+                    if target_id and ObjectId.is_valid(target_id):
+                        stage = "received_transfer" if is_farmer_transfer else "received"
+                        order_update = {
+                            "warehouseFulfillmentStage": stage,
+                            "warehouseCollectionStatus": "arrived_warehouse",
+                            "warehouseReceivedAt": received.get("receivedAt") or datetime.utcnow(),
+                            "updatedAt": datetime.utcnow(),
+                        }
+                        await target_repository.update({"_id": ObjectId(target_id)}, order_update)
+                        event_type = "farmer_fulfillment_warehouse_received" if is_farmer_transfer else "warehouse_received"
+                        event_title = "Farmer-packed order received at warehouse" if is_farmer_transfer else "Warehouse received the shipment"
+                        event_message = (
+                            "The warehouse confirmed physical receipt. Continue to the transfer or consolidation workflow; do not repack this order."
+                            if is_farmer_transfer
+                            else "Warehouse staff received the shipment after collection. Quality and storage remain separate steps."
+                        )
+                        await target_repository.append_tracking_event(
+                            target_id,
+                            event_type,
+                            event_title,
+                            event_message,
+                            actor_role="warehouse",
+                            metadata={
+                                "incomingStockId": str(received.get("_id")),
+                                "nextAction": "farmer_fulfillment_transfer_or_consolidation" if is_farmer_transfer else "quality_inspection_then_store",
+                            },
+                        )
+                except Exception:
+                    logger.exception("Failed to synchronize linked order after warehouse receipt")
 
-        await WarehouseService._sync_pickup_route_handoff(incoming)
+        await WarehouseService._sync_pickup_route_handoff(received or incoming)
 
         # Outgoing work is intentionally created after the explicit Store step.
         return await incoming_stock_repository.get_by_id(incoming_id)
