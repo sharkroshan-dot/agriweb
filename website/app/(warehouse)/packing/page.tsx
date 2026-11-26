@@ -513,6 +513,26 @@ export default function WarehousePackingPage() {
               </Card>
             ) : <Card className="flex min-h-[420px] items-center justify-center border-dashed"><CardContent className="text-center"><CheckCircle2 className="mx-auto h-12 w-12 text-emerald-500"/><h3 className="mt-3 font-semibold text-slate-800">No open shortage cases</h3><p className="mt-1 text-sm text-slate-500">There are no shortage orders to review.</p></CardContent></Card>
           ) : (selectedTask ? (
+            <>
+            {selectedPackingTasks.length > 0 && <Card className="mb-3 border-emerald-200 bg-emerald-50/40 shadow-sm">
+              <CardContent className="space-y-2 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-sm font-bold text-emerald-950">Selected orders for packing</h3>
+                  <Badge variant="outline" className="border-emerald-300 bg-white text-emerald-800">{selectedPackingTasks.length} selected</Badge>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {selectedPackingTasks.map((task: any) => {
+                    const items = task.packingItems?.length ? task.packingItems : task.items || [];
+                    const qty = items.reduce((sum: number, item: any) => sum + Number(item.quantityRequired ?? item.quantity ?? 0), 0);
+                    return <button key={String(task.id || task._id)} type="button" onClick={() => setSelectedOrderId(String(task.id || task._id))} className={`flex min-w-0 items-center justify-between gap-2 rounded-lg border bg-white px-3 py-2 text-left ${String(task.id || task._id) === String(selectedTask.id || selectedTask._id) ? "border-emerald-500 ring-1 ring-emerald-200" : "border-slate-200"}`}>
+                      <span className="min-w-0"><span className="block truncate text-xs font-semibold text-slate-900">#{task.orderNumber || task.orderId || task.id}</span><span className="block text-[11px] text-slate-500">{items.length} product(s) · {qty} {items[0]?.unit || "kg"}</span></span>
+                      <Badge variant="outline" className="shrink-0 text-[10px]">{String(task.status || "ready_for_packing").replace(/_/g, " ")}</Badge>
+                    </button>;
+                  })}
+                </div>
+                <p className="text-[11px] text-emerald-800">Select an order above to enter its actual packed quantities and complete its packing checklist. Each order is saved separately.</p>
+              </CardContent>
+            </Card>}
             <Card className="overflow-hidden border-slate-200 shadow-sm">
               <CardContent className="space-y-5 p-4 sm:p-6">
                 <div className="flex flex-wrap items-start justify-between gap-3 border-b pb-4">
@@ -590,6 +610,7 @@ export default function WarehousePackingPage() {
                 </div>
               </CardContent>
             </Card>
+            </>
           ) : (
             <Card className="flex min-h-[420px] items-center justify-center border-dashed"><CardContent className="text-center"><ClipboardCheck className="mx-auto h-12 w-12 text-slate-300"/><h3 className="mt-3 font-semibold text-slate-800">Select an order to pack</h3><p className="mt-1 text-sm text-slate-500">Choose an order from the queue to review its products and packing label.</p></CardContent></Card>
           ))}
