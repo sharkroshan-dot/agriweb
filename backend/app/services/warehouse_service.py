@@ -454,11 +454,24 @@ class WarehouseService:
         if not route_id: return
         try:
             rows = await incoming_stock_repository.get_by_route(str(route_id))
-            statuses = {str(x.get("status")) for x in rows}
+            statuses = {str(x.get("status") or "").strip().lower() for x in rows}
+            # Reflect warehouse progress on the parent pickup route as each
+            # shipment advances. Rejected stock is still physically received;
+            # it must not make the whole route look as if it never arrived.
+            physically_received = {
+                "received", "quality_check", "quality_passed",
+                "ready_to_store", "stored", "rejected",
+            }
             if rows and statuses.issubset({"stored"}):
-                await warehouse_pickup_route_repository.update_route(str(route_id), {"status": "stored", "storedAt": datetime.utcnow()})
-            elif rows and statuses.issubset({"received", "stored"}):
-                await warehouse_pickup_route_repository.update_route(str(route_id), {"status": "received", "receivedAt": datetime.utcnow()})
+                await warehouse_pickup_route_repository.update_route(str(route_id), {
+                    "status": "stored",
+                    "storedAt": datetime.utcnow(),
+                })
+            elif rows and statuses.issubset(physically_received):
+                await warehouse_pickup_route_repository.update_route(str(route_id), {
+                    "status": "received",
+                    "receivedAt": datetime.utcnow(),
+                })
         except Exception:
             logger.exception("Failed to synchronize pickup route warehouse handoff")
 
