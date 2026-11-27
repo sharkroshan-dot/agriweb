@@ -177,12 +177,10 @@ export default function FulfillmentDispatchPage() {
   };
 
   const loading=farmerQuery.isLoading||outgoingQuery.isLoading||consolidationQuery.isLoading;
-  return <div className="fulfillment-dispatch-page mx-auto w-full max-w-[1700px] space-y-4 pb-8">
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3"><div className="rounded-xl bg-emerald-50 p-3 text-emerald-700"><Truck className="h-7 w-7"/></div><div><h1 className="text-2xl font-bold tracking-tight text-slate-950">Fulfillment &amp; Dispatch</h1><p className="text-sm text-slate-600">Manage farmer fulfillment, warehouse transfers and customer deliveries.</p></div></div><div className="flex gap-2"><Button variant="outline" onClick={()=>refresh()} disabled={farmerQuery.isFetching||outgoingQuery.isFetching}><RefreshCw className="mr-2 h-4 w-4"/>Refresh</Button><Button asChild><Link href="/warehouse/consolidation">Consolidation workspace <ArrowRight className="ml-2 h-4 w-4"/></Link></Button></div></div>
-      <div className="flex items-center justify-end">
-        <Button variant="outline" onClick={()=>toast("Select an order to view its route-specific steps and available actions.")}><CheckCircle2 className="mr-2 h-4 w-4"/>Workflow Guide</Button>
-      </div>    </div>
+  return <div className="fulfillment-dispatch-page mx-auto w-full max-w-[1700px] space-y-2 pb-8">
+    <div className="space-y-1">
+      <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3"><div className="rounded-xl bg-emerald-50 p-3 text-emerald-700"><Truck className="h-7 w-7"/></div><div><h1 className="text-2xl font-bold tracking-tight text-slate-950">Fulfillment &amp; Dispatch</h1><p className="text-sm text-slate-600">Manage farmer fulfillment, warehouse transfers and customer deliveries.</p></div></div><div className="flex flex-wrap items-center gap-2"><Button variant="outline" onClick={()=>refresh()} disabled={farmerQuery.isFetching||outgoingQuery.isFetching}><RefreshCw className="mr-2 h-4 w-4"/>Refresh</Button><Button asChild><Link href="/warehouse/consolidation">Consolidation workspace <ArrowRight className="ml-2 h-4 w-4"/></Link></Button><Button variant="outline" onClick={()=>toast("Select an order to view its route-specific steps and available actions.")}><CheckCircle2 className="mr-2 h-4 w-4"/>Workflow Guide</Button></div></div>
+    </div>
 
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5 2xl:grid-cols-9 fulfillment-summary-grid">
       <Card className="fulfillment-summary-card"><CardContent className="flex h-full min-h-[104px] items-center gap-2 p-3"><div className="rounded-full bg-emerald-50 p-2.5 text-emerald-700"><Package className="h-5 w-5"/></div><div><p className="text-xs text-slate-600">All Orders</p><p className="mt-1 text-2xl font-bold">{orders.length}</p><p className="text-[11px] text-slate-500">Both sources</p></div></CardContent></Card>
