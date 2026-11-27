@@ -120,7 +120,6 @@ export default function FulfillmentDispatchPage() {
   const [selectedKey,setSelectedKey]=useState("");
   const [expanded,setExpanded]=useState<string[]>([]);
   const [selectedOrders,setSelectedOrders]=useState<Record<string,boolean>>({});
-  const [bulkPartnerId,setBulkPartnerId]=useState("");
   const [partnerByOrder,setPartnerByOrder]=useState<Record<string,string>>({});
   const [hubByOrder,setHubByOrder]=useState<Record<string,string>>({});
   const [destinationCapacityAcknowledged,setDestinationCapacityAcknowledged]=useState<Record<string,boolean>>({});
@@ -213,17 +212,22 @@ export default function FulfillmentDispatchPage() {
     } catch(e:any) {toast.error(e?.message||"Unable to process this order");}
     finally {setWorking("");}
   };
-  const selectedDispatchOrders=filtered.filter((o:any)=>selectedOrders[o.source+":"+o.id]);
+  const isBulkEligible=(o:any)=>o.dispatchStatus==="Ready for Dispatch"&&((o.source==="farmer"&&o.physicalReceiptConfirmed&&["nearby","same_district","inter_district"].includes(o.route))||(o.source==="warehouse"&&["nearby","same_district","inter_district"].includes(o.route)));
+  const allEligibleDispatchOrders=orders.filter(isBulkEligible);
+  const selectedDispatchOrders=orders.filter((o:any)=>selectedOrders[o.source+":"+o.id]);
+  const selectAllEligibleOrders=()=>setSelectedOrders(Object.fromEntries(allEligibleDispatchOrders.map((o:any)=>[o.source+":"+o.id,true])));
+  const clearSelectedOrders=()=>setSelectedOrders({});
   const bulkProcessSelected=async()=>{
     const chosen=selectedDispatchOrders;
-    if(!chosen.length){toast.error("Select at least one ready-for-dispatch order");return;}
-    const nearbyFarmer=chosen.filter((o:any)=>o.source==="farmer"&&o.route==="nearby");
-    const partner=teams.find((t:any)=>t.id===bulkPartnerId);
-    if(nearbyFarmer.length){
-      if(!partner){toast.error("Choose a delivery partner for the selected nearby farmer orders");return;}
-      const totalKg=nearbyFarmer.reduce((sum:number,o:any)=>sum+orderQuantity(o),0);
-      if(Number(partner.capacity||0)<totalKg){toast.error("The selected partner does not have enough capacity for all nearby orders");return;}
-    }
+    if(!chosen.length){toast.error("Select at least one eligible ready-for-dispatch order");return;}
+    const invalid=chosen.filter((o:any)=>!isBulkEligible(o));
+    if(invalid.length){toast.error("Some selected orders are no longer eligible. Refresh and select ready orders again.");return;}
+    const missingPartner=chosen.find((o:any)=>o.source==="farmer"&&o.route==="nearby"&&!partnerByOrder[o.id]);
+    if(missingPartner){toast.error("Choose a delivery partner for each selected nearby farmer order");setSelectedKey(missingPartner.source+":"+missingPartner.id);return;}
+    const missingHub=chosen.find((o:any)=>o.source==="warehouse"&&o.route==="same_district"&&!hubByOrder[o.id]);
+    if(missingHub){toast.error("Choose a local hub for each selected same-district warehouse order");setSelectedKey(missingHub.source+":"+missingHub.id);return;}
+    const insufficient=chosen.find((o:any)=>o.source==="farmer"&&o.route==="nearby"&&!teamCanCarry(teams.find((t:any)=>t.id===partnerByOrder[o.id]),o));
+    if(insufficient){toast.error("The selected delivery partner does not have enough vehicle capacity for "+(insufficient.orderNumber||"one selected order"));setSelectedKey(insufficient.source+":"+insufficient.id);return;}
     setWorking("bulk-process");
     let done=0;const errors:string[]=[];
     for(const o of chosen){
@@ -231,11 +235,13 @@ export default function FulfillmentDispatchPage() {
         if(o.source==="farmer"){
           if(!o.physicalReceiptConfirmed)throw new Error("Physical receipt is not confirmed");
           if(o.route==="nearby"){
-            await api.put("/warehouse/me/farmer-fulfillment/"+o.id+"/assign-nearby-delivery-partner",undefined,{params:{deliveryPartnerId:bulkPartnerId}});
+            await api.put("/warehouse/me/farmer-fulfillment/"+o.id+"/assign-nearby-delivery-partner",undefined,{params:{deliveryPartnerId:partnerByOrder[o.id]}});
           }else if(o.route==="same_district"){
             await api.post("/warehouse/me/farmer-fulfillment/"+o.id+"/dispatch-to-local-hub");
           }else if(o.route==="inter_district"){
-            if(!o.destinationWarehouseId)await api.post("/warehouse/me/farmer-fulfillment/"+o.id+"/assign-destination-warehouse");
+            let assignment:any;
+            if(!o.destinationWarehouseId)assignment=await api.post("/warehouse/me/farmer-fulfillment/"+o.id+"/assign-destination-warehouse");
+            if(assignment?.data?.destinationWarehouseCapacityOverrideRequired||o.destinationWarehouseCapacityOverrideRequired)throw new Error(assignment?.message||"Destination warehouse capacity requires manual review");
             await api.post("/warehouse/me/farmer-fulfillment/"+o.id+"/dispatch-to-destination");
           }else throw new Error("Route needs review before processing");
         }else{
@@ -246,9 +252,9 @@ export default function FulfillmentDispatchPage() {
           if(o.route==="nearby"){
             await api.post("/warehouse/me/outgoing/"+o.id+"/delivery-route",{route:"nearby",radius:o.nearbyThresholdKm??15});
             await api.put("/warehouse/me/outgoing/"+o.id+"/status",undefined,{params:{status:"dispatched"}});
+            await api.post("/warehouse/me/outgoing/"+o.id+"/delivery-route",{route:"nearby",radius:o.nearbyThresholdKm??15});
           }else if(o.route==="same_district"){
-            const hubId=hubByOrder[o.id];if(!hubId)throw new Error("Choose a local hub for each same-district warehouse order");
-            await api.post("/warehouse/me/local-hubs/"+hubId+"/orders/"+o.orderId+"/dispatch",{});
+            await api.post("/warehouse/me/local-hubs/"+hubByOrder[o.id]+"/orders/"+o.orderId+"/dispatch",{});
           }else if(o.route==="inter_district"){
             await api.post("/warehouse/me/outgoing/"+o.id+"/inter-district-dispatch");
           }else throw new Error("Route needs review before processing");
@@ -256,9 +262,9 @@ export default function FulfillmentDispatchPage() {
         done++;
       }catch(e:any){errors.push((o.orderNumber||o.id)+": "+(e?.message||"processing failed"));}
     }
-    if(done)toast.success("Successfully processed "+done+" of "+chosen.length+" selected orders");
-    if(errors.length)toast.error(errors.slice(0,3).join("; "));
-    setSelectedOrders({});setBulkPartnerId("");setWorking("");await refresh();
+    if(done)toast.success("Processed "+done+" of "+chosen.length+" selected orders across farmer and warehouse workflows");
+    if(errors.length)toast.error(errors.length+" order(s) need attention: "+errors.slice(0,3).join("; "));
+    setSelectedOrders({});setWorking("");await refresh();
   };
   const bulkPlan=async(route:"same_district"|"inter_district")=>{
     const chosen=filtered.filter((o:any)=>o.source==="farmer"&&o.route===route&&selectedOrders[o.source+":"+o.id]&&o.physicalReceiptConfirmed);
@@ -319,6 +325,10 @@ export default function FulfillmentDispatchPage() {
           <div className="grid w-full grid-cols-3 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-1">
             {([{key:"all",label:"All Orders",count:orders.length},{key:"farmer",label:"Farmer Orders",count:orders.filter((o:any)=>o.source==="farmer").length},{key:"warehouse",label:"Warehouse Orders",count:orders.filter((o:any)=>o.source==="warehouse").length}] as const).map(option=><button key={option.key} type="button" onClick={()=>setSourceFilter(option.key)} className={"flex min-w-0 items-center justify-center gap-2 rounded-lg px-2 py-2.5 text-center text-xs font-semibold transition-colors "+(sourceFilter===option.key?"bg-emerald-700 text-white shadow-sm":"text-slate-600 hover:bg-white hover:text-slate-900")}><span className="truncate">{option.label}</span><span className={"shrink-0 rounded-full px-1.5 py-0.5 text-[10px] "+(sourceFilter===option.key?"bg-white/20 text-white":"bg-white text-slate-500")}>{option.count}</span></button>)}
           </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50/50 p-2">
+            <div className="flex flex-wrap items-center gap-2 text-xs"><span className="font-semibold text-emerald-950">{allEligibleDispatchOrders.length} eligible ready orders across all routes</span><span className="text-slate-500">Select all to process farmer and warehouse orders together.</span></div>
+            <div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" className="h-8 border-emerald-300 bg-white" onClick={selectAllEligibleOrders} disabled={!allEligibleDispatchOrders.length}>Select All Ready Orders</Button><Button size="sm" variant="ghost" className="h-8" onClick={clearSelectedOrders} disabled={!Object.values(selectedOrders).some(Boolean)}>Clear Selection</Button></div>
+          </div>
           <div className="flex min-w-0 items-center gap-2">
             <div className="relative min-w-0 flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"/><Input className="h-10 rounded-lg border-slate-200 bg-white pl-9 text-xs" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search by order number, customer, product or district..."/></div>
             <Button size="sm" variant="outline" className="h-10 rounded-lg px-3" onClick={()=>{setSearch("");setSourceFilter("all");setSortOrder("newest");setActiveStage("Ready for Dispatch");setSelectedOrders({});setSelectedKey("");}}>Clear</Button>
@@ -327,10 +337,13 @@ export default function FulfillmentDispatchPage() {
         {filtered.length===0?<div className="rounded-xl border border-dashed p-10 text-center"><Package className="mx-auto h-9 w-9 text-muted-foreground"/><p className="mt-3 font-semibold">No orders in this route group</p><p className="text-sm text-muted-foreground">Choose another route group or clear the search.</p></div>:<div className="fulfillment-orders-table w-full rounded-xl border"><table className="w-full min-w-0 table-fixed text-left text-xs"><thead className="bg-slate-50 text-xs text-slate-600"><tr><th className="w-[4%] px-1 py-2"><input type="checkbox" aria-label="Select all eligible dispatch orders" checked={filtered.filter((o:any)=>o.dispatchStatus==="Ready for Dispatch"&&((o.source==="farmer"&&o.physicalReceiptConfirmed&&["nearby","same_district","inter_district"].includes(o.route))||(o.source==="warehouse"&&["nearby","same_district","inter_district"].includes(o.route)))).length>0&&filtered.filter((o:any)=>o.dispatchStatus==="Ready for Dispatch"&&((o.source==="farmer"&&o.physicalReceiptConfirmed&&["nearby","same_district","inter_district"].includes(o.route))||(o.source==="warehouse"&&["nearby","same_district","inter_district"].includes(o.route)))).every((o:any)=>selectedOrders[o.source+":"+o.id])} onChange={e=>{const eligible=filtered.filter((o:any)=>o.dispatchStatus==="Ready for Dispatch"&&((o.source==="farmer"&&o.physicalReceiptConfirmed&&["nearby","same_district","inter_district"].includes(o.route))||(o.source==="warehouse"&&["nearby","same_district","inter_district"].includes(o.route))));setSelectedOrders(v=>({...v,...Object.fromEntries(eligible.map((o:any)=>[o.source+":"+o.id,e.target.checked]))}));}} className="h-4 w-4 accent-emerald-600"/></th><th className="w-[21%] px-1.5 py-2">Order ID</th><th className="w-[17%] px-2 py-2">Customer / Buyer</th><th className="w-[15%] px-2 py-2">Products</th><th className="w-[9%] px-2 py-2">Qty.</th><th className="w-[21%] px-1.5 py-2">Route</th><th className="w-[19%] px-1.5 py-2">Status</th></tr></thead><tbody className="divide-y">{filtered.map((o:any)=>{const key=o.source+":"+o.id;const active=selected?.source+":"+selected?.id===key;const canBulk=o.dispatchStatus==="Ready for Dispatch"&&((o.source==="farmer"&&o.physicalReceiptConfirmed&&["nearby","same_district","inter_district"].includes(o.route))||(o.source==="warehouse"&&["nearby","same_district","inter_district"].includes(o.route)));return <tr key={key} className={active?"bg-emerald-50/70":"hover:bg-slate-50"}><td className="px-1.5 py-2 align-middle"><input type="checkbox" aria-label={"Select "+o.orderNumber} checked={Boolean(selectedOrders[key])} disabled={!canBulk||o.dispatchStatus!=="Ready for Dispatch"} onChange={e=>setSelectedOrders(v=>({...v,[key]:e.target.checked}))} className="h-4 w-4 accent-emerald-600"/></td><td className="px-1.5 py-2 align-middle"><button title={o.orderNumber} className="block w-full max-w-full whitespace-normal break-all text-left text-[10px] leading-4 font-semibold text-emerald-900 hover:underline" onClick={()=>setSelectedKey(key)}>{o.orderNumber}</button><p className="mt-0.5 truncate text-[9px] text-muted-foreground">{o.source==="farmer"?"Farmer":"Warehouse"}</p></td><td className="px-1.5 py-2 align-middle"><span title={o.customerName} className="block whitespace-normal break-words text-[11px] leading-4 font-medium text-slate-700">{o.customerName}</span></td><td className="px-1.5 py-2 align-middle"><span title={o.itemSummary} className="block whitespace-normal break-words text-[11px] leading-4 text-slate-700">{o.itemSummary}</span></td><td className="px-2 py-2 align-middle whitespace-normal text-[11px] font-semibold text-slate-800">{o.quantitySummary}</td><td className="px-1.5 py-2 align-middle"><span className={"inline-flex max-w-full whitespace-normal rounded-md border px-1.5 py-1 text-[9px] font-semibold leading-3 "+(o.route==="nearby"||o.route==="same_district"?"border-emerald-200 bg-emerald-50 text-emerald-800":o.route==="inter_district"||o.route==="multi_warehouse"?"border-violet-200 bg-violet-50 text-violet-800":"border-amber-200 bg-amber-50 text-amber-800")}>{({nearby:"Nearby Delivery",same_district:"Same-District Delivery",inter_district:"Inter-District Transfer",multi_warehouse:"Multi-Warehouse",route_review:"Route Review",needs_location:"Location Needed"} as Record<RouteKey,string>)[o.route]}</span></td><td className="px-1.5 py-2 align-middle"><span className={"inline-flex max-w-full whitespace-normal rounded-md border px-1.5 py-1 text-[9px] font-semibold leading-3 "+(o.stage==="In Transfer"?"border-blue-200 bg-blue-50 text-blue-800":o.stage==="Delivered"?"border-emerald-200 bg-emerald-50 text-emerald-800":o.stage==="To Dispatch"?"border-indigo-200 bg-indigo-50 text-indigo-800":o.stage==="To Receive"?"border-slate-200 bg-slate-50 text-slate-700":"border-emerald-200 bg-emerald-50 text-emerald-800")}>{o.dispatchStatus}</span></td></tr>})}</tbody></table></div>}
         <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-xs text-muted-foreground"><span>{selectedDispatchOrders.length} order(s) selected</span><span>{filtered.length} order(s) shown</span></div>
         {selectedDispatchOrders.length>0&&<div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3">
-          <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-bold text-emerald-950">Bulk dispatch processing</p><Badge className="bg-emerald-700 text-white">{selectedDispatchOrders.length} selected</Badge></div>
-          {selectedDispatchOrders.some((o:any)=>o.source==="farmer"&&o.route==="nearby")&&<div className="mt-2"><label className="mb-1 block text-xs font-semibold text-slate-700">Delivery partner for nearby farmer orders</label><select className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs" value={bulkPartnerId} onChange={e=>setBulkPartnerId(e.target.value)}><option value="">Select delivery partner</option>{teams.map((t:any)=><option key={t.id} value={t.id}>{t.name} · {t.vehicle} · {t.capacity} kg</option>)}</select></div>}
-          <div className="mt-3 flex flex-wrap gap-2"><Button size="sm" className="bg-emerald-700 text-white hover:bg-emerald-800" disabled={busy==="bulk-process"} onClick={bulkProcessSelected}><Truck className="mr-2 h-4 w-4"/>{busy==="bulk-process"?"Processing selected…":"Process Selected Orders"}</Button><Button size="sm" variant="outline" onClick={()=>setSelectedOrders({})}>Clear selection</Button></div>
-          <p className="mt-2 text-[11px] leading-4 text-slate-600">Supports eligible farmer and warehouse orders. Each order is validated and processed using its route; same-district warehouse orders require a local hub selected in the order details.</p>
+          <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-bold text-emerald-950">Process multiple orders together</p><Badge className="bg-emerald-700 text-white">{selectedDispatchOrders.length} selected</Badge></div>
+          <div className="mt-3 space-y-2">
+            {selectedDispatchOrders.filter((o:any)=>o.source==="farmer"&&o.route==="nearby"&&!o.deliveryPartnerId).map((o:any)=><div key={o.source+":"+o.id} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] items-center gap-2 rounded-lg border border-white bg-white p-2"><span className="truncate text-xs font-semibold text-slate-700">{o.orderNumber} · Nearby farmer</span><select aria-label={"Delivery partner for "+o.orderNumber} className="h-9 min-w-0 rounded-lg border border-slate-200 bg-white px-2 text-xs" value={partnerByOrder[o.id]||""} onChange={e=>setPartnerByOrder(v=>({...v,[o.id]:e.target.value}))}><option value="">Select delivery partner</option>{teams.map((t:any)=><option key={t.id} value={t.id}>{t.name} · {t.vehicle} · {t.capacity} kg</option>)}</select></div>)}
+            {selectedDispatchOrders.filter((o:any)=>o.source==="warehouse"&&o.route==="same_district").map((o:any)=><div key={o.source+":"+o.id} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] items-center gap-2 rounded-lg border border-white bg-white p-2"><span className="truncate text-xs font-semibold text-slate-700">{o.orderNumber} · Local hub</span><select aria-label={"Local hub for "+o.orderNumber} className="h-9 min-w-0 rounded-lg border border-slate-200 bg-white px-2 text-xs" value={hubByOrder[o.id]||""} onChange={e=>setHubByOrder(v=>({...v,[o.id]:e.target.value}))}><option value="">Select destination local hub</option>{hubs.filter((h:any)=>norm(h.status)==="active"&&(normDistrict(h.district)===normDistrict(o.district)||normDistrict(h.district)===normDistrict(o.destinationDistrict||o.deliveryDistrict))).map((h:any)=><option key={String(h.id||h._id)} value={String(h.id||h._id)}>{h.name} · {h.district}</option>)}</select></div>)}
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2"><Button size="sm" className="bg-emerald-700 text-white hover:bg-emerald-800" disabled={busy==="bulk-process"} onClick={bulkProcessSelected}><Truck className="mr-2 h-4 w-4"/>{busy==="bulk-process"?"Processing orders…":"Process Selected Orders ("+selectedDispatchOrders.length+")"}</Button><Button size="sm" variant="outline" onClick={clearSelectedOrders}>Clear selection</Button></div>
+          <p className="mt-2 text-[11px] leading-4 text-slate-600">Select All Ready Orders includes every eligible route and both order sources, not only the currently visible filter. Nearby farmer orders need a partner per order; same-district warehouse orders need a destination hub. Packing, receipt, capacity and route checks remain enforced per order.</p>
         </div>}
       </CardContent></Card>
 
