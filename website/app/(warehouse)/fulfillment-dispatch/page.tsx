@@ -137,6 +137,7 @@ export default function FulfillmentDispatchPage() {
   const [activeRoute, setActiveRoute] = useState<RouteKey | "all">("all");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [workflowFrame, setWorkflowFrame] = useState<{ href: string; title: string } | null>(null);
+  const [activeSource, setActiveSource] = useState<Source | "all">("all");
   const farmerQuery = useQuery({
     queryKey: ["unifiedFarmerFulfillmentTransfers"],
     queryFn: () => api.get("/warehouse/me/farmer-fulfillment-transfers"),
@@ -170,12 +171,13 @@ export default function FulfillmentDispatchPage() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return orders.filter((row: any) => {
+      if (activeSource !== "all" && row.source !== activeSource) return false;
       if (activeStage !== "all" && row.stage !== activeStage) return false;
       if (activeRoute !== "all" && row.route !== activeRoute) return false;
       if (!q) return true;
       return [row.orderNumber, row.orderId, row.customerName, row.district, row.destinationGroup, row.itemSummary, row.currentStatus].some((v) => String(v || "").toLowerCase().includes(q));
     });
-  }, [orders, search, activeStage, activeRoute]);
+  }, [orders, search, activeStage, activeRoute, activeSource]);
 
   const selectedRows = filtered.filter((row: any) => selectedIds.includes(row.source + ":" + row.id));
   const stageCounts = useMemo(() => Object.fromEntries((Object.keys(stageMeta) as Stage[]).map((stage) => [stage, orders.filter((row: any) => row.stage === stage).length])) as Record<Stage, number>, [orders]);
@@ -204,24 +206,36 @@ export default function FulfillmentDispatchPage() {
 
   return (
     <div className="mx-auto w-full max-w-[1800px] space-y-4 pb-8">
-      <div className="flex flex-col gap-3 rounded-2xl border border-emerald-100 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-start gap-3">
-          <div className="rounded-xl bg-emerald-50 p-3 text-emerald-700"><Truck className="h-6 w-6"/></div>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-950">Fulfillment &amp; Dispatch</h1>
-            <p className="mt-1 text-sm text-slate-600">Manage warehouse transfers and customer deliveries by route group.</p>
-            <p className="mt-1 text-xs text-slate-500">Select a route group, choose orders, then follow the route-specific workflow.</p>
+      <div className="space-y-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="rounded-xl bg-emerald-50 p-3 text-emerald-700"><Truck className="h-7 w-7"/></div>
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight text-slate-950">Fulfillment &amp; Dispatch</h1>
+              <p className="mt-1 text-sm text-slate-600">Manage farmer fulfillment, warehouse transfers and customer deliveries.</p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" onClick={refresh} disabled={farmerQuery.isFetching || outgoingQuery.isFetching}><RefreshCw className={`mr-2 h-4 w-4 ${farmerQuery.isFetching || outgoingQuery.isFetching ? "animate-spin" : ""}`}/>Refresh</Button>
+            <Button onClick={() => setWorkflowFrame({href:"/warehouse/consolidation",title:"Consolidation Workspace"})}>Consolidation workspace <ArrowRight className="ml-2 h-4 w-4"/></Button>
           </div>
         </div>
-        <Button variant="outline" onClick={refresh} disabled={farmerQuery.isFetching || outgoingQuery.isFetching}><RefreshCw className={`mr-2 h-4 w-4 ${farmerQuery.isFetching || outgoingQuery.isFetching ? "animate-spin" : ""}`}/>Refresh</Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button onClick={() => setActiveSource("farmer")} variant={activeSource === "farmer" ? "default" : "outline"} className="min-w-[230px]"><Leaf className="mr-2 h-4 w-4"/>Farmer Fulfillment Workflow</Button>
+          <Button onClick={() => setActiveSource("warehouse")} variant={activeSource === "warehouse" ? "default" : "outline"} className="min-w-[260px]"><Warehouse className="mr-2 h-4 w-4"/>Warehouse Outgoing / Dispatch Workflow</Button>
+          <Button variant="outline" className="sm:ml-auto" onClick={() => setWorkflowFrame({href:"/warehouse/farmer-fulfillment",title:"Workflow Guide"})}><CheckCircle2 className="mr-2 h-4 w-4"/>Workflow Guide</Button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <Card><CardContent className="p-3"><p className="text-xs text-slate-500">All Orders</p><p className="mt-1 text-2xl font-bold">{orders.length}</p></CardContent></Card>
-        <Card className="border-emerald-200 bg-emerald-50/50"><CardContent className="p-3"><p className="text-xs text-emerald-800">Ready for Transfer / Delivery</p><p className="mt-1 text-2xl font-bold">{stageCounts.to_route}</p></CardContent></Card>
-        <Card className="border-blue-200 bg-blue-50/50"><CardContent className="p-3"><p className="text-xs text-blue-800">Transfer in Progress</p><p className="mt-1 text-2xl font-bold">{stageCounts.in_transfer}</p></CardContent></Card>
-        <Card className="border-amber-200 bg-amber-50/50"><CardContent className="p-3"><p className="text-xs text-amber-800">Ready for Final Delivery</p><p className="mt-1 text-2xl font-bold">{stageCounts.to_dispatch}</p></CardContent></Card>
-        <Card><CardContent className="p-3"><p className="text-xs text-slate-500">Delivered</p><p className="mt-1 text-2xl font-bold">{stageCounts.delivered}</p></CardContent></Card>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5 2xl:grid-cols-9">
+        <Card><CardContent className="p-3"><p className="text-xs text-slate-500">All Orders</p><p className="mt-1 text-2xl font-bold">{orders.length}</p><p className="text-[11px] text-slate-500">Both sources</p></CardContent></Card>
+        <Card className="border-emerald-200 bg-emerald-50/60"><CardContent className="p-3"><p className="text-xs text-emerald-800">Farmer Orders</p><p className="mt-1 text-2xl font-bold">{orders.filter((row:any)=>row.source==="farmer").length}</p><p className="text-[11px] text-emerald-800">Farmer-packed</p></CardContent></Card>
+        <Card className="border-blue-200 bg-blue-50/60"><CardContent className="p-3"><p className="text-xs text-blue-800">Warehouse Orders</p><p className="mt-1 text-2xl font-bold">{orders.filter((row:any)=>row.source==="warehouse").length}</p><p className="text-[11px] text-blue-800">Warehouse-packed</p></CardContent></Card>
+        <Card className="border-emerald-200 bg-emerald-50/40"><CardContent className="p-3"><p className="text-xs text-slate-600">Ready for Transfer / Delivery</p><p className="mt-1 text-2xl font-bold">{stageCounts.to_route}</p></CardContent></Card>
+        <Card className="border-blue-200 bg-blue-50/50"><CardContent className="p-3"><p className="text-xs text-slate-600">Transfer in Progress</p><p className="mt-1 text-2xl font-bold">{stageCounts.in_transfer}</p></CardContent></Card>
+        <Card className="border-amber-200 bg-amber-50/50"><CardContent className="p-3"><p className="text-xs text-slate-600">Ready for Final Delivery</p><p className="mt-1 text-2xl font-bold">{stageCounts.to_dispatch}</p></CardContent></Card>
+        <Card className="border-violet-200 bg-violet-50/50"><CardContent className="p-3"><p className="text-xs text-slate-600">Out for Delivery</p><p className="mt-1 text-2xl font-bold">{orders.filter((row:any)=>["out_for_delivery","dispatched_to_customer","delivery_in_progress"].includes(norm(row.status || row.fulfillmentStatus))).length}</p></CardContent></Card>
+        <Card className="border-green-200 bg-green-50/50"><CardContent className="p-3"><p className="text-xs text-slate-600">Delivered</p><p className="mt-1 text-2xl font-bold">{stageCounts.delivered}</p></CardContent></Card>
         <Card className="border-red-200 bg-red-50/50"><CardContent className="p-3"><p className="text-xs text-red-800">Needs Attention</p><p className="mt-1 text-2xl font-bold">{stageCounts.review}</p></CardContent></Card>
       </div>
 
@@ -251,7 +265,7 @@ export default function FulfillmentDispatchPage() {
                   <table className="w-full min-w-[760px] text-left text-sm">
                     <thead className="bg-slate-50 text-xs text-slate-600"><tr>
                       <th className="w-10 px-3 py-3"><input aria-label="Select all visible orders" type="checkbox" checked={filtered.length > 0 && filtered.every((row: any) => selectedIds.includes(row.source + ":" + row.id))} onChange={(e) => toggleAllVisible(e.target.checked)} className="h-4 w-4 accent-emerald-600"/></th>
-                      <th className="px-3 py-3">Order ID</th><th className="px-3 py-3">Customer / Buyer</th><th className="px-3 py-3">Products</th><th className="px-3 py-3">Quantity</th><th className="px-3 py-3">Route Type</th><th className="px-3 py-3">Status</th>
+                      <th className="px-3 py-3">Order ID</th><th className="px-3 py-3">Order Type</th><th className="px-3 py-3">Customer / Buyer</th><th className="px-3 py-3">Products</th><th className="px-3 py-3">Quantity</th><th className="px-3 py-3">Route Type</th><th className="px-3 py-3">Status</th>
                     </tr></thead>
                     <tbody className="divide-y divide-slate-100">
                       {filtered.map((row: any) => {
@@ -260,6 +274,7 @@ export default function FulfillmentDispatchPage() {
                         return <tr key={key} className={checked ? "bg-emerald-50/70" : "bg-white hover:bg-slate-50"}>
                           <td className="px-3 py-3"><input aria-label={`Select order ${row.orderNumber}`} type="checkbox" checked={checked} onChange={(e) => toggleOrder(key, e.target.checked)} className="h-4 w-4 accent-emerald-600"/></td>
                           <td className="whitespace-nowrap px-3 py-3 font-semibold text-emerald-900">{row.orderNumber}</td>
+                          <td className="px-3 py-3"><Badge className={row.source === "farmer" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-blue-200 bg-blue-50 text-blue-800"}>{row.source === "farmer" ? "Farmer" : "Warehouse"}</Badge></td>
                           <td className="px-3 py-3">{row.customerName}</td><td className="px-3 py-3">{row.itemSummary}</td><td className="whitespace-nowrap px-3 py-3">{row.quantitySummary}</td>
                           <td className="px-3 py-3 align-middle">
                             <span className={`inline-flex max-w-[132px] items-center rounded-lg border px-2.5 py-1 text-[11px] font-semibold leading-4 whitespace-normal ${row.route === "nearby" || row.route === "same_district" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : row.route === "inter_district" || row.route === "multi_warehouse" ? "border-violet-200 bg-violet-50 text-violet-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}>
