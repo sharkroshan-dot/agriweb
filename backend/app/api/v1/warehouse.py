@@ -9131,7 +9131,6 @@ async def get_packing_tasks(status: Optional[str] = None, current_user: dict = D
             if row.get("orderId")
             and str(row.get("sourceMode") or "").strip().lower() not in ("farmer_fulfillment", "farmer_fulfillment_transfer")
             and str(row.get("fulfillmentType") or "").strip().lower() not in ("farmer_fulfillment", "farmer_fulfillment_transfer", "farmer packed")
-            and row.get("packingRequired") is not False
         }
         for order_id in order_ids:
             if not ObjectId.is_valid(order_id):
