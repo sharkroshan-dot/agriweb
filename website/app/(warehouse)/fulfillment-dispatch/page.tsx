@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowDownToLine, ArrowLeftRight, ArrowRight, CheckCircle2, ChevronDown, ChevronRight, Clock3, Filter, Leaf, MapPin, Package, RefreshCw, Route, Search, Truck, Warehouse } from "lucide-react";
+import { AlertTriangle, ArrowDownToLine, ArrowLeftRight, ArrowRight, CheckCircle2, ChevronDown, ChevronRight, ClipboardCheck, Clock3, Filter, Info, Leaf, MapPin, MousePointer2, Package, RefreshCw, Route, Search, Truck, Warehouse } from "lucide-react";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
@@ -317,14 +317,31 @@ export default function FulfillmentDispatchPage() {
           </Card>
 
           <Card className="min-w-0 w-full overflow-hidden self-start border-emerald-200 shadow-sm">
-            <div className="flex items-center justify-between gap-3 bg-gradient-to-r from-emerald-800 to-emerald-700 px-4 py-4 text-white">
-              <div className="flex items-center gap-3"><div className="rounded-xl bg-white/15 p-2.5"><Truck className="h-5 w-5"/></div><div><h2 className="text-lg font-bold leading-tight">Operations</h2><p className="mt-0.5 text-xs text-emerald-50">{selectedRows.length} {selectedRows.length === 1 ? "order" : "orders"} selected</p></div></div>
-              <Button type="button" size="sm" variant="outline" disabled={!selectedRows.length} onClick={() => setSelectedIds([])} className="shrink-0 border-white/50 bg-white text-emerald-900 hover:bg-emerald-50"><RefreshCw className="mr-1.5 h-3.5 w-3.5"/>Clear</Button>
+            <div className="flex items-center justify-between gap-3 bg-gradient-to-r from-emerald-800 to-emerald-700 px-4 py-5 text-white">
+              <div className="flex min-w-0 items-center gap-3"><div className="rounded-xl bg-white/15 p-2.5"><Truck className="h-6 w-6"/></div><div className="min-w-0"><h2 className="text-xl font-bold leading-tight">Operations</h2><p className="mt-1 text-xs text-emerald-50">{selectedRows.length ? "Review and process selected orders" : "Process selected orders for dispatch"}</p></div></div>
+              {selectedRows.length ? <div className="flex items-center gap-2"><Badge className="border-white/20 bg-white text-emerald-900">{selectedRows.length} Selected</Badge><Button type="button" size="sm" variant="outline" onClick={() => setSelectedIds([])} className="shrink-0 border-white/50 bg-white text-emerald-900 hover:bg-emerald-50"><RefreshCw className="mr-1.5 h-3.5 w-3.5"/>Clear</Button></div> : <Badge className="shrink-0 border-white/20 bg-white px-3 py-1.5 text-sm font-semibold text-emerald-900">0 Selected</Badge>}
             </div>
             <CardContent className="space-y-4 p-4">
               <div className="flex items-start gap-3 rounded-xl border border-emerald-100 bg-emerald-50/80 p-3.5"><div className="rounded-lg bg-white p-2 text-emerald-700"><Truck className="h-5 w-5"/></div><div><p className="text-sm font-bold text-slate-900">Next Operation</p><p className="mt-1 text-sm leading-5 text-slate-700">{nextOperation}</p>{selectedRouteConfig && <p className="mt-1 text-xs leading-5 text-slate-500">{selectedRouteConfig.intro}</p>}</div></div>
               {!selectedRows.length ? (
-                <div className="rounded-xl border border-dashed border-slate-300 px-4 py-8 text-center"><Package className="mx-auto h-9 w-9 text-slate-300"/><p className="mt-2 text-sm font-semibold text-slate-800">No orders selected</p><p className="mx-auto mt-1 max-w-[230px] text-xs leading-5 text-slate-500">Select orders from the middle table to see their next available operation here.</p></div>
+                <div className="flex min-h-[590px] flex-col justify-center gap-8 px-1 py-7">
+                  <div className="mx-auto w-full max-w-sm text-center">
+                    <div className="relative mx-auto mb-5 flex h-40 w-40 items-center justify-center rounded-full bg-emerald-50">
+                      <div className="flex h-28 w-24 items-center justify-center rounded-2xl border-[3px] border-emerald-700 bg-white shadow-sm">
+                        <ClipboardCheck className="h-16 w-16 text-emerald-700" strokeWidth={1.6}/>
+                      </div>
+                      <div className="absolute bottom-7 right-5 flex h-12 w-12 items-center justify-center rounded-full border-4 border-emerald-50 bg-emerald-600 text-white shadow-md"><MousePointer2 className="h-6 w-6" fill="currentColor"/></div>
+                    </div>
+                    <h3 className="text-2xl font-bold tracking-tight text-slate-900">No Orders Selected</h3>
+                    <p className="mx-auto mt-3 max-w-xs text-sm leading-6 text-slate-600">Select one or more orders from the list to view available operations and process dispatch.</p>
+                  </div>
+                  <section className="mx-auto w-full max-w-lg overflow-hidden rounded-xl border border-emerald-200 bg-white">
+                    <div className="flex items-center gap-2 border-b border-emerald-100 bg-emerald-50 px-4 py-3.5"><Info className="h-5 w-5 text-emerald-700"/><h3 className="text-sm font-bold text-emerald-900">Available Operations (after selection)</h3></div>
+                    <div className="space-y-3.5 px-4 py-4">
+                      {["Assign delivery partner","Plan and confirm route","Dispatch selected orders","Transfer to destination warehouse (if required)"].map((item) => <div key={item} className="flex items-center gap-3 text-sm text-slate-700"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><CheckCircle2 className="h-4 w-4"/></span><span>{item}</span></div>)}
+                    </div>
+                  </section>
+                </div>
               ) : (
                 <>
                   <section className="space-y-2.5"><div className="flex items-center justify-between"><h3 className="text-sm font-bold text-slate-900">Selected Orders</h3><Badge variant="secondary">{selectedRows.length}</Badge></div>
