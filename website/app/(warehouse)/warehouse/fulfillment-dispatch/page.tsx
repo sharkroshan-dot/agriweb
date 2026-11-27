@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { AlertTriangle, ArrowLeftRight, ArrowRight, CheckCircle2, ChevronDown, ChevronRight, ClipboardCheck, Leaf, MapPin, Package, RefreshCw, Route, Search, Truck, Warehouse } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, ArrowRight, CheckCircle2, Leaf, MapPin, Package, RefreshCw, Route, Search, Truck, Warehouse } from "lucide-react";
 import toast from "react-hot-toast";
 import { Card, CardContent } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
@@ -44,57 +44,6 @@ function classify(row:any,source:Source):RouteKey {
   return source==="farmer" ? "route_review" : "route_review";
 }
 const statusText=(v:any)=>String(v??"Unknown").replace(/_/g," ");
-type WorkflowStep={label:string;detail:string;done:boolean;external?:boolean};
-const workflowStepsFor=(o:any):WorkflowStep[]=>{
-  const s=norm(o.transferStatus||o.warehouseFulfillmentStage||o.stage||o.status||o.currentStage), d=norm(o.destinationTransferStatus), h=norm(o.localHubTransferStatus);
-  const delivered=o.dispatchStatus==="Delivered"||["delivered","completed"].includes(norm(o.orderStatus));
-  const destMoving=["in_transit","arrived_at_destination","received_at_destination"].includes(d)||["destination_warehouse_in_transit","destination_warehouse_arrived_pending_receipt","destination_warehouse_received","hub_handoff_pending","hub_arrived_pending_receipt","local_hub_ready"].includes(s);
-  const destReceived=d==="received_at_destination"||["destination_warehouse_received","hub_handoff_pending","hub_arrived_pending_receipt","local_hub_ready"].includes(s);
-  const hubTransfer=["in_transit","assigned","arrived_at_hub","received"].includes(h)||["hub_handoff_pending","hub_arrived_pending_receipt","local_hub_ready"].includes(s);
-  const hubReceived=h==="received"||s==="local_hub_ready";
-  const distance=Number(o.routeDistanceKm), distanceVerified=o.distanceCalculationStatus==="calculated"||o.routeDataComplete===true||(Number.isFinite(distance)&&distance>=0);
-  if(o.route==="nearby")return [
-    {label:"Verify distance",detail:distanceVerified?distance.toFixed(1)+" km · threshold "+Number(o.nearbyThresholdKm??15)+" km":"Verified source and customer coordinates are required",done:distanceVerified},
-    {label:"Assign delivery partner",detail:"Assign or publish one eligible final-mile delivery job",done:Boolean(o.deliveryPartnerId||o.deliveryJobId)||o.dispatchStatus==="Partner Assigned"||delivered,external:true},
-    {label:"Start delivery",detail:"Assigned delivery partner starts the customer delivery",done:["out_for_delivery","delivery_in_progress"].includes(norm(o.deliveryStatus||o.orderStatus))||delivered,external:true},
-    {label:"Confirm delivery",detail:"Delivery partner records proof of delivery",done:delivered,external:true},
-  ];
-  if(o.route==="same_district"){
-    const team=Boolean(o.localHubTransferAssigned||o.assignedDeliveryPartnerId)||["assigned","arrived_at_hub","received"].includes(h);
-    return [
-      {label:"Verify same district",detail:"Source and customer must be in the same district",done:Boolean(o.sourceDistrict&&(o.destinationDistrict||o.deliveryDistrict||o.customerDistrict))&&normDistrict(o.sourceDistrict)===normDistrict(o.destinationDistrict||o.deliveryDistrict||o.customerDistrict)},
-      {label:"Create local hub transfer",detail:"Create one sealed-order transfer manifest",done:hubTransfer},
-      {label:"Assign pickup team & dispatch",detail:"Assign an approved vehicle and hand over the sealed order",done:team||["arrived_at_hub","received"].includes(h),external:true},
-      {label:"Confirm hub receipt",detail:"Local hub confirms physical arrival and quantity",done:hubReceived,external:true},
-      {label:"Final delivery",detail:"Final-mile delivery job proceeds after hub receipt",done:delivered,external:true},
-    ];
-  }
-  if(o.route==="inter_district")return [
-    {label:"Verify destination district",detail:"Confirm source and customer districts differ",done:Boolean(o.sourceDistrict&&(o.destinationDistrict||o.deliveryDistrict||o.customerDistrict))&&normDistrict(o.sourceDistrict)!==normDistrict(o.destinationDistrict||o.deliveryDistrict||o.customerDistrict)},
-    {label:"Assign destination warehouse",detail:"Select the warehouse serving the customer district",done:Boolean(o.destinationWarehouseId)},
-    {label:"Assign transfer team & dispatch",detail:"Create transfer manifest, assign an approved team and dispatch",done:destMoving},
-    {label:"Confirm destination receipt",detail:"Destination warehouse records physical receipt after partner arrival",done:destReceived,external:true},
-    {label:"Send to local hub",detail:"Destination warehouse creates the downstream local-hub transfer",done:hubTransfer},
-    {label:"Confirm hub receipt",detail:"Local hub confirms physical arrival",done:hubReceived,external:true},
-    {label:"Final delivery",detail:"Final-mile delivery partner completes customer delivery",done:delivered,external:true},
-  ];
-  if(o.route==="multi_warehouse"){
-    const total=Number(o.consolidation?.totalLegs||o.consolidationLegs?.length||0), received=Number(o.consolidation?.receivedLegs||0);
-    const allReceived=o.allConsolidationLegsReceived===true||o.consolidation?.allSourcePortionsStored===true||(total>0&&received>=total);
-    const consolidated=norm(o.consolidationStatus)==="consolidated"||norm(o.consolidation?.status)==="consolidated";
-    return [
-      {label:"Identify source warehouses",detail:"Verify every allocated source portion",done:total>0},
-      {label:"Dispatch source portions",detail:"Each source warehouse dispatches its allocated portion",done:Boolean(o.sourceTransfer?.dispatched)},
-      {label:"Receive all portions",detail:total?received+" of "+total+" portions physically received":"Consolidation warehouse verifies every portion",done:allReceived},
-      {label:"Complete consolidation",detail:"Verify quantities and combine all received portions",done:consolidated},
-      {label:"Send to local hub",detail:"Create one transfer for the complete customer order",done:hubTransfer},
-      {label:"Confirm hub receipt",detail:"Local hub confirms physical arrival",done:hubReceived,external:true},
-      {label:"Final delivery",detail:"Final delivery partner completes customer delivery",done:delivered,external:true},
-    ];
-  }
-  if(o.route==="route_review")return [{label:"Review route configuration",detail:"Check route decision and direct-delivery eligibility",done:false},{label:"Verify distance & district",detail:"Confirm valid source and customer route data",done:false},{label:"Approve corrected route",detail:"Reclassify only after route prerequisites pass",done:false}];
-  return [{label:"Verify source location",detail:"Confirm farmer or source warehouse locality and district",done:false},{label:"Verify customer location",detail:"Complete delivery address and district details",done:false},{label:"Validate coordinates",detail:"Save valid GPS coordinates before recalculating distance",done:false},{label:"Recalculate and assign route",detail:"Routing stays blocked until location data is valid",done:false}];
-};
 const firstText=(...values:any[])=>values.find(v=>v!==null&&v!==undefined&&String(v).trim()!==""&&typeof v!=="object");
 const isDatabaseId=(value:any)=>/^[a-f0-9]{24}$/i.test(String(value??"").trim());
 const readableOrderReference=(x:any,source:"farmer"|"warehouse")=>{
