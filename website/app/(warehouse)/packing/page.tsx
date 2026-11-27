@@ -65,7 +65,7 @@ export default function WarehousePackingPage() {
   const [queueTab, setQueueTab] = useState<"queue" | "packing" | "shortage" | "completed">("queue");
   const [printLabelData, setPrintLabelData] = useState<any | null>(null);
   const printQrRef = useRef<HTMLDivElement | null>(null);
-  const [dateFilter, setDateFilter] = useState<"today" | "yesterday" | "week" | "all">("all");
+  const [dateFilter, setDateFilter] = useState<"today" | "yesterday" | "week" | "all">(requestedOrderId || requestedOrderIds.length > 0 || requestedFarm ? "all" : "today");
   const [showRemainingOnly, setShowRemainingOnly] = useState(false);
   const [farmTeam, setFarmTeam] = useState<Record<string,string>>({});
   const [assigningFarm, setAssigningFarm] = useState<string | null>(null);
@@ -373,9 +373,29 @@ export default function WarehousePackingPage() {
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"/>
                 <Input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search order, customer, farmer, product…" className="h-10 pl-9"/>
               </div>
-              <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                <span>{visibleTasks.length} order(s) in this view</span>
-                <span>{dateFilter === "today" ? "Today" : dateFilter === "yesterday" ? "Yesterday" : dateFilter === "week" ? "This Week" : "All Time"}</span>
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter packing orders by date">
+                  {([
+                    { id: "today", label: "Today" },
+                    { id: "yesterday", label: "Yesterday" },
+                    { id: "week", label: "This Week" },
+                    { id: "all", label: "All Time" },
+                  ] as const).map((period) => (
+                    <button
+                      key={period.id}
+                      type="button"
+                      aria-pressed={dateFilter === period.id}
+                      onClick={() => setDateFilter(period.id)}
+                      className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${dateFilter === period.id ? "border-emerald-700 bg-emerald-700 text-white shadow-sm" : "border-slate-200 bg-white text-slate-600 hover:border-emerald-300 hover:bg-emerald-50"}`}
+                    >
+                      {period.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                  <span>{visibleTasks.length} order(s) in this view</span>
+                  <span>Showing: {dateFilter === "today" ? "Today" : dateFilter === "yesterday" ? "Yesterday" : dateFilter === "week" ? "This Week" : "All Time"}</span>
+                </div>
               </div>
               <div className="max-h-[min(72vh,820px)] space-y-2 overflow-y-auto pr-1">
                 {queueTab === "shortage" ? (
