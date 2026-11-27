@@ -227,8 +227,8 @@ export default function FulfillmentDispatchPage() {
 
       {hasError && <Card className="border-red-200 bg-red-50"><CardContent className="p-4 text-sm text-red-800">Could not load fulfillment orders. Refresh the page or check warehouse access.</CardContent></Card>}
       {isLoading ? <Card><CardContent className="p-10 text-center text-sm text-slate-500">Loading fulfillment orders…</CardContent></Card> : (
-        <div className="grid min-w-0 items-stretch gap-4 xl:grid-cols-[minmax(235px,0.82fr)_minmax(520px,1.85fr)_minmax(285px,0.98fr)] 2xl:grid-cols-[minmax(260px,0.85fr)_minmax(600px,1.9fr)_minmax(320px,1fr)]">
-          <Card className="min-w-0 overflow-hidden xl:min-h-[650px]">
+        <div className="grid w-full min-w-0 grid-cols-1 items-stretch gap-3 lg:grid-cols-[minmax(0,0.82fr)_minmax(0,1.85fr)_minmax(0,0.98fr)] 2xl:gap-4 2xl:grid-cols-[minmax(250px,0.82fr)_minmax(0,1.85fr)_minmax(285px,0.98fr)]">
+          <Card className="min-w-0 w-full overflow-hidden lg:min-h-[650px]">
             <CardContent className="h-full space-y-3 overflow-y-auto p-4">
               <div><div className="flex items-center justify-between gap-2"><h2 className="text-lg font-bold text-slate-900">Route Groups</h2><Badge variant="outline">{orders.length} orders</Badge></div><p className="mt-1 text-xs text-slate-500">Choose a route to see its orders and process.</p></div>
               <button type="button" onClick={() => {setActiveRoute("all");setSelectedIds([]);}} className={`w-full rounded-xl border p-3 text-left transition-colors ${activeRoute === "all" ? "border-emerald-500 bg-emerald-50 ring-1 ring-emerald-100" : "border-slate-200 hover:border-emerald-200"}`}>
@@ -273,7 +273,7 @@ export default function FulfillmentDispatchPage() {
             </CardContent>
           </Card>
 
-          <Card className="min-w-0 overflow-hidden xl:sticky xl:top-20 xl:min-h-[650px]">
+          <Card className="min-w-0 w-full overflow-hidden lg:sticky lg:top-20 lg:min-h-[650px]">
             <CardContent className="h-full space-y-4 p-4">
               <div className="flex items-center justify-between gap-2"><div><h2 className="text-lg font-bold text-slate-900">Operations</h2><p className="mt-1 text-xs text-slate-500">Actions change according to the selected route group.</p></div><Badge variant="outline">{selectedRows.length || (activeRoute === "all" ? "—" : filtered.length)} {selectedRows.length ? "selected" : "orders"}</Badge></div>
               {operationGroups.length === 0 ? <div className="rounded-xl border border-dashed p-6 text-center"><Truck className="mx-auto h-10 w-10 text-slate-300"/><p className="mt-2 font-semibold text-slate-800">Choose a route group</p><p className="mt-1 text-xs text-slate-500">Select a route on the left, then select its orders in the middle. The matching workflow will appear here.</p></div> : operationGroups.map(([routeKey, rows]) => {
