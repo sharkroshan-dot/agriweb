@@ -1356,3 +1356,78 @@
 .agri-site-header[data-login="true"] .agri-header-brand-mark {
   border-radius: 9px !important;
 }
+
+
+/* Fulfillment & Dispatch: equal KPI cards and a compact, non-scrolling order grid. */
+.fulfillment-dispatch-page .fulfillment-summary-grid {
+  align-items: stretch;
+}
+.fulfillment-dispatch-page .fulfillment-summary-card {
+  display: flex;
+  min-width: 0;
+  height: 104px;
+  min-height: 104px;
+  overflow: hidden;
+}
+.fulfillment-dispatch-page .fulfillment-summary-card > div {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  align-items: center;
+}
+.fulfillment-dispatch-page .fulfillment-summary-card > div > div:last-child {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.fulfillment-dispatch-page .fulfillment-summary-card p {
+  overflow-wrap: anywhere;
+}
+.fulfillment-dispatch-page .fulfillment-orders-table {
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+}
+.fulfillment-dispatch-page .fulfillment-orders-table table {
+  width: 100%;
+  min-width: 0 !important;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+.fulfillment-dispatch-page .fulfillment-orders-table th,
+.fulfillment-dispatch-page .fulfillment-orders-table td {
+  min-width: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  vertical-align: middle;
+}
+.fulfillment-dispatch-page .fulfillment-orders-table th {
+  white-space: normal;
+  font-size: 10px;
+  line-height: 1.25;
+}
+.fulfillment-dispatch-page .fulfillment-orders-table td {
+  line-height: 1.25;
+}
+.fulfillment-dispatch-page .fulfillment-orders-table tbody tr {
+  height: 48px;
+}
+@media (min-width: 1536px) {
+  .fulfillment-dispatch-page .fulfillment-summary-grid {
+    grid-template-columns: repeat(9, minmax(0, 1fr));
+  }
+}
+@media (max-width: 1279px) {
+  .fulfillment-dispatch-page .fulfillment-summary-card {
+    height: 100px;
+    min-height: 100px;
+  }
+}
+@media (max-width: 767px) {
+  .fulfillment-dispatch-page .fulfillment-orders-table th {
+    font-size: 9px;
+  }
+  .fulfillment-dispatch-page .fulfillment-orders-table tbody tr {
+    height: 44px;
+  }
+}
