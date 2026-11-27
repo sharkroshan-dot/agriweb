@@ -533,7 +533,7 @@ export default function WarehousePackingPage() {
               </Card>
             ) : <Card className="flex min-h-[420px] items-center justify-center border-dashed"><CardContent className="text-center"><CheckCircle2 className="mx-auto h-12 w-12 text-emerald-500"/><h3 className="mt-3 font-semibold text-slate-800">No open shortage cases</h3><p className="mt-1 text-sm text-slate-500">There are no shortage orders to review.</p></CardContent></Card>
           ) : (selectedTask ? (
-            <>
+            <div className="min-w-0 space-y-3">
             {selectedPackingTasks.length > 0 && <Card className="mb-3 border-emerald-200 bg-emerald-50/40 shadow-sm">
               <CardContent className="space-y-2 p-3">
                 <div className="flex items-center justify-between gap-2">
@@ -630,7 +630,7 @@ export default function WarehousePackingPage() {
                 </div>
               </CardContent>
             </Card>
-            </>
+            </div>
           ) : (
             <Card className="flex min-h-[420px] items-center justify-center border-dashed"><CardContent className="text-center"><ClipboardCheck className="mx-auto h-12 w-12 text-slate-300"/><h3 className="mt-3 font-semibold text-slate-800">Select an order to pack</h3><p className="mt-1 text-sm text-slate-500">Choose an order from the queue to review its products and packing label.</p></CardContent></Card>
           ))}
