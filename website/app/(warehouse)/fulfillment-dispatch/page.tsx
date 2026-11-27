@@ -67,13 +67,27 @@ function warehouseName(item: any) {
   return item.destinationWarehouseName || item.destinationWarehouse?.name || item.assignedDestinationWarehouseName || item.consolidationWarehouseName || item.destinationDistrict || item.deliveryDistrict || item.customerDistrict || "Destination not assigned";
 }
 
+function readableOrderNumber(item: any, fallback: string) {
+  const candidates = [
+    item.orderNumber,
+    item.order?.orderNumber,
+    item.sourceOrder?.orderNumber,
+    item.source_order?.order_number,
+    item.orderDetails?.orderNumber,
+    item.order_number,
+    item.referenceNumber,
+  ];
+  const value = candidates.find((candidate) => typeof candidate === "string" && candidate.trim() && !/^[a-f0-9]{24}$/i.test(candidate.trim()));
+  return value ? String(value).trim() : fallback;
+}
+
 function normalizeFarmer(item: any) {
   const stage = farmerStage(item);
   return {
     ...item,
     id: String(item.id || item.orderId || item.orderNumber),
     orderId: String(item.orderId || item.id || ""),
-    orderNumber: item.orderNumber || item.orderId || item.id || "Farmer order",
+    orderNumber: readableOrderNumber(item, "Farmer fulfillment order"),
     source: "farmer" as Source,
     stage,
     route: routeOf(item),
@@ -92,7 +106,7 @@ function normalizeWarehouse(item: any) {
     ...item,
     id: String(item.id || item.orderId || item.orderNumber),
     orderId: String(item.orderId || ""),
-    orderNumber: item.orderNumber || item.orderId || "Warehouse order",
+    orderNumber: readableOrderNumber(item, "Warehouse fulfillment order"),
     source: "warehouse" as Source,
     stage,
     route: routeOf(item),
