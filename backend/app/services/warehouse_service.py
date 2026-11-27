@@ -863,7 +863,6 @@ class WarehouseService:
             and str(row.get("qualityCheck") or row.get("quality_check") or "").lower() == "passed"
             and str(row.get("sourceMode") or "").strip().lower() not in ("farmer_fulfillment", "farmer_fulfillment_transfer")
             and str(row.get("fulfillmentType") or "").strip().lower() not in ("farmer_fulfillment", "farmer_fulfillment_transfer", "farmer packed")
-            and row.get("packingRequired") is not False
         ]
         # A linked, quality-passed warehouse incoming row is authoritative when
         # legacy order metadata is absent. Explicit non-warehouse methods remain
