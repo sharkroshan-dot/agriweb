@@ -209,10 +209,10 @@ export default function FulfillmentDispatchPage() {
     : "See individual orders";
   const selectedStages = [...new Set(selectedRows.map((row: any) => row.stage))] as Stage[];
   const selectedStatus = selectedStages.length === 1 ? stageMeta[selectedStages[0]].label : selectedStages.length ? "Mixed statuses" : "No selection";
-  const nextOperation = !selectedRows.length ? "Select orders to see the next operation" : selectedRouteKey === "nearby" ? "Assign delivery partner" : selectedRouteKey === "same_district" ? "Continue same-district delivery" : selectedRouteKey === "inter_district" ? "Dispatch to destination warehouse" : selectedRouteKey === "multi_warehouse" ? "Complete warehouse consolidation" : "Resolve route prerequisites";
+  const nextOperation = !selectedRows.length ? "Select orders to see the next operation" : selectedStages.length !== 1 ? "Selected orders have different workflow stages" : selectedStages[0] === "to_receive" ? "Confirm physical warehouse receipt" : selectedStages[0] === "in_transfer" ? "Track transfer and confirm destination receipt" : selectedStages[0] === "to_dispatch" ? "Assign delivery partner and dispatch" : selectedStages[0] === "delivered" ? "Delivery completed" : selectedStages[0] === "review" ? "Resolve route prerequisites" : selectedRouteKey === "nearby" ? "Assign delivery partner" : selectedRouteKey === "same_district" ? "Continue same-district delivery" : selectedRouteKey === "inter_district" ? "Dispatch to destination warehouse" : selectedRouteKey === "multi_warehouse" ? "Complete warehouse consolidation" : "Review route details";
   const blockedSelection = selectedRows.some((row: any) => row.route === "needs_location" || row.route === "route_review");
   const completedSelection = selectedRows.some((row: any) => row.stage === "delivered");
-  const canProcessSelection = selectedRows.length > 0 && selectedRouteKeys.length === 1 && selectedSources.length === 1 && !blockedSelection && !completedSelection;
+  const canProcessSelection = selectedRows.length > 0 && selectedRouteKeys.length === 1 && selectedSources.length === 1 && selectedStages.length === 1 && !blockedSelection && !completedSelection;
   const processSelectedOrders = () => {
     if (!canProcessSelection || !selectedRouteKey || !selectedSource || !selectedRouteConfig) return;
     const href = selectedSource === "farmer" ? selectedRouteConfig.farmerHref : selectedRouteConfig.warehouseHref;
@@ -341,7 +341,7 @@ export default function FulfillmentDispatchPage() {
                       <div className="grid grid-cols-[105px_minmax(0,1fr)] gap-3 py-3 text-xs"><dt className="text-slate-500">Next Stage</dt><dd className="font-semibold text-slate-800">{nextOperation}</dd></div>
                     </dl>
                   </section>
-                  {(selectedRouteKeys.length > 1 || selectedSources.length > 1) && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-800">Select orders from the same route and source workflow to process them together.</div>}
+                  {(selectedRouteKeys.length > 1 || selectedSources.length > 1 || selectedStages.length > 1) && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-800">Select orders with the same route, source and workflow stage to continue them together.</div>}
                   {blockedSelection && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-800">Processing is blocked because at least one selected order needs location or route review.</div>}
                   {completedSelection && <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-600">Delivered orders cannot be processed again. Remove completed orders to continue.</div>}
                   <Button type="button" className="h-12 w-full bg-emerald-700 text-sm font-semibold shadow-sm hover:bg-emerald-800" disabled={!canProcessSelection} onClick={processSelectedOrders}><Truck className="mr-2 h-4 w-4"/>Process Selected Orders ({selectedRows.length})<ArrowRight className="ml-2 h-4 w-4"/></Button>
