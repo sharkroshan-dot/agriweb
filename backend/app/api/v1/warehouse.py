@@ -10235,6 +10235,20 @@ async def get_my_outgoing_stock(
         if not order_for_route:
             item.update({"routeCategory": "needs_location", "routeDataComplete": False, "routeDecisionReason": "Order details are unavailable"})
             continue
+
+        # The outgoing-stock row stores MongoDB orderId for relationships and
+        # actions. The UI must show the customer-facing order number instead.
+        # Keep the database ID in orderId, and enrich a separate readable field.
+        customer_order_number = (
+            order_for_route.get("orderNumber")
+            or order_for_route.get("orderNo")
+            or order_for_route.get("referenceNumber")
+            or order_for_route.get("displayOrderNumber")
+        )
+        if customer_order_number:
+            item["orderNumber"] = str(customer_order_number)
+            item["customerOrderNumber"] = str(customer_order_number)
+
         # Farmer-packed transfers must never be routed from this queue.
         if str(order_for_route.get("fulfillmentMethod") or "").strip().lower() == "farmer":
             item.update({"routeCategory": "farmer_fulfillment_transfer", "routeDataComplete": False, "routeDecisionReason": "Continue in Farmer Fulfillment Transfers"})
