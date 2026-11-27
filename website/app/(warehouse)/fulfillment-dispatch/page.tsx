@@ -248,7 +248,7 @@ export default function FulfillmentDispatchPage() {
               </div>
               {filtered.length === 0 ? <div className="rounded-xl border border-dashed p-10 text-center"><Package className="mx-auto h-9 w-9 text-slate-300"/><p className="mt-2 font-semibold text-slate-700">No orders in this route group</p><p className="mt-1 text-xs text-slate-500">Choose another route group or clear the search.</p></div> : (
                 <div className="overflow-x-auto rounded-xl border border-slate-200">
-                  <table className="w-full min-w-[720px] text-left text-sm">
+                  <table className="w-full min-w-[760px] text-left text-sm">
                     <thead className="bg-slate-50 text-xs text-slate-600"><tr>
                       <th className="w-10 px-3 py-3"><input aria-label="Select all visible orders" type="checkbox" checked={filtered.length > 0 && filtered.every((row: any) => selectedIds.includes(row.source + ":" + row.id))} onChange={(e) => toggleAllVisible(e.target.checked)} className="h-4 w-4 accent-emerald-600"/></th>
                       <th className="px-3 py-3">Order ID</th><th className="px-3 py-3">Customer / Buyer</th><th className="px-3 py-3">Products</th><th className="px-3 py-3">Quantity</th><th className="px-3 py-3">Route Type</th><th className="px-3 py-3">Status</th>
@@ -261,8 +261,16 @@ export default function FulfillmentDispatchPage() {
                           <td className="px-3 py-3"><input aria-label={`Select order ${row.orderNumber}`} type="checkbox" checked={checked} onChange={(e) => toggleOrder(key, e.target.checked)} className="h-4 w-4 accent-emerald-600"/></td>
                           <td className="whitespace-nowrap px-3 py-3 font-semibold text-emerald-900">{row.orderNumber}</td>
                           <td className="px-3 py-3">{row.customerName}</td><td className="px-3 py-3">{row.itemSummary}</td><td className="whitespace-nowrap px-3 py-3">{row.quantitySummary}</td>
-                          <td className="px-3 py-3"><Badge variant="outline">{ROUTES.find((x) => x.key === row.route)?.label || "Route review"}</Badge></td>
-                          <td className="px-3 py-3"><Badge className={row.stage === "in_transfer" ? "bg-blue-100 text-blue-800" : row.stage === "delivered" ? "bg-emerald-100 text-emerald-800" : row.stage === "review" ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-700"}>{stageMeta[row.stage as Stage].label}</Badge></td>
+                          <td className="px-3 py-3 align-middle">
+                            <span className={`inline-flex max-w-[132px] items-center rounded-lg border px-2.5 py-1 text-[11px] font-semibold leading-4 whitespace-normal ${row.route === "nearby" || row.route === "same_district" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : row.route === "inter_district" || row.route === "multi_warehouse" ? "border-violet-200 bg-violet-50 text-violet-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}>
+                              {({ nearby: "Nearby Delivery", same_district: "Same-District", inter_district: "Inter-District Transfer", multi_warehouse: "Multi-Warehouse", needs_location: "Location Needed", route_review: "Route Review" } as Record<RouteKey, string>)[row.route]}
+                            </span>
+                          </td>
+                          <td className="px-3 py-3 align-middle">
+                            <span className={`inline-flex items-center rounded-lg border px-2.5 py-1 text-[11px] font-semibold leading-4 whitespace-nowrap ${row.stage === "in_transfer" ? "border-blue-200 bg-blue-50 text-blue-800" : row.stage === "delivered" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : row.stage === "review" ? "border-amber-200 bg-amber-50 text-amber-800" : row.stage === "to_dispatch" ? "border-indigo-200 bg-indigo-50 text-indigo-800" : "border-slate-200 bg-slate-50 text-slate-700"}`}>
+                              {stageMeta[row.stage as Stage].label}
+                            </span>
+                          </td>
                         </tr>;
                       })}
                     </tbody>
