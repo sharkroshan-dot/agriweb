@@ -96,7 +96,7 @@ export default function FulfillmentDispatchPage() {
     const q=search.trim().toLowerCase();
     return orders.filter((o:any)=>(activeRoute==="all"||o.route===activeRoute)&&(activeStage==="All"||o.stage===activeStage)&&(!q||[o.orderNumber,o.orderId,o.customerName,o.district,o.destinationGroup,o.itemSummary,o.currentStatus].some(v=>String(v||"").toLowerCase().includes(q))));
   },[orders,search,activeRoute,activeStage]);
-  const selected=filtered.find((o:any)=>o.source+":"+o.id===selectedKey)||null;
+  const selected=filtered.find((o:any)=>o.source+":"+o.id===selectedKey)||filtered[0]||null;
   const routeCounts=Object.fromEntries(ROUTES.map(r=>[r.key,orders.filter((o:any)=>o.route===r.key).length])) as Record<RouteKey,number>;
   const stageNames=["To Receive","To Route","In Transfer","To Dispatch","Delivered"];
   const stageCounts=Object.fromEntries(stageNames.map(s=>[s,orders.filter((o:any)=>o.stage===s).length])) as Record<string,number>;
