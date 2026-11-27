@@ -44,6 +44,76 @@ function classify(row:any,source:Source):RouteKey {
   return source==="farmer" ? "route_review" : "route_review";
 }
 const statusText=(v:any)=>String(v??"Unknown").replace(/_/g," ");
+type WorkflowStep={label:string;detail:string;done:boolean;external?:boolean};
+const workflowStepsFor=(o:any):WorkflowStep[]=>{
+  const s=norm(o.transferStatus||o.status||o.stage||o.currentStage);
+  const delivered=o.dispatchStatus==="Delivered"||["delivered","completed"].includes(norm(o.orderStatus));
+  const moving=o.dispatchStatus==="Dispatched / In Transit"||["in_transit","out_for_delivery","delivery_in_progress","dispatched"].includes(s);
+  const partnerAssigned=o.dispatchStatus==="Partner Assigned"||Boolean(o.deliveryPartnerId||o.assignedDeliveryPartnerId||o.assignedPartner||o.assignedTeam);
+  const distance=Number(o.routeDistanceKm);
+  const distanceVerified=o.routeDataComplete!==false&&Number.isFinite(distance)&&distance>=0;
+  if(o.route==="nearby") return [
+    {label:"Verify distance",detail:distanceVerified?distance.toFixed(1)+" km · within "+Number(o.nearbyThresholdKm??15)+" km":"Verified source and customer coordinates are required",done:distanceVerified},
+    {label:"Assign delivery partner",detail:o.source==="farmer"?"Warehouse assigns an approved final-mile partner":"Delivery job is published for an eligible partner to accept",done:partnerAssigned||moving||delivered,external:o.source==="warehouse"},
+    {label:"Start delivery",detail:"Delivery partner starts the assigned customer delivery",done:moving||delivered,external:true},
+    {label:"Confirm delivery",detail:"Delivery partner records proof of delivery; this is a downstream action",done:delivered,external:true},
+  ];
+  if(o.route==="same_district"){
+    const hubTransfer=["hub_handoff_pending","hub_arrived_pending_receipt","local_hub_ready"].includes(s)||Boolean(o.localHubTransferId||o.hubTransferId);
+    const hubTeam=Boolean(o.localHubPickupTeamId||o.pickupTeamId||o.assignedPickupTeamId||o.assignedDeliveryPartnerId)||["hub_arrived_pending_receipt","local_hub_ready"].includes(s);
+    const hubReceived=s==="local_hub_ready"||s==="delivered";
+    return [
+      {label:"Verify same district",detail:"Source and customer must be in the same district",done:Boolean(o.sourceDistrict&& (o.destinationDistrict||o.deliveryDistrict||o.customerDistrict))&&normDistrict(o.sourceDistrict)===normDistrict(o.destinationDistrict||o.deliveryDistrict||o.customerDistrict)},
+      {label:"Create local hub transfer",detail:"Create the sealed-order transfer manifest",done:hubTransfer},
+      {label:o.source==="farmer"?"Assign pickup team":"Local hub receives shipment",detail:o.source==="farmer"?"Assign an approved team after creating the hub transfer":"Hub team records physical arrival",done:o.source==="farmer"?hubTeam:hubReceived,external:o.source==="warehouse"},
+      {label:"Confirm hub receipt",detail:"Local hub records physical receipt",done:hubReceived,external:true},
+      {label:"Final delivery",detail:"A final-mile delivery job is opened after hub receipt",done:delivered,external:true},
+    ];
+  }
+  if(o.route==="inter_district"){
+    const destinationAssigned=Boolean(o.destinationWarehouseId||o.destinationWarehouse?.id);
+    const destinationMoving=["destination_warehouse_transfer_pending","destination_warehouse_in_transit","destination_warehouse_arrived_pending_receipt","destination_warehouse_received","hub_handoff_pending","hub_arrived_pending_receipt","local_hub_ready"].includes(s);
+    const destinationReceived=["destination_warehouse_received","hub_handoff_pending","hub_arrived_pending_receipt","local_hub_ready"].includes(s);
+    const hubTransfer=["hub_handoff_pending","hub_arrived_pending_receipt","local_hub_ready"].includes(s);
+    const hubReceived=s==="local_hub_ready";
+    return [
+      {label:"Verify destination district",detail:"Confirm source and customer districts differ",done:Boolean(o.sourceDistrict&&(o.destinationDistrict||o.deliveryDistrict||o.customerDistrict))&&normDistrict(o.sourceDistrict)!==normDistrict(o.destinationDistrict||o.deliveryDistrict||o.customerDistrict)},
+      {label:"Assign destination warehouse",detail:"Select the warehouse serving the customer district",done:destinationAssigned},
+      {label:"Assign transfer team & dispatch",detail:"Create and dispatch the inter-district transfer",done:destinationMoving||destinationReceived,external:false},
+      {label:"Confirm destination receipt",detail:"Destination warehouse records physical receipt",done:destinationReceived,external:true},
+      {label:"Send to local hub",detail:"Create downstream local-hub transfer",done:hubTransfer},
+      {label:"Confirm hub receipt",detail:"Local hub records physical receipt",done:hubReceived,external:true},
+      {label:"Final delivery",detail:"Final-mile delivery job proceeds after hub receipt",done:delivered,external:true},
+    ];
+  }
+  if(o.route==="multi_warehouse"){
+    const legs=Array.isArray(o.consolidationLegs)?o.consolidationLegs:[];
+    const allReceived=o.allConsolidationLegsReceived===true||o.consolidation?.allWarehousesReceived===true||Boolean(legs.length&&legs.every((leg:any)=>["received_at_consolidation","received"].includes(norm(leg.status))));
+    const consolidated=norm(o.consolidationStatus)==="consolidated"||norm(o.consolidation?.status)==="consolidated";
+    const hubTransfer=["hub_handoff_pending","hub_arrived_pending_receipt","local_hub_ready"].includes(s)||norm(o.consolidationStatus)==="hub_handoff_pending";
+    const hubReceived=s==="local_hub_ready"||norm(o.consolidationStatus)==="local_hub_ready";
+    return [
+      {label:"Identify source warehouses",detail:"Check every allocated source portion",done:legs.length>0||Array.isArray(o.warehouseAllocations)&&o.warehouseAllocations.length>1},
+      {label:"Dispatch source portions",detail:"Each source warehouse dispatches its assigned portion",done:legs.some((leg:any)=>["in_transit","received_at_consolidation","received"].includes(norm(leg.status)))},
+      {label:"Receive all portions",detail:"Consolidation warehouse records each physical receipt",done:allReceived},
+      {label:"Complete consolidation",detail:"Verify quantities and combine all received portions",done:consolidated},
+      {label:"Send to local hub",detail:"Create one transfer for the complete customer order",done:hubTransfer},
+      {label:"Confirm hub receipt",detail:"Local hub confirms the consolidated order arrived",done:hubReceived,external:true},
+      {label:"Confirm delivery",detail:"Final delivery partner completes the customer delivery",done:delivered,external:true},
+    ];
+  }
+  if(o.route==="route_review") return [
+    {label:"Review route configuration",detail:"Check route decision and direct-delivery eligibility",done:false},
+    {label:"Verify distance & district",detail:"Confirm valid source and customer route data",done:false},
+    {label:"Approve corrected route",detail:"Reclassify only after the route prerequisites pass",done:false},
+  ];
+  return [
+    {label:"Verify source location",detail:"Confirm farmer or source warehouse locality and district",done:false},
+    {label:"Verify customer location",detail:"Complete delivery address and district details",done:false},
+    {label:"Validate coordinates",detail:"Save valid GPS coordinates before recalculating distance",done:false},
+    {label:"Recalculate and assign route",detail:"Route remains blocked until location data is valid",done:false},
+  ];
+};
 const firstText=(...values:any[])=>values.find(v=>v!==null&&v!==undefined&&String(v).trim()!==""&&typeof v!=="object");
 const isDatabaseId=(value:any)=>/^[a-f0-9]{24}$/i.test(String(value??"").trim());
 const readableOrderReference=(x:any,source:"farmer"|"warehouse")=>{
@@ -349,12 +419,14 @@ export default function FulfillmentDispatchPage() {
 
       <Card className="min-w-0 overflow-hidden xl:sticky xl:top-20 xl:min-h-[680px]"><CardContent className="space-y-4 p-4">
         <div className="flex items-center justify-between gap-2"><div><h2 className="text-lg font-bold">Operations</h2><p className="mt-1 text-xs text-muted-foreground">Actions for selected orders.</p></div><Badge variant="outline">{selectedDispatchOrders.length?selectedDispatchOrders.length+" selected":selected?"1 order selected":"No selection"}</Badge></div>
-        <div className="rounded-xl border border-slate-200 bg-white p-3">
-          <div className="mb-3 flex items-center justify-between gap-1">
-            {["Assign Partner","Plan Route","Dispatch","Deliver"].map((step,i)=><div key={step} className="flex min-w-0 flex-1 flex-col items-center text-center"><span className={"flex h-8 w-8 items-center justify-center rounded-full border text-xs font-bold "+(i===0?"border-emerald-700 bg-emerald-700 text-white":"border-slate-300 bg-slate-50 text-slate-600")}>{i+1}</span><span className="mt-1 text-[10px] font-semibold leading-3 text-slate-600">{step}</span></div>)}
-          </div>
-          <div className="rounded-lg border border-emerald-100 bg-emerald-50/70 p-3"><div className="flex items-center gap-2"><span className="rounded-lg bg-white p-2 text-emerald-700"><Truck className="h-5 w-5"/></span><div><p className="text-sm font-bold text-slate-900">{selected?.route==="nearby"?"Nearby Direct Delivery Process":selected?.route==="same_district"?"Same-District Delivery Process":selected?.route==="inter_district"?"Inter-District Transfer Process":"Dispatch Processing"}</p><p className="text-xs text-slate-600">Select eligible orders, assign the required partner or route, then process dispatch.</p></div></div></div>
-        </div>
+        {selected&&<div className="rounded-xl border border-slate-200 bg-white p-3">
+          <div className="mb-3 flex items-center justify-between gap-2"><div><p className="text-sm font-bold text-slate-900">{ROUTES.find(r=>r.key===selected.route)?.label||"Order workflow"}</p><p className="text-[11px] text-slate-500">Progress is based on the order's saved backend status.</p></div><Badge variant="outline">{workflowStepsFor(selected).filter((step)=>step.done).length}/{workflowStepsFor(selected).length} complete</Badge></div>
+          <ol className="space-y-2">{workflowStepsFor(selected).map((step,i)=><li key={step.label} className="flex items-start gap-2.5">
+            <span className={"mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[10px] font-bold "+(step.done?"border-emerald-600 bg-emerald-600 text-white":"border-slate-300 bg-white text-slate-500")}>{step.done?<CheckCircle2 className="h-3.5 w-3.5"/>:i+1}</span>
+            <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><span className={"text-xs font-semibold "+(step.done?"text-emerald-800":"text-slate-800")}>{step.label}</span>{step.external&&<Badge variant="outline" className="px-1.5 py-0 text-[9px]">Partner / hub</Badge>}</div><p className="text-[10px] leading-4 text-slate-500">{step.detail}</p></div>
+          </li>)}</ol>
+          {["nearby","same_district","inter_district","multi_warehouse"].includes(selected.route)&&<p className="mt-3 rounded-lg bg-blue-50 px-2.5 py-2 text-[10px] leading-4 text-blue-900">Warehouse actions stop at the correct handoff. Starting delivery and confirming delivery are completed by the assigned delivery partner; hub receipt is confirmed by the hub team.</p>}
+        </div>}
         {selected?<div className="space-y-4"><div className="flex flex-wrap items-start justify-between gap-3 border-b pb-3"><div><div className="flex flex-wrap items-center gap-2"><h2 className="text-lg font-bold">#{selected.orderNumber}</h2><Badge className={selected.source==="farmer"?"bg-emerald-100 text-emerald-800":"bg-blue-100 text-blue-800"}>{selected.source==="farmer"?"Farmer Fulfillment":"Warehouse Fulfillment"}</Badge></div><p className="mt-1 text-sm text-muted-foreground">{selected.customerName} · {selected.district}</p></div><Badge variant="outline">{selected.dispatchStatus}</Badge></div>
       <div className="grid gap-2 sm:grid-cols-4"><div className="rounded-lg bg-muted/40 p-3"><p className="text-xs text-muted-foreground">Current status</p><p className="mt-1 text-sm font-semibold">{statusText(selected.currentStatus)}</p></div><div className="rounded-lg bg-muted/40 p-3"><p className="text-xs text-muted-foreground">Route</p><p className="mt-1 text-sm font-semibold">{ROUTES.find(r=>r.key===selected.route)?.label}</p></div><div className="rounded-lg bg-muted/40 p-3"><p className="text-xs text-muted-foreground">Source warehouse</p><p className="mt-1 text-sm font-semibold">{selected.sourceWarehouseName||"Current warehouse"}</p></div><div className="rounded-lg bg-muted/40 p-3"><p className="text-xs text-muted-foreground">Destination warehouse</p><p className="mt-1 text-sm font-semibold">{selected.destinationWarehouseName||selected.destinationGroup}</p></div></div>
       <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Products / quantity</p><p className="mt-1 text-sm font-semibold">{selected.itemSummary} · {selected.quantitySummary}</p></div>
@@ -372,8 +444,7 @@ export default function FulfillmentDispatchPage() {
         {selected.consolidationLegs?.some((leg:any)=>leg.status==="in_transit")&&selected.isConsolidationWarehouse&&<Button size="sm" disabled={!!busy} onClick={()=>act(selected,"consolidation-receive")}>Receive in-transit consolidation portions</Button>}
         {(selected.consolidation?.canComplete||selected.consolidationStatus==="consolidation_portions_received")&&selected.isConsolidationWarehouse&&<Button size="sm" disabled={!!busy} onClick={()=>act(selected,"consolidation-complete")}>Complete consolidation</Button>}
         {(selected.consolidation?.canHandoffLocalHub||selected.consolidationStatus==="consolidated")&&selected.isConsolidationWarehouse&&<Button size="sm" disabled={!!busy} onClick={()=>act(selected,"consolidation-handoff")}>Create local-hub handoff</Button>}
-        {selected.consolidation?.canComplete&&<Button size="sm" disabled={!!busy} onClick={()=>act(selected,"consolidation-complete")}>Complete consolidation</Button>}
-        {selected.consolidation?.canHandoffLocalHub&&<Button size="sm" disabled={!!busy} onClick={()=>act(selected,"consolidation-handoff")}>Send consolidated order to local hub</Button>}
+
       </div>:<div className="space-y-3"><p className="rounded-lg bg-blue-50 p-3 text-sm text-blue-900">Warehouse orders become eligible here only after Order Packing confirms the packed quantities. The dispatch action checks the backend fulfillment audit before proceeding.</p><div className="flex flex-wrap gap-2"><Button asChild size="sm" variant="outline"><Link href={"/packing?search="+encodeURIComponent(selected.orderNumber)}>Open Order Packing</Link></Button>{selected.route==="nearby"&&<Button size="sm" disabled={!!busy} onClick={()=>act(selected,"nearby")}>Verify packing &amp; dispatch to delivery</Button>}{selected.route==="same_district"&&<div className="flex flex-wrap items-center gap-2"><select className="h-9 min-w-[230px] rounded-md border bg-background px-2 text-sm" value={hubByOrder[selected.id]||""} onChange={e=>setHubByOrder(v=>({...v,[selected.id]:e.target.value}))}><option value="">Select local hub for {selected.district}</option>{hubs.filter((h:any)=>norm(h.status)==="active"&&(normDistrict(h.district)===normDistrict(selected.district)||normDistrict(h.district)===normDistrict(selected.destinationDistrict||selected.deliveryDistrict))).map((h:any)=><option key={String(h.id||h._id)} value={String(h.id||h._id)}>{h.name} · {h.district} · {h.status||"active"}</option>)}</select><Button size="sm" disabled={!!busy||!hubByOrder[selected.id]} onClick={()=>act(selected,"same")}>Dispatch to selected local hub</Button>{!hubs.some((h:any)=>norm(h.status)==="active"&&(normDistrict(h.district)===normDistrict(selected.district)||normDistrict(h.district)===normDistrict(selected.destinationDistrict||selected.deliveryDistrict)))&&<span className="text-xs text-amber-700">No active local hub is configured for this destination district under your warehouse.</span>}</div>}{selected.route==="inter_district"&&<Button size="sm" disabled={!!busy} onClick={()=>act(selected,"destination")}>Create destination warehouse transfer</Button>}{selected.route==="multi_warehouse"&&<Button asChild size="sm"><Link href="/warehouse/consolidation">Open consolidation</Link></Button>}</div></div>}
       {(selected.route==="route_review"||selected.route==="needs_location")&&<div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><AlertTriangle className="mr-2 inline h-4 w-4"/>{selected.route==="needs_location"?"Complete source and customer district/location data before routing.":"Review route configuration and direct-delivery eligibility before processing."} Dispatch is blocked until the route is valid.</div>}
       <div className="flex flex-wrap gap-2 border-t pt-3"><Button asChild size="sm" variant="outline"><Link href="/warehouse/consolidation">Multi-warehouse consolidation</Link></Button></div>
