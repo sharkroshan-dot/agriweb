@@ -136,8 +136,7 @@ export default function FulfillmentDispatchPage() {
   const [search, setSearch] = useState("");
   const [activeStage, setActiveStage] = useState<Stage | "all">("all");
   const [activeRoute, setActiveRoute] = useState<RouteKey | "all">("all");
-  const [selectedId, setSelectedId] = useState<string>("");
-  const [expandedDestinations, setExpandedDestinations] = useState<string[]>([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const farmerQuery = useQuery({
     queryKey: ["unifiedFarmerFulfillmentTransfers"],
     queryFn: () => api.get("/warehouse/me/farmer-fulfillment-transfers"),
@@ -178,17 +177,25 @@ export default function FulfillmentDispatchPage() {
     });
   }, [orders, search, activeStage, activeRoute]);
 
-  const selected = filtered.find((row: any) => row.source + ":" + row.id === selectedId) || filtered[0] || null;
+  const selectedRows = filtered.filter((row: any) => selectedIds.includes(row.source + ":" + row.id));
   const stageCounts = useMemo(() => Object.fromEntries((Object.keys(stageMeta) as Stage[]).map((stage) => [stage, orders.filter((row: any) => row.stage === stage).length])) as Record<Stage, number>, [orders]);
   const routeCounts = useMemo(() => Object.fromEntries(ROUTES.map((route) => [route.key, orders.filter((row: any) => row.route === route.key).length])) as Record<RouteKey, number>, [orders]);
-  const destinationGroups = useMemo(() => {
-    const groups = new Map<string, any[]>();
-    filtered.forEach((row: any) => {
-      const key = row.destinationGroup || "Destination not assigned";
-      groups.set(key, [...(groups.get(key) || []), row]);
-    });
-    return [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  }, [filtered]);
+  const operationGroups = useMemo(() => {
+    const rows = selectedRows.length ? selectedRows : activeRoute === "all" ? [] : filtered;
+    const grouped = new Map<RouteKey, any[]>();
+    rows.forEach((row: any) => grouped.set(row.route, [...(grouped.get(row.route) || []), row]));
+    return [...grouped.entries()];
+  }, [selectedRows, activeRoute, filtered]);
+  const toggleOrder = (key: string, checked: boolean) => setSelectedIds((current) => checked ? [...new Set([...current, key])] : current.filter((id) => id !== key));
+  const toggleAllVisible = (checked: boolean) => setSelectedIds((current) => checked ? [...new Set([...current, ...filtered.map((row: any) => row.source + ":" + row.id)])] : current.filter((id) => !filtered.some((row: any) => row.source + ":" + row.id === id)));
+  const routeOperations: Record<RouteKey, { title: string; intro: string; steps: string[]; farmerHref: string; warehouseHref: string; extraHref?: string; extraLabel?: string }> = {
+    nearby: { title: "Nearby Direct Delivery", intro: "No inter-warehouse transfer is required. Assign a final-mile delivery partner and manage the direct delivery.", steps: ["Verify direct-delivery eligibility and distance", "Assign an approved delivery partner", "Start delivery and track handoff", "Confirm customer delivery"], farmerHref: "/warehouse/farmer-fulfillment", warehouseHref: "/outgoing" },
+    same_district: { title: "Same-District Delivery", intro: "Use the configured local-hub route when required, then assign the final-mile delivery partner.", steps: ["Review local-hub route and destination", "Plan the same-district route", "Assign pickup / delivery team for hub handoff", "Confirm hub receipt and final delivery"], farmerHref: "/warehouse/farmer-fulfillment", warehouseHref: "/outgoing" },
+    inter_district: { title: "Inter-District Warehouse Transfer", intro: "Move the shipment to its destination-district warehouse before final-mile delivery.", steps: ["Verify destination warehouse", "Assign transfer team and dispatch transfer", "Confirm destination warehouse receipt", "Assign final delivery partner"], farmerHref: "/warehouse/farmer-fulfillment", warehouseHref: "/outgoing" },
+    multi_warehouse: { title: "Multi-Warehouse Consolidation", intro: "Bring all order portions from their source warehouses to the consolidation warehouse before final delivery.", steps: ["Review source warehouse portions", "Coordinate transfers to consolidation warehouse", "Confirm all portions received and reconciled", "Continue to local hub and final delivery"], farmerHref: "/warehouse/farmer-fulfillment", warehouseHref: "/outgoing", extraHref: "/warehouse/consolidation", extraLabel: "Open Consolidation Workspace" },
+    needs_location: { title: "Needs Location Data", intro: "Resolve missing or incomplete customer / warehouse location details before assigning a route.", steps: ["Verify customer delivery address", "Verify source and destination warehouse locations", "Refresh route classification", "Continue with the newly assigned route"], farmerHref: "/warehouse/farmer-fulfillment", warehouseHref: "/outgoing" },
+    route_review: { title: "Route Review Required", intro: "Review route configuration and operational prerequisites before transfer or delivery.", steps: ["Review route classification and distance", "Confirm destination and warehouse assignment", "Resolve missing prerequisites", "Open the correct transfer or delivery workflow"], farmerHref: "/warehouse/farmer-fulfillment", warehouseHref: "/outgoing" },
+  };
   const refresh = async () => {
     await Promise.all([farmerQuery.refetch(), outgoingQuery.refetch(), consolidationQuery.refetch()]);
   };
@@ -197,81 +204,99 @@ export default function FulfillmentDispatchPage() {
   const toggleDestination = (name: string) => setExpandedDestinations((current) => current.includes(name) ? current.filter((x) => x !== name) : [...current, name]);
 
   return (
-    <div className="mx-auto w-full max-w-[1700px] space-y-5 pb-8">
-      <div className="flex flex-col gap-3 rounded-2xl border border-emerald-100 bg-white p-5 shadow-sm lg:flex-row lg:items-center lg:justify-between">
+    <div className="mx-auto w-full max-w-[1800px] space-y-4 pb-8">
+      <div className="flex flex-col gap-3 rounded-2xl border border-emerald-100 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-start gap-3">
           <div className="rounded-xl bg-emerald-50 p-3 text-emerald-700"><Truck className="h-6 w-6"/></div>
-          <div><h1 className="text-2xl font-bold tracking-tight text-slate-950">Fulfillment & Dispatch</h1><p className="mt-1 text-sm text-slate-600">One workspace for Farmer and Warehouse orders, grouped by their next action and destination.</p><p className="mt-2 text-xs text-slate-500">Receive → Quality Check → Route Classification → Transfer (if required) → Dispatch → Delivery</p></div>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-950">Fulfillment &amp; Dispatch</h1>
+            <p className="mt-1 text-sm text-slate-600">Manage warehouse transfers and customer deliveries by route group.</p>
+            <p className="mt-1 text-xs text-slate-500">Select a route group, choose orders, then follow the route-specific workflow.</p>
+          </div>
         </div>
         <Button variant="outline" onClick={refresh} disabled={farmerQuery.isFetching || outgoingQuery.isFetching}><RefreshCw className={`mr-2 h-4 w-4 ${farmerQuery.isFetching || outgoingQuery.isFetching ? "animate-spin" : ""}`}/>Refresh</Button>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
-        <Card><CardContent className="p-4"><p className="text-xs text-slate-500">All Orders</p><p className="mt-1 text-2xl font-bold">{orders.length}</p><p className="text-xs text-slate-500">Across both sources</p></CardContent></Card>
-        <Card className="border-emerald-200 bg-emerald-50/50"><CardContent className="p-4"><p className="text-xs text-emerald-800">Farmer Orders</p><p className="mt-1 text-2xl font-bold">{orders.filter((x: any) => x.source === "farmer").length}</p><p className="text-xs text-emerald-700">Farmer-packed</p></CardContent></Card>
-        <Card className="border-blue-200 bg-blue-50/50"><CardContent className="p-4"><p className="text-xs text-blue-800">Warehouse Orders</p><p className="mt-1 text-2xl font-bold">{orders.filter((x: any) => x.source === "warehouse").length}</p><p className="text-xs text-blue-700">Warehouse-packed</p></CardContent></Card>
-        {(Object.keys(stageMeta) as Stage[]).slice(0, 4).map((stage) => <Card key={stage}><CardContent className="p-4"><p className="text-xs text-slate-500">{stageMeta[stage].label}</p><p className="mt-1 text-2xl font-bold">{stageCounts[stage]}</p><p className="text-xs text-slate-500">{stageMeta[stage].short}</p></CardContent></Card>)}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+        <Card><CardContent className="p-3"><p className="text-xs text-slate-500">All Orders</p><p className="mt-1 text-2xl font-bold">{orders.length}</p></CardContent></Card>
+        <Card className="border-emerald-200 bg-emerald-50/50"><CardContent className="p-3"><p className="text-xs text-emerald-800">Ready for Transfer / Delivery</p><p className="mt-1 text-2xl font-bold">{stageCounts.to_route}</p></CardContent></Card>
+        <Card className="border-blue-200 bg-blue-50/50"><CardContent className="p-3"><p className="text-xs text-blue-800">Transfer in Progress</p><p className="mt-1 text-2xl font-bold">{stageCounts.in_transfer}</p></CardContent></Card>
+        <Card className="border-amber-200 bg-amber-50/50"><CardContent className="p-3"><p className="text-xs text-amber-800">Ready for Final Delivery</p><p className="mt-1 text-2xl font-bold">{stageCounts.to_dispatch}</p></CardContent></Card>
+        <Card><CardContent className="p-3"><p className="text-xs text-slate-500">Delivered</p><p className="mt-1 text-2xl font-bold">{stageCounts.delivered}</p></CardContent></Card>
+        <Card className="border-red-200 bg-red-50/50"><CardContent className="p-3"><p className="text-xs text-red-800">Needs Attention</p><p className="mt-1 text-2xl font-bold">{stageCounts.review}</p></CardContent></Card>
       </div>
 
-      <Card className="border-emerald-100"><CardContent className="p-4">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><div><h2 className="font-semibold text-slate-900">Route Classification</h2><p className="text-xs text-slate-500">Orders from both fulfillment sources are classified together. Source labels and order histories remain separate.</p></div><Badge variant="outline">{orders.length} orders</Badge></div>
-        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
-          {ROUTES.map((route) => <button key={route.key} type="button" onClick={() => setActiveRoute(activeRoute === route.key ? "all" : route.key)} className={`rounded-xl border p-3 text-left transition-colors ${activeRoute === route.key ? "border-emerald-500 bg-emerald-50 ring-1 ring-emerald-100" : "border-slate-200 bg-white hover:border-emerald-200"}`}>
-            <div className="flex items-center justify-between gap-2"><span className="text-sm font-semibold text-slate-800">{route.label}</span><Badge variant="secondary">{routeCounts[route.key]}</Badge></div><p className="mt-1 text-xs text-slate-500">{route.description}</p>
-          </button>)}
-        </div>
-      </CardContent></Card>
-
-      <div className="flex flex-col gap-3 rounded-xl border bg-white p-3 shadow-sm lg:flex-row lg:items-center">
-        <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant={activeStage === "all" ? "default" : "outline"} onClick={() => setActiveStage("all")}>All ({orders.length})</Button>
-          {(Object.keys(stageMeta) as Stage[]).map((stage) => <Button key={stage} size="sm" variant={activeStage === stage ? "default" : "outline"} onClick={() => setActiveStage(activeStage === stage ? "all" : stage)}>{stageMeta[stage].label} ({stageCounts[stage]})</Button>)}
-        </div>
-        <div className="flex min-w-0 flex-1 items-center gap-2 lg:justify-end"><div className="relative w-full max-w-md"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"/><Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search order, customer, product or destination..." className="pl-9"/></div><Button variant="outline" size="sm" onClick={() => {setActiveStage("all");setActiveRoute("all");setSearch("");}}>Clear filters</Button></div>
-      </div>
-
-      {hasError && <Card className="border-red-200 bg-red-50"><CardContent className="p-4 text-sm text-red-800">Could not load either fulfillment queue. Refresh the page or check warehouse access.</CardContent></Card>}
-      {isLoading ? <Card><CardContent className="p-10 text-center text-sm text-slate-500">Loading fulfillment orders…</CardContent></Card> : filtered.length === 0 ? <Card><CardContent className="p-12 text-center"><Package className="mx-auto h-10 w-10 text-slate-300"/><h3 className="mt-3 font-semibold text-slate-800">No orders in this view</h3><p className="mt-1 text-sm text-slate-500">Try another stage or route filter.</p></CardContent></Card> : (
-        <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(420px,1fr)]">
-          <div className="space-y-3">
-            <div className="flex items-center justify-between"><h2 className="font-semibold text-slate-900">Orders grouped by destination</h2><Badge variant="outline">{filtered.length} shown</Badge></div>
-            {destinationGroups.map(([destination, rows]) => <Card key={destination} className="overflow-hidden">
-              <button type="button" onClick={() => toggleDestination(destination)} className="flex w-full items-center justify-between gap-3 bg-slate-50 px-4 py-3 text-left hover:bg-slate-100">
-                <div className="flex min-w-0 items-center gap-2"><Warehouse className="h-5 w-5 shrink-0 text-emerald-700"/><div className="min-w-0"><p className="truncate font-semibold text-slate-900">{destination}</p><p className="text-xs text-slate-500">{rows.length} order(s) · Farmer {rows.filter((x: any) => x.source === "farmer").length} · Warehouse {rows.filter((x: any) => x.source === "warehouse").length}</p></div></div>
-                {expandedDestinations.includes(destination) ? <ChevronDown className="h-4 w-4"/> : <ChevronRight className="h-4 w-4"/>}
+      {hasError && <Card className="border-red-200 bg-red-50"><CardContent className="p-4 text-sm text-red-800">Could not load fulfillment orders. Refresh the page or check warehouse access.</CardContent></Card>}
+      {isLoading ? <Card><CardContent className="p-10 text-center text-sm text-slate-500">Loading fulfillment orders…</CardContent></Card> : (
+        <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(230px,0.82fr)_minmax(480px,1.65fr)_minmax(280px,0.95fr)]">
+          <Card className="min-w-0 overflow-hidden">
+            <CardContent className="space-y-3 p-4">
+              <div><div className="flex items-center justify-between gap-2"><h2 className="text-lg font-bold text-slate-900">Route Groups</h2><Badge variant="outline">{orders.length} orders</Badge></div><p className="mt-1 text-xs text-slate-500">Choose a route to see its orders and process.</p></div>
+              <button type="button" onClick={() => {setActiveRoute("all");setSelectedIds([]);}} className={`w-full rounded-xl border p-3 text-left transition-colors ${activeRoute === "all" ? "border-emerald-500 bg-emerald-50 ring-1 ring-emerald-100" : "border-slate-200 hover:border-emerald-200"}`}>
+                <div className="flex items-center justify-between gap-2"><span className="font-semibold text-slate-800">All Route Groups</span><Badge variant="secondary">{orders.length}</Badge></div><p className="mt-1 text-xs text-slate-500">View every transfer and delivery order.</p>
               </button>
-              {(!expandedDestinations.length || expandedDestinations.includes(destination)) && <CardContent className="space-y-2 p-3">
-                {rows.map((row: any) => {
-                  const key = row.source + ":" + row.id;
-                  const active = selected?.source + ":" + selected?.id === key;
-                  return <button key={key} type="button" onClick={() => setSelectedId(key)} className={`w-full rounded-xl border p-3 text-left transition-colors ${active ? "border-emerald-400 bg-emerald-50/60 ring-1 ring-emerald-100" : "border-slate-200 hover:border-emerald-200"}`}>
-                    <div className="flex items-start justify-between gap-2"><div className="min-w-0"><p className="truncate text-sm font-bold text-slate-900">#{row.orderNumber}</p><p className="mt-1 truncate text-xs text-slate-600">{row.customerName}</p><p className="mt-1 truncate text-xs text-slate-500">{row.itemSummary} · {row.quantitySummary}</p></div><div className="flex shrink-0 flex-col items-end gap-1"><Badge className={row.source === "farmer" ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-100" : "bg-blue-100 text-blue-800 hover:bg-blue-100"}>{row.source === "farmer" ? <><Leaf className="mr-1 h-3 w-3"/>Farmer</> : <><Warehouse className="mr-1 h-3 w-3"/>Warehouse</>}</Badge><Badge variant="outline">{stageMeta[row.stage as Stage].label}</Badge></div></div>
-                  </button>;
-                })}
-              </CardContent>}
-            </Card>)}
-          </div>
+              {ROUTES.map((route) => <button key={route.key} type="button" onClick={() => {setActiveRoute(route.key);setSelectedIds([]);}} className={`w-full rounded-xl border p-3 text-left transition-colors ${activeRoute === route.key ? "border-emerald-500 bg-emerald-50 ring-1 ring-emerald-100" : "border-slate-200 bg-white hover:border-emerald-200"}`}>
+                <div className="flex items-center justify-between gap-2"><span className="text-sm font-semibold text-slate-800">{route.label}</span><Badge variant="secondary">{routeCounts[route.key]}</Badge></div><p className="mt-1 text-xs text-slate-500">{route.description}</p>
+              </button>)}
+            </CardContent>
+          </Card>
 
-          <div className="xl:sticky xl:top-20">
-            {selected ? <Card className="overflow-hidden">
-              <CardContent className="space-y-4 p-5">
-                <div className="flex items-start justify-between gap-3 border-b pb-4"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h2 className="text-lg font-bold text-slate-900">#{selected.orderNumber}</h2><Badge className={selected.source === "farmer" ? "bg-emerald-100 text-emerald-800" : "bg-blue-100 text-blue-800"}>{selected.source === "farmer" ? "Farmer Fulfillment" : "Warehouse Fulfillment"}</Badge></div><p className="mt-1 text-sm text-slate-600">{selected.customerName}</p><p className="mt-1 flex items-center gap-1 text-xs text-slate-500"><MapPin className="h-3.5 w-3.5"/>{selected.district}</p></div><Badge variant="outline">{stageMeta[selected.stage as Stage].label}</Badge></div>
-                <div className="grid grid-cols-3 gap-2">{(["to_receive","to_route","in_transfer"] as Stage[]).map((stage) => <div key={stage} className={`rounded-lg p-2 text-center text-xs ${selected.stage === stage ? "bg-emerald-100 text-emerald-900" : "bg-slate-50 text-slate-500"}`}>{stageMeta[stage].label}</div>)}</div>
-                <div className="grid grid-cols-2 gap-2"><div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Current status</p><p className="mt-1 break-words text-sm font-semibold">{String(selected.currentStatus).replace(/_/g, " ")}</p></div><div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Destination group</p><p className="mt-1 break-words text-sm font-semibold">{selected.destinationGroup}</p></div></div>
-                <div className="rounded-lg border p-3"><p className="text-xs text-slate-500">Route classification</p><p className="mt-1 font-semibold">{ROUTES.find((x) => x.key === selected.route)?.label}</p><p className="mt-1 text-xs text-slate-500">{ROUTES.find((x) => x.key === selected.route)?.description}</p></div>
-                <div className="rounded-lg border p-3"><p className="text-xs text-slate-500">Products / quantity</p><p className="mt-1 text-sm font-semibold">{selected.itemSummary} · {selected.quantitySummary}</p></div>
-                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"><AlertTriangle className="mr-1 inline h-4 w-4"/>Operational actions continue in the existing source workflow. This unified page does not bypass pickup, receipt, quality, packing, transfer or dispatch validations.</div>
-                <div className="flex flex-wrap gap-2">
-                  {selected.source === "farmer" ? <Button asChild className="flex-1"><Link href="/warehouse/farmer-fulfillment">Open Farmer Fulfillment workflow <ArrowRight className="ml-2 h-4 w-4"/></Link></Button> : <Button asChild className="flex-1"><Link href="/outgoing">Open Outgoing / Dispatch workflow <ArrowRight className="ml-2 h-4 w-4"/></Link></Button>}
-                  {selected.source === "farmer" && <Button asChild variant="outline"><Link href="/warehouse/consolidation">Consolidation</Link></Button>}
-                  {selected.source === "warehouse" && <Button asChild variant="outline"><Link href="/packing">Order Packing</Link></Button>}
+          <Card className="min-w-0 overflow-hidden">
+            <CardContent className="space-y-3 p-4">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div><div className="flex items-center gap-2"><h2 className="text-lg font-bold text-slate-900">Orders ({filtered.length})</h2>{activeRoute !== "all" && <Badge variant="outline">{ROUTES.find((x) => x.key === activeRoute)?.label}</Badge>}</div><p className="mt-1 text-xs text-slate-500">Select one or more orders to load the matching route operations.</p></div>
+                <div className="flex min-w-0 items-center gap-2"><div className="relative min-w-0 flex-1 sm:w-64"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"/><Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search order, customer, product..." className="pl-9"/></div><Button variant="outline" size="sm" onClick={() => {setSearch("");setSelectedIds([]);}}>Clear</Button></div>
+              </div>
+              {filtered.length === 0 ? <div className="rounded-xl border border-dashed p-10 text-center"><Package className="mx-auto h-9 w-9 text-slate-300"/><p className="mt-2 font-semibold text-slate-700">No orders in this route group</p><p className="mt-1 text-xs text-slate-500">Choose another route group or clear the search.</p></div> : (
+                <div className="overflow-x-auto rounded-xl border border-slate-200">
+                  <table className="w-full min-w-[720px] text-left text-sm">
+                    <thead className="bg-slate-50 text-xs text-slate-600"><tr>
+                      <th className="w-10 px-3 py-3"><input aria-label="Select all visible orders" type="checkbox" checked={filtered.length > 0 && filtered.every((row: any) => selectedIds.includes(row.source + ":" + row.id))} onChange={(e) => toggleAllVisible(e.target.checked)} className="h-4 w-4 accent-emerald-600"/></th>
+                      <th className="px-3 py-3">Order ID</th><th className="px-3 py-3">Customer / Buyer</th><th className="px-3 py-3">Products</th><th className="px-3 py-3">Quantity</th><th className="px-3 py-3">Route Type</th><th className="px-3 py-3">Status</th>
+                    </tr></thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {filtered.map((row: any) => {
+                        const key = row.source + ":" + row.id;
+                        const checked = selectedIds.includes(key);
+                        return <tr key={key} className={checked ? "bg-emerald-50/70" : "bg-white hover:bg-slate-50"}>
+                          <td className="px-3 py-3"><input aria-label={`Select order ${row.orderNumber}`} type="checkbox" checked={checked} onChange={(e) => toggleOrder(key, e.target.checked)} className="h-4 w-4 accent-emerald-600"/></td>
+                          <td className="whitespace-nowrap px-3 py-3 font-semibold text-emerald-900">{row.orderNumber}</td>
+                          <td className="px-3 py-3">{row.customerName}</td><td className="px-3 py-3">{row.itemSummary}</td><td className="whitespace-nowrap px-3 py-3">{row.quantitySummary}</td>
+                          <td className="px-3 py-3"><Badge variant="outline">{ROUTES.find((x) => x.key === row.route)?.label || "Route review"}</Badge></td>
+                          <td className="px-3 py-3"><Badge className={row.stage === "in_transfer" ? "bg-blue-100 text-blue-800" : row.stage === "delivered" ? "bg-emerald-100 text-emerald-800" : row.stage === "review" ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-700"}>{stageMeta[row.stage as Stage].label}</Badge></td>
+                        </tr>;
+                      })}
+                    </tbody>
+                  </table>
                 </div>
-              </CardContent>
-            </Card> : <Card><CardContent className="p-10 text-center text-sm text-slate-500">Select an order to view its details.</CardContent></Card>}
-          </div>
+              )}
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-xs text-slate-500"><span>{selectedRows.length} order(s) selected</span><span>Showing {filtered.length} order(s)</span></div>
+            </CardContent>
+          </Card>
+
+          <Card className="min-w-0 overflow-hidden xl:sticky xl:top-20">
+            <CardContent className="space-y-4 p-4">
+              <div className="flex items-center justify-between gap-2"><div><h2 className="text-lg font-bold text-slate-900">Operations</h2><p className="mt-1 text-xs text-slate-500">Actions change according to the selected route group.</p></div><Badge variant="outline">{selectedRows.length || (activeRoute === "all" ? "—" : filtered.length)} {selectedRows.length ? "selected" : "orders"}</Badge></div>
+              {operationGroups.length === 0 ? <div className="rounded-xl border border-dashed p-6 text-center"><Truck className="mx-auto h-10 w-10 text-slate-300"/><p className="mt-2 font-semibold text-slate-800">Choose a route group</p><p className="mt-1 text-xs text-slate-500">Select a route on the left, then select its orders in the middle. The matching workflow will appear here.</p></div> : operationGroups.map(([routeKey, rows]) => {
+                const config = routeOperations[routeKey];
+                const sources = [...new Set(rows.map((row: any) => row.source))] as Source[];
+                return <div key={routeKey} className="space-y-3 rounded-xl border border-slate-200 p-3">
+                  <div><h3 className="font-semibold text-slate-900">{config.title}</h3><p className="mt-1 text-xs text-slate-500">{rows.length} selected order(s) · {config.intro}</p></div>
+                  <div className="space-y-2">{config.steps.map((step, index) => <div key={step} className="flex items-start gap-2 text-xs text-slate-700"><span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100 font-semibold text-emerald-800">{index + 1}</span><span>{step}</span></div>)}</div>
+                  <div className="space-y-2 border-t pt-3">
+                    {sources.includes("farmer") && <Button asChild className="w-full"><Link href={config.farmerHref}>Open Farmer Fulfillment Process <ArrowRight className="ml-2 h-4 w-4"/></Link></Button>}
+                    {sources.includes("warehouse") && <Button asChild variant="outline" className="w-full"><Link href={config.warehouseHref}>Open Warehouse Transfer / Delivery <ArrowRight className="ml-2 h-4 w-4"/></Link></Button>}
+                    {config.extraHref && <Button asChild variant="outline" className="w-full"><Link href={config.extraHref}>{config.extraLabel} <ArrowRight className="ml-2 h-4 w-4"/></Link></Button>}
+                  </div>
+                  <p className="text-[11px] text-slate-500">The existing workflow performs the validated actions for these orders. This panel does not bypass transfer, receipt or delivery checks.</p>
+                </div>;
+              })}
+              {selectedRows.length > 0 && <Button variant="ghost" size="sm" className="w-full" onClick={() => setSelectedIds([])}>Clear selected orders</Button>}
+            </CardContent>
+          </Card>
         </div>
       )}
-      <p className="text-xs text-slate-500">This is a unified monitoring and navigation workspace. Existing Farmer Fulfillment and Outgoing / Dispatch pages remain available and continue to own their current operational actions and validations.</p>
+      <p className="text-xs text-slate-500">Route-specific processes are opened in their existing Farmer Fulfillment, Outgoing / Dispatch and Consolidation workspaces so current API validations and status transitions remain intact.</p>
     </div>
   );
 }
