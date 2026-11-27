@@ -67,7 +67,7 @@ function warehouseName(item: any) {
   return item.destinationWarehouseName || item.destinationWarehouse?.name || item.assignedDestinationWarehouseName || item.consolidationWarehouseName || item.destinationDistrict || item.deliveryDistrict || item.customerDistrict || "Destination not assigned";
 }
 
-function readableOrderNumber(item: any, fallback: string) {
+function readableOrderNumber(item: any, source: Source) {
   const candidates = [
     item.orderNumber,
     item.order?.orderNumber,
@@ -76,9 +76,22 @@ function readableOrderNumber(item: any, fallback: string) {
     item.orderDetails?.orderNumber,
     item.order_number,
     item.referenceNumber,
+    item.order?.order_number,
+    item.sourceOrder?.order_number,
   ];
-  const value = candidates.find((candidate) => typeof candidate === "string" && candidate.trim() && !/^[a-f0-9]{24}$/i.test(candidate.trim()));
-  return value ? String(value).trim() : fallback;
+  const value = candidates.find((candidate) =>
+    typeof candidate === "string" &&
+    candidate.trim() &&
+    !/^[a-f0-9]{24}$/i.test(candidate.trim()) &&
+    !/^[a-f0-9-]{24,}$/i.test(candidate.trim())
+  );
+  if (value) return String(value).trim();
+
+  // Keep database IDs for API operations, but never expose them as customer-
+  // facing order references. Create a short, stable operational reference.
+  const rawId = String(item.orderId || item.id || item._id || item.order?._id || item.order?.id || "");
+  const suffix = rawId.replace(/[^a-z0-9]/gi, "").slice(-6).toUpperCase();
+  return suffix ? `${source === "farmer" ? "FARM" : "WH"}-${suffix}` : source === "farmer" ? "Farmer fulfillment order" : "Warehouse fulfillment order";
 }
 
 function normalizeFarmer(item: any) {
@@ -87,7 +100,7 @@ function normalizeFarmer(item: any) {
     ...item,
     id: String(item.id || item.orderId || item.orderNumber),
     orderId: String(item.orderId || item.id || ""),
-    orderNumber: readableOrderNumber(item, "Farmer fulfillment order"),
+    orderNumber: readableOrderNumber(item, "farmer"),
     source: "farmer" as Source,
     stage,
     route: routeOf(item),
@@ -106,7 +119,7 @@ function normalizeWarehouse(item: any) {
     ...item,
     id: String(item.id || item.orderId || item.orderNumber),
     orderId: String(item.orderId || ""),
-    orderNumber: readableOrderNumber(item, "Warehouse fulfillment order"),
+    orderNumber: readableOrderNumber(item, "warehouse"),
     source: "warehouse" as Source,
     stage,
     route: routeOf(item),
