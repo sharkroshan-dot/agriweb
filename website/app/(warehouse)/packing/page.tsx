@@ -65,7 +65,7 @@ export default function WarehousePackingPage() {
   const [queueTab, setQueueTab] = useState<"queue" | "packing" | "shortage" | "completed">("queue");
   const [printLabelData, setPrintLabelData] = useState<any | null>(null);
   const printQrRef = useRef<HTMLDivElement | null>(null);
-  const [dateFilter, setDateFilter] = useState<"today" | "yesterday" | "week" | "all">(requestedOrderId || requestedFarm ? "all" : "today");
+  const [dateFilter, setDateFilter] = useState<"today" | "yesterday" | "week" | "all">(requestedOrderId || requestedOrderIds.length > 0 || requestedFarm ? "all" : "today");
   const [showRemainingOnly, setShowRemainingOnly] = useState(false);
   const [farmTeam, setFarmTeam] = useState<Record<string,string>>({});
   const [assigningFarm, setAssigningFarm] = useState<string | null>(null);
@@ -118,7 +118,7 @@ export default function WarehousePackingPage() {
     return tasks.filter((task: any) => {
       if (!matchesPackingDate(task, dateFilter)) return false;
       if (requestedOrderIdSet.size > 0) {
-        const taskOrderIds = [task.orderId, task.order?._id, task.order?.id, task.orderNumber, task.orderNo, task.id, task._id].filter(Boolean).map(String);
+        const taskOrderIds = [task.orderId, task.order?._id, task.order?.id, task.order?.orderNumber, task.orderNumber, task.orderNo, task.id, task._id].filter(Boolean).map(String);
         if (!taskOrderIds.some((id: string) => requestedOrderIdSet.has(id))) return false;
       }
       if (requestedFarm) {
@@ -152,7 +152,7 @@ export default function WarehousePackingPage() {
     return filteredTasks.filter((task: any) => String(task.status || "").toLowerCase() === "ready_for_packing" && !taskHasOpenShortage(task));
   }, [filteredTasks, queueTab, shortageData]);
   const requestedPackingTasks = visibleTasks.filter((task: any) => {
-    const ids = [task.orderId, task.order?._id, task.order?.id, task.orderNumber, task.orderNo, task.id, task._id].filter(Boolean).map(String);
+    const ids = [task.orderId, task.order?._id, task.order?.id, task.order?.orderNumber, task.orderNumber, task.orderNo, task.id, task._id].filter(Boolean).map(String);
     return ids.some((id: string) => requestedOrderIdSet.has(id));
   });
   useEffect(() => {
