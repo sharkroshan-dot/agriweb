@@ -177,7 +177,7 @@ export default function FulfillmentDispatchPage() {
   };
 
   const loading=farmerQuery.isLoading||outgoingQuery.isLoading||consolidationQuery.isLoading;
-  return <div className="mx-auto w-full max-w-[1700px] space-y-4 pb-8">
+  return <div className="fulfillment-dispatch-page mx-auto w-full max-w-[1700px] space-y-4 pb-8">
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3"><div className="rounded-xl bg-emerald-50 p-3 text-emerald-700"><Truck className="h-7 w-7"/></div><div><h1 className="text-2xl font-bold tracking-tight text-slate-950">Fulfillment &amp; Dispatch</h1><p className="text-sm text-slate-600">Manage farmer fulfillment, warehouse transfers and customer deliveries.</p></div></div><div className="flex gap-2"><Button variant="outline" onClick={()=>refresh()} disabled={farmerQuery.isFetching||outgoingQuery.isFetching}><RefreshCw className="mr-2 h-4 w-4"/>Refresh</Button><Button asChild><Link href="/warehouse/consolidation">Consolidation workspace <ArrowRight className="ml-2 h-4 w-4"/></Link></Button></div></div>
       <div className="flex flex-wrap items-center gap-3">
