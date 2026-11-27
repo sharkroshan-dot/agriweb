@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import Link from "next/link";
 import { AlertTriangle, ArrowDownToLine, ArrowLeftRight, ArrowRight, CheckCircle2, ChevronDown, ChevronRight, Clock3, Filter, Leaf, MapPin, Package, RefreshCw, Route, Search, Truck, Warehouse } from "lucide-react";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
@@ -137,6 +136,7 @@ export default function FulfillmentDispatchPage() {
   const [activeStage, setActiveStage] = useState<Stage | "all">("all");
   const [activeRoute, setActiveRoute] = useState<RouteKey | "all">("all");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [workflowFrame, setWorkflowFrame] = useState<{ href: string; title: string } | null>(null);
   const farmerQuery = useQuery({
     queryKey: ["unifiedFarmerFulfillmentTransfers"],
     queryFn: () => api.get("/warehouse/me/farmer-fulfillment-transfers"),
@@ -302,9 +302,9 @@ export default function FulfillmentDispatchPage() {
                     <p className="mt-1 text-xs leading-5 text-emerald-900/80">{config.actionHint}</p>
                   </div>
                   <div className="space-y-2 border-t pt-3">
-                    {sources.includes("farmer") && <Button asChild className="w-full"><Link href={config.farmerHref}>{config.farmerAction} <ArrowRight className="ml-2 h-4 w-4"/></Link></Button>}
-                    {sources.includes("warehouse") && <Button asChild variant={sources.includes("farmer") ? "outline" : "default"} className="w-full"><Link href={config.warehouseHref}>{config.warehouseAction} <ArrowRight className="ml-2 h-4 w-4"/></Link></Button>}
-                    {routeKey === "multi_warehouse" && config.extraHref && <Button asChild variant="outline" className="w-full"><Link href={config.extraHref}>{config.extraLabel} <ArrowRight className="ml-2 h-4 w-4"/></Link></Button>}
+                    {sources.includes("farmer") && <Button className="w-full" onClick={() => setWorkflowFrame({ href: config.farmerHref, title: "Farmer Fulfillment · " + config.title })}>{config.farmerAction} <ArrowRight className="ml-2 h-4 w-4"/></Button>}
+                    {sources.includes("warehouse") && <Button variant={sources.includes("farmer") ? "outline" : "default"} className="w-full" onClick={() => setWorkflowFrame({ href: config.warehouseHref, title: "Outgoing / Dispatch · " + config.title })}>{config.warehouseAction} <ArrowRight className="ml-2 h-4 w-4"/></Button>}
+                    {routeKey === "multi_warehouse" && config.extraHref && <Button variant="outline" className="w-full" onClick={() => setWorkflowFrame({ href: config.extraHref!, title: config.extraLabel || "Consolidation Workspace" })}>{config.extraLabel} <ArrowRight className="ml-2 h-4 w-4"/></Button>}
                     {(routeKey === "needs_location" || routeKey === "route_review") && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">Processing is intentionally blocked for this route group until its prerequisites are resolved.</div>}
                   </div>
                   <p className="text-[11px] text-slate-500">Each route group opens its dedicated existing workflow. Existing API validation, transfer receipt checks and delivery status transitions remain in control.</p>
@@ -315,7 +315,16 @@ export default function FulfillmentDispatchPage() {
           </Card>
         </div>
       )}
-      <p className="text-xs text-slate-500">Route-specific processes are opened in their existing Farmer Fulfillment, Outgoing / Dispatch and Consolidation workspaces so current API validations and status transitions remain intact.</p>
+      {workflowFrame && <Card className="overflow-hidden border-emerald-200 shadow-sm">
+        <CardContent className="space-y-3 p-3 sm:p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div><h2 className="font-semibold text-slate-900">{workflowFrame.title}</h2><p className="text-xs text-slate-500">Complete the existing workflow here without leaving Fulfillment &amp; Dispatch. Original validations and API actions are retained.</p></div>
+            <Button size="sm" variant="outline" onClick={() => setWorkflowFrame(null)}>Close workflow</Button>
+          </div>
+          <iframe key={workflowFrame.href} src={workflowFrame.href} title={workflowFrame.title} className="h-[900px] w-full rounded-lg border border-slate-200 bg-white" />
+        </CardContent>
+      </Card>}
+      <p className="text-xs text-slate-500">Farmer Fulfillment and Warehouse Outgoing / Dispatch processes can be completed within this workspace using their existing operational screens and backend validations.</p>
     </div>
   );
 }
