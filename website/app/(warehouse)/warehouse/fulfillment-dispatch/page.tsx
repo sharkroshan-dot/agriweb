@@ -48,8 +48,7 @@ type WorkflowStep={label:string;detail:string;done:boolean;external?:boolean};
 const workflowStepsFor=(o:any):WorkflowStep[]=>{
   const s=norm(o.transferStatus||o.warehouseFulfillmentStage||o.stage||o.status||o.currentStage), d=norm(o.destinationTransferStatus), h=norm(o.localHubTransferStatus);
   const delivered=o.dispatchStatus==="Delivered"||["delivered","completed"].includes(norm(o.orderStatus));
-  const destManifest=["awaiting_team_assignment","assigned","in_transit","arrived_at_destination","received_at_destination"].includes(d)||["destination_warehouse_transfer_pending","destination_warehouse_in_transit","destination_warehouse_arrived_pending_receipt","destination_warehouse_received","hub_handoff_pending","hub_arrived_pending_receipt","local_hub_ready"].includes(s);
-  const destMoving=["assigned","in_transit","arrived_at_destination","received_at_destination"].includes(d)||["destination_warehouse_in_transit","destination_warehouse_arrived_pending_receipt","destination_warehouse_received","hub_handoff_pending","hub_arrived_pending_receipt","local_hub_ready"].includes(s);
+  const destMoving=["in_transit","arrived_at_destination","received_at_destination"].includes(d)||["destination_warehouse_in_transit","destination_warehouse_arrived_pending_receipt","destination_warehouse_received","hub_handoff_pending","hub_arrived_pending_receipt","local_hub_ready"].includes(s);
   const destReceived=d==="received_at_destination"||["destination_warehouse_received","hub_handoff_pending","hub_arrived_pending_receipt","local_hub_ready"].includes(s);
   const hubTransfer=["in_transit","assigned","arrived_at_hub","received"].includes(h)||["hub_handoff_pending","hub_arrived_pending_receipt","local_hub_ready"].includes(s);
   const hubReceived=h==="received"||s==="local_hub_ready";
