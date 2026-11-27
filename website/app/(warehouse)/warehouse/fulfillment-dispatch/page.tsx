@@ -46,73 +46,55 @@ function classify(row:any,source:Source):RouteKey {
 const statusText=(v:any)=>String(v??"Unknown").replace(/_/g," ");
 type WorkflowStep={label:string;detail:string;done:boolean;external?:boolean};
 const workflowStepsFor=(o:any):WorkflowStep[]=>{
-  const s=norm(o.transferStatus||o.status||o.stage||o.currentStage);
+  const s=norm(o.transferStatus||o.warehouseFulfillmentStage||o.stage||o.status||o.currentStage), d=norm(o.destinationTransferStatus), h=norm(o.localHubTransferStatus);
   const delivered=o.dispatchStatus==="Delivered"||["delivered","completed"].includes(norm(o.orderStatus));
-  const moving=o.dispatchStatus==="Dispatched / In Transit"||["in_transit","out_for_delivery","delivery_in_progress","dispatched"].includes(s);
-  const partnerAssigned=o.dispatchStatus==="Partner Assigned"||Boolean(o.deliveryPartnerId||o.assignedDeliveryPartnerId||o.assignedPartner||o.assignedTeam);
-  const distance=Number(o.routeDistanceKm);
-  const distanceVerified=o.routeDataComplete!==false&&Number.isFinite(distance)&&distance>=0;
-  if(o.route==="nearby") return [
-    {label:"Verify distance",detail:distanceVerified?distance.toFixed(1)+" km · within "+Number(o.nearbyThresholdKm??15)+" km":"Verified source and customer coordinates are required",done:distanceVerified},
-    {label:"Assign delivery partner",detail:o.source==="farmer"?"Warehouse assigns an approved final-mile partner":"Delivery job is published for an eligible partner to accept",done:partnerAssigned||moving||delivered,external:o.source==="warehouse"},
-    {label:"Start delivery",detail:"Delivery partner starts the assigned customer delivery",done:moving||delivered,external:true},
-    {label:"Confirm delivery",detail:"Delivery partner records proof of delivery; this is a downstream action",done:delivered,external:true},
+  const destManifest=["awaiting_team_assignment","assigned","in_transit","arrived_at_destination","received_at_destination"].includes(d)||["destination_warehouse_transfer_pending","destination_warehouse_in_transit","destination_warehouse_arrived_pending_receipt","destination_warehouse_received","hub_handoff_pending","hub_arrived_pending_receipt","local_hub_ready"].includes(s);
+  const destMoving=["assigned","in_transit","arrived_at_destination","received_at_destination"].includes(d)||["destination_warehouse_in_transit","destination_warehouse_arrived_pending_receipt","destination_warehouse_received","hub_handoff_pending","hub_arrived_pending_receipt","local_hub_ready"].includes(s);
+  const destReceived=d==="received_at_destination"||["destination_warehouse_received","hub_handoff_pending","hub_arrived_pending_receipt","local_hub_ready"].includes(s);
+  const hubTransfer=["in_transit","assigned","arrived_at_hub","received"].includes(h)||["hub_handoff_pending","hub_arrived_pending_receipt","local_hub_ready"].includes(s);
+  const hubReceived=h==="received"||s==="local_hub_ready";
+  const distance=Number(o.routeDistanceKm), distanceVerified=o.distanceCalculationStatus==="calculated"||o.routeDataComplete===true||(Number.isFinite(distance)&&distance>=0);
+  if(o.route==="nearby")return [
+    {label:"Verify distance",detail:distanceVerified?distance.toFixed(1)+" km · threshold "+Number(o.nearbyThresholdKm??15)+" km":"Verified source and customer coordinates are required",done:distanceVerified},
+    {label:"Assign delivery partner",detail:"Assign or publish one eligible final-mile delivery job",done:Boolean(o.deliveryPartnerId||o.deliveryJobId)||o.dispatchStatus==="Partner Assigned"||delivered,external:true},
+    {label:"Start delivery",detail:"Assigned delivery partner starts the customer delivery",done:["out_for_delivery","delivery_in_progress"].includes(norm(o.deliveryStatus||o.orderStatus))||delivered,external:true},
+    {label:"Confirm delivery",detail:"Delivery partner records proof of delivery",done:delivered,external:true},
   ];
   if(o.route==="same_district"){
-    const hubTransfer=["hub_handoff_pending","hub_arrived_pending_receipt","local_hub_ready"].includes(s)||Boolean(o.localHubTransferId||o.hubTransferId);
-    const hubTeam=Boolean(o.localHubPickupTeamId||o.pickupTeamId||o.assignedPickupTeamId||o.assignedDeliveryPartnerId)||["hub_arrived_pending_receipt","local_hub_ready"].includes(s);
-    const hubReceived=s==="local_hub_ready"||s==="delivered";
+    const team=Boolean(o.localHubTransferAssigned||o.assignedDeliveryPartnerId)||["assigned","arrived_at_hub","received"].includes(h);
     return [
-      {label:"Verify same district",detail:"Source and customer must be in the same district",done:Boolean(o.sourceDistrict&& (o.destinationDistrict||o.deliveryDistrict||o.customerDistrict))&&normDistrict(o.sourceDistrict)===normDistrict(o.destinationDistrict||o.deliveryDistrict||o.customerDistrict)},
-      {label:"Create local hub transfer",detail:"Create the sealed-order transfer manifest",done:hubTransfer},
-      {label:o.source==="farmer"?"Assign pickup team":"Local hub receives shipment",detail:o.source==="farmer"?"Assign an approved team after creating the hub transfer":"Hub team records physical arrival",done:o.source==="farmer"?hubTeam:hubReceived,external:o.source==="warehouse"},
-      {label:"Confirm hub receipt",detail:"Local hub records physical receipt",done:hubReceived,external:true},
-      {label:"Final delivery",detail:"A final-mile delivery job is opened after hub receipt",done:delivered,external:true},
-    ];
-  }
-  if(o.route==="inter_district"){
-    const destinationAssigned=Boolean(o.destinationWarehouseId||o.destinationWarehouse?.id);
-    const destinationMoving=["destination_warehouse_transfer_pending","destination_warehouse_in_transit","destination_warehouse_arrived_pending_receipt","destination_warehouse_received","hub_handoff_pending","hub_arrived_pending_receipt","local_hub_ready"].includes(s);
-    const destinationReceived=["destination_warehouse_received","hub_handoff_pending","hub_arrived_pending_receipt","local_hub_ready"].includes(s);
-    const hubTransfer=["hub_handoff_pending","hub_arrived_pending_receipt","local_hub_ready"].includes(s);
-    const hubReceived=s==="local_hub_ready";
-    return [
-      {label:"Verify destination district",detail:"Confirm source and customer districts differ",done:Boolean(o.sourceDistrict&&(o.destinationDistrict||o.deliveryDistrict||o.customerDistrict))&&normDistrict(o.sourceDistrict)!==normDistrict(o.destinationDistrict||o.deliveryDistrict||o.customerDistrict)},
-      {label:"Assign destination warehouse",detail:"Select the warehouse serving the customer district",done:destinationAssigned},
-      {label:"Assign transfer team & dispatch",detail:"Create and dispatch the inter-district transfer",done:destinationMoving||destinationReceived,external:false},
-      {label:"Confirm destination receipt",detail:"Destination warehouse records physical receipt",done:destinationReceived,external:true},
-      {label:"Send to local hub",detail:"Create downstream local-hub transfer",done:hubTransfer},
-      {label:"Confirm hub receipt",detail:"Local hub records physical receipt",done:hubReceived,external:true},
+      {label:"Verify same district",detail:"Source and customer must be in the same district",done:Boolean(o.sourceDistrict&&(o.destinationDistrict||o.deliveryDistrict||o.customerDistrict))&&normDistrict(o.sourceDistrict)===normDistrict(o.destinationDistrict||o.deliveryDistrict||o.customerDistrict)},
+      {label:"Create local hub transfer",detail:"Create one sealed-order transfer manifest",done:hubTransfer},
+      {label:"Assign pickup team & dispatch",detail:"Assign an approved vehicle and hand over the sealed order",done:team||["arrived_at_hub","received"].includes(h),external:true},
+      {label:"Confirm hub receipt",detail:"Local hub confirms physical arrival and quantity",done:hubReceived,external:true},
       {label:"Final delivery",detail:"Final-mile delivery job proceeds after hub receipt",done:delivered,external:true},
     ];
   }
+  if(o.route==="inter_district")return [
+    {label:"Verify destination district",detail:"Confirm source and customer districts differ",done:Boolean(o.sourceDistrict&&(o.destinationDistrict||o.deliveryDistrict||o.customerDistrict))&&normDistrict(o.sourceDistrict)!==normDistrict(o.destinationDistrict||o.deliveryDistrict||o.customerDistrict)},
+    {label:"Assign destination warehouse",detail:"Select the warehouse serving the customer district",done:Boolean(o.destinationWarehouseId)},
+    {label:"Assign transfer team & dispatch",detail:"Create transfer manifest, assign an approved team and dispatch",done:destMoving},
+    {label:"Confirm destination receipt",detail:"Destination warehouse records physical receipt after partner arrival",done:destReceived,external:true},
+    {label:"Send to local hub",detail:"Destination warehouse creates the downstream local-hub transfer",done:hubTransfer},
+    {label:"Confirm hub receipt",detail:"Local hub confirms physical arrival",done:hubReceived,external:true},
+    {label:"Final delivery",detail:"Final-mile delivery partner completes customer delivery",done:delivered,external:true},
+  ];
   if(o.route==="multi_warehouse"){
-    const legs=Array.isArray(o.consolidationLegs)?o.consolidationLegs:[];
-    const allReceived=o.allConsolidationLegsReceived===true||o.consolidation?.allWarehousesReceived===true||Boolean(legs.length&&legs.every((leg:any)=>["received_at_consolidation","received"].includes(norm(leg.status))));
+    const total=Number(o.consolidation?.totalLegs||o.consolidationLegs?.length||0), received=Number(o.consolidation?.receivedLegs||0);
+    const allReceived=o.allConsolidationLegsReceived===true||o.consolidation?.allSourcePortionsStored===true||(total>0&&received>=total);
     const consolidated=norm(o.consolidationStatus)==="consolidated"||norm(o.consolidation?.status)==="consolidated";
-    const hubTransfer=["hub_handoff_pending","hub_arrived_pending_receipt","local_hub_ready"].includes(s)||norm(o.consolidationStatus)==="hub_handoff_pending";
-    const hubReceived=s==="local_hub_ready"||norm(o.consolidationStatus)==="local_hub_ready";
     return [
-      {label:"Identify source warehouses",detail:"Check every allocated source portion",done:legs.length>0||Array.isArray(o.warehouseAllocations)&&o.warehouseAllocations.length>1},
-      {label:"Dispatch source portions",detail:"Each source warehouse dispatches its assigned portion",done:legs.some((leg:any)=>["in_transit","received_at_consolidation","received"].includes(norm(leg.status)))},
-      {label:"Receive all portions",detail:"Consolidation warehouse records each physical receipt",done:allReceived},
+      {label:"Identify source warehouses",detail:"Verify every allocated source portion",done:total>0},
+      {label:"Dispatch source portions",detail:"Each source warehouse dispatches its allocated portion",done:Boolean(o.sourceTransfer?.dispatched)},
+      {label:"Receive all portions",detail:total?received+" of "+total+" portions physically received":"Consolidation warehouse verifies every portion",done:allReceived},
       {label:"Complete consolidation",detail:"Verify quantities and combine all received portions",done:consolidated},
       {label:"Send to local hub",detail:"Create one transfer for the complete customer order",done:hubTransfer},
-      {label:"Confirm hub receipt",detail:"Local hub confirms the consolidated order arrived",done:hubReceived,external:true},
-      {label:"Confirm delivery",detail:"Final delivery partner completes the customer delivery",done:delivered,external:true},
+      {label:"Confirm hub receipt",detail:"Local hub confirms physical arrival",done:hubReceived,external:true},
+      {label:"Final delivery",detail:"Final delivery partner completes customer delivery",done:delivered,external:true},
     ];
   }
-  if(o.route==="route_review") return [
-    {label:"Review route configuration",detail:"Check route decision and direct-delivery eligibility",done:false},
-    {label:"Verify distance & district",detail:"Confirm valid source and customer route data",done:false},
-    {label:"Approve corrected route",detail:"Reclassify only after the route prerequisites pass",done:false},
-  ];
-  return [
-    {label:"Verify source location",detail:"Confirm farmer or source warehouse locality and district",done:false},
-    {label:"Verify customer location",detail:"Complete delivery address and district details",done:false},
-    {label:"Validate coordinates",detail:"Save valid GPS coordinates before recalculating distance",done:false},
-    {label:"Recalculate and assign route",detail:"Route remains blocked until location data is valid",done:false},
-  ];
+  if(o.route==="route_review")return [{label:"Review route configuration",detail:"Check route decision and direct-delivery eligibility",done:false},{label:"Verify distance & district",detail:"Confirm valid source and customer route data",done:false},{label:"Approve corrected route",detail:"Reclassify only after route prerequisites pass",done:false}];
+  return [{label:"Verify source location",detail:"Confirm farmer or source warehouse locality and district",done:false},{label:"Verify customer location",detail:"Complete delivery address and district details",done:false},{label:"Validate coordinates",detail:"Save valid GPS coordinates before recalculating distance",done:false},{label:"Recalculate and assign route",detail:"Routing stays blocked until location data is valid",done:false}];
 };
 const firstText=(...values:any[])=>values.find(v=>v!==null&&v!==undefined&&String(v).trim()!==""&&typeof v!=="object");
 const isDatabaseId=(value:any)=>/^[a-f0-9]{24}$/i.test(String(value??"").trim());
@@ -211,7 +193,7 @@ export default function FulfillmentDispatchPage() {
     const q=search.trim().toLowerCase();
     return orders.filter((o:any)=>o.dispatchStatus!=="Not Dispatch Ready"&&(activeRoute==="all"||o.route===activeRoute)&&(o.dispatchStatus===activeStage)&&(sourceFilter==="all"||o.source===sourceFilter)&&(!q||[o.orderNumber,o.customerName,o.district,o.destinationGroup,o.itemSummary,o.currentStatus].some(v=>String(v||"").toLowerCase().includes(q)))).sort((a:any,b:any)=>{const at=new Date(a.createdAt||a.orderDate||a.placedAt||0).getTime()||0;const bt=new Date(b.createdAt||b.orderDate||b.placedAt||0).getTime()||0;return sortOrder==="newest"?bt-at:at-bt;});
   },[orders,search,activeRoute,activeStage,sourceFilter,sortOrder]);
-  const selected=filtered.find((o:any)=>o.source+":"+o.id===selectedKey)||filtered[0]||null;
+  const selected=orders.find((o:any)=>o.source+":"+o.id===selectedKey)||filtered[0]||null;
   const routeCounts=Object.fromEntries(ROUTES.map(r=>[r.key,orders.filter((o:any)=>o.route===r.key).length])) as Record<RouteKey,number>;
   const stageNames=["To Receive","To Route","In Transfer","To Dispatch","Delivered"];
   const stageCounts=Object.fromEntries(stageNames.map(s=>[s,orders.filter((o:any)=>o.stage===s).length])) as Record<string,number>;
@@ -425,7 +407,43 @@ export default function FulfillmentDispatchPage() {
             <span className={"mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[10px] font-bold "+(step.done?"border-emerald-600 bg-emerald-600 text-white":"border-slate-300 bg-white text-slate-500")}>{step.done?<CheckCircle2 className="h-3.5 w-3.5"/>:i+1}</span>
             <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><span className={"text-xs font-semibold "+(step.done?"text-emerald-800":"text-slate-800")}>{step.label}</span>{step.external&&<Badge variant="outline" className="px-1.5 py-0 text-[9px]">Partner / hub</Badge>}</div><p className="text-[10px] leading-4 text-slate-500">{step.detail}</p></div>
           </li>)}</ol>
-          {["nearby","same_district","inter_district","multi_warehouse"].includes(selected.route)&&<p className="mt-3 rounded-lg bg-blue-50 px-2.5 py-2 text-[10px] leading-4 text-blue-900">Warehouse actions stop at the correct handoff. Starting delivery and confirming delivery are completed by the assigned delivery partner; hub receipt is confirmed by the hub team.</p>}
+          <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50/60 p-3">
+            <p className="text-xs font-bold text-emerald-950">Next required operation</p>
+            <p className="mt-0.5 text-[10px] leading-4 text-slate-600">Actions are connected to the saved transfer status and current warehouse role. The selected order remains open as its stage changes.</p>
+            {selected.source==="farmer"&&selected.route==="inter_district"&&<>
+              {selected.currentWarehouseRole==="source"&&!selected.destinationWarehouseId&&<Button size="sm" className="mt-2 bg-emerald-700 text-white" disabled={!!busy} onClick={()=>act(selected,"destination")}>Assign destination &amp; create transfer manifest</Button>}
+              {selected.currentWarehouseRole==="source"&&selected.destinationWarehouseId&&["awaiting_team_assignment","assigned"].includes(norm(selected.destinationTransferStatus))&&norm(selected.destinationTransferStatus)!=="assigned"&&<div className="mt-2 space-y-2"><select aria-label="Inter-district transfer team" className="h-9 w-full rounded-md border bg-white px-2 text-xs" value={partnerByOrder[selected.id]||""} onChange={e=>setPartnerByOrder(v=>({...v,[selected.id]:e.target.value}))}><option value="">Select approved transfer team</option>{teams.map((t:any)=><option key={t.id} value={t.id}>{t.name} · {t.vehicle} · {t.capacity} kg</option>)}</select><Button size="sm" className="bg-emerald-700 text-white" disabled={!!busy||!partnerByOrder[selected.id]||!teamCanCarry(teams.find((t:any)=>t.id===partnerByOrder[selected.id]),selected)} onClick={()=>act(selected,"assign-transfer")}>Assign transfer team</Button></div>}
+              {selected.currentWarehouseRole==="source"&&["assigned","in_transit","arrived_at_destination","received_at_destination"].includes(norm(selected.destinationTransferStatus))&&<p className="mt-2 rounded-lg bg-white p-2 text-[11px] text-slate-700">Transfer is active. The assigned partner must start the transfer and record arrival. The destination warehouse completes receipt and local-hub handoff.</p>}
+              {selected.currentWarehouseRole==="destination"&&(norm(selected.destinationTransferStatus)==="arrived_at_destination"||norm(selected.transferStatus)==="destination_warehouse_arrived_pending_receipt")&&<Button size="sm" className="mt-2 bg-emerald-700 text-white" disabled={!!busy} onClick={()=>act(selected,"destination-receive")}>Confirm destination warehouse receipt</Button>}
+              {selected.currentWarehouseRole==="destination"&&(norm(selected.destinationTransferStatus)==="received_at_destination"||["destination_warehouse_received","hub_handoff_pending","hub_arrived_pending_receipt","local_hub_ready"].includes(norm(selected.transferStatus)))&&!["in_transit","assigned","arrived_at_hub","received"].includes(norm(selected.localHubTransferStatus))&&<Button size="sm" className="mt-2 bg-emerald-700 text-white" disabled={!!busy} onClick={()=>act(selected,"hub-handoff")}>Send complete order to local hub</Button>}
+              {selected.currentWarehouseRole==="destination"&&["in_transit","assigned"].includes(norm(selected.localHubTransferStatus))&&!selected.localHubTransferAssigned&&<div className="mt-2 space-y-2"><select aria-label="Local hub pickup team" className="h-9 w-full rounded-md border bg-white px-2 text-xs" value={partnerByOrder[selected.id]||""} onChange={e=>setPartnerByOrder(v=>({...v,[selected.id]:e.target.value}))}><option value="">Select local-hub pickup team</option>{teams.map((t:any)=><option key={t.id} value={t.id}>{t.name} · {t.vehicle} · {t.capacity} kg</option>)}</select><Button size="sm" className="bg-emerald-700 text-white" disabled={!!busy||!partnerByOrder[selected.id]||!teamCanCarry(teams.find((t:any)=>t.id===partnerByOrder[selected.id]),selected)} onClick={()=>act(selected,"assign-hub-team")}>Assign local-hub pickup team</Button></div>}
+              {selected.currentWarehouseRole==="destination"&&norm(selected.localHubTransferStatus)==="arrived_at_hub"&&<Button size="sm" className="mt-2 bg-emerald-700 text-white" disabled={!!busy} onClick={()=>act(selected,"hub-receive")}>Confirm local hub receipt</Button>}
+              {selected.currentWarehouseRole==="destination"&&(norm(selected.localHubTransferStatus)==="received"||norm(selected.transferStatus)==="local_hub_ready")&&<p className="mt-2 rounded-lg bg-white p-2 text-[11px] font-medium text-emerald-800">Local hub receipt confirmed. Final-mile delivery job is available to the delivery partner.</p>}
+              {selected.currentWarehouseRole!=="source"&&selected.currentWarehouseRole!=="destination"&&<p className="mt-2 rounded-lg bg-white p-2 text-[11px] text-amber-800">This stage belongs to the source or destination warehouse, not the current warehouse role.</p>}
+            </>}
+            {selected.source==="farmer"&&selected.route==="same_district"&&<>
+              {selected.currentWarehouseRole==="source"&&!["hub_handoff_pending","hub_arrived_pending_receipt","local_hub_ready"].includes(norm(selected.transferStatus))&&<Button size="sm" className="mt-2 bg-emerald-700 text-white" disabled={!!busy||!selected.physicalReceiptConfirmed} onClick={()=>act(selected,"same")}>Create local-hub transfer</Button>}
+              {selected.currentWarehouseRole==="source"&&norm(selected.transferStatus)==="hub_handoff_pending"&&!selected.localHubTransferAssigned&&<div className="mt-2 space-y-2"><select aria-label="Local hub pickup team" className="h-9 w-full rounded-md border bg-white px-2 text-xs" value={partnerByOrder[selected.id]||""} onChange={e=>setPartnerByOrder(v=>({...v,[selected.id]:e.target.value}))}><option value="">Select approved pickup team</option>{teams.map((t:any)=><option key={t.id} value={t.id}>{t.name} · {t.vehicle} · {t.capacity} kg</option>)}</select><Button size="sm" className="bg-emerald-700 text-white" disabled={!!busy||!partnerByOrder[selected.id]||!teamCanCarry(teams.find((t:any)=>t.id===partnerByOrder[selected.id]),selected)} onClick={()=>act(selected,"assign-hub-team")}>Assign local-hub pickup team</Button></div>}
+              {["assigned","in_transit"].includes(norm(selected.localHubTransferStatus))&&<p className="mt-2 rounded-lg bg-white p-2 text-[11px] text-slate-700">Pickup team assigned. The partner must record arrival before the hub can confirm receipt.</p>}
+              {norm(selected.localHubTransferStatus)==="arrived_at_hub"&&<Button size="sm" className="mt-2 bg-emerald-700 text-white" disabled={!!busy} onClick={()=>act(selected,"hub-receive")}>Confirm local hub receipt</Button>}
+              {norm(selected.localHubTransferStatus)==="received"&&<p className="mt-2 rounded-lg bg-white p-2 text-[11px] font-medium text-emerald-800">Hub receipt confirmed. Final delivery job is available.</p>}
+            </>}
+            {selected.source==="farmer"&&selected.route==="nearby"&&selected.physicalReceiptConfirmed&&!selected.deliveryPartnerId&&<div className="mt-2 space-y-2"><select aria-label="Nearby final delivery partner" className="h-9 w-full rounded-md border bg-white px-2 text-xs" value={partnerByOrder[selected.id]||""} onChange={e=>setPartnerByOrder(v=>({...v,[selected.id]:e.target.value}))}><option value="">Select approved delivery partner</option>{teams.map((t:any)=><option key={t.id} value={t.id}>{t.name} · {t.vehicle} · {t.capacity} kg</option>)}</select><Button size="sm" className="bg-emerald-700 text-white" disabled={!!busy||!partnerByOrder[selected.id]||!teamCanCarry(teams.find((t:any)=>t.id===partnerByOrder[selected.id]),selected)} onClick={()=>act(selected,"nearby")}>Assign final delivery partner</Button></div>}
+            {selected.source==="farmer"&&selected.route==="multi_warehouse"&&<>
+              {selected.canDispatchToConsolidation&&selected.physicalReceiptConfirmed&&<Button size="sm" className="mt-2 bg-emerald-700 text-white" disabled={!!busy} onClick={()=>act(selected,"consolidation-dispatch")}>Dispatch source portion to consolidation</Button>}
+              {selected.consolidation?.canReceive&&selected.isConsolidationWarehouse&&<Button size="sm" className="mt-2 bg-emerald-700 text-white" disabled={!!busy} onClick={()=>act(selected,"consolidation-receive")}>Receive all in-transit portions</Button>}
+              {selected.consolidation?.canComplete&&selected.isConsolidationWarehouse&&<Button size="sm" className="mt-2 bg-emerald-700 text-white" disabled={!!busy} onClick={()=>act(selected,"consolidation-complete")}>Complete consolidation</Button>}
+              {selected.consolidation?.canHandoffLocalHub&&selected.isConsolidationWarehouse&&<Button size="sm" className="mt-2 bg-emerald-700 text-white" disabled={!!busy} onClick={()=>act(selected,"consolidation-handoff")}>Send consolidated order to local hub</Button>}
+              {selected.isConsolidationWarehouse&&norm(selected.transferStatus)==="hub_handoff_pending"&&!selected.localHubTransferAssigned&&<div className="mt-2 space-y-2"><select aria-label="Consolidation local hub pickup team" className="h-9 w-full rounded-md border bg-white px-2 text-xs" value={partnerByOrder[selected.id]||""} onChange={e=>setPartnerByOrder(v=>({...v,[selected.id]:e.target.value}))}><option value="">Select local-hub pickup team</option>{teams.map((t:any)=><option key={t.id} value={t.id}>{t.name} · {t.vehicle} · {t.capacity} kg</option>)}</select><Button size="sm" className="bg-emerald-700 text-white" disabled={!!busy||!partnerByOrder[selected.id]||!teamCanCarry(teams.find((t:any)=>t.id===partnerByOrder[selected.id]),selected)} onClick={()=>act(selected,"assign-hub-team")}>Assign local-hub pickup team</Button></div>}
+              {norm(selected.localHubTransferStatus)==="arrived_at_hub"&&<Button size="sm" className="mt-2 bg-emerald-700 text-white" disabled={!!busy} onClick={()=>act(selected,"hub-receive")}>Confirm local hub receipt</Button>}
+            </>}
+            {selected.source==="warehouse"&&selected.route==="same_district"&&<div className="mt-2 space-y-2"><select aria-label="Warehouse local hub" className="h-9 w-full rounded-md border bg-white px-2 text-xs" value={hubByOrder[selected.id]||""} onChange={e=>setHubByOrder(v=>({...v,[selected.id]:e.target.value}))}><option value="">Select active local hub</option>{hubs.filter((h:any)=>norm(h.status)==="active"&&normDistrict(h.district)===normDistrict(selected.destinationDistrict||selected.deliveryDistrict||selected.district)).map((h:any)=><option key={String(h.id||h._id)} value={String(h.id||h._id)}>{h.name} · {h.district}</option>)}</select><Button size="sm" className="bg-emerald-700 text-white" disabled={!!busy||!hubByOrder[selected.id]} onClick={()=>act(selected,"same")}>Dispatch to local hub</Button></div>}
+            {selected.source==="warehouse"&&selected.route==="nearby"&&<Button size="sm" className="mt-2 bg-emerald-700 text-white" disabled={!!busy} onClick={()=>act(selected,"nearby")}>Verify packing &amp; dispatch to delivery</Button>}
+            {selected.source==="warehouse"&&selected.route==="inter_district"&&<Button size="sm" className="mt-2 bg-emerald-700 text-white" disabled={!!busy} onClick={()=>act(selected,"destination")}>Create destination warehouse transfer</Button>}
+            {selected.route==="route_review"&&<Button asChild size="sm" variant="outline" className="mt-2"><Link href="/warehouse/farmer-fulfillment">Open route review workspace</Link></Button>}
+            {selected.route==="needs_location"&&<Button asChild size="sm" variant="outline" className="mt-2"><Link href="/warehouse/farmer-fulfillment">Open location and route data</Link></Button>}
+          </div>
+          {["nearby","same_district","inter_district","multi_warehouse"].includes(selected.route)&&<p className="mt-3 rounded-lg bg-blue-50 px-2.5 py-2 text-[10px] leading-4 text-blue-900">Delivery partners must record dispatch, arrival and proof of delivery in their workflow. Warehouse staff can confirm receipt only after the partner records physical arrival.</p>}<p className="mt-3 rounded-lg bg-blue-50 px-2.5 py-2 text-[10px] leading-4 text-blue-900">Warehouse actions stop at the correct handoff. Starting delivery and confirming delivery are completed by the assigned delivery partner; hub receipt is confirmed by the hub team.</p>}
         </div>}
         {selected?<div className="space-y-4"><div className="flex flex-wrap items-start justify-between gap-3 border-b pb-3"><div><div className="flex flex-wrap items-center gap-2"><h2 className="text-lg font-bold">#{selected.orderNumber}</h2><Badge className={selected.source==="farmer"?"bg-emerald-100 text-emerald-800":"bg-blue-100 text-blue-800"}>{selected.source==="farmer"?"Farmer Fulfillment":"Warehouse Fulfillment"}</Badge></div><p className="mt-1 text-sm text-muted-foreground">{selected.customerName} · {selected.district}</p></div><Badge variant="outline">{selected.dispatchStatus}</Badge></div>
       <div className="grid gap-2 sm:grid-cols-4"><div className="rounded-lg bg-muted/40 p-3"><p className="text-xs text-muted-foreground">Current status</p><p className="mt-1 text-sm font-semibold">{statusText(selected.currentStatus)}</p></div><div className="rounded-lg bg-muted/40 p-3"><p className="text-xs text-muted-foreground">Route</p><p className="mt-1 text-sm font-semibold">{ROUTES.find(r=>r.key===selected.route)?.label}</p></div><div className="rounded-lg bg-muted/40 p-3"><p className="text-xs text-muted-foreground">Source warehouse</p><p className="mt-1 text-sm font-semibold">{selected.sourceWarehouseName||"Current warehouse"}</p></div><div className="rounded-lg bg-muted/40 p-3"><p className="text-xs text-muted-foreground">Destination warehouse</p><p className="mt-1 text-sm font-semibold">{selected.destinationWarehouseName||selected.destinationGroup}</p></div></div>
