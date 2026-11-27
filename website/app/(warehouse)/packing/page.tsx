@@ -65,7 +65,7 @@ export default function WarehousePackingPage() {
   const [queueTab, setQueueTab] = useState<"queue" | "packing" | "shortage" | "completed">("queue");
   const [printLabelData, setPrintLabelData] = useState<any | null>(null);
   const printQrRef = useRef<HTMLDivElement | null>(null);
-  const [dateFilter, setDateFilter] = useState<"today" | "yesterday" | "week" | "all">(requestedOrderId || requestedOrderIds.length > 0 || requestedFarm ? "all" : "today");
+  const [dateFilter, setDateFilter] = useState<"today" | "yesterday" | "week" | "all">("all");
   const [showRemainingOnly, setShowRemainingOnly] = useState(false);
   const [farmTeam, setFarmTeam] = useState<Record<string,string>>({});
   const [assigningFarm, setAssigningFarm] = useState<string | null>(null);
