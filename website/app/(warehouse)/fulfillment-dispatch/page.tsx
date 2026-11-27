@@ -186,12 +186,6 @@ export default function FulfillmentDispatchPage() {
   const farmerShare = orders.length ? Math.round((farmerOrderCount / orders.length) * 100) : 0;
   const warehouseShare = orders.length ? Math.round((warehouseOrderCount / orders.length) * 100) : 0;
   const routeCounts = useMemo(() => Object.fromEntries(ROUTES.map((route) => [route.key, orders.filter((row: any) => row.route === route.key).length])) as Record<RouteKey, number>, [orders]);
-  const operationGroups = useMemo(() => {
-    const rows = selectedRows.length ? selectedRows : activeRoute === "all" ? [] : filtered;
-    const grouped = new Map<RouteKey, any[]>();
-    rows.forEach((row: any) => grouped.set(row.route, [...(grouped.get(row.route) || []), row]));
-    return [...grouped.entries()];
-  }, [selectedRows, activeRoute, filtered]);
   const toggleOrder = (key: string, checked: boolean) => setSelectedIds((current) => checked ? [...new Set([...current, key])] : current.filter((id) => id !== key));
   const toggleAllVisible = (checked: boolean) => setSelectedIds((current) => checked ? [...new Set([...current, ...filtered.map((row: any) => row.source + ":" + row.id)])] : current.filter((id) => !filtered.some((row: any) => row.source + ":" + row.id === id)));
   const routeOperations: Record<RouteKey, { title: string; intro: string; steps: string[]; farmerHref: string; warehouseHref: string; farmerAction: string; warehouseAction: string; actionHint: string; extraHref?: string; extraLabel?: string }> = {
@@ -201,6 +195,28 @@ export default function FulfillmentDispatchPage() {
     multi_warehouse: { title: "Multi-Warehouse Consolidation", intro: "Collect all portions from their source warehouses and reconcile them at the consolidation warehouse.", steps: ["Review each source warehouse portion and quantity", "Assign / track transfers for every portion", "Confirm all portions are received and reconcile quantities", "Complete consolidation, then continue to hub or final delivery"], farmerHref: "/warehouse/farmer-fulfillment", warehouseHref: "/outgoing", farmerAction: "Continue Farmer Consolidation Process", warehouseAction: "Open Consolidation Workspace", actionHint: "Do not dispatch the complete customer order until every required portion is received and consolidated.", extraHref: "/warehouse/consolidation", extraLabel: "Open Consolidation Workspace" },
     needs_location: { title: "Needs Location Data", intro: "This route cannot be processed until the customer or warehouse location is corrected.", steps: ["Review the customer delivery address", "Verify source and destination warehouse locations", "Correct missing district / address / GPS information", "Refresh route classification before assigning transfer or delivery"], farmerHref: "/warehouse/farmer-fulfillment", warehouseHref: "/outgoing", farmerAction: "Review Farmer Order Location", warehouseAction: "Review Warehouse Order Location", actionHint: "Transfer and delivery actions are blocked until the required location data is complete." },
     route_review: { title: "Route Review Required", intro: "Operational route prerequisites need review before this order can be transferred or delivered.", steps: ["Review the route classification and verified distance", "Confirm the correct destination warehouse or local hub", "Resolve route configuration or assignment issues", "Refresh the order and continue with its newly approved route"], farmerHref: "/warehouse/farmer-fulfillment", warehouseHref: "/outgoing", farmerAction: "Review Farmer Fulfillment Route", warehouseAction: "Review Warehouse Delivery Route", actionHint: "Do not dispatch an order while route review is pending." },
+  };
+  const selectedRouteKeys = [...new Set(selectedRows.map((row: any) => row.route))] as RouteKey[];
+  const selectedSources = [...new Set(selectedRows.map((row: any) => row.source))] as Source[];
+  const selectedRouteKey = selectedRouteKeys.length === 1 ? selectedRouteKeys[0] : null;
+  const selectedSource = selectedSources.length === 1 ? selectedSources[0] : null;
+  const selectedRouteConfig = selectedRouteKey ? routeOperations[selectedRouteKey] : null;
+  const selectedDestinations = [...new Set(selectedRows.map((row: any) => row.destinationGroup).filter((value: string) => value && value !== "Destination not assigned"))];
+  const quantityParts = selectedRows.map((row: any) => String(row.quantitySummary || "").trim().match(/^([\d,.]+)\s*(.*)$/));
+  const quantityUnits = [...new Set(quantityParts.filter(Boolean).map((part: any) => String(part[2] || "").trim()).filter(Boolean))];
+  const totalQuantity = quantityParts.length && quantityParts.every(Boolean) && quantityUnits.length <= 1
+    ? `${quantityParts.reduce((sum: number, part: any) => sum + Number(String(part[1]).replace(/,/g, "")), 0).toLocaleString()} ${quantityUnits[0] || ""}`.trim()
+    : "See individual orders";
+  const selectedStages = [...new Set(selectedRows.map((row: any) => row.stage))] as Stage[];
+  const selectedStatus = selectedStages.length === 1 ? stageMeta[selectedStages[0]].label : selectedStages.length ? "Mixed statuses" : "No selection";
+  const nextOperation = !selectedRows.length ? "Select orders to see the next operation" : selectedRouteKey === "nearby" ? "Assign delivery partner" : selectedRouteKey === "same_district" ? "Continue same-district delivery" : selectedRouteKey === "inter_district" ? "Dispatch to destination warehouse" : selectedRouteKey === "multi_warehouse" ? "Complete warehouse consolidation" : "Resolve route prerequisites";
+  const blockedSelection = selectedRows.some((row: any) => row.route === "needs_location" || row.route === "route_review");
+  const completedSelection = selectedRows.some((row: any) => row.stage === "delivered");
+  const canProcessSelection = selectedRows.length > 0 && selectedRouteKeys.length === 1 && selectedSources.length === 1 && !blockedSelection && !completedSelection;
+  const processSelectedOrders = () => {
+    if (!canProcessSelection || !selectedRouteKey || !selectedSource || !selectedRouteConfig) return;
+    const href = selectedSource === "farmer" ? selectedRouteConfig.farmerHref : selectedRouteConfig.warehouseHref;
+    setWorkflowFrame({ href, title: (selectedSource === "farmer" ? "Farmer Fulfillment" : "Warehouse Outgoing / Dispatch") + " · " + selectedRouteConfig.title });
   };
   const refresh = async () => {
     await Promise.all([farmerQuery.refetch(), outgoingQuery.refetch(), consolidationQuery.refetch()]);
@@ -300,36 +316,38 @@ export default function FulfillmentDispatchPage() {
             </CardContent>
           </Card>
 
-          <Card className="min-w-0 w-full overflow-hidden min-h-[650px]">
-            <CardContent className="h-full space-y-4 p-4">
-              <div className="flex items-center justify-between gap-2"><div><h2 className="text-lg font-bold text-slate-900">Operations</h2><p className="mt-1 text-xs text-slate-500">Actions change according to the selected route group.</p></div><Badge variant="outline">{selectedRows.length || (activeRoute === "all" ? "—" : filtered.length)} {selectedRows.length ? "selected" : "orders"}</Badge></div>
-              {operationGroups.length === 0 ? <div className="rounded-xl border border-dashed p-6 text-center"><Truck className="mx-auto h-10 w-10 text-slate-300"/><p className="mt-2 font-semibold text-slate-800">Choose a route group</p><p className="mt-1 text-xs text-slate-500">Select a route on the left, then select its orders in the middle. The matching workflow will appear here.</p></div> : operationGroups.map(([routeKey, rows]) => {
-                const config = routeOperations[routeKey];
-                const sources = [...new Set(rows.map((row: any) => row.source))] as Source[];
-                return <div key={routeKey} className="space-y-3 rounded-xl border border-slate-200 p-3">
-                  <div><h3 className="font-semibold text-slate-900">{config.title}</h3><p className="mt-1 text-xs text-slate-500">{rows.length} selected order(s) · {config.intro}</p></div>
-                  <div className="space-y-2">{config.steps.map((step, index) => <div key={step} className="flex items-start gap-2 text-xs text-slate-700"><span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100 font-semibold text-emerald-800">{index + 1}</span><span>{step}</span></div>)}</div>
-                  <div className="rounded-lg bg-slate-50 p-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Orders in this process</p>
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {rows.slice(0, 6).map((row: any) => <Badge key={row.source + ":" + row.id} variant="outline">{row.orderNumber}</Badge>)}
-                      {rows.length > 6 && <Badge variant="secondary">+{rows.length - 6} more</Badge>}
+          <Card className="min-w-0 w-full overflow-hidden self-start border-emerald-200 shadow-sm">
+            <div className="flex items-center justify-between gap-3 bg-gradient-to-r from-emerald-800 to-emerald-700 px-4 py-4 text-white">
+              <div className="flex items-center gap-3"><div className="rounded-xl bg-white/15 p-2.5"><Truck className="h-5 w-5"/></div><div><h2 className="text-lg font-bold leading-tight">Operations</h2><p className="mt-0.5 text-xs text-emerald-50">{selectedRows.length} {selectedRows.length === 1 ? "order" : "orders"} selected</p></div></div>
+              <Button type="button" size="sm" variant="outline" disabled={!selectedRows.length} onClick={() => setSelectedIds([])} className="shrink-0 border-white/50 bg-white text-emerald-900 hover:bg-emerald-50"><RefreshCw className="mr-1.5 h-3.5 w-3.5"/>Clear</Button>
+            </div>
+            <CardContent className="space-y-4 p-4">
+              <div className="flex items-start gap-3 rounded-xl border border-emerald-100 bg-emerald-50/80 p-3.5"><div className="rounded-lg bg-white p-2 text-emerald-700"><Truck className="h-5 w-5"/></div><div><p className="text-sm font-bold text-slate-900">Next Operation</p><p className="mt-1 text-sm leading-5 text-slate-700">{nextOperation}</p>{selectedRouteConfig && <p className="mt-1 text-xs leading-5 text-slate-500">{selectedRouteConfig.intro}</p>}</div></div>
+              {!selectedRows.length ? (
+                <div className="rounded-xl border border-dashed border-slate-300 px-4 py-8 text-center"><Package className="mx-auto h-9 w-9 text-slate-300"/><p className="mt-2 text-sm font-semibold text-slate-800">No orders selected</p><p className="mx-auto mt-1 max-w-[230px] text-xs leading-5 text-slate-500">Select orders from the middle table to see their next available operation here.</p></div>
+              ) : (
+                <>
+                  <section className="space-y-2.5"><div className="flex items-center justify-between"><h3 className="text-sm font-bold text-slate-900">Selected Orders</h3><Badge variant="secondary">{selectedRows.length}</Badge></div>
+                    <div className="max-h-[260px] divide-y divide-slate-100 overflow-y-auto rounded-xl border border-slate-200">
+                      {selectedRows.map((row: any) => <div key={row.source + ":" + row.id} className="flex items-start gap-3 p-3"><div className="mt-0.5 rounded-lg bg-slate-100 p-2 text-slate-600"><Package className="h-4 w-4"/></div><div className="min-w-0 flex-1"><p className="break-all text-sm font-semibold text-slate-900">{row.orderNumber}</p><p className="mt-0.5 text-xs text-slate-600">{row.source === "farmer" ? "Farmer" : "Warehouse"} · {row.itemSummary} · {row.quantitySummary}</p><p className="mt-1 text-[11px] text-slate-500">{row.customerName}</p></div><Badge className="shrink-0 border-emerald-200 bg-emerald-50 text-[10px] text-emerald-800">{stageMeta[row.stage as Stage].label}</Badge></div>)}
                     </div>
-                  </div>
-                  <div className="rounded-lg border border-emerald-100 bg-emerald-50/60 p-3">
-                    <p className="text-xs font-semibold text-emerald-900">Route-specific instruction</p>
-                    <p className="mt-1 text-xs leading-5 text-emerald-900/80">{config.actionHint}</p>
-                  </div>
-                  <div className="space-y-2 border-t pt-3">
-                    {sources.includes("farmer") && <Button className="w-full" onClick={() => setWorkflowFrame({ href: config.farmerHref, title: "Farmer Fulfillment · " + config.title })}>{config.farmerAction} <ArrowRight className="ml-2 h-4 w-4"/></Button>}
-                    {sources.includes("warehouse") && <Button variant={sources.includes("farmer") ? "outline" : "default"} className="w-full" onClick={() => setWorkflowFrame({ href: config.warehouseHref, title: "Outgoing / Dispatch · " + config.title })}>{config.warehouseAction} <ArrowRight className="ml-2 h-4 w-4"/></Button>}
-                    {routeKey === "multi_warehouse" && config.extraHref && <Button variant="outline" className="w-full" onClick={() => setWorkflowFrame({ href: config.extraHref!, title: config.extraLabel || "Consolidation Workspace" })}>{config.extraLabel} <ArrowRight className="ml-2 h-4 w-4"/></Button>}
-                    {(routeKey === "needs_location" || routeKey === "route_review") && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">Processing is intentionally blocked for this route group until its prerequisites are resolved.</div>}
-                  </div>
-                  <p className="text-[11px] text-slate-500">Each route group opens its dedicated existing workflow. Existing API validation, transfer receipt checks and delivery status transitions remain in control.</p>
-                </div>;
-              })}
-              {selectedRows.length > 0 && <Button variant="ghost" size="sm" className="w-full" onClick={() => setSelectedIds([])}>Clear selected orders</Button>}
+                  </section>
+                  <section className="overflow-hidden rounded-xl border border-slate-200"><div className="flex items-center gap-2 bg-slate-50 px-3.5 py-3"><Route className="h-4 w-4 text-slate-600"/><h3 className="text-sm font-bold text-slate-900">Route &amp; Dispatch Details</h3></div>
+                    <dl className="divide-y divide-slate-100 px-3.5">
+                      <div className="grid grid-cols-[105px_minmax(0,1fr)] gap-3 py-3 text-xs"><dt className="text-slate-500">Route Type</dt><dd className="font-semibold text-slate-800">{selectedRouteKey ? selectedRouteConfig?.title : "Multiple route types"}</dd></div>
+                      <div className="grid grid-cols-[105px_minmax(0,1fr)] gap-3 py-3 text-xs"><dt className="text-slate-500">Destination</dt><dd className="break-words font-semibold text-slate-800">{selectedDestinations.length === 1 ? selectedDestinations[0] : selectedDestinations.length ? "Multiple destinations" : "Not assigned"}</dd></div>
+                      <div className="grid grid-cols-[105px_minmax(0,1fr)] gap-3 py-3 text-xs"><dt className="text-slate-500">Total Quantity</dt><dd className="font-semibold text-slate-800">{totalQuantity} <span className="font-normal text-slate-500">({selectedRows.length} orders)</span></dd></div>
+                      <div className="grid grid-cols-[105px_minmax(0,1fr)] gap-3 py-3 text-xs"><dt className="text-slate-500">Current Status</dt><dd className="font-semibold text-slate-800">{selectedStatus}</dd></div>
+                      <div className="grid grid-cols-[105px_minmax(0,1fr)] gap-3 py-3 text-xs"><dt className="text-slate-500">Next Stage</dt><dd className="font-semibold text-slate-800">{nextOperation}</dd></div>
+                    </dl>
+                  </section>
+                  {(selectedRouteKeys.length > 1 || selectedSources.length > 1) && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-800">Select orders from the same route and source workflow to process them together.</div>}
+                  {blockedSelection && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-800">Processing is blocked because at least one selected order needs location or route review.</div>}
+                  {completedSelection && <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-600">Delivered orders cannot be processed again. Remove completed orders to continue.</div>}
+                  <Button type="button" className="h-12 w-full bg-emerald-700 text-sm font-semibold shadow-sm hover:bg-emerald-800" disabled={!canProcessSelection} onClick={processSelectedOrders}><Truck className="mr-2 h-4 w-4"/>Process Selected Orders ({selectedRows.length})<ArrowRight className="ml-2 h-4 w-4"/></Button>
+                  <p className="text-center text-[11px] leading-4 text-slate-500">Opens the existing route-specific workflow with its backend validations.</p>
+                </>
+              )}
             </CardContent>
           </Card>
         </div>
