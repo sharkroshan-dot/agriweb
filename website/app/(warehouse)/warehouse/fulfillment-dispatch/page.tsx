@@ -345,7 +345,7 @@ export default function FulfillmentDispatchPage() {
           <Badge className="shrink-0 border-white/20 bg-white px-3 py-1.5 text-sm font-semibold text-emerald-900">{selectedDispatchOrders.length} Selected</Badge>
         </div>
         <CardContent className="space-y-4 p-4">
-        {selectedDispatchOrders.length>0&&<div className="space-y-4">
+        {selectedDispatchOrders.length>1&&<div className="space-y-4">
           <section className="overflow-hidden rounded-xl border border-emerald-100 bg-white">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-emerald-100 bg-emerald-50/80 px-3 py-3">
               <div className="flex items-center gap-2"><h3 className="text-sm font-bold text-emerald-950">Selected Orders</h3><Badge className="bg-emerald-700 text-white">{selectedDispatchOrders.length}</Badge></div>
