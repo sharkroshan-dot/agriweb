@@ -333,7 +333,18 @@ export default function FulfillmentDispatchPage() {
         <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-xs text-muted-foreground"><span>{selectedDispatchOrders.length} order(s) selected</span><span>{filtered.length} order(s) shown</span></div>
       </CardContent></Card>
 
-      <Card className="min-w-0 overflow-hidden xl:sticky xl:top-20 xl:min-h-[680px]"><CardContent className="space-y-4 p-4">
+      <Card className="min-w-0 overflow-hidden border-emerald-200 shadow-sm xl:sticky xl:top-20 xl:min-h-[680px]">
+        <div className="flex items-center justify-between gap-3 bg-gradient-to-r from-emerald-800 to-emerald-700 px-4 py-5 text-white">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="rounded-xl bg-white/15 p-2.5"><Truck className="h-6 w-6"/></div>
+            <div className="min-w-0">
+              <h2 className="text-xl font-bold leading-tight">Operations</h2>
+              <p className="mt-1 text-xs text-emerald-50">Process selected orders for dispatch</p>
+            </div>
+          </div>
+          <Badge className="shrink-0 border-white/20 bg-white px-3 py-1.5 text-sm font-semibold text-emerald-900">{selectedDispatchOrders.length} Selected</Badge>
+        </div>
+        <CardContent className="space-y-4 p-4">
         <div className="flex items-center justify-between gap-2"><div><h2 className="text-lg font-bold">Operations</h2><p className="mt-1 text-xs text-muted-foreground">Select orders in the middle table, then process them here.</p></div><Badge variant="outline">{selectedDispatchOrders.length?selectedDispatchOrders.length+" selected":"No selection"}</Badge></div>
         {selectedDispatchOrders.length>0&&<div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3">
           <div className="flex items-center justify-between gap-2"><div><p className="text-sm font-bold text-emerald-950">Selected orders</p><p className="text-[11px] text-slate-600">Review your selection and run the next available dispatch operation.</p></div><Badge className="bg-emerald-700 text-white">{selectedDispatchOrders.length}</Badge></div>
@@ -348,7 +359,7 @@ export default function FulfillmentDispatchPage() {
           <Button size="sm" className="mt-3 w-full bg-emerald-700 text-white hover:bg-emerald-800" disabled={busy==="bulk-process"} onClick={bulkProcessSelected}><Truck className="mr-2 h-4 w-4"/>{busy==="bulk-process"?"Processing selected orders…":"Process Selected Orders ("+selectedDispatchOrders.length+")"}</Button>
           <p className="mt-2 text-[10px] leading-4 text-slate-600">Each order is validated and processed using its own farmer or warehouse workflow. Orders that fail validation remain unchanged and are reported after processing.</p>
         </div>}
-        {selected&&selectedDispatchOrders.length===0&&<div id="dispatch-order-details" className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+        {selected&&selectedDispatchOrders.length>0&&<div id="dispatch-order-details" className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
           <div className="mb-3 flex items-center justify-between gap-2"><div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Next operation</p><p className="mt-0.5 truncate text-sm font-bold text-slate-900">{selected.orderNumber}</p></div><Badge className="shrink-0 border-0 bg-emerald-100 text-emerald-800">Route: {selected.route==="nearby"?"Nearby Direct Delivery":selected.route==="same_district"?"Same-District Delivery":selected.route==="inter_district"?"Inter-District Transfer":selected.route==="multi_warehouse"?"Multi-Warehouse":selected.route==="route_review"?"Route Review":"Location Needed"}</Badge></div><div className="mb-3 flex items-center justify-between"><span className="text-[11px] text-slate-500">{selected.source==="farmer"?"Farmer order":"Warehouse order"}</span><Badge variant="outline">{selected.dispatchStatus}</Badge></div>
           <div className="mb-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11px] text-slate-600"><span className="font-semibold text-slate-800">{selected.customerName}</span> · {selected.district} · {selected.itemSummary} · {selected.quantitySummary}</div>
           {(()=>{const assigned=Boolean(selected.deliveryPartnerId||selected.deliveryJobId||selected.destinationTransferTeamId||selected.localHubTransferAssigned)||["assigned","in_transit","arrived_at_destination","received_at_destination"].includes(norm(selected.destinationTransferStatus||selected.localHubTransferStatus));const dispatched=["Dispatched / In Transit","Delivered"].includes(selected.dispatchStatus);const delivered=selected.dispatchStatus==="Delivered";const current=delivered?3:dispatched?2:assigned?1:0;const labels=["Assign Partner","Plan Route","Dispatch","Deliver"];const description=selected.route==="nearby"?"Assign a delivery partner for direct customer delivery within 15 km.":selected.route==="same_district"?"Move the order through the configured same-district local-hub route.":selected.route==="inter_district"?"Transfer the order to the warehouse serving the destination district, then hand it over for final delivery.":selected.route==="multi_warehouse"?"Receive all source portions, complete consolidation and prepare the combined order for delivery.":selected.route==="route_review"?"Review route configuration and verify delivery eligibility before dispatch.":"Complete the missing source or customer location details before routing.";const heading=selected.route==="nearby"?"Nearby Direct Delivery Process":selected.route==="same_district"?"Same-District Delivery Process":selected.route==="inter_district"?"Inter-District Transfer Process":selected.route==="multi_warehouse"?"Multi-Warehouse Consolidation Process":selected.route==="route_review"?"Route Review Required":"Location Verification Required";return <div className="mb-3">
@@ -391,13 +402,29 @@ export default function FulfillmentDispatchPage() {
             {selected.route==="route_review"&&<Button asChild size="sm" variant="outline" className="mt-2"><Link href="/warehouse/farmer-fulfillment">Open route review workspace</Link></Button>}
             {selected.route==="needs_location"&&<Button asChild size="sm" variant="outline" className="mt-2"><Link href="/warehouse/farmer-fulfillment">Open location and route data</Link></Button>}
           </div>
-          <div className="mt-3 grid grid-cols-1 gap-2">
-            <Button asChild variant="outline" className="h-10 w-full justify-start border-slate-200"><Link href="/pickup-routes"><Route className="mr-2 h-4 w-4"/>Plan Delivery Route</Link></Button>
-            <Button variant="outline" className="h-10 w-full justify-start border-slate-200" onClick={()=>refresh()} disabled={!!busy}><RefreshCw className="mr-2 h-4 w-4"/>Update Order Status</Button>
-            <Button asChild variant="outline" className="h-10 w-full justify-start border-slate-200"><a href="#dispatch-order-details"><Package className="mr-2 h-4 w-4"/>View Order Details</a></Button>
-          </div>
+
         </div>}
-        {!selected&&selectedDispatchOrders.length===0&&<div className="rounded-xl border border-dashed p-6 text-center"><Truck className="mx-auto h-9 w-9 text-slate-300"/><p className="mt-2 text-sm font-semibold text-slate-700">No order selected</p><p className="mt-1 text-xs text-muted-foreground">Select an order or tick multiple order checkboxes in the middle panel. Available actions will appear here.</p></div>}
+        {selectedDispatchOrders.length===0&&<div className="flex min-h-[590px] flex-col justify-center gap-8 px-1 py-7">
+          <div className="mx-auto w-full max-w-sm text-center">
+            <div className="relative mx-auto mb-5 flex h-40 w-40 items-center justify-center rounded-full bg-emerald-50">
+              <div className="relative flex h-28 w-24 flex-col items-center justify-center gap-2 rounded-2xl border-[3px] border-emerald-700 bg-white px-3 shadow-sm">
+                <div className="absolute -top-2.5 h-4 w-12 rounded-md border-2 border-emerald-700 bg-emerald-100"/>
+                <div className="flex w-full items-center gap-1.5"><CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600"/><span className="h-1.5 flex-1 rounded-full bg-emerald-200"/></div>
+                <div className="flex w-full items-center gap-1.5"><CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600"/><span className="h-1.5 flex-1 rounded-full bg-emerald-200"/></div>
+                <div className="flex w-full items-center gap-1.5"><span className="h-4 w-4 shrink-0 rounded-full border-2 border-emerald-200"/><span className="h-1.5 flex-1 rounded-full bg-slate-100"/></div>
+              </div>
+              <div className="absolute bottom-7 right-5 flex h-12 w-12 items-center justify-center rounded-full border-4 border-emerald-50 bg-emerald-600 text-white shadow-md"><ArrowRight className="h-6 w-6"/></div>
+            </div>
+            <h3 className="text-2xl font-bold tracking-tight text-slate-900">No Orders Selected</h3>
+            <p className="mx-auto mt-3 max-w-xs text-sm leading-6 text-slate-600">Select one or more orders from the list to view available operations and process dispatch.</p>
+          </div>
+          <section className="mx-auto w-full max-w-lg overflow-hidden rounded-xl border border-emerald-200 bg-white">
+            <div className="flex items-center gap-2 border-b border-emerald-100 bg-emerald-50 px-4 py-3.5"><CheckCircle2 className="h-5 w-5 text-emerald-700"/><h3 className="text-sm font-bold text-emerald-900">Available Operations (after selection)</h3></div>
+            <div className="space-y-3.5 px-4 py-4">
+              {["Assign delivery partner","Plan and confirm route","Dispatch selected orders","Transfer to destination warehouse (if required)"].map((item)=><div key={item} className="flex items-center gap-3 text-sm text-slate-700"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><CheckCircle2 className="h-4 w-4"/></span><span>{item}</span></div>)}
+            </div>
+          </section>
+        </div>}
       </CardContent></Card>
     </div>
     <p className="text-xs text-muted-foreground">The original Farmer Fulfillment and Outgoing / Dispatch pages remain available as fallback. This workspace exposes the same order-specific transfer, local-hub and consolidation operations while retaining backend authorization and validation.</p>
