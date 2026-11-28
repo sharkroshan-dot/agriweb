@@ -5028,6 +5028,97 @@ async def get_farmer_fulfillment_consolidations(current_user: dict = Depends(get
 
 
 
+@router.post("/me/farmer-fulfillment/{order_id}/publish-nearby-delivery")
+async def publish_nearby_farmer_fulfillment_delivery(
+    order_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Publish a received Nearby order to all eligible delivery partners; first acceptance wins."""
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can publish Nearby delivery jobs")
+    if not ObjectId.is_valid(order_id):
+        raise HTTPException(status_code=400, detail="Invalid order ID")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    order = await order_repository.get_by_id(order_id)
+    if not warehouse or not order:
+        raise HTTPException(status_code=404, detail="Order or warehouse not found")
+    warehouse_id = str(warehouse["_id"])
+    if str(order.get("sourceWarehouseId") or order.get("warehouseId") or "") != warehouse_id:
+        raise HTTPException(status_code=403, detail="Only the source warehouse can publish this delivery")
+    if str(order.get("deliveryType") or "").strip().lower() == "pickup":
+        raise HTTPException(status_code=409, detail="Customer-pickup orders cannot be published for delivery")
+    if str(order.get("orderStatus") or order.get("status") or "").strip().lower() in ("cancelled", "canceled", "refunded", "delivered", "completed"):
+        raise HTTPException(status_code=409, detail="A cancelled or completed order cannot be published")
+    incoming = await _get_farmer_fulfillment_incoming_rows(order, warehouse_id)
+    if not incoming:
+        raise HTTPException(status_code=409, detail="Confirm physical receipt in Incoming Stock before publishing delivery")
+    for row in incoming:
+        expected = float(row.get("quantity") or row.get("expectedQuantity") or row.get("plannedQuantity") or 0)
+        received = None
+        for key in ("quantityReceived", "receivedQuantity", "actualReceivedQuantity", "actualQuantityReceived", "receivedQty"):
+            if row.get(key) is not None:
+                try: received = float(row.get(key) or 0)
+                except (TypeError, ValueError): received = 0.0
+                break
+        if received is None:
+            received = expected if str(row.get("status") or "").lower() in ("received", "stored") else 0.0
+        if str(row.get("status") or "").lower() not in ("received", "stored") or received + 1e-9 < expected:
+            raise HTTPException(status_code=409, detail="The complete shipment must be physically received before publishing delivery")
+    address = order.get("deliveryAddress") or order.get("shippingAddress") or {}
+    if not isinstance(address, dict):
+        address = {}
+    destination = address.get("location") or address.get("deliveryLocation") or order.get("customerLocation") or address
+    source = warehouse.get("location") or {}
+    source_coords = source.get("coordinates") if isinstance(source, dict) else None
+    if not source_coords or len(source_coords) < 2:
+        lat = source.get("lat", source.get("latitude")) if isinstance(source, dict) else None
+        lng = source.get("lng", source.get("longitude")) if isinstance(source, dict) else None
+        if lat is not None and lng is not None: source_coords = [float(lng), float(lat)]
+    destination_coords = destination.get("coordinates") if isinstance(destination, dict) else None
+    if not destination_coords or len(destination_coords) < 2:
+        lat = address.get("lat", address.get("latitude"))
+        lng = address.get("lng", address.get("longitude"))
+        if lat is not None and lng is not None: destination_coords = [float(lng), float(lat)]
+    if not source_coords or len(source_coords) < 2 or not destination_coords or len(destination_coords) < 2:
+        raise HTTPException(status_code=409, detail="Verified warehouse and customer delivery coordinates are required")
+    distance = _haversine_km(float(source_coords[1]), float(source_coords[0]), float(destination_coords[1]), float(destination_coords[0]))
+    threshold = float(order.get("nearbyDeliveryThresholdKm") or warehouse.get("nearbyDeliveryThresholdKm") or 15.0)
+    source_address = warehouse.get("address") if isinstance(warehouse.get("address"), dict) else {}
+    source_district = str(warehouse.get("district") or source_address.get("district") or order.get("sourceDistrict") or order.get("farmerDistrict") or "").strip().casefold()
+    destination_district = str(address.get("district") or (destination.get("district") if isinstance(destination, dict) else "") or order.get("destinationDistrict") or "").strip().casefold()
+    if classify_farmer_fulfillment_route(distance, threshold, source_district, destination_district, True) != "nearby":
+        raise HTTPException(status_code=409, detail=f"This order is not eligible for Nearby delivery (distance {distance:.1f} km; threshold {threshold:g} km)")
+    existing = await delivery_job_repository.get_by_order_id(order_id)
+    if existing and str(existing.get("jobType") or "") == "farmer_fulfillment_nearby_delivery":
+        status = str(existing.get("status") or "").lower()
+        if status in ("open", "accepted", "in_transit", "picked_up", "delivered", "completed"):
+            return {"success": True, "data": {"orderId": order_id, "jobId": str(existing["_id"]), "status": existing.get("status"), "eligiblePartnerCount": len(existing.get("eligiblePartnerIds") or [])}, "message": "Nearby delivery request is already published; no duplicate job was created"}
+    elif existing:
+        raise HTTPException(status_code=409, detail="Another delivery job already exists for this order")
+    required_weight = job_weight_kg(order)
+    eligible = await eligible_partners_for_job(float(source_coords[1]), float(source_coords[0]), required_weight, job_type="farmer_fulfillment_nearby_delivery")
+    if not eligible:
+        raise HTTPException(status_code=409, detail="No available, verified delivery partners with sufficient capacity are currently nearby. Try publishing again later.")
+    eligible_ids = [str(p["id"]) for p in eligible]
+    pickup = {"type": "warehouse", "id": warehouse_id, "name": warehouse.get("name") or "Source Warehouse", "address": source.get("address") or warehouse.get("address") or "", "coordinates": [float(source_coords[0]), float(source_coords[1])]}
+    patched = dict(order)
+    patched["deliveryPickupLocation"] = pickup
+    job_doc = build_job_document(patched, {"name": pickup["name"], "address": pickup["address"], "lat": float(source_coords[1]), "lng": float(source_coords[0])}, distance, eligible_partner_ids=eligible_ids)
+    job_doc.update({"jobType": "farmer_fulfillment_nearby_delivery", "deliveryPickupLocation": pickup, "pickupLocation": pickup, "sourceWarehouseId": ObjectId(warehouse_id), "status": JOB_OPEN, "singleFinalDelivery": True, "partnerAssignmentOpen": True})
+    job_id = await delivery_job_repository.create_job(job_doc)
+    if not job_id:
+        raise HTTPException(status_code=409, detail="Could not publish the Nearby delivery request")
+    now = datetime.utcnow()
+    await order_repository.update({"_id": ObjectId(order_id)}, {"deliveryPartnerJobId": ObjectId(str(job_id)), "deliveryPickupLocation": pickup, "deliveryResponsibility": "delivery_partner", "deliveryDecisionStatus": "partner_search", "partnerAssignmentOpen": True, "nearbyDeliveryPublishedAt": now, "nearbyDeliveryEligiblePartnerCount": len(eligible_ids), "logisticsMode": "farmer_to_delivery_partner", "farmerFulfillmentRouteType": "nearby", "updatedAt": now})
+    for partner in eligible:
+        try:
+            await NotificationService.send_custom_notification(str(partner.get("userId") or ""), f"Nearby delivery available for order {order.get('orderNumber') or order_id}. Accept it in your delivery jobs to claim it.", title="New Nearby Delivery Job", data={"type": "delivery_job_available", "jobId": str(job_id), "orderId": order_id})
+        except Exception:
+            logger.exception("Unable to notify eligible Nearby delivery partner")
+    await order_repository.append_tracking_event(order_id, "nearby_delivery_published", "Delivery request published to partners", f"The warehouse published this Nearby order to {len(eligible_ids)} eligible delivery partners. The first partner to accept receives the job.", actor_id=str(current_user["_id"]), actor_role="warehouse", metadata={"deliveryJobId": str(job_id), "eligiblePartnerCount": len(eligible_ids), "distanceKm": round(distance, 2)})
+    return {"success": True, "data": {"orderId": order_id, "jobId": str(job_id), "status": JOB_OPEN, "eligiblePartnerCount": len(eligible_ids), "distanceKm": round(distance, 2)}, "message": f"Delivery request published to {len(eligible_ids)} eligible partners. First acceptance wins."}
+
+
 @router.put("/me/farmer-fulfillment/{order_id}/assign-nearby-delivery-partner")
 async def assign_nearby_farmer_fulfillment_delivery_partner(
     order_id: str,
