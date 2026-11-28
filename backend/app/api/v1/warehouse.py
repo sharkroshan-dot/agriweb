@@ -61,6 +61,13 @@ def _make_json_safe(value: Any) -> Any:
     if isinstance(value, datetime):
         return value.isoformat()
     return value
+class WarehouseRouteCorrectionRequest(BaseModel):
+    deliveryAddress: str = Field(..., min_length=5, max_length=500)
+    deliveryLocality: str = Field(..., min_length=2, max_length=120)
+    deliveryDistrict: str = Field(..., min_length=2, max_length=120)
+    sourceWarehouseDistrict: str = Field(..., min_length=2, max_length=120)
+
+
 class WarehouseReceiveRequest(BaseModel):
     quantity: int = Field(..., gt=0)
     usableQuantity: Optional[float] = Field(None, ge=0)
@@ -11300,3 +11307,67 @@ async def search_warehouse_transfer_order(
         result["outgoingLines"] = [{"id": str(x.get("_id") or ""), "status": x.get("status"), "quantity": x.get("quantity"), "productId": str(x.get("productId") or "")} for x in outgoing_rows]
         results.append(_make_json_safe(result))
     return {"success": True, "data": {"orders": results, "count": len(results), "searchQuery": query}}
+
+@router.put("/me/orders/{order_id}/route-correction")
+async def correct_order_route_details(
+    order_id: str,
+    data: WarehouseRouteCorrectionRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Allow the assigned warehouse manager to correct route-critical address fields."""
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can correct route details")
+    if not ObjectId.is_valid(order_id):
+        raise HTTPException(status_code=400, detail="Invalid order ID")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    if not warehouse:
+        raise HTTPException(status_code=404, detail="Warehouse not found")
+    warehouse_id = str(warehouse["_id"])
+    order = await order_repository.get_by_id(order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    assigned_warehouse_ids = {
+        str(order.get(key) or "")
+        for key in ("warehouseId", "sourceWarehouseId", "fulfillmentWarehouseId")
+        if order.get(key)
+    }
+    if warehouse_id not in assigned_warehouse_ids:
+        raise HTTPException(status_code=403, detail="This order is not assigned to your warehouse")
+    address = order.get("deliveryAddress") if isinstance(order.get("deliveryAddress"), dict) else {}
+    address.update({
+        "addressLine1": data.deliveryAddress.strip(),
+        "locality": data.deliveryLocality.strip(),
+        "district": data.deliveryDistrict.strip(),
+    })
+    now = datetime.utcnow()
+    source_district = data.sourceWarehouseDistrict.strip()
+    destination_district = data.deliveryDistrict.strip()
+    source_norm = re.sub(r"[^a-z0-9]+", " ", source_district.lower()).strip()
+    destination_norm = re.sub(r"[^a-z0-9]+", " ", destination_district.lower()).strip()
+    route_category = "same_district" if source_norm == destination_norm else "inter_district"
+    update = {
+        "deliveryAddress": address,
+        "deliveryLocality": data.deliveryLocality.strip(),
+        "deliveryDistrict": destination_district,
+        "destinationDistrict": destination_district,
+        "sourceWarehouseDistrict": source_district,
+        "sourceDistrict": source_district,
+        "routeCategory": route_category,
+        "routeDataComplete": True,
+        "routeReviewReason": None,
+        "routeReviewDetails": None,
+        "routeIssue": None,
+        "updatedAt": now,
+    }
+    result = await order_repository.collection.update_one(
+        {"_id": ObjectId(order_id), "deletedAt": None},
+        {"$set": update},
+    )
+    if result.matched_count != 1:
+        raise HTTPException(status_code=404, detail="Order not found")
+    refreshed = await order_repository.get_by_id(order_id)
+    return {
+        "success": True,
+        "data": _make_json_safe(refreshed),
+        "message": "Order details saved. Route classification recalculated; review the resulting route before dispatch.",
+    }
