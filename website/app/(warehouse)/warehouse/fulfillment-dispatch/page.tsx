@@ -187,6 +187,8 @@ export default function FulfillmentDispatchPage() {
   const [partnerByOrder,setPartnerByOrder]=useState<Record<string,string>>({});
   const [hubByOrder,setHubByOrder]=useState<Record<string,string>>({});
   const [destinationCapacityAcknowledged,setDestinationCapacityAcknowledged]=useState<Record<string,boolean>>({});
+  const [transferPreparationOpen,setTransferPreparationOpen]=useState(false);
+  const [transferTeamByGroup,setTransferTeamByGroup]=useState<Record<string,string>>({});
   const [busy,setBusy]=useState("");
   const farmerQuery=useQuery({queryKey:["unifiedFarmerFulfillmentTransfers"],queryFn:()=>api.get("/warehouse/me/farmer-fulfillment-transfers"),refetchInterval:15000});
   const outgoingQuery=useQuery({queryKey:["unifiedWarehouseOutgoing"],queryFn:async()=>{const first=await api.get("/warehouse/me/outgoing",{params:{page:1,limit:100}});const payload=first?.data||first;const pagination=payload?.pagination||{};const pages=Math.min(Number(pagination.totalPages||1),10);const rest=await Promise.all(Array.from({length:Math.max(0,pages-1)},(_,i)=>api.get("/warehouse/me/outgoing",{params:{page:i+2,limit:100}})));return {data:{outgoing:[...(payload?.outgoing||[]),...rest.flatMap((r:any)=>(r?.data||r)?.outgoing||[])],pagination}};},refetchInterval:20000});
@@ -282,6 +284,46 @@ export default function FulfillmentDispatchPage() {
   const allEligibleDispatchOrders=orders.filter(isBulkEligible);
   const selectedDispatchOrders=orders.filter((o:any)=>selectedOrders[o.source+":"+o.id]);
   const visibleEligibleDispatchOrders=filtered.filter(isBulkEligible);
+  const selectedInterDistrictFarmerOrders=selectedDispatchOrders.filter((o:any)=>o.source==="farmer"&&o.route==="inter_district");
+  const transferPreparationGroups=useMemo(()=>{
+    const grouped=new Map<string,any[]>();
+    selectedInterDistrictFarmerOrders.forEach((o:any)=>{
+      const destination=String(o.destinationWarehouseName||o.eventDestinationWarehouseName||o.destinationGroup||o.destinationDistrict||o.deliveryDistrict||o.district||"Destination warehouse to be resolved");
+      grouped.set(destination,[...(grouped.get(destination)||[]),o]);
+    });
+    return [...grouped.entries()].map(([name,items])=>({key:name,name,items,quantity:items.reduce((sum:number,o:any)=>sum+orderQuantity(o),0)}));
+  },[selectedDispatchOrders]);
+  const assignSelectedTransferTeams=async()=>{
+    if(!selectedInterDistrictFarmerOrders.length){toast.error("Select inter-district farmer orders first");return;}
+    for(const group of transferPreparationGroups){
+      const teamId=transferTeamByGroup[group.key];
+      if(!teamId){toast.error("Choose a transfer pickup team for "+group.name);return;}
+      const team=teams.find((t:any)=>t.id===teamId);
+      if(!team||Number(team.capacity||0)<group.quantity){toast.error("Selected team does not have enough capacity for "+group.name);return;}
+    }
+    setWorking("assign-transfer-groups");
+    let assigned=0;const errors:string[]=[];
+    for(const group of transferPreparationGroups){
+      const teamId=transferTeamByGroup[group.key];
+      for(const order of group.items){
+        try{
+          let destinationId=order.destinationWarehouseId;
+          if(!destinationId){
+            const result=await api.post("/warehouse/me/farmer-fulfillment/"+order.id+"/assign-destination-warehouse");
+            const payload=result?.data||result;
+            destinationId=payload?.destinationWarehouseId||payload?.destinationWarehouse?.id||payload?.destinationWarehouse?._id;
+          }
+          await api.put("/warehouse/me/farmer-fulfillment/"+order.id+"/assign-destination-pickup-team",undefined,{params:{deliveryPartnerId:teamId}});
+          assigned++;
+        }catch(e:any){errors.push((order.orderNumber||order.id)+": "+(e?.message||"assignment failed"));}
+      }
+    }
+    if(assigned)toast.success("Transfer pickup team assigned for "+assigned+" order(s). Orders have not been dispatched.");
+    if(errors.length)toast.error(errors.slice(0,3).join("; "));
+    setTransferPreparationOpen(false);
+    setWorking("");
+    await refresh();
+  };
   const selectAllEligibleOrders=()=>setSelectedOrders(Object.fromEntries(allEligibleDispatchOrders.map((o:any)=>[o.source+":"+o.id,true])));
   const clearSelectedOrders=()=>setSelectedOrders({});
   const bulkProcessSelected=async()=>{
@@ -448,7 +490,8 @@ export default function FulfillmentDispatchPage() {
             <div className="border-t border-emerald-100 pt-2"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Next operation</p><p className="mt-1 text-sm font-semibold text-slate-900">{next}</p><p className="mt-1 text-[11px] leading-4 text-slate-600">Each selected order is processed using its own route and workflow. Orders that need location, route or readiness corrections are reported separately.</p></div>
           </div>;})()}
 
-          <Button size="lg" className="h-12 w-full bg-emerald-700 text-sm font-bold text-white shadow-sm hover:bg-emerald-800" disabled={busy==="bulk-process"} onClick={bulkProcessSelected}><Truck className="mr-2 h-5 w-5"/>{busy==="bulk-process"?"Processing selected orders…":"Process "+selectedDispatchOrders.length+" Selected Orders"}<ArrowRight className="ml-2 h-4 w-4"/></Button>
+          <Button size="lg" className="h-12 w-full bg-emerald-700 text-sm font-bold text-white shadow-sm hover:bg-emerald-800" disabled={!!busy||!selectedDispatchOrders.length} onClick={()=>{if(selectedDispatchOrders.length&&selectedDispatchOrders.every((o:any)=>o.source==="farmer"&&o.route==="inter_district"))setTransferPreparationOpen(true);else bulkProcessSelected();}}><Truck className="mr-2 h-5 w-5"/>{selectedDispatchOrders.length&&selectedDispatchOrders.every((o:any)=>o.source==="farmer"&&o.route==="inter_district")?"Process "+selectedDispatchOrders.length+" Selected Orders":"Process "+selectedDispatchOrders.length+" Selected Orders"}<ArrowRight className="ml-2 h-4 w-4"/></Button>
+          {transferPreparationOpen&&<div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/50 p-3 sm:p-6"><div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-2xl"><div className="flex items-center justify-between border-b border-slate-200 bg-emerald-50 px-5 py-4"><div><p className="text-[10px] font-bold uppercase tracking-wider text-emerald-700">Transfer preparation</p><h3 className="mt-1 text-lg font-bold text-slate-950">Review orders &amp; assign pickup team</h3><p className="mt-1 text-xs text-slate-600">{transferPreparationGroups.length} transfer group(s) · {selectedInterDistrictFarmerOrders.length} orders</p></div><Button size="sm" variant="outline" onClick={()=>setTransferPreparationOpen(false)}>Close</Button></div><div className="space-y-4 p-5"><div className="rounded-xl border border-blue-100 bg-blue-50/60 p-3 text-xs leading-5 text-blue-900">Orders are grouped by destination warehouse. Assigning a team prepares the transfer only; it will not dispatch the shipment. Route planning and dispatch will be confirmed as the next steps.</div>{transferPreparationGroups.map((group:any)=>{const teamId=transferTeamByGroup[group.key]||"";const eligibleTeams=teams.filter((team:any)=>Number(team.capacity||0)>=group.quantity);return <section key={group.key} className="rounded-xl border border-slate-200 p-4"><div className="flex flex-wrap items-start justify-between gap-2"><div><h4 className="text-sm font-bold text-slate-900">{group.name}</h4><p className="mt-1 text-xs text-slate-600">{group.items.length} order(s) · {group.quantity.toLocaleString()} kg</p></div><Badge className="border-0 bg-emerald-100 text-emerald-800">Destination group</Badge></div><div className="mt-3 space-y-2">{group.items.map((o:any)=><div key={o.id} className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2 text-xs"><div className="min-w-0"><p className="font-semibold text-slate-800">{o.orderNumber}</p><p className="truncate text-slate-500">{o.customerName} · {o.district}</p></div><span className="shrink-0 font-semibold text-slate-700">{o.quantitySummary}</span></div>)}</div><div className="mt-3"><label className="mb-1.5 block text-xs font-semibold text-slate-700">Assign transfer pickup team</label><select aria-label={"Transfer pickup team for "+group.name} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-xs" value={teamId} onChange={e=>setTransferTeamByGroup(v=>({...v,[group.key]:e.target.value}))}><option value="">Select approved team with capacity</option>{eligibleTeams.map((team:any)=><option key={team.id} value={team.id}>{team.name} · {team.vehicle} · Capacity {team.capacity} kg</option>)}</select><p className="mt-1 text-[10px] text-slate-500">Required capacity: {group.quantity} kg. Teams below this capacity are hidden.</p>{!eligibleTeams.length&&<p className="mt-2 text-xs text-amber-700">No approved team has sufficient capacity for this group.</p>}</div></section>;})}<div className="flex flex-col-reverse gap-2 border-t border-slate-100 pt-4 sm:flex-row sm:justify-end"><Button variant="outline" onClick={()=>setTransferPreparationOpen(false)}>Cancel</Button><Button className="bg-emerald-700 text-white hover:bg-emerald-800" disabled={!!busy||transferPreparationGroups.some((g:any)=>!transferTeamByGroup[g.key]||!teams.some((t:any)=>t.id===transferTeamByGroup[g.key]&&Number(t.capacity||0)>=g.quantity))} onClick={assignSelectedTransferTeams}>{busy==="assign-transfer-groups"?"Assigning teams…":"Confirm & Assign Pickup Team"}</Button></div></div></div></div>}
           <div className="flex items-start gap-2 rounded-lg bg-slate-50 px-3 py-2.5 text-[11px] leading-4 text-slate-600"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700"/>Each order is validated individually. Orders needing attention are reported without stopping eligible orders.</div>
           {selectedDispatchOrders.some((o:any)=>!isBulkEligible(o))&&<div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-[11px] leading-4 text-amber-900"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0"/>Review required orders before processing. Orders with missing route details, receipt confirmation or required assignments will be flagged.</div>}
         </div>}
