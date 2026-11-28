@@ -600,6 +600,7 @@ async def warehouse_for_district(
     required_capacity: float = 0,
     exclude_warehouse_id: Optional[str] = None,
     allow_capacity_override: bool = False,
+    allow_regional_fallback: bool = True,
 ) -> Optional[Dict[str, Any]]:
     """Find an active warehouse serving a district with enough available capacity.
 
@@ -676,6 +677,12 @@ async def warehouse_for_district(
     # settings. Fall back to another active warehouse with sufficient capacity;
     # annotate the selected record so the caller/UI can disclose that it is a
     # regional fallback and staff can confirm the destination before dispatch.
+    # Strict routing is used by inter-district transfers: never silently send
+    # an order to a warehouse outside the customer's delivery district.
+    if not allow_regional_fallback:
+        return None
+
+    # Optional regional fallback for legacy workflows that explicitly permit it.
     fallback_matches = []
     over_capacity_fallback_matches = []
     for doc in docs:
