@@ -5830,10 +5830,9 @@ async def dispatch_farmer_fulfillment_to_destination(
     capacityOverrideConfirmed: bool = Query(False),
     current_user: dict = Depends(get_current_user),
 ):
-    """Dispatch a sealed farmer-packed order from source to destination warehouse."""
+    """Prepare the destination-transfer manifest; pickup team assignment and route start are separate steps."""
     if current_user.get("role") != "warehouse":
-        raise HTTPException(status_code=403, detail="Only warehouse managers can dispatch farmer fulfillment transfers")
-    _enforce_warehouse_operating_window("downstream_transfer")
+        raise HTTPException(status_code=403, detail="Only warehouse managers can prepare farmer fulfillment transfers")
     if not ObjectId.is_valid(order_id):
         raise HTTPException(status_code=400, detail="Invalid order ID")
     warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
