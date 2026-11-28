@@ -12,14 +12,13 @@ import { Input } from "../../../components/ui/input";
 import { api } from "../../../lib/api/client";
 
 type Source = "farmer" | "warehouse";
-type RouteKey = "nearby" | "same_district" | "inter_district" | "multi_warehouse" | "route_review" | "needs_location";
+type RouteKey = "nearby" | "same_district" | "inter_district" | "multi_warehouse" | "route_review";
 const ROUTES: {key:RouteKey;label:string;description:string}[] = [
   {key:"nearby",label:"Nearby Direct Delivery",description:"Within 15 km; direct delivery is configured."},
   {key:"same_district",label:"Same-District Warehouse Route",description:"Same district; use the configured local-hub route."},
   {key:"inter_district",label:"Inter-District Warehouse Transfer",description:"Transfer to the destination district warehouse."},
   {key:"multi_warehouse",label:"Multi-Warehouse Consolidation",description:"One customer order needs portions from multiple source warehouses."},
-  {key:"route_review",label:"Route Review Required",description:"Route configuration or operational prerequisites need review."},
-  {key:"needs_location",label:"Needs Location Data",description:"Customer or warehouse location details are incomplete."},
+  {key:"route_review",label:"Route Review Required",description:"Review missing location details and routing exceptions before dispatch."},
 ];
 const norm=(v:any)=>String(v??"").trim().toLowerCase().replace(/[\s-]+/g,"_");
 const normDistrict=(v:any)=>String(v??"").trim().toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
@@ -75,15 +74,14 @@ const recommendedLocalHub=(order:any,hubs:any[])=>{
 function classify(row:any,source:Source):RouteKey {
   const raw=norm(row.routeCategory||row.farmerFulfillmentRouteType||row.warehouseRouteCategory);
   if(raw==="multi_warehouse"||raw==="consolidation") return "multi_warehouse";
-  if(row.routeDataComplete===false) return "needs_location";
-  if(["needs_location","location_missing"].includes(raw)) return "needs_location";
-  if(["route_review","review_required"].includes(raw)) return "route_review";
+  if(row.routeDataComplete===false) return "route_review";
+  if(["needs_location","location_missing","route_review","review_required"].includes(raw)) return "route_review";
   if(["nearby","direct","nearby_delivery"].includes(raw)) return "nearby";
   if(["same_district","local_hub","same_district_warehouse"].includes(raw)) return "same_district";
   if(["inter_district","destination_warehouse","warehouse_transfer"].includes(raw)) return "inter_district";
   const from=normDistrict(row.sourceDistrict||row.sourceWarehouseDistrict);
   const to=normDistrict(row.destinationDistrict||row.deliveryDistrict||row.customerDistrict||row.deliveryAddress?.district);
-  if(!from||!to) return "needs_location";
+  if(!from||!to) return "route_review";
   if(from!==to) return "inter_district";
   const distance=Number(row.routeDistanceKm);
   const hasDistance=row.routeDistanceKm!==null&&row.routeDistanceKm!==undefined&&row.routeDistanceKm!=="";
@@ -410,7 +408,7 @@ export default function FulfillmentDispatchPage() {
       <Card className="fulfillment-summary-card border-amber-200 bg-amber-50/50"><CardContent className="flex h-full min-h-[104px] items-center gap-2 p-3"><div className="rounded-full bg-amber-100 p-2.5 text-amber-700"><Truck className="h-5 w-5"/></div><div><p className="text-xs text-slate-600">Ready for Final Delivery</p><p className="mt-1 text-2xl font-bold">{stageCounts["To Dispatch"]||0}</p></div></CardContent></Card>
       <Card className="fulfillment-summary-card border-violet-200 bg-violet-50/50"><CardContent className="flex h-full min-h-[104px] items-center gap-2 p-3"><div className="rounded-full bg-violet-100 p-2.5 text-violet-700"><Truck className="h-5 w-5"/></div><div><p className="text-xs text-slate-600">Out for Delivery</p><p className="mt-1 text-2xl font-bold">{orders.filter((o:any)=>[o.status,o.transferStatus,o.dispatchStatus,o.orderStatus,o.fulfillmentStatus,o.currentStage,o.stage].some((v:any)=>["out_for_delivery","dispatched_to_customer","delivery_in_progress"].includes(norm(v)))).length}</p></div></CardContent></Card>
       <Card className="fulfillment-summary-card border-green-200 bg-green-50/50"><CardContent className="flex h-full min-h-[104px] items-center gap-2 p-3"><div className="rounded-full bg-green-100 p-2.5 text-green-700"><CheckCircle2 className="h-5 w-5"/></div><div><p className="text-xs text-slate-600">Delivered</p><p className="mt-1 text-2xl font-bold">{stageCounts["Delivered"]||0}</p></div></CardContent></Card>
-      <Card className="fulfillment-summary-card border-red-200 bg-red-50/50"><CardContent className="flex h-full min-h-[104px] items-center gap-2 p-3"><div className="rounded-full bg-red-100 p-2.5 text-red-700"><AlertTriangle className="h-5 w-5"/></div><div><p className="text-xs text-red-800">Needs Attention</p><p className="mt-1 text-2xl font-bold">{routeCounts.route_review+routeCounts.needs_location}</p></div></CardContent></Card>
+      <Card className="fulfillment-summary-card border-red-200 bg-red-50/50"><CardContent className="flex h-full min-h-[104px] items-center gap-2 p-3"><div className="rounded-full bg-red-100 p-2.5 text-red-700"><AlertTriangle className="h-5 w-5"/></div><div><p className="text-xs text-red-800">Needs Attention</p><p className="mt-1 text-2xl font-bold">{routeCounts.route_review}</p></div></CardContent></Card>
     </div>
 
     <div className="grid min-w-0 items-stretch gap-3 xl:grid-cols-[minmax(250px,0.88fr)_minmax(0,1.85fr)_minmax(330px,1.12fr)] 2xl:grid-cols-[minmax(270px,0.88fr)_minmax(0,1.85fr)_minmax(360px,1.12fr)]">
@@ -549,8 +547,7 @@ export default function FulfillmentDispatchPage() {
             {selected.source==="warehouse"&&selected.route==="nearby"&&!isBulkEligible(selected)&&<Button size="sm" className="mt-2 bg-emerald-700 text-white" disabled={!!busy} onClick={()=>act(selected,"nearby")}>Verify packing &amp; dispatch to delivery</Button>}
             {selected.source==="warehouse"&&selected.route==="inter_district"&&selected.dispatchStatus==="Dispatched / In Transit"&&<div className="mt-2 rounded-xl border border-blue-200 bg-blue-50 p-3"><p className="text-xs font-semibold text-blue-900">Transfer dispatched – awaiting destination receipt</p><p className="mt-1 text-[11px] leading-4 text-blue-800">Do not create another transfer. The destination warehouse must confirm the received quantity and condition before final delivery assignment.</p></div>}
             {isBulkEligible(selected)&&<Button size="lg" className="mt-2 h-11 w-full justify-center bg-emerald-700 text-sm font-bold text-white shadow-sm hover:bg-emerald-800" disabled={!!busy||(selected.route==="nearby"&&selected.source==="farmer"&&Boolean(selected.nearbyDeliveryPublished||selected.deliveryPartnerId))||(selected.route==="same_district"&&selected.source==="warehouse"&&!getSelectedHubId(selected))} onClick={()=>{if(selected.source==="farmer"&&selected.route==="inter_district"){setSelectedOrders({["farmer:"+selected.id]:true});setTransferTeamByGroup({});setTransferPreparationOpen(true);}else act(selected,selected.route==="nearby"?"nearby":selected.route==="same_district"?"same":"destination");}}><Truck className="mr-2 h-4 w-4"/>{busy?"Publishing order…":selected.route==="nearby"?(selected.source==="farmer"?"Publish to Delivery Partners":"Publish delivery request"):selected.route==="same_district"?(selected.source==="farmer"?"Create local-hub transfer":"Dispatch to local hub"):selected.source==="warehouse"?"Assign destination & transfer team, then dispatch" :"Prepare transfer & assign pickup team"}<ArrowRight className="ml-2 h-4 w-4"/></Button>}
-            {selected.route==="route_review"&&<Button asChild size="sm" variant="outline" className="mt-2"><Link href="/warehouse/farmer-fulfillment">Open route review workspace</Link></Button>}
-            {selected.route==="needs_location"&&<Button asChild size="sm" variant="outline" className="mt-2"><Link href="/warehouse/farmer-fulfillment">Open location and route data</Link></Button>}
+            {selected.route==="route_review"&&(()=>{const reason=firstText(selected.routeReviewReason,selected.routeReviewDetails,selected.routeIssue,selected.routeError,selected.locationIssue,selected.locationValidationMessage,selected.validationMessage,selected.reviewReason,selected.exceptionReason,selected.routingError)||(selected.routeDataComplete===false?"Required customer or warehouse location information is incomplete.":!orderDestinationDistrict(selected)?"Delivery district is missing or could not be identified.":!normDistrict(selected.sourceDistrict||selected.sourceWarehouseDistrict)?"Source warehouse district is missing.":"Route configuration or delivery prerequisites require verification.");const missing=[!getDeliveryAddress(selected)?"Customer delivery address":!orderDestinationDistrict(selected)?"Delivery district":null,!normDistrict(selected.sourceDistrict||selected.sourceWarehouseDistrict)?"Source warehouse district":null].filter(Boolean);return <div className="mt-2 space-y-2 rounded-xl border border-amber-200 bg-amber-50/70 p-3"><div className="flex items-center gap-2"><span className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-100 text-amber-700"><AlertTriangle className="h-4 w-4"/></span><div><p className="text-xs font-bold text-amber-950">Route review required</p><p className="text-[10px] text-amber-800">Dispatch is blocked until this issue is resolved.</p></div></div><div className="rounded-lg border border-amber-200 bg-white p-3"><p className="text-[10px] font-semibold uppercase tracking-wide text-amber-800">Problem detected</p><p className="mt-1 text-xs leading-5 text-slate-800">{String(reason)}</p></div>{missing.length>0&&<div className="rounded-lg bg-white/80 px-3 py-2"><p className="text-[10px] font-semibold text-slate-700">Information to verify</p><ul className="mt-1 list-disc space-y-0.5 pl-4 text-[11px] text-slate-600">{missing.map((item:string)=><li key={item}>{item}</li>)}</ul></div>}<p className="text-[10px] leading-4 text-amber-900">Review the order details and correct the source or delivery information in the relevant order workspace. Then refresh this page to recalculate its route.</p><Button asChild size="sm" variant="outline" className="w-full border-amber-300 bg-white text-amber-900 hover:bg-amber-100"><Link href={selected.source==="farmer"?"/warehouse/farmer-fulfillment":"/warehouse/packing"}>Open order correction workspace <ArrowRight className="ml-2 h-3.5 w-3.5"/></Link></Button></div>;})()}
           </div>
           </div>
         </div>}
