@@ -23,6 +23,55 @@ const ROUTES: {key:RouteKey;label:string;description:string}[] = [
 ];
 const norm=(v:any)=>String(v??"").trim().toLowerCase().replace(/[\s-]+/g,"_");
 const normDistrict=(v:any)=>String(v??"").trim().toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
+const hubPoint=(value:any):{lat:number;lng:number}|null=>{
+  if(!value||typeof value!=="object")return null;
+  const nested=value.location||value.deliveryLocation||value.geo||value.coordinates||value;
+  if(Array.isArray(nested)&&nested.length>=2){
+    const lng=Number(nested[0]),lat=Number(nested[1]);
+    return Number.isFinite(lat)&&Number.isFinite(lng)&&Math.abs(lat)<=90&&Math.abs(lng)<=180?{lat,lng}:null;
+  }
+  if(nested&&typeof nested==="object"){
+    const coords=nested.coordinates;
+    if(Array.isArray(coords)&&coords.length>=2){
+      const lng=Number(coords[0]),lat=Number(coords[1]);
+      if(Number.isFinite(lat)&&Number.isFinite(lng)&&Math.abs(lat)<=90&&Math.abs(lng)<=180)return {lat,lng};
+    }
+    const lat=Number(nested.lat??nested.latitude),lng=Number(nested.lng??nested.lon??nested.longitude);
+    if(Number.isFinite(lat)&&Number.isFinite(lng)&&Math.abs(lat)<=90&&Math.abs(lng)<=180)return {lat,lng};
+  }
+  return null;
+};
+const geoDistanceKm=(a:any,b:any)=>{
+  const p=hubPoint(a),q=hubPoint(b);if(!p||!q)return null;
+  const rad=(n:number)=>n*Math.PI/180, dLat=rad(q.lat-p.lat),dLng=rad(q.lng-p.lng);
+  const h=Math.sin(dLat/2)**2+Math.cos(rad(p.lat))*Math.cos(rad(q.lat))*Math.sin(dLng/2)**2;
+  return 6371.0088*2*Math.atan2(Math.sqrt(h),Math.sqrt(1-h));
+};
+const orderDestinationPoint=(o:any)=>hubPoint(o.deliveryLocation)||hubPoint(o.deliveryAddress)||hubPoint(o.shippingAddress)||hubPoint(o.customerLocation);
+const orderDestinationLocality=(o:any)=>{
+  const a=o.deliveryAddress||o.shippingAddress||{};
+  return normDistrict(a.locality||a.area||a.village||a.town||a.city||a.municipality||o.deliveryLocality||o.deliveryVillage||o.deliveryTown||o.deliveryCity);
+};
+const orderDestinationDistrict=(o:any)=>normDistrict(o.destinationDistrict||o.deliveryDistrict||o.customerDistrict||o.district||(o.deliveryAddress||{}).district||(o.shippingAddress||{}).district);
+const recommendedLocalHub=(order:any,hubs:any[])=>{
+  const active=(hubs||[]).filter((h:any)=>norm(h.status)==="active"&&h.deletedAt==null);
+  if(!active.length)return null;
+  const destination=orderDestinationPoint(order);
+  if(destination){
+    const ranked=active.map((hub:any)=>({hub,distance:geoDistanceKm(destination,hub.location||hub.coordinates)})).filter((x:any)=>x.distance!==null).sort((a:any,b:any)=>a.distance-b.distance);
+    if(ranked.length)return {...ranked[0].hub,_recommendedDistanceKm:ranked[0].distance,_recommendationSource:"distance"};
+  }
+  const district=orderDestinationDistrict(order), locality=orderDestinationLocality(order);
+  if(!district)return null;
+  const ranked=active.map((hub:any)=>{
+    const hubDistrict=normDistrict(hub.district||hub.address?.district||hub.address?.city);
+    const areas=(hub.serviceAreas||[]).map((x:any)=>normDistrict(x));
+    const localityMatch=Boolean(locality&&areas.includes(locality));
+    return {hub,localityMatch,districtMatch:hubDistrict===district};
+  }).filter((x:any)=>x.districtMatch).sort((a:any,b:any)=>Number(b.localityMatch)-Number(a.localityMatch));
+  if(!ranked.length)return null;
+  return {...ranked[0].hub,_recommendedDistanceKm:null,_recommendationSource:ranked[0].localityMatch?"service-area":"district"};
+};
 function classify(row:any,source:Source):RouteKey {
   const raw=norm(row.routeCategory||row.farmerFulfillmentRouteType||row.warehouseRouteCategory);
   if(raw==="multi_warehouse"||raw==="consolidation") return "multi_warehouse";
@@ -131,6 +180,8 @@ export default function FulfillmentDispatchPage() {
   const consolidationQuery=useQuery({queryKey:["unifiedFarmerConsolidations"],queryFn:()=>api.get("/warehouse/me/farmer-fulfillment-consolidations"),refetchInterval:20000});
   const teams=(teamsQuery.data?.data?.members||[]).map((m:any)=>({id:String(m.deliveryPartnerId||m.id||m._id),name:m.name||m.partnerName||m.firstName||"Delivery partner",vehicle:m.vehicleType||m.vehicle||"Vehicle",capacity:Number(m.capacity||m.vehicleCapacity||0)}));
   const hubs=hubsQuery.data?.data?.hubs||hubsQuery.data?.hubs||[];
+  const getRecommendedHub=(order:any)=>recommendedLocalHub(order,hubs);
+  const getSelectedHubId=(order:any)=>hubByOrder[order.id]||String(getRecommendedHub(order)?.id||getRecommendedHub(order)?._id||"");
   const orderQuantity=(order:any)=>Number(order.totalQuantity||order.quantity||order.items?.reduce((sum:number,item:any)=>sum+Number(item.quantity||item.expectedQuantity||0),0)||0);
   const teamCanCarry=(team:any,order:any)=>orderQuantity(order)>0&&Number(team?.capacity||0)>=orderQuantity(order);
   const consolidationRows=consolidationQuery.data?.data?.consolidations||consolidationQuery.data?.consolidations||[];
@@ -200,8 +251,8 @@ export default function FulfillmentDispatchPage() {
           await api.put("/warehouse/me/outgoing/"+id+"/status",undefined,{params:{status:"dispatched"}});
           await api.post("/warehouse/me/outgoing/"+id+"/delivery-route",{route:"nearby",radius:order.nearbyThresholdKm??15});
         } else if(action==="same") {
-          const chosenHub=hubByOrder[id];
-          if(!chosenHub) throw new Error("Select an active local hub in the customer's district first");
+          const chosenHub=getSelectedHubId(order);
+          if(!chosenHub) throw new Error("No active local hub could be matched to this delivery address. Verify the customer's delivery address and local-hub coverage.");
           const result=await api.post("/warehouse/me/local-hubs/"+chosenHub+"/orders/"+order.orderId+"/dispatch",{});
           toast.success(result?.message||result?.data?.message||"Warehouse dispatch to local hub created. Waiting for hub receipt.");
         } else if(action==="destination") await api.post("/warehouse/me/outgoing/"+id+"/inter-district-dispatch");
@@ -254,7 +305,7 @@ export default function FulfillmentDispatchPage() {
             await api.put("/warehouse/me/outgoing/"+o.id+"/status",undefined,{params:{status:"dispatched"}});
             await api.post("/warehouse/me/outgoing/"+o.id+"/delivery-route",{route:"nearby",radius:o.nearbyThresholdKm??15});
           }else if(o.route==="same_district"){
-            const hub=hubByOrder[o.id];if(!hub)throw new Error("Select an active local hub");
+            const hub=getSelectedHubId(o);if(!hub)throw new Error("No active local hub could be matched to "+o.orderNumber+". Verify the delivery address and local-hub coverage.");
             await api.post("/warehouse/me/local-hubs/"+hub+"/orders/"+o.orderId+"/dispatch",{});
           }else if(o.route==="inter_district"){
             await api.post("/warehouse/me/outgoing/"+o.id+"/inter-district-dispatch");
@@ -370,7 +421,7 @@ export default function FulfillmentDispatchPage() {
                   </div>
                 </div>
                 {o.source==="farmer"&&o.route==="nearby"&&!o.deliveryPartnerId&&<select aria-label={"Delivery partner for "+o.orderNumber} className="ml-10 h-9 w-[calc(100%-2.5rem)] rounded-lg border border-slate-200 bg-white px-2 text-xs" value={partnerByOrder[o.id]||""} onChange={e=>setPartnerByOrder(v=>({...v,[o.id]:e.target.value}))}><option value="">Select delivery partner</option>{teams.map((t:any)=><option key={t.id} value={t.id}>{t.name} · {t.vehicle} · {t.capacity} kg</option>)}</select>}
-                {o.source==="warehouse"&&o.route==="same_district"&&<select aria-label={"Local hub for "+o.orderNumber} className="ml-10 h-9 w-[calc(100%-2.5rem)] rounded-lg border border-slate-200 bg-white px-2 text-xs" value={hubByOrder[o.id]||""} onChange={e=>setHubByOrder(v=>({...v,[o.id]:e.target.value}))}><option value="">Select destination local hub</option>{hubs.filter((h:any)=>norm(h.status)==="active"&&(normDistrict(h.district)===normDistrict(o.district)||normDistrict(h.district)===normDistrict(o.destinationDistrict||o.deliveryDistrict))).map((h:any)=><option key={String(h.id||h._id)} value={String(h.id||h._id)}>{h.name} · {h.district}</option>)}</select>}
+                {o.source==="warehouse"&&o.route==="same_district"&&(()=>{const rec=getRecommendedHub(o);const chosen=getSelectedHubId(o);return <div className="ml-10 w-[calc(100%-2.5rem)] space-y-1"><select aria-label={"Local hub for "+o.orderNumber} className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs" value={chosen} onChange={e=>setHubByOrder(v=>({...v,[o.id]:e.target.value}))}><option value="">{rec?"Choose another local hub":"No matching hub — select manually"}</option>{hubs.filter((h:any)=>norm(h.status)==="active"&&h.deletedAt==null).map((h:any)=>{const d=geoDistanceKm(orderDestinationPoint(o),h.location||h.coordinates);return <option key={String(h.id||h._id)} value={String(h.id||h._id)}>{h.name||h.warehouseName} · {h.district||"District unavailable"}{d!==null?" · "+d.toFixed(1)+" km":""}</option>})}</select>{rec&&<p className="text-[10px] text-emerald-700">Suggested: {rec.name||rec.warehouseName}{rec._recommendationSource==="distance"&&rec._recommendedDistanceKm!==null?" · "+rec._recommendedDistanceKm.toFixed(1)+" km away":" · "+(rec.district||"Matching district")}</p>}</div>})()}
               </div>)}
             </div>
           </section>
@@ -432,10 +483,10 @@ export default function FulfillmentDispatchPage() {
               {selected.isConsolidationWarehouse&&norm(selected.transferStatus)==="hub_handoff_pending"&&!selected.localHubTransferAssigned&&<div className="mt-2 space-y-2"><select aria-label="Consolidation local hub pickup team" className="h-9 w-full rounded-md border bg-white px-2 text-xs" value={partnerByOrder[selected.id]||""} onChange={e=>setPartnerByOrder(v=>({...v,[selected.id]:e.target.value}))}><option value="">Select local-hub pickup team</option>{teams.map((t:any)=><option key={t.id} value={t.id}>{t.name} · {t.vehicle} · {t.capacity} kg</option>)}</select><Button size="sm" className="bg-emerald-700 text-white" disabled={!!busy||!partnerByOrder[selected.id]||!teamCanCarry(teams.find((t:any)=>t.id===partnerByOrder[selected.id]),selected)} onClick={()=>act(selected,"assign-hub-team")}>Assign local-hub pickup team</Button></div>}
               {norm(selected.localHubTransferStatus)==="arrived_at_hub"&&<Button size="sm" className="mt-2 bg-emerald-700 text-white" disabled={!!busy} onClick={()=>act(selected,"hub-receive")}>Confirm local hub receipt</Button>}
             </>}
-            {selected.source==="warehouse"&&selected.route==="same_district"&&<div className="mt-2 space-y-2"><select aria-label="Warehouse local hub" className="h-9 w-full rounded-md border bg-white px-2 text-xs" value={hubByOrder[selected.id]||""} onChange={e=>setHubByOrder(v=>({...v,[selected.id]:e.target.value}))}><option value="">Select active local hub</option>{hubs.filter((h:any)=>norm(h.status)==="active"&&normDistrict(h.district)===normDistrict(selected.destinationDistrict||selected.deliveryDistrict||selected.district)).map((h:any)=><option key={String(h.id||h._id)} value={String(h.id||h._id)}>{h.name} · {h.district}</option>)}</select>{!isBulkEligible(selected)&&<Button size="sm" className="bg-emerald-700 text-white" disabled={!!busy||!hubByOrder[selected.id]} onClick={()=>act(selected,"same")}>Dispatch to local hub</Button>}</div>}
+            {selected.source==="warehouse"&&selected.route==="same_district"&&(()=>{const recommendation=getRecommendedHub(selected);const chosen=getSelectedHubId(selected);return <div className="mt-2 space-y-2 rounded-xl border border-emerald-200 bg-emerald-50/50 p-3"><div className="flex items-center justify-between gap-2"><p className="text-xs font-semibold text-slate-800">Destination local hub</p>{recommendation&&<Badge className="border-0 bg-emerald-100 text-emerald-800">Recommended</Badge>}</div>{recommendation?<div className="rounded-lg border border-emerald-100 bg-white px-3 py-2"><p className="text-sm font-semibold text-slate-900">{recommendation.name||recommendation.warehouseName||"Local Hub"}</p><p className="mt-0.5 text-[11px] text-slate-600">{recommendation.address?.address||recommendation.address||recommendation.district||"Address not provided"}</p><p className="mt-1 text-[10px] font-medium text-emerald-700">{recommendation._recommendationSource==="distance"&&recommendation._recommendedDistanceKm!==null?"Nearest by delivery coordinates · "+recommendation._recommendedDistanceKm.toFixed(1)+" km":recommendation._recommendationSource==="service-area"?"Matched delivery locality coverage":"Matched delivery district"}</p></div>:<div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">{hubsQuery.isLoading?"Finding an active local hub…":"No active local hub matches this delivery address. Check the customer's address and the hub's service-area coverage."}</div>}<select aria-label="Warehouse local hub" className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs" value={chosen} onChange={e=>setHubByOrder(v=>({...v,[selected.id]:e.target.value}))}><option value="">Choose another active local hub</option>{hubs.filter((h:any)=>norm(h.status)==="active"&&h.deletedAt==null).map((h:any)=>{const d=geoDistanceKm(orderDestinationPoint(selected),h.location||h.coordinates);return <option key={String(h.id||h._id)} value={String(h.id||h._id)}>{h.name||h.warehouseName} · {h.district||"District unavailable"}{d!==null?" · "+d.toFixed(1)+" km":""}</option>})}</select>{!isBulkEligible(selected)&&<Button size="sm" className="h-10 w-full bg-emerald-700 font-semibold text-white hover:bg-emerald-800" disabled={!!busy||!chosen} onClick={()=>act(selected,"same")}><Truck className="mr-2 h-4 w-4"/>Dispatch to {recommendation?.name||"selected local hub"}<ArrowRight className="ml-2 h-4 w-4"/></Button>}</div>})()}
             {selected.source==="warehouse"&&selected.route==="nearby"&&!isBulkEligible(selected)&&<Button size="sm" className="mt-2 bg-emerald-700 text-white" disabled={!!busy} onClick={()=>act(selected,"nearby")}>Verify packing &amp; dispatch to delivery</Button>}
             {selected.source==="warehouse"&&selected.route==="inter_district"&&!isBulkEligible(selected)&&<Button size="sm" className="mt-2 bg-emerald-700 text-white" disabled={!!busy} onClick={()=>act(selected,"destination")}>Create destination warehouse transfer</Button>}
-            {isBulkEligible(selected)&&<Button size="lg" className="mt-2 h-11 w-full justify-center bg-emerald-700 text-sm font-bold text-white shadow-sm hover:bg-emerald-800" disabled={!!busy||(selected.route==="nearby"&&selected.source==="farmer"&&!partnerByOrder[selected.id])||(selected.route==="same_district"&&selected.source==="warehouse"&&!hubByOrder[selected.id])} onClick={()=>act(selected,selected.route==="nearby"?"nearby":selected.route==="same_district"?"same":"destination")}><Truck className="mr-2 h-4 w-4"/>{busy? "Processing order…":selected.route==="nearby"?(selected.source==="farmer"?"Assign partner & continue":"Verify packing & dispatch"):selected.route==="same_district"?(selected.source==="farmer"?"Create local-hub transfer":"Dispatch to local hub"):"Dispatch to destination warehouse"}<ArrowRight className="ml-2 h-4 w-4"/></Button>}
+            {isBulkEligible(selected)&&<Button size="lg" className="mt-2 h-11 w-full justify-center bg-emerald-700 text-sm font-bold text-white shadow-sm hover:bg-emerald-800" disabled={!!busy||(selected.route==="nearby"&&selected.source==="farmer"&&!partnerByOrder[selected.id])||(selected.route==="same_district"&&selected.source==="warehouse"&&!getSelectedHubId(selected))} onClick={()=>act(selected,selected.route==="nearby"?"nearby":selected.route==="same_district"?"same":"destination")}><Truck className="mr-2 h-4 w-4"/>{busy? "Processing order…":selected.route==="nearby"?(selected.source==="farmer"?"Assign partner & continue":"Verify packing & dispatch"):selected.route==="same_district"?(selected.source==="farmer"?"Create local-hub transfer":"Dispatch to local hub"):"Dispatch to destination warehouse"}<ArrowRight className="ml-2 h-4 w-4"/></Button>}
             {selected.route==="route_review"&&<Button asChild size="sm" variant="outline" className="mt-2"><Link href="/warehouse/farmer-fulfillment">Open route review workspace</Link></Button>}
             {selected.route==="needs_location"&&<Button asChild size="sm" variant="outline" className="mt-2"><Link href="/warehouse/farmer-fulfillment">Open location and route data</Link></Button>}
           </div>
