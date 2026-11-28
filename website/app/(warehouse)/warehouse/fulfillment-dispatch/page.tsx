@@ -212,7 +212,7 @@ export default function FulfillmentDispatchPage() {
     } catch(e:any) {toast.error(e?.message||"Unable to process this order");}
     finally {setWorking("");}
   };
-  const isBulkEligible=(o:any)=>o.dispatchStatus==="Ready for Dispatch"&&((o.source==="farmer"&&o.physicalReceiptConfirmed&&["nearby","same_district","inter_district"].includes(o.route))||(o.source==="warehouse"&&["nearby","same_district","inter_district"].includes(o.route)));
+  const isBulkEligible=(o:any)=>o.dispatchStatus==="Ready for Dispatch"&&((o.source==="farmer"&&o.physicalReceiptConfirmed&&(["nearby","same_district","inter_district"].includes(o.route)||(o.route==="multi_warehouse"&&Boolean(o.canDispatchToConsolidation))))||(o.source==="warehouse"&&["nearby","same_district","inter_district"].includes(o.route)));
   const allEligibleDispatchOrders=orders.filter(isBulkEligible);
   const selectedDispatchOrders=orders.filter((o:any)=>selectedOrders[o.source+":"+o.id]);
   const visibleEligibleDispatchOrders=filtered.filter(isBulkEligible);
@@ -241,7 +241,9 @@ export default function FulfillmentDispatchPage() {
             if(!o.destinationWarehouseId)assignment=await api.post("/warehouse/me/farmer-fulfillment/"+o.id+"/assign-destination-warehouse");
             if(assignment?.data?.destinationWarehouseCapacityOverrideRequired||o.destinationWarehouseCapacityOverrideRequired)throw new Error(assignment?.message||"Destination warehouse capacity requires manual review");
             await api.post("/warehouse/me/farmer-fulfillment/"+o.id+"/dispatch-to-destination");
-          }else throw new Error("Route needs review before processing");
+          }else if(o.route==="multi_warehouse"&&o.canDispatchToConsolidation){
+            await api.post("/warehouse/me/farmer-fulfillment/"+o.id+"/dispatch-to-consolidation");
+          }else throw new Error("This order's route or current stage needs review before processing");
         }else{
           if(!o.orderId)throw new Error("Customer order reference is missing");
           const check=await api.get("/warehouse/me/orders/"+o.orderId+"/fulfillment-check");
@@ -374,9 +376,10 @@ export default function FulfillmentDispatchPage() {
           </section>
 
           {(()=>{const routes=[...new Set(selectedDispatchOrders.map((o:any)=>o.route))];const stages=[...new Set(selectedDispatchOrders.map((o:any)=>o.dispatchStatus))];const routeLabel=routes.length===1?(ROUTES.find(r=>r.key===routes[0])?.label||"Route"): "Multiple routes";const statusLabel=stages.length===1?stages[0]:"Mixed statuses";const next=routes.length!==1?"Process orders through their individual route workflows":routes[0]==="nearby"?"Assign delivery partner and dispatch":routes[0]==="same_district"?"Continue through the local-hub route":routes[0]==="inter_district"?"Dispatch to destination warehouse":routes[0]==="multi_warehouse"?"Complete warehouse consolidation":"Review route prerequisites";return <div className="grid grid-cols-1 gap-2 rounded-xl border border-emerald-100 bg-emerald-50/70 p-3">
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs"><span className="text-slate-600"><Route className="mr-1.5 inline h-4 w-4 text-emerald-700"/>Route</span><span className="font-semibold text-slate-900">{routeLabel}</span></div>
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs"><span className="text-slate-600"><CheckCircle2 className="mr-1.5 inline h-4 w-4 text-emerald-700"/>Current status</span><span className="font-semibold text-slate-900">{statusLabel}</span></div>
-            <div className="border-t border-emerald-100 pt-2"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Next operation</p><p className="mt-1 text-sm font-semibold text-slate-900">{next}</p></div>
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs"><span className="text-slate-600"><Route className="mr-1.5 inline h-4 w-4 text-emerald-700"/>Selected route groups</span><span className="font-semibold text-slate-900">{routeLabel}</span></div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">{routes.map((route:any)=>{const count=selectedDispatchOrders.filter((o:any)=>o.route===route).length;const label=ROUTES.find(r=>r.key===route)?.label||"Other route";return <div key={route} className="rounded-lg border border-emerald-100 bg-white px-2.5 py-2"><p className="text-[10px] leading-4 text-slate-600">{label}</p><p className="mt-0.5 text-sm font-bold text-slate-900">{count} order{count===1?"":"s"}</p></div>;})}</div>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-emerald-100 pt-2 text-xs"><span className="text-slate-600"><CheckCircle2 className="mr-1.5 inline h-4 w-4 text-emerald-700"/>Current status</span><span className="font-semibold text-slate-900">{statusLabel}</span></div>
+            <div className="border-t border-emerald-100 pt-2"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Next operation</p><p className="mt-1 text-sm font-semibold text-slate-900">{next}</p><p className="mt-1 text-[11px] leading-4 text-slate-600">Each selected order is processed using its own route and workflow. Orders that need location, route or readiness corrections are reported separately.</p></div>
           </div>;})()}
 
           <Button size="lg" className="h-12 w-full bg-emerald-700 text-sm font-bold text-white shadow-sm hover:bg-emerald-800" disabled={busy==="bulk-process"} onClick={bulkProcessSelected}><Truck className="mr-2 h-5 w-5"/>{busy==="bulk-process"?"Processing selected orders…":"Process "+selectedDispatchOrders.length+" Selected Orders"}<ArrowRight className="ml-2 h-4 w-4"/></Button>
