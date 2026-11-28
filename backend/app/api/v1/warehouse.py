@@ -5320,6 +5320,7 @@ async def assign_farmer_fulfillment_destination_warehouse(
         destination = await warehouse_for_district(
             destination_district.casefold(), required_capacity=0.0,
             exclude_warehouse_id=source_id, allow_capacity_override=False,
+            allow_regional_fallback=False,
         )
         if not destination:
             raise HTTPException(status_code=409, detail="No active destination warehouse serves the Bulk/Event customer's district. Activate or configure a destination warehouse first.")
@@ -5661,27 +5662,8 @@ async def assign_farmer_fulfillment_destination_warehouse(
         raise HTTPException(status_code=409, detail="This order belongs in Same-District routing, not Inter-District routing")
     if route_distance is not None and route_distance <= nearby_threshold and direct_delivery_configured:
         raise HTTPException(status_code=409, detail=f"This order is within the {nearby_threshold:g} km Nearby threshold; use Nearby delivery instead")
-    if existing_destination_id:
-        if existing_destination_id == source_id:
-            raise HTTPException(status_code=409, detail="Destination warehouse must be different from the source warehouse")
-        if logistics_mode != "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner":
-            await order_repository.update({"_id": ObjectId(order_id)}, {
-                "logisticsMode": "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner",
-                "updatedAt": datetime.utcnow(),
-            })
-        return {
-            "success": True,
-            "data": {
-                "destinationWarehouseId": existing_destination_id,
-                "destinationWarehouseName": order.get("destinationWarehouseName"),
-                "destinationDistrict": order.get("destinationDistrict"),
-                "destinationWarehouseDistrict": order.get("destinationWarehouseDistrict"),
-                "destinationWarehouseRegionalFallback": bool(order.get("destinationWarehouseRegionalFallback")),
-                "destinationWarehouseCapacityOverrideRequired": bool(order.get("destinationWarehouseCapacityOverrideRequired")),
-                "alreadyAssigned": True,
-            },
-            "message": "A destination warehouse is already assigned.",
-        }
+    if existing_destination_id == source_id:
+        raise HTTPException(status_code=409, detail="Destination warehouse must be different from the source warehouse")
     # Farmer-packed products are handed over for immediate onward delivery.
     # Choose the destination by customer district, not inventory/storage capacity.
     required_capacity = 0.0
@@ -5690,6 +5672,7 @@ async def assign_farmer_fulfillment_destination_warehouse(
         required_capacity=0.0,
         exclude_warehouse_id=source_id,
         allow_capacity_override=False,
+            allow_regional_fallback=False,
     )
     if not destination:
         raise HTTPException(
@@ -5697,6 +5680,19 @@ async def assign_farmer_fulfillment_destination_warehouse(
             detail="No active destination warehouse other than the source warehouse is available. Add or activate the warehouse serving the customer district; a warehouse with a capacity shortfall can be assigned with explicit confirmation.",
         )
     destination_id = str(destination["_id"])
+    if existing_destination_id == destination_id:
+        return {
+            "success": True,
+            "data": {
+                "destinationWarehouseId": destination_id,
+                "destinationWarehouseName": destination.get("name") or destination.get("warehouseName") or "Destination Warehouse",
+                "destinationDistrict": customer_district,
+                "destinationWarehouseRegionalFallback": False,
+                "destinationWarehouseCapacityOverrideRequired": False,
+                "alreadyAssigned": True,
+            },
+            "message": "The active warehouse serving the customer's delivery district is already assigned.",
+        }
     destination_address = destination.get("address") if isinstance(destination.get("address"), dict) else {}
     destination_location = destination.get("location") if isinstance(destination.get("location"), dict) else {}
     destination_warehouse_district = str(
