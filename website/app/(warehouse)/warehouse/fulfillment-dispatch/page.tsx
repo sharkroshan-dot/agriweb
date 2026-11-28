@@ -145,8 +145,8 @@ export default function FulfillmentDispatchPage() {
   const routeCounts=Object.fromEntries(ROUTES.map(r=>[r.key,orders.filter((o:any)=>o.route===r.key).length])) as Record<RouteKey,number>;
   const stageNames=["To Receive","To Route","In Transfer","To Dispatch","Delivered"];
   const stageCounts=Object.fromEntries(stageNames.map(s=>[s,orders.filter((o:any)=>o.stage===s).length])) as Record<string,number>;
-  const dispatchFilterNames:DispatchStatus[]=["Ready for Dispatch","Partner Assigned","Dispatched / In Transit","Delivered"];
-  const dispatchCounts=Object.fromEntries(dispatchFilterNames.map(s=>[s,orders.filter((o:any)=>o.dispatchStatus===s).length])) as Record<DispatchStatus,number>;
+  const dispatchFilterNames=["Ready for Dispatch","Partner Assigned","Dispatched / In Transit","Delivered"] as const;
+  const dispatchCounts=Object.fromEntries(dispatchFilterNames.map(s=>[s,orders.filter((o:any)=>o.dispatchStatus===s).length])) as Record<string,number>;
   const groups=useMemo(()=>{const m=new Map<string,any[]>();filtered.forEach((o:any)=>m.set(o.destinationGroup,[...(m.get(o.destinationGroup)||[]),o]));return [...m.entries()].sort((a,b)=>a[0].localeCompare(b[0]));},[filtered]);
   const refresh=()=>Promise.all([farmerQuery.refetch(),outgoingQuery.refetch(),teamsQuery.refetch(),hubsQuery.refetch(),consolidationQuery.refetch()]);
   const toggleGroup=(name:string)=>setExpanded(v=>v.includes(name)?v.filter(x=>x!==name):[...v,name]);
@@ -314,7 +314,7 @@ export default function FulfillmentDispatchPage() {
             <div><div className="flex flex-wrap items-center gap-2"><h2 className="text-lg font-bold">Orders ({filtered.length})</h2>{activeRoute!=="all"&&<Badge variant="outline">{ROUTES.find(r=>r.key===activeRoute)?.label}</Badge>}</div><p className="mt-1 text-xs text-muted-foreground">Select an order to view its route-specific operations.</p></div>
             <select aria-label="Sort orders" className="h-9 min-w-[132px] rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 shadow-sm focus:border-emerald-500 focus:outline-none" value={sortOrder} onChange={e=>setSortOrder(e.target.value as "newest"|"oldest")}><option value="newest">Newest first</option><option value="oldest">Oldest first</option></select>
           </div>
-          <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
+          <div data-testid="dispatch-status-filters" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {dispatchFilterNames.map((status)=>(
               <button key={status} type="button" onClick={()=>{setActiveStage(status);setActiveRoute("all");setSelectedOrders({});setSelectedKey("");}} className={"flex min-w-0 items-center justify-between gap-2 rounded-xl border px-3 py-2.5 text-left text-xs font-semibold transition-colors "+(activeStage===status?"border-emerald-600 bg-emerald-700 text-white shadow-sm":status==="Partner Assigned"?"border-blue-200 bg-blue-50/60 text-blue-900 hover:bg-blue-100":status==="Dispatched / In Transit"?"border-amber-200 bg-amber-50/60 text-amber-900 hover:bg-amber-100":status==="Delivered"?"border-green-200 bg-green-50/60 text-green-900 hover:bg-green-100":"border-emerald-200 bg-emerald-50/60 text-emerald-900 hover:bg-emerald-100")}>
                 <span className="min-w-0 leading-4">{status}</span><span className={"shrink-0 rounded-full px-2 py-0.5 text-[10px] "+(activeStage===status?"bg-white/20 text-white":"bg-white/80 text-slate-700")}>{dispatchCounts[status]||0}</span>
