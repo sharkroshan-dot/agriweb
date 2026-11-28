@@ -115,69 +115,151 @@ class AIExtendedService:
 
     @staticmethod
     async def recommend_crop(request) -> Dict[str, Any]:
+        """Rank crops using field conditions and the available short-range forecast."""
         try:
+            water_needs = {
+                "rice": "high", "wheat": "medium", "tomato": "medium",
+                "potato": "medium", "onion": "low", "chilli": "medium",
+                "brinjal": "medium", "cabbage": "medium", "cauliflower": "medium",
+                "spinach": "medium", "carrot": "medium", "groundnut": "low",
+                "sugarcane": "high", "cotton": "medium", "maize": "medium",
+                "banana": "high", "mango": "low", "coconut": "medium",
+                "turmeric": "high",
+            }
+            forecast = request.weatherForecast or []
+            forecast_max = [
+                float(day.get("temp", day.get("temperature")))
+                for day in forecast
+                if day.get("temp", day.get("temperature")) is not None
+            ]
+            forecast_min = [
+                float(day.get("minTemp"))
+                for day in forecast if day.get("minTemp") is not None
+            ]
+            forecast_rain = [
+                float(day.get("rainfall"))
+                for day in forecast if day.get("rainfall") is not None
+            ]
+            avg_forecast_max = sum(forecast_max) / len(forecast_max) if forecast_max else None
+            max_forecast_temp = max(forecast_max) if forecast_max else None
+            forecast_rain_total = sum(forecast_rain) if forecast_rain else None
+            water_availability = str(getattr(request, "waterAvailability", "reliable") or "reliable").lower()
+            previous_crop = (request.previousCrop or "").strip().lower()
             suitable_crops = []
+
             for crop, info in CROPS_DB.items():
                 score = 0
                 reasons = []
+                risks = []
+                crop_key = crop.lower()
+                min_temp, max_temp = info["min_temp"], info["max_temp"]
 
                 if request.soilType.lower() in info["soil"]:
-                    score += 30
+                    score += 25
+                    reasons.append("Soil type matches the crop's preferred soil range")
                 else:
-                    reasons.append(f"Soil type {request.soilType} is not ideal")
+                    reasons.append(f"{request.soilType.title()} soil is outside the listed preferred soil types")
 
                 if request.season.lower() in info["season"]:
-                    score += 25
-                else:
-                    reasons.append(f"Season {request.season} is not optimal")
-
-                if info["min_temp"] <= request.temperature <= info["max_temp"]:
                     score += 20
+                    reasons.append(f"Suitable for the {request.season} season")
                 else:
-                    reasons.append(f"Temperature {request.temperature}°C outside ideal range {info['min_temp']}-{info['max_temp']}°C")
+                    risks.append(f"{request.season.title()} is not listed as a preferred growing season")
 
-                if info["min_rain"] <= request.rainfall <= info["max_rain"]:
-                    score += 15
-                else:
-                    reasons.append(f"Rainfall {request.rainfall}mm outside ideal range {info['min_rain']}-{info['max_rain']}mm")
-
-                if request.previousCrop and request.previousCrop.lower() != crop:
+                if min_temp <= float(request.temperature) <= max_temp:
                     score += 10
+                    reasons.append("Current temperature is within the crop's broad suitability range")
+                else:
+                    risks.append(f"Current temperature ({request.temperature}°C) is outside the broad {min_temp}-{max_temp}°C range")
 
-                crop_suitability = {
+                if avg_forecast_max is not None:
+                    if min_temp <= avg_forecast_max <= max_temp:
+                        score += 10
+                        reasons.append("Average forecast daytime temperature is within the broad suitability range")
+                    else:
+                        risks.append("Forecast daytime temperature may be stressful for this crop")
+                    if max_forecast_temp is not None and max_forecast_temp > max_temp + 3:
+                        risks.append("A hot spell is forecast above the crop's broad upper temperature range")
+                    if forecast_min and min(forecast_min) < min_temp - 3:
+                        risks.append("Cool nights are forecast below the crop's broad lower temperature range")
+                else:
+                    # No forecast: do not pretend current weather represents the growing period.
+                    score += 4
+                    risks.append("Forecast unavailable; temperature assessment uses current conditions only")
+
+                seasonal_rainfall = getattr(request, "rainfall", None)
+                if seasonal_rainfall is not None:
+                    if info["min_rain"] <= float(seasonal_rainfall) <= info["max_rain"]:
+                        score += 10
+                        reasons.append("Farmer's seasonal rainfall estimate is within the crop's broad range")
+                    else:
+                        risks.append("Farmer's seasonal rainfall estimate is outside the crop's broad range")
+                else:
+                    risks.append("Seasonal rainfall estimate was not provided; rainfall suitability is not scored")
+
+                need = water_needs.get(crop_key, "medium")
+                water_fit = (
+                    water_availability == "reliable"
+                    or (water_availability == "limited" and need == "low")
+                    or (water_availability == "rainfed" and need == "low")
+                )
+                if water_fit:
+                    score += 10
+                    reasons.append(f"Water requirement ({need}) is compatible with the selected water availability")
+                else:
+                    risks.append(f"This crop has {need} water needs; selected water availability is {water_availability}")
+
+                if previous_crop:
+                    if previous_crop == crop_key:
+                        score = max(0, score - 8)
+                        risks.append("Avoid repeating the same crop consecutively where possible")
+                    else:
+                        score += 5
+                        reasons.append("Different from the previous crop; check family-level rotation locally")
+
+                score = max(0, min(100, score))
+                suitability = "high" if score >= 75 else "moderate" if score >= 55 else "low"
+                guidance = (
+                    "Review local sowing calendar and soil moisture before planting"
+                    if not risks else "Check the listed weather and water risks before deciding to plant"
+                )
+                suitable_crops.append({
                     "crop": crop.title(),
                     "score": score,
-                    "suitability": "high" if score >= 70 else "moderate" if score >= 50 else "low",
+                    "suitability": suitability,
                     "duration": info["duration"],
                     "soil": ", ".join(info["soil"]),
                     "season": ", ".join(info["season"]),
-                    "reasons": reasons
-                }
-                suitable_crops.append(crop_suitability)
+                    "waterNeed": need,
+                    "reasons": reasons,
+                    "risks": risks,
+                    "plantingGuidance": guidance,
+                    "forecastTemperature": round(avg_forecast_max, 1) if avg_forecast_max is not None else None,
+                })
 
-            suitable_crops.sort(key=lambda x: x["score"], reverse=True)
+            suitable_crops.sort(key=lambda item: item["score"], reverse=True)
             top_crops = suitable_crops[:5]
-
             return {
                 "recommendations": top_crops,
                 "topCrop": top_crops[0]["crop"] if top_crops else "No suitable crop found",
-                "soilHealth": f"Your {request.soilType} soil is best suited for crops like {', '.join(c['crop'] for c in top_crops[:3])}",
-                "seasonInfo": f"{request.season.title()} season - Plant after first rainfall, ensure proper drainage",
+                "soilHealth": f"Recommendations were screened for {request.soilType} soil; soil testing is still needed for pH and nutrient advice.",
+                "seasonInfo": f"{request.season.title()} season suitability is included in the ranking. Confirm the local district sowing calendar before planting.",
+                "weatherSummary": {
+                    "currentTemperature": float(request.temperature),
+                    "humidity": getattr(request, "humidity", None),
+                    "averageForecastMax": round(avg_forecast_max, 1) if avg_forecast_max is not None else None,
+                    "forecastMax": max_forecast_temp,
+                    "forecastRainfallTotal": round(forecast_rain_total, 1) if forecast_rain_total is not None else None,
+                    "forecastDays": len(forecast),
+                    "source": "Open-Meteo" if forecast else "Manual/current input only",
+                },
+                "waterAvailability": water_availability,
+                "areaAcres": float(request.areaAcres),
                 "timestamp": datetime.utcnow()
             }
         except Exception as e:
             logger.error(f"Crop recommendation error: {e}")
-            return {
-                "recommendations": [
-                    {"crop": "Tomato", "score": 85, "suitability": "high", "duration": "60-80 days", "soil": "loamy, sandy", "season": "kharif, rabi, summer"},
-                    {"crop": "Rice", "score": 75, "suitability": "high", "duration": "120-150 days", "soil": "clay, loamy", "season": "kharif"},
-                    {"crop": "Chilli", "score": 70, "suitability": "high", "duration": "70-100 days", "soil": "loamy, clay", "season": "kharif, summer"}
-                ],
-                "topCrop": "Tomato",
-                "soilHealth": "Based on your inputs, vegetables and grains are suitable",
-                "seasonInfo": "Consider seasonal crop rotation for best yields",
-                "timestamp": datetime.utcnow()
-            }
+            raise ValueError(f"Unable to generate crop recommendations from the supplied field and weather data: {e}")
 
     @staticmethod
     async def chatbot_response(request, current_user: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:

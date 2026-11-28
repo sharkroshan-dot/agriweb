@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Plus, MapPin, Trash2, Star } from "lucide-react";
+import { ArrowLeft, Plus, MapPin, Trash2, Star, Pencil } from "lucide-react";
 import { Button } from "../../../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Input } from "../../../components/ui/input";
@@ -36,13 +36,14 @@ const initialForm = {
   address_type: "home",
 };
 
-export default function AddressesPage() {
+export default function AddressesPage({ embedded = false }: { embedded?: boolean }) {
   const router = useRouter();
   const { data: session, status } = useSession();
   const queryClient = useQueryClient();
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(initialForm);
   const [submitting, setSubmitting] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -75,11 +76,13 @@ export default function AddressesPage() {
     }
     setSubmitting(true);
     try {
-      await api.post("/users/me/addresses", form);
+      if (editingId) await api.put(`/users/me/addresses/${editingId}`, form);
+      else await api.post("/users/me/addresses", form);
       await queryClient.refetchQueries({ queryKey: ["customerAddresses"] });
       setForm(initialForm);
+      setEditingId(null);
       setShowForm(false);
-      toast.success("Address added");
+      toast.success(editingId ? "Address updated" : "Address added");
     } catch (err: any) {
       const message = err?.message || "Failed to add address";
       const cleaned = message.replace(/^"|"$/g, "");
@@ -89,7 +92,14 @@ export default function AddressesPage() {
     }
   };
 
+  const handleEdit = (addr: Address) => {
+    setEditingId(addr.id);
+    setForm({ address_line1: addr.address_line1 || "", address_line2: addr.address_line2 || "", city: addr.city || "", state: addr.state || "", zip_code: addr.zip_code || "", country: addr.country || "India", landmark: addr.landmark || "", address_type: addr.address_type || "home" });
+    setShowForm(true);
+  };
+
   const handleDelete = async (id: string) => {
+    if (!window.confirm("Delete this saved address? This cannot be undone.")) return;
     try {
       await api.delete(`/users/me/addresses/${id}`);
       await queryClient.refetchQueries({ queryKey: ["customerAddresses"] });
@@ -101,18 +111,18 @@ export default function AddressesPage() {
 
   const handleSetPermanent = async (id: string) => {
     try {
-      await api.put(`/users/me/addresses/${id}/permanent`);
+      await api.put(`/users/me/addresses/${id}/default`);
       await queryClient.refetchQueries({ queryKey: ["customerAddresses"] });
       await queryClient.invalidateQueries({ queryKey: ["customerSidebarProfile"] });
-      toast.success("Permanent address updated");
+      toast.success("Default delivery address updated");
     } catch {
       toast.error("Failed to set permanent address");
     }
   };
 
   return (
-    <div className="space-y-6 p-6">
-      <div className="flex items-center gap-4">
+    <div className={embedded ? "space-y-4" : "space-y-6 p-6"}>
+      {!embedded && <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" asChild>
           <Link href="/checkout"><ArrowLeft className="h-4 w-4" /></Link>
         </Button>
@@ -123,12 +133,13 @@ export default function AddressesPage() {
         <Button onClick={() => setShowForm(!showForm)}>
           <Plus className="mr-2 h-4 w-4" /> Add Address
         </Button>
-      </div>
+      </div>}
+      {embedded && <div className="flex justify-end"><Button size="sm" onClick={() => { setEditingId(null); setForm(initialForm); setShowForm((v) => !v); }}><Plus className="mr-2 h-4 w-4" /> Add Address</Button></div>}
 
       {showForm && (
         <Card>
           <CardHeader>
-            <CardTitle>New Address</CardTitle>
+            <CardTitle>{editingId ? "Edit Address" : "New Address"}</CardTitle>
             <CardDescription>Enter your delivery address details</CardDescription>
           </CardHeader>
           <CardContent>
@@ -169,8 +180,8 @@ export default function AddressesPage() {
                 </div>
               </div>
               <div className="flex gap-2">
-                <Button type="button" variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
-                <Button type="submit" disabled={submitting}>{submitting ? "Saving..." : "Save Address"}</Button>
+                <Button type="button" variant="outline" onClick={() => { setShowForm(false); setEditingId(null); setForm(initialForm); }}>Cancel</Button>
+                <Button type="submit" disabled={submitting}>{submitting ? "Saving..." : editingId ? "Update Address" : "Save Address"}</Button>
               </div>
             </form>
           </CardContent>
@@ -213,18 +224,9 @@ export default function AddressesPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
-                  {addr.address_type === "permanent" ? (
-                    <Button variant="ghost" size="sm" title="Permanent address" aria-label="Permanent address">
-                      <Star className="h-4 w-4 fill-amber-500 text-amber-500" />
-                    </Button>
-                  ) : (
-                    <Button variant="ghost" size="sm" onClick={() => handleSetPermanent(addr.id)} title="Set as permanent" aria-label="Set as permanent">
-                      <Star className="h-4 w-4 text-gray-400" />
-                    </Button>
-                  )}
-                  <Button variant="ghost" size="sm" onClick={() => handleDelete(addr.id)} title="Remove">
-                    <Trash2 className="h-4 w-4 text-red-500" />
-                  </Button>
+                  {!addr.is_default && <Button variant="outline" size="sm" onClick={() => handleSetPermanent(addr.id)} title="Set as default delivery address"><Star className="mr-1 h-3.5 w-3.5" /> Set default</Button>}
+                  <Button variant="ghost" size="sm" onClick={() => handleEdit(addr)} title="Edit address" aria-label="Edit address"><Pencil className="h-4 w-4" /></Button>
+                  <Button variant="ghost" size="sm" onClick={() => handleDelete(addr.id)} title="Remove address" aria-label="Remove address"><Trash2 className="h-4 w-4 text-red-500" /></Button>
                 </div>
               </CardContent>
             </Card>

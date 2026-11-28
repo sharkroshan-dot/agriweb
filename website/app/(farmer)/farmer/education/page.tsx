@@ -1,405 +1,164 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import {
-  GraduationCap,
-  BookOpen,
-  Sprout,
-  IndianRupee,
-  ShoppingBag,
-  Package,
-  FlaskConical,
-  Snowflake,
-  Landmark,
-  TrendingUp,
-  Search,
-  PlayCircle,
-  Sparkles,
-} from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { BookOpen, Bookmark, Bot, CheckCircle2, ChevronRight, ClipboardCheck, Clock3, GraduationCap, Languages, Loader2, PlayCircle, Search, Sprout, X } from "lucide-react";
 import { api } from "../../../lib/api/client";
 import { cn } from "../../../lib/utils";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Badge } from "../../../components/ui/badge";
+import { Button } from "../../../components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Input } from "../../../components/ui/input";
 
-const TOPICS = [
-  { id: "crop", name: "Crop Management", icon: Sprout, color: "text-emerald-600 bg-emerald-50" },
-  { id: "pricing", name: "Pricing", icon: IndianRupee, color: "text-blue-600 bg-blue-50" },
-  { id: "selling", name: "Digital Selling", icon: ShoppingBag, color: "text-purple-600 bg-purple-50" },
-  { id: "packaging", name: "Packaging", icon: Package, color: "text-amber-600 bg-amber-50" },
-  { id: "quality", name: "Quality", icon: FlaskConical, color: "text-red-600 bg-red-50" },
-  { id: "storage", name: "Storage", icon: Snowflake, color: "text-cyan-600 bg-cyan-50" },
-  { id: "schemes", name: "Government Schemes", icon: Landmark, color: "text-indigo-600 bg-indigo-50" },
-  { id: "trends", name: "Market Trends", icon: TrendingUp, color: "text-teal-600 bg-teal-50" },
-];
+type Lesson = { id: string; title: string; summary?: string; content: string; order: number; estimatedMinutes?: number; actionTasks?: string[]; sourceName?: string; sourceUrl?: string; videoUrl?: string };
+type Course = { id: string; title: string; description: string; category: string; level: string; estimatedMinutes: number; lessonCount: number; lessons: Lesson[] };
+const LANGUAGES = [{ value: "en", label: "English" }, { value: "ta", label: "தமிழ்" }, { value: "hi", label: "हिन्दी" }];
 
-const RESOURCES = [
-  { id: "icar-crop", topic: "crop", title: "ICAR crop management knowledge resources", type: "Official resource", readTime: "Reference", level: "All levels", description: "Crop-specific production guidance, expert systems and agricultural knowledge resources from ICAR.", source: "ICAR", url: "https://icar.gov.in/en/technologies-and-knowledge-resources" },
-  { id: "icar-publications", topic: "crop", title: "ICAR agricultural publications", type: "Publication", readTime: "Reference", level: "All levels", description: "Agriculture, horticulture, soil, pest management, crop production and other farmer-relevant publications.", source: "ICAR", url: "https://www.icar.gov.in/en/all-publications" },
-  { id: "icar-advisory", topic: "crop", title: "ICAR agro-advisories for farmers", type: "Advisory", readTime: "Reference", level: "All levels", description: "Seasonal agro-advisory material, including regional-language editions.", source: "ICAR", url: "https://icar.gov.in/en/icar-kharif-agro-advisories-farmers-2025-regional-languages-edition-1" },
-  { id: "postharvest", topic: "storage", title: "Post-harvest management and processing", type: "Publication", readTime: "Reference", level: "Intermediate", description: "Guidance covering preservation, post-harvest diseases, storage and processing of fruits and vegetables.", source: "ICAR", url: "https://www.icar.gov.in/en/all-publications" },
-  { id: "quality", topic: "quality", title: "Produce quality and grading", type: "Guide", readTime: "Practical", level: "Beginner", description: "Learn how quality, grading, safe handling and post-harvest practices affect produce value.", source: "AgriConnect + ICAR", url: "https://www.icar.gov.in/en/all-publications" },
-  { id: "storage", topic: "storage", title: "Storage, cold-chain and preservation", type: "Guide", readTime: "Practical", level: "Beginner", description: "Understand preservation, storage and cold-chain principles for reducing post-harvest losses.", source: "AgriConnect + ICAR", url: "https://www.icar.gov.in/en/all-publications" },
-  { id: "pricing", topic: "pricing", title: "Pricing and market decisions", type: "Guide", readTime: "Practical", level: "Intermediate", description: "Use current marketplace information in AgriConnect together with official agricultural knowledge when deciding how to sell.", source: "AgriConnect", url: "/farmer/market-prices" },
-  { id: "selling", topic: "selling", title: "Digital selling and repeat customers", type: "Guide", readTime: "Practical", level: "Beginner", description: "Learn product listing, customer communication, order handling, fulfilment and repeat-sales practices.", source: "AgriConnect", url: "/farmer/products" },
-  { id: "packaging", topic: "packaging", title: "Packaging and fulfilment", type: "Guide", readTime: "Practical", level: "Beginner", description: "Choose packaging and handling practices appropriate to the produce and delivery journey.", source: "AgriConnect + ICAR", url: "https://www.icar.gov.in/en/all-publications" },
-  { id: "schemes", topic: "schemes", title: "PM-KISAN: registration, status and farmer services", type: "Government", readTime: "Official portal", level: "All levels", description: "Official PM-KISAN information including registration, beneficiary status, eKYC, guidelines and farmer services.", source: "Government of India", url: "https://www.pmkisan.gov.in/" },
-  { id: "schemes-kcc", topic: "schemes", title: "Kisan Credit Card and agriculture finance resources", type: "Government", readTime: "Official portal", level: "All levels", description: "Use official government resources to understand available agriculture finance and KCC-related services.", source: "Government of India", url: "https://www.pmkisan.gov.in/" },
-  { id: "trends", topic: "trends", title: "Market trends and demand signals", type: "Dashboard", readTime: "Live data", level: "All levels", description: "Use AgriConnect market, order and demand information to understand selling opportunities and plan production.", source: "AgriConnect", url: "/farmer/market-prices" },
-];
-
-const SOURCE_GROUPS: Record<string, { name: string; description: string; links: { title: string; source: string; url: string; kind: string }[] }> = {
-  crop: { name: "Crop Management", description: "Crop production, crop protection, varieties, soil, irrigation and seasonal advisories.", links: [
-    { title: "TNAU AgriTech crop guides", source: "Tamil Nadu Agricultural University", url: "https://agritech.tnau.ac.in/", kind: "Crop guide" },
-    { title: "ICAR knowledge resources", source: "ICAR", url: "https://www.icar.gov.in/en/technologies-and-knowledge-resources", kind: "Official" },
-    { title: "ICAR farmer advisories", source: "ICAR", url: "https://icar.gov.in/en/icar-kharif-agro-advisories-farmers-2025", kind: "Advisory" },
-    { title: "ICAR publications", source: "ICAR", url: "https://www.icar.gov.in/en/all-publications", kind: "Publication" },
-  ]},
-  pricing: { name: "Pricing & Market Decisions", description: "Market information, price discovery, mandi learning and digital agricultural markets.", links: [
-    { title: "e-NAM learning", source: "National Agriculture Market", url: "https://elearning.enam.gov.in/local/staticpage/view.php?page=guest", kind: "e-Learning" },
-    { title: "e-NAM resources", source: "National Agriculture Market", url: "https://enam.gov.in/resources", kind: "Guides" },
-    { title: "e-NAM dashboard", source: "National Agriculture Market", url: "https://enam.gov.in/dashboard", kind: "Market data" },
-    { title: "TNAU agricultural marketing", source: "Tamil Nadu Agricultural University", url: "https://agritech.tnau.ac.in/", kind: "Reference" },
-  ]},
-  selling: { name: "Digital Selling", description: "Learn digital marketplace participation, online trading and customer-oriented selling.", links: [
-    { title: "e-NAM seller learning", source: "National Agriculture Market", url: "https://elearning.enam.gov.in/local/staticpage/view.php?page=guest", kind: "e-Learning" },
-    { title: "e-NAM registration & manuals", source: "National Agriculture Market", url: "https://enam.gov.in/resources", kind: "Official" },
-    { title: "AgriConnect Products", source: "AgriConnect", url: "/farmer/products", kind: "Practice" },
-  ]},
-  packaging: { name: "Packaging & Post-Harvest", description: "Harvest handling, preservation, grading, packaging, storage, processing and loss reduction.", links: [
-    { title: "ICAR post-harvest publications", source: "ICAR", url: "https://www.icar.gov.in/en/all-publications", kind: "Publication" },
-    { title: "TNAU post-harvest technology", source: "Tamil Nadu Agricultural University", url: "https://agritech.tnau.ac.in/", kind: "Reference" },
-    { title: "ICAR farmer advisories", source: "ICAR", url: "https://icar.gov.in/en/icar-kharif-agro-advisories-farmers-2025", kind: "Advisory" },
-  ]},
-  quality: { name: "Quality & Grading", description: "Quality assessment, grading, food safety and market-quality practices.", links: [
-    { title: "e-NAM quality resources", source: "National Agriculture Market", url: "https://enam.gov.in/resources", kind: "Guides" },
-    { title: "ICAR agricultural publications", source: "ICAR", url: "https://www.icar.gov.in/en/all-publications", kind: "Publication" },
-    { title: "TNAU food safety & quality resources", source: "Tamil Nadu Agricultural University", url: "https://agritech.tnau.ac.in/", kind: "Reference" },
-  ]},
-  storage: { name: "Storage & Cold Chain", description: "Storage, preservation, cold-chain concepts and post-harvest disease management.", links: [
-    { title: "ICAR post-harvest management publications", source: "ICAR", url: "https://www.icar.gov.in/en/all-publications", kind: "Publication" },
-    { title: "TNAU post-harvest technology", source: "Tamil Nadu Agricultural University", url: "https://agritech.tnau.ac.in/", kind: "Reference" },
-  ]},
-  schemes: { name: "Government Schemes & Finance", description: "Official scheme information, farmer services, KCC and government agricultural support.", links: [
-    { title: "PM-KISAN official portal", source: "Government of India", url: "https://www.pmkisan.gov.in/", kind: "Official" },
-    { title: "PM-KISAN farmer services", source: "Government of India", url: "https://www.pmkisan.gov.in/", kind: "Registration & status" },
-    { title: "TNAU schemes & services", source: "Tamil Nadu Agricultural University", url: "https://agritech.tnau.ac.in/", kind: "State reference" },
-  ]},
-  trends: { name: "Market Trends & Demand", description: "Market signals, commodity information, demand context and planning references.", links: [
-    { title: "e-NAM dashboard", source: "National Agriculture Market", url: "https://enam.gov.in/dashboard", kind: "Market data" },
-    { title: "e-NAM commodity list", source: "National Agriculture Market", url: "https://enam.gov.in/commodity/commodity-list", kind: "Commodity reference" },
-    { title: "AgriConnect market prices", source: "AgriConnect", url: "/farmer/market-prices", kind: "Practice" },
-  ]},
-};
 export default function FarmerEducationPage() {
+  const qc = useQueryClient();
+  const [language, setLanguage] = useState("en");
+  const [learningLevel, setLearningLevel] = useState("Beginner");
+  const [interests, setInterests] = useState<string[]>([]);
   const [search, setSearch] = useState("");
-  const [activeTopic, setActiveTopic] = useState<string>("all");
-  const [selectedResource, setSelectedResource] = useState<any | null>(null);
-  const [savedIds, setSavedIds] = useState<string[]>([]);
-  const [completedIds, setCompletedIds] = useState<string[]>([]);
+  const [category, setCategory] = useState("All");
+  const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
+  const [selectedLesson, setSelectedLesson] = useState<Lesson | null>(null);
+  const [assistantQuestion, setAssistantQuestion] = useState("");
+  const [assistantReply, setAssistantReply] = useState<any>(null);
+  const [showSaved, setShowSaved] = useState(false);
+
+  const catalogQuery = useQuery({ queryKey: ["educationCatalog", language], queryFn: () => api.get("/education/catalog", { params: { language } }) });
+  const dashboardQuery = useQuery({ queryKey: ["educationDashboard"], queryFn: () => api.get("/education/me/dashboard") });
+  const recommendationQuery = useQuery({ queryKey: ["educationRecommendations"], queryFn: () => api.get("/education/me/recommendations") });
+  const preferencesQuery = useQuery({ queryKey: ["educationPreferences"], queryFn: () => api.get("/education/me/preferences") });
+  const conversationQuery = useQuery({ queryKey: ["educationConversation"], queryFn: () => api.get("/education/me/conversation") });
+
+  const catalog = catalogQuery.data?.data ?? catalogQuery.data ?? {};
+  const courses: Course[] = catalog.courses ?? [];
+  const dashboard = dashboardQuery.data?.data ?? dashboardQuery.data ?? {};
+  const completedIds: string[] = dashboard.completedLessonIds ?? [];
+  const inProgress: any[] = dashboard.inProgress ?? [];
+  const savedIds: string[] = dashboard.savedResourceIds ?? [];
+  const plans: any[] = dashboard.actionPlans ?? [];
+  const certificates: any[] = dashboard.certificates ?? [];
+  const categories = ["All", ...Array.from(new Set(courses.map((course) => course.category)))];
+
+  const filteredCourses = useMemo(() => courses.filter((course) => {
+    const matchesCategory = category === "All" || course.category === category;
+    const text = [course.title, course.description, course.category].join(" ").toLowerCase();
+    const matchesSearch = !search.trim() || text.includes(search.trim().toLowerCase());
+    const matchesSaved = !showSaved || savedIds.includes(course.id);
+    return matchesCategory && matchesSearch && matchesSaved;
+  }), [courses, category, search, showSaved, savedIds]);
+
+  const progressMutation = useMutation({
+    mutationFn: (body: any) => api.post("/education/me/progress", body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["educationDashboard"] }),
+  });
+  const savedMutation = useMutation({
+    mutationFn: (body: any) => api.post("/education/me/saved", body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["educationDashboard"] }),
+  });
+  const actionMutation = useMutation({
+    mutationFn: (body: any) => api.post("/education/me/action-plans", body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["educationDashboard"] }),
+  });
+  const taskMutation = useMutation({ mutationFn: ({ planId, taskId, completed }: any) => api.patch("/education/me/action-plans/" + planId + "/tasks/" + taskId, { completed }), onSuccess: () => qc.invalidateQueries({ queryKey: ["educationDashboard"] }) });
+  const preferencesMutation = useMutation({ mutationFn: (body:any) => api.put("/education/me/preferences", body), onSuccess: () => qc.invalidateQueries({ queryKey: ["educationPreferences"] }) });
+  const assistantMutation = useMutation({
+    mutationFn: (body: any) => api.post("/education/assistant", body),
+    onSuccess: (response) => { setAssistantReply(response?.data ?? response); qc.invalidateQueries({ queryKey: ["educationConversation"] }); },
+  });
 
   useEffect(() => {
-    try {
-      setSavedIds(JSON.parse(localStorage.getItem("farmerEducation:saved") || "[]"));
-      setCompletedIds(JSON.parse(localStorage.getItem("farmerEducation:completed") || "[]"));
-    } catch {
-      setSavedIds([]);
-      setCompletedIds([]);
+    const prefs = preferencesQuery.data?.data ?? preferencesQuery.data;
+    if (prefs) {
+      setLanguage(prefs.language || "en");
+      setLearningLevel(prefs.learningLevel || "Beginner");
+      setInterests(prefs.interests || []);
     }
-  }, []);
+  }, [preferencesQuery.data]);
 
-  const toggleSaved = (id: string) => {
-    const next = savedIds.includes(id) ? savedIds.filter((x) => x !== id) : [...savedIds, id];
-    setSavedIds(next);
-    localStorage.setItem("farmerEducation:saved", JSON.stringify(next));
+  useEffect(() => {
+    if (selectedCourse) {
+      const fresh = courses.find((course) => course.id === selectedCourse.id);
+      if (fresh) setSelectedCourse(fresh);
+    }
+  }, [courses, selectedCourse?.id]);
+
+  const openLesson = (course: Course, lesson: Lesson) => {
+    setSelectedCourse(course);
+    setSelectedLesson(lesson);
+    progressMutation.mutate({ courseId: course.id, lessonId: lesson.id, status: "in_progress", language });
+  };
+  const completeLesson = () => {
+    if (!selectedCourse || !selectedLesson) return;
+    progressMutation.mutate({ courseId: selectedCourse.id, lessonId: selectedLesson.id, status: "completed", language });
+    setSelectedLesson(null);
+  };
+  const toggleSavedCourse = (course: Course) => savedMutation.mutate({ resourceId: course.id, saved: !savedIds.includes(course.id) });
+  const createActionPlan = () => {
+    if (!selectedCourse || !selectedLesson) return;
+    const tasks = (selectedLesson.actionTasks ?? []).map((title) => ({ title }));
+    if (!tasks.length) return;
+    actionMutation.mutate({ courseId: selectedCourse.id, lessonId: selectedLesson.id, title: selectedLesson.title, tasks }, { onSuccess: () => setSelectedLesson(null) });
   };
 
-  const markCompleted = (id: string) => {
-    if (completedIds.includes(id)) return;
-    const next = [...completedIds, id];
-    setCompletedIds(next);
-    localStorage.setItem("farmerEducation:completed", JSON.stringify(next));
-  };
+  const totalLessons = courses.reduce((sum, course) => sum + (course.lessonCount || 0), 0);
+  const completionPercent = totalLessons ? Math.round((completedIds.length / totalLessons) * 100) : 0;
+  const continueItem = inProgress[0];
+  const continueCourse = courses.find((course) => course.id === continueItem?.courseId);
+  const continueLesson = continueCourse?.lessons.find((lesson) => lesson.id === continueItem?.lessonId);
+  const seasonal = recommendationQuery.data?.data?.seasonal;
 
-  const { data: educationData } = useQuery({
-    queryKey: ["farmerEducation"],
-    queryFn: () => api.get("/education/resources"),
-    retry: 1,
-  });
+  if (catalogQuery.isLoading) return <div className="w-full space-y-5"><div className="h-28 animate-pulse rounded-2xl bg-slate-100" /><div className="grid gap-4 sm:grid-cols-3">{[1,2,3].map((x) => <div key={x} className="h-28 animate-pulse rounded-2xl bg-slate-100" />)}</div><div className="h-72 animate-pulse rounded-2xl bg-slate-100" /></div>;
 
-  const apiResources = useMemo(() => {
-    const list = educationData?.data?.resources || educationData?.data || [];
-    if (Array.isArray(list) && list.length > 0) return list;
-    return RESOURCES;
-  }, [educationData]);
-
-  const filtered = apiResources.filter((r: any) => {
-    const topicMatch = activeTopic === "all" || r.topic === activeTopic;
-    const searchMatch =
-      !search.trim() ||
-      (r.title || "").toLowerCase().includes(search.toLowerCase()) ||
-      (r.type || "").toLowerCase().includes(search.toLowerCase());
-    return topicMatch && searchMatch;
-  });
-
-  const topicInfo = (topic: string) => TOPICS.find((t) => t.id === topic);
-  const learningProgress = apiResources.length
-    ? Math.round((completedIds.filter((id) => apiResources.some((r: any) => String(r.id) === id)).length / apiResources.length) * 100)
-    : 0;
-  const resourceDescription = (r: any) =>
-    r.description ||
-    `A practical ${String(r.type || "learning resource").toLowerCase()} for farmers covering ${topicInfo(r.topic)?.name?.toLowerCase() || "farm management"} with simple, actionable steps.`;
+  if (catalogQuery.isError) return <div className="space-y-4"><h1 className="text-2xl font-bold text-slate-900">Education Center</h1><Card><CardContent className="flex flex-col items-start gap-3 p-6"><p className="font-semibold">Learning courses could not be loaded.</p><p className="text-sm text-slate-500">Check that the FastAPI backend has restarted with the Education Center routes.</p><Button onClick={() => catalogQuery.refetch()}>Try again</Button></CardContent></Card></div>;
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Farmer Education Center</h1>
-        <p className="text-gray-500">Learn to grow smarter, price better, and sell more — in simple language.</p>
-      </div>
+    <div className="w-full min-w-0 space-y-6 pb-8">
+      <section className="rounded-2xl border border-emerald-100 bg-gradient-to-r from-emerald-50 to-white p-5 sm:p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-start gap-3"><div className="rounded-xl bg-emerald-100 p-3 text-emerald-800"><GraduationCap className="h-6 w-6" /></div><div><p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">Farmer learning & development</p><h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900">Education Center</h1><p className="mt-1 max-w-2xl text-sm text-slate-600">Learn practical farming skills through structured courses, local-language lessons and activities you can apply on your farm.</p></div></div>
+          <label className="flex items-center gap-2 self-start rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"><Languages className="h-4 w-4 text-emerald-700" /><select value={language} onChange={(event) => { const next=event.target.value; setLanguage(next); preferencesMutation.mutate({ language:next, learningLevel, interests }); }} className="bg-transparent outline-none">{LANGUAGES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+        </div>
+      </section>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card className="md:col-span-2 border-emerald-100 bg-emerald-50/60">
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className="text-sm font-medium text-emerald-800">My Learning</p>
-                <p className="mt-1 text-2xl font-bold text-emerald-950">{completedIds.length} completed</p>
-                <p className="text-xs text-emerald-700">Keep learning to improve crop, selling and post-harvest decisions.</p>
-              </div>
-              <GraduationCap className="h-10 w-10 text-emerald-600" />
-            </div>
-            <div className="mt-4 h-2 overflow-hidden rounded-full bg-emerald-100">
-              <div className="h-full rounded-full bg-emerald-600 transition-all" style={{ width: `${learningProgress}%` }} />
-            </div>
-            <p className="mt-2 text-xs text-emerald-700">{learningProgress}% progress across available resources</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-5">
-            <p className="text-sm font-medium text-gray-500">Saved resources</p>
-            <p className="mt-1 text-2xl font-bold">{savedIds.length}</p>
-            <p className="text-xs text-gray-500">Quick access to resources you want to revisit.</p>
-          </CardContent>
-        </Card>
-      </div>
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Card className="rounded-xl shadow-sm"><CardContent className="p-4"><p className="text-xs text-slate-500">Available courses</p><p className="mt-1 text-2xl font-bold text-slate-900">{courses.length}</p></CardContent></Card>
+        <Card className="rounded-xl shadow-sm"><CardContent className="p-4"><p className="text-xs text-slate-500">Lessons completed</p><p className="mt-1 text-2xl font-bold text-slate-900">{completedIds.length}<span className="text-sm font-normal text-slate-500"> / {totalLessons}</span></p></CardContent></Card>
+        <Card className="rounded-xl shadow-sm"><CardContent className="p-4"><p className="text-xs text-slate-500">Learning progress</p><p className="mt-1 text-2xl font-bold text-emerald-700">{completionPercent}%</p><div className="mt-2 h-1.5 rounded-full bg-slate-100"><div className="h-1.5 rounded-full bg-emerald-600" style={{ width: completionPercent + "%" }} /></div></CardContent></Card>
+        <Card className="rounded-xl shadow-sm"><CardContent className="p-4"><p className="text-xs text-slate-500">Saved courses</p><p className="mt-1 text-2xl font-bold text-slate-900">{savedIds.length}</p></CardContent></Card>
+      </section>
 
-      <div className="relative max-w-md">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-        <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search resources..." className="pl-9" />
-      </div>
+      {continueCourse && continueLesson && <Card className="overflow-hidden rounded-2xl border-emerald-200 shadow-sm"><CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5"><div className="flex items-start gap-3"><div className="rounded-xl bg-emerald-50 p-3 text-emerald-700"><PlayCircle className="h-6 w-6" /></div><div><Badge variant="outline" className="border-emerald-200 text-emerald-700">Continue learning</Badge><h2 className="mt-1 font-semibold text-slate-900">{continueCourse.title}</h2><p className="text-sm text-slate-500">{continueLesson.title}</p></div></div><Button onClick={() => openLesson(continueCourse, continueLesson)}>Resume lesson <ChevronRight className="ml-1 h-4 w-4" /></Button></CardContent></Card>}
 
-      <div className="flex flex-wrap gap-2">
-        <button
-          onClick={() => setActiveTopic("all")}
-          className={cn(
-            "rounded-full px-4 py-2 text-sm font-medium transition-colors",
-            activeTopic === "all" ? "bg-emerald-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-          )}
-        >
-          All topics
-        </button>
-        {TOPICS.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setActiveTopic(t.id)}
-            className={cn(
-              "rounded-full px-4 py-2 text-sm font-medium transition-colors",
-              activeTopic === t.id ? "bg-emerald-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-            )}
-          >
-            {t.name}
-          </button>
-        ))}
-      </div>
+      {seasonal && <Card className="rounded-2xl border-sky-100 bg-sky-50/40 shadow-sm"><CardContent className="flex items-start gap-3 p-4"><Sprout className="mt-1 h-5 w-5 text-sky-700" /><div><p className="font-semibold text-slate-900">Seasonal learning suggestion</p><p className="mt-1 text-sm font-medium text-sky-900">{seasonal.title}</p><p className="mt-1 text-sm text-slate-600">{seasonal.description}</p><p className="mt-2 text-xs text-slate-500">{seasonal.basis}</p></div></CardContent></Card>}
 
-      {activeTopic !== "all" && (
-        <Card className="border-violet-200 bg-gradient-to-br from-violet-50 to-emerald-50">
-          <CardContent className="flex items-center gap-3 p-4">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-violet-100 text-violet-700">
-              <Sparkles className="h-5 w-5" />
-            </div>
-            <p className="text-sm text-violet-900">
-              AI pick for you: "You grow produce that needs careful handling. Start with{" "}
-              <span className="font-semibold">how to grade your harvest</span> and{" "}
-              <span className="font-semibold">cold-chain basics</span>."
-            </p>
-          </CardContent>
-        </Card>
-      )}
-
-      {activeTopic === "all" ? (
-        <div className="space-y-8">
-          {TOPICS.map((topic) => {
-            const group = SOURCE_GROUPS[topic.id];
-            const topicResources = filtered.filter((r: any) => r.topic === topic.id);
-            if (!group) return null;
-            return (
-              <section key={topic.id} className="space-y-3">
-                <div className="flex items-end justify-between gap-3">
-                  <div>
-                    <h2 className="text-lg font-semibold">{group.name}</h2>
-                    <p className="text-sm text-gray-500">{group.description}</p>
-                  </div>
-                  <Badge variant="outline">{group.links.length} sources</Badge>
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {group.links.map((link) => (
-                    <Card key={link.title} className="transition-shadow hover:shadow-md">
-                      <CardHeader>
-                        <div className="flex items-center justify-between gap-2">
-                          <Badge variant="outline">{link.kind}</Badge>
-                          <span className="text-xs text-gray-400">{link.source}</span>
-                        </div>
-                        <CardTitle className="text-base leading-snug">{link.title}</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <a href={link.url} target={link.url.startsWith("http") ? "_blank" : undefined} rel={link.url.startsWith("http") ? "noreferrer" : undefined} className="block rounded-md bg-emerald-600 px-3 py-2 text-center text-sm font-medium text-white hover:bg-emerald-700">
-                          Open learning source
-                        </a>
-                      </CardContent>
-                    </Card>
-                  ))}
-                  {topicResources.map((r: any) => (
-                    <Card key={r.id || r.title} className="transition-shadow hover:shadow-md">
-                      <CardHeader>
-                        <Badge variant="secondary">AgriConnect learning</Badge>
-                        <CardTitle className="text-base leading-snug">{r.title}</CardTitle>
-                        <CardDescription>{r.description}</CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <button type="button" onClick={() => setSelectedResource(r)} className="w-full rounded-md border px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50">
-                          Learn in AgriConnect
-                        </button>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              </section>
-            );
+      <section className="space-y-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><h2 className="text-lg font-semibold text-slate-900">{showSaved ? "My saved courses" : "Explore courses"}</h2><p className="text-sm text-slate-500">Structured learning with short lessons and practical activities.</p></div><div className="flex flex-col gap-2 sm:flex-row"><div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search courses..." className="pl-9 sm:w-64" /></div><Button variant={showSaved ? "default" : "outline"} onClick={() => setShowSaved((value) => !value)}><Bookmark className="mr-2 h-4 w-4" />{showSaved ? "All courses" : "Saved"}</Button></div></div>
+        <div className="flex gap-2 overflow-x-auto pb-1">{categories.map((item) => <button key={item} type="button" onClick={() => setCategory(item)} className={cn("shrink-0 rounded-full border px-3 py-2 text-sm", category === item ? "border-emerald-700 bg-emerald-700 text-white" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50")}>{item}</button>)}</div>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {filteredCourses.map((course) => {
+            const courseCompleted = course.lessons.filter((lesson) => completedIds.includes(lesson.id)).length;
+            const pct = course.lessonCount ? Math.round(courseCompleted / course.lessonCount * 100) : 0;
+            const saved = savedIds.includes(course.id);
+            return <Card key={course.id} className="flex h-full flex-col rounded-2xl border-slate-200 shadow-sm transition hover:border-emerald-200 hover:shadow-md"><CardHeader className="space-y-3 pb-3"><div className="flex items-center justify-between"><Badge variant="outline">{course.category}</Badge><Badge className="bg-slate-100 text-slate-700 hover:bg-slate-100">{course.level}</Badge></div><div><CardTitle className="text-lg leading-6">{course.title}</CardTitle><CardDescription className="mt-2 line-clamp-3">{course.description}</CardDescription></div></CardHeader><CardContent className="mt-auto space-y-3"><div className="flex items-center justify-between text-xs text-slate-500"><span className="inline-flex items-center gap-1"><BookOpen className="h-3.5 w-3.5" />{course.lessonCount} lessons</span><span className="inline-flex items-center gap-1"><Clock3 className="h-3.5 w-3.5" />{course.estimatedMinutes} min</span></div><div><div className="mb-1 flex justify-between text-xs"><span className="text-slate-500">Course progress</span><span className="font-medium text-slate-700">{pct}%</span></div><div className="h-1.5 rounded-full bg-slate-100"><div className="h-1.5 rounded-full bg-emerald-600" style={{ width: pct + "%" }} /></div></div><div className="flex gap-2"><Button className="flex-1" onClick={() => setSelectedCourse(course)}>View course <ChevronRight className="ml-1 h-4 w-4" /></Button><Button variant="outline" size="icon" aria-label={saved ? "Unsave course" : "Save course"} onClick={() => toggleSavedCourse(course)}><Bookmark className={cn("h-4 w-4", saved && "fill-current text-emerald-700")} /></Button></div></CardContent></Card>;
           })}
+          {filteredCourses.length === 0 && <Card className="border-dashed md:col-span-2 xl:col-span-3"><CardContent className="py-12 text-center"><BookOpen className="mx-auto h-8 w-8 text-slate-400" /><p className="mt-3 font-semibold text-slate-800">No courses match this view</p><p className="mt-1 text-sm text-slate-500">Change your search or category filter.</p></CardContent></Card>}
         </div>
-      ) : (
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {filtered.map((r: any) => {
-          const topic = topicInfo(r.topic);
-          const Icon = topic?.icon || BookOpen;
-          const resourceId = String(r.id || r.title);
-          const isSaved = savedIds.includes(resourceId);
-          const isCompleted = completedIds.includes(resourceId);
-          return (
-            <Card key={resourceId} className="transition-shadow hover:shadow-md">
-              <CardHeader className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className={cn("flex h-9 w-9 items-center justify-center rounded-lg", topic?.color)}>
-                    <Icon className="h-4.5 w-4.5 h-5 w-5" />
-                  </div>
-                  <Badge variant="outline">{r.level}</Badge>
-                </div>
-                <CardTitle className="text-base leading-snug">{r.title}</CardTitle>
-                <CardDescription className="flex items-center gap-2">
-                  {r.type === "Video" ? <PlayCircle className="h-3.5 w-3.5" /> : <BookOpen className="h-3.5 w-3.5" />}
-                  {r.type} · {r.readTime}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="flex items-center gap-2 pt-0">
-                <button type="button" onClick={() => setSelectedResource(r)} className="flex-1 rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700">
-                  Open resource
-                </button>
-                <button type="button" onClick={() => toggleSaved(resourceId)} className={cn("rounded-md border px-3 py-2 text-sm", isSaved ? "border-amber-300 bg-amber-50 text-amber-700" : "border-gray-200 text-gray-600")}>
-                  {isSaved ? "Saved" : "Save"}
-                </button>
-                {isCompleted && <Badge variant="secondary">Done</Badge>}
-              </CardContent>
-            </Card>
-          );
-        })}
-        {filtered.length === 0 && (
-          <Card className="sm:col-span-2 lg:col-span-3">
-            <CardContent className="py-10 text-center text-sm text-gray-400">
-              No resources found for that topic. Check back soon.
-            </CardContent>
-          </Card>
-        )}
-      </div>
-      )}
+      </section>
 
-      {selectedResource && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true">
-          <Card className="max-h-[85vh] w-full max-w-2xl overflow-y-auto">
-            <CardHeader>
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <Badge variant="outline">{selectedResource.type || "Resource"}</Badge>
-                  <CardTitle className="mt-3 text-xl">{selectedResource.title}</CardTitle>
-                  <CardDescription className="mt-2">
-                    {topicInfo(selectedResource.topic)?.name || "Farmer learning"} · {selectedResource.readTime || "Practical guide"}
-                  </CardDescription>
-                </div>
-                <button type="button" onClick={() => setSelectedResource(null)} className="rounded-md border px-3 py-1 text-sm text-gray-600">Close</button>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-5">
-              <div className="rounded-lg bg-gray-50 p-4 text-sm leading-6 text-gray-700">{resourceDescription(selectedResource)}</div>
-              <div>
-                <h3 className="font-semibold">What you will learn</h3>
-                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-gray-600">
-                  <li>Key practices and decisions for this topic.</li>
-                  <li>Simple steps you can apply on your farm.</li>
-                  <li>Common mistakes to avoid and when to seek expert help.</li>
-                </ul>
-              </div>
-              {selectedResource.url && (
-                selectedResource.url.startsWith("http") ? (
-                  <a
-                    href={selectedResource.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex rounded-md border px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50"
-                  >
-                    Open official source
-                  </a>
-                ) : (
-                  <a
-                    href={selectedResource.url}
-                    className="inline-flex rounded-md border px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50"
-                  >
-                    Open in AgriConnect
-                  </a>
-                )
-              )}
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => { markCompleted(String(selectedResource.id || selectedResource.title)); setSelectedResource(null); }}
-                  className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
-                >
-                  Mark as completed
-                </button>
-                <button
-                  type="button"
-                  onClick={() => toggleSaved(String(selectedResource.id || selectedResource.title))}
-                  className="rounded-md border px-4 py-2 text-sm font-medium"
-                >
-                  {savedIds.includes(String(selectedResource.id || selectedResource.title)) ? "Remove from saved" : "Save for later"}
-                </button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
+      {certificates.length > 0 && <section className="space-y-3"><div><h2 className="text-lg font-semibold text-slate-900">My course certificates</h2><p className="text-sm text-slate-500">Certificates are issued when every published lesson in a course is completed.</p></div><div className="grid gap-3 md:grid-cols-2">{certificates.map((certificate:any)=><Card key={certificate.id} className="border-emerald-200"><CardContent className="flex items-center gap-3 p-4"><div className="rounded-xl bg-emerald-50 p-3 text-emerald-700"><GraduationCap className="h-6 w-6" /></div><div className="min-w-0"><p className="font-semibold text-slate-900">{certificate.courseTitle}</p><p className="text-xs text-slate-500">{certificate.certificateNumber}</p><p className="mt-1 text-xs text-emerald-700">{certificate.completedLessons} lessons completed · {new Date(certificate.issuedAt).toLocaleDateString()}</p></div></CardContent></Card>)}</div></section>}
 
-      <Card className="border-emerald-200 bg-gradient-to-br from-emerald-50 to-teal-50">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <GraduationCap className="h-5 w-5 text-emerald-600" />
-            Personalized learning
-          </CardTitle>
-          <CardDescription>
-            As you add crops, the education center will recommend resources matched to your current crop stage, season, and location.
-          </CardDescription>
-        </CardHeader>
-      </Card>
+      <section className="grid gap-4 xl:grid-cols-2">
+        <Card className="rounded-2xl shadow-sm"><CardHeader><CardTitle className="flex items-center gap-2 text-base"><Bot className="h-5 w-5 text-emerald-700" /> Ask the learning assistant</CardTitle><CardDescription>Ask questions in your selected language. Responses use the AgriConnect AI assistant with recent conversation context and verified lesson references where available.</CardDescription></CardHeader><CardContent className="space-y-3"><form onSubmit={(event) => { event.preventDefault(); if (assistantQuestion.trim()) assistantMutation.mutate({ question: assistantQuestion, language }); }} className="flex gap-2"><Input value={assistantQuestion} onChange={(event) => setAssistantQuestion(event.target.value)} placeholder="Ask about soil, irrigation, pests or farm selling..." /><Button type="submit" disabled={assistantMutation.isPending || assistantQuestion.trim().length < 3}>{assistantMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Ask"}</Button></form>{assistantReply && <>{(conversationQuery.data?.data?.messages || []).slice(-6).map((message:any,index:number)=><div key={index} className={cn("mb-2 rounded-lg p-3 text-sm",message.role==="user"?"ml-8 bg-emerald-50 text-emerald-900":"mr-8 bg-slate-50 text-slate-700")}><p className="mb-1 text-[10px] font-semibold uppercase text-slate-400">{message.role==="user"?"You":"Assistant"}</p>{message.content}</div>)}<div className="rounded-xl bg-slate-50 p-4"><p className="whitespace-pre-line text-sm leading-6 text-slate-700">{assistantReply.reply}</p>{assistantReply.sources?.length > 0 && <div className="mt-3 border-t pt-3"><p className="text-xs font-semibold text-slate-500">LESSONS USED</p>{assistantReply.sources.map((source: any) => <p key={source.lessonId} className="mt-1 text-xs text-emerald-800">{source.title}</p>)}</div>}{assistantReply.disclaimer && <p className="mt-3 text-xs text-slate-500">{assistantReply.disclaimer}</p>}</div></>}{assistantMutation.isError && <p className="text-sm text-red-600">The learning assistant is unavailable. Please try again.</p>}</CardContent></Card>
+        <Card className="rounded-2xl shadow-sm"><CardHeader><CardTitle className="flex items-center gap-2 text-base"><ClipboardCheck className="h-5 w-5 text-emerald-700" /> My farm action plans</CardTitle><CardDescription>Turn lesson activities into trackable tasks.</CardDescription></CardHeader><CardContent className="space-y-3"><div className="mb-4 rounded-xl border p-3"><p className="text-sm font-semibold text-slate-800">Learning preferences</p><div className="mt-2 flex flex-wrap items-center gap-2"><select value={learningLevel} onChange={e=>{setLearningLevel(e.target.value);preferencesMutation.mutate({language,learningLevel:e.target.value,interests})}} className="h-9 rounded-lg border px-2 text-sm"><option>Beginner</option><option>Intermediate</option><option>Advanced</option></select>{["Crop Management","Irrigation","Pest Management","Farm Business","Post-harvest"].map(item=><label key={item} className="flex items-center gap-1 text-xs"><input type="checkbox" checked={interests.includes(item)} onChange={e=>{const next=e.target.checked?[...interests,item]:interests.filter(x=>x!==item);setInterests(next);preferencesMutation.mutate({language,learningLevel,interests:next})}} />{item}</label>)}</div><p className="mt-2 text-xs text-slate-500">Preferences are saved to your farmer account.</p></div>{plans.length ? plans.slice(0,4).map((plan: any) => <div key={plan.id} className="rounded-xl border p-3"><p className="font-medium text-slate-800">{plan.title}</p><p className="mt-1 text-xs text-slate-500">{plan.tasks?.filter((task: any) => task.completed).length || 0} of {plan.tasks?.length || 0} tasks completed</p><div className="mt-3 space-y-2">{(plan.tasks||[]).map((task:any)=><label key={task.id} className="flex items-start gap-2 text-sm text-slate-700"><input type="checkbox" checked={Boolean(task.completed)} disabled={taskMutation.isPending} onChange={event=>taskMutation.mutate({planId:plan.id,taskId:task.id,completed:event.target.checked})} className="mt-1 accent-emerald-700" /><span className={task.completed?"text-slate-400 line-through":""}>{task.title}</span></label>)}</div></div>) : <div className="rounded-xl border border-dashed p-6 text-center"><ClipboardCheck className="mx-auto h-7 w-7 text-slate-400" /><p className="mt-2 text-sm text-slate-600">No action plans yet. Open a lesson and create a practical checklist.</p></div>}</CardContent></Card>
+      </section>
+
+      {selectedCourse && <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/50 p-3" role="dialog" aria-modal="true" aria-label="Course details"><Card className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl"><CardHeader className="border-b"><div className="flex items-start justify-between gap-3"><div><Badge variant="outline">{selectedCourse.category}</Badge><CardTitle className="mt-2 text-xl">{selectedCourse.title}</CardTitle><CardDescription className="mt-1">{selectedCourse.description}</CardDescription></div><Button variant="ghost" size="icon" onClick={() => setSelectedCourse(null)}><X className="h-5 w-5" /></Button></div></CardHeader><CardContent className="space-y-3 p-4 sm:p-6"><p className="text-sm font-semibold text-slate-700">Course curriculum · {selectedCourse.lessonCount} lessons</p>{selectedCourse.lessons.map((lesson) => { const done = completedIds.includes(lesson.id); return <div key={lesson.id} className="flex flex-col gap-3 rounded-xl border p-3 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-start gap-3"><div className="rounded-lg bg-emerald-50 p-2 text-emerald-700">{done ? <CheckCircle2 className="h-5 w-5" /> : <PlayCircle className="h-5 w-5" />}</div><div><p className="font-medium text-slate-900">{lesson.order}. {lesson.title}</p><p className="mt-1 text-sm text-slate-500">{lesson.summary}</p><p className="mt-1 text-xs text-slate-400">{lesson.estimatedMinutes || 10} minutes</p></div></div><Button variant={done ? "outline" : "default"} onClick={() => openLesson(selectedCourse, lesson)}>{done ? "Review lesson" : "Start lesson"}</Button></div>; })}</CardContent></Card></div>}
+
+      {selectedLesson && selectedCourse && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-3" role="dialog" aria-modal="true" aria-label="Lesson viewer"><Card className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-2xl"><CardHeader className="border-b"><div className="flex items-start justify-between"><div><Badge variant="outline">{selectedCourse.category}</Badge><CardTitle className="mt-2 text-xl">{selectedLesson.title}</CardTitle><CardDescription>{selectedLesson.summary}</CardDescription></div><Button variant="ghost" size="icon" onClick={() => setSelectedLesson(null)}><X className="h-5 w-5" /></Button></div></CardHeader><CardContent className="space-y-5 p-4 sm:p-6">{selectedLesson.videoUrl && <video controls className="w-full rounded-xl" src={selectedLesson.videoUrl}>Your browser does not support video playback.</video>}<article className="whitespace-pre-line text-sm leading-7 text-slate-700">{selectedLesson.content}</article>{selectedLesson.sourceUrl && <a href={selectedLesson.sourceUrl} target="_blank" rel="noreferrer" className="text-sm font-medium text-emerald-700 underline">Source: {selectedLesson.sourceName || "Reference"}</a>}<div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-4"><div className="flex items-center gap-2 font-semibold text-slate-900"><ClipboardCheck className="h-4 w-4 text-emerald-700" /> Practical farm checklist</div>{selectedLesson.actionTasks?.length ? <ul className="mt-3 space-y-2">{selectedLesson.actionTasks.map((task, index) => <li key={index} className="flex gap-2 text-sm text-slate-700"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />{task}</li>)}</ul> : <p className="mt-2 text-sm text-slate-500">No checklist has been added to this lesson yet.</p>}<Button variant="outline" className="mt-3" disabled={!selectedLesson.actionTasks?.length || actionMutation.isPending} onClick={createActionPlan}>Add checklist to my action plans</Button></div><div className="flex flex-wrap justify-end gap-2 border-t pt-4"><Button variant="outline" onClick={() => setSelectedLesson(null)}>Close lesson</Button><Button onClick={completeLesson} disabled={progressMutation.isPending}><CheckCircle2 className="mr-2 h-4 w-4" />Mark as completed</Button></div></CardContent></Card></div>}
     </div>
   );
 }

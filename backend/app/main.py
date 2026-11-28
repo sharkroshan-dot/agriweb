@@ -12,6 +12,7 @@ from bson import ObjectId
 import fastapi.encoders as _fastapi_encoders
 
 from app.core.config import settings
+from app.core.upload_storage import get_upload_directory
 from app.core.logging import setup_logging
 from app.core.exceptions import setup_exception_handlers
 from app.database.mongodb import MongoDB
@@ -85,6 +86,7 @@ async def lifespan(app: FastAPI):
     expiry_task = None
     workflow_task = None
     recurring_supply_task = None
+    basket_task = None
     try:
         await MongoDB.connect()
         await RedisClient.connect()
@@ -154,11 +156,13 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+OPENAPI_URL = app.openapi_url
+
 
 @app.get("/api/docs", include_in_schema=False)
 async def swagger_ui_with_api_count():
         docs = get_swagger_ui_html(
-                openapi_url=app.openapi_url,
+                openapi_url=OPENAPI_URL,
                 title=f"{settings.PROJECT_NAME} - Swagger UI",
                 oauth2_redirect_url="/docs/oauth2-redirect",
         )
@@ -199,8 +203,8 @@ async def swagger_ui_oauth2_redirect():
         return get_swagger_ui_oauth2_redirect_html()
 
 # Serve uploaded files
-os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")
+UPLOAD_DIRECTORY = get_upload_directory()
+app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIRECTORY), check_dir=True), name="uploads")
 
 # Rate limiting (per-IP, stricter on auth endpoints).
 # Register before CORS so CORS remains the outermost middleware and browser
@@ -208,23 +212,25 @@ app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads"
 from app.middleware.rate_limit import RateLimitMiddleware
 app.add_middleware(RateLimitMiddleware)
 
-# CORS
-cors_origins = settings.BACKEND_CORS_ORIGINS
-cors_regex = settings.BACKEND_CORS_ORIGIN_REGEX
-if settings.DEBUG:
-    cors_regex = r".*"
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=cors_origins,
-    allow_origin_regex=cors_regex or None,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 # Security headers (CSP, HSTS, X-Frame-Options, etc.)
 from app.middleware.security_headers import SecurityHeadersMiddleware
 app.add_middleware(SecurityHeadersMiddleware)
+
+# CORS must be the outermost user middleware so its headers are also attached
+# to error responses from downstream middleware/endpoints. Explicitly allow the
+# local Next.js dev origins even when BACKEND_CORS_ORIGINS is unset in .env.
+configured_origins = list(settings.BACKEND_CORS_ORIGINS or [])
+local_dev_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+cors_origins = list(dict.fromkeys([*configured_origins, *local_dev_origins]))
+cors_regex = settings.BACKEND_CORS_ORIGIN_REGEX
+if settings.DEBUG and not cors_regex:
+    cors_regex = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
+# CORS is applied as an outer ASGI wrapper at the end of this module.
+# This ensures CORS headers are added even when Starlette's server-error
+# middleware turns an unhandled exception into a 500 response.
 
 # Exception handlers
 setup_exception_handlers(app)
@@ -276,6 +282,7 @@ async def health_check():
 from app.api.v1 import auth, users, products, orders, payments, farmers, warehouse, delivery, notifications, analytics, community_delivery, customers, marketplace, logistics, community_buying, farmer_offers, cooperatives, settlements
 from app.api.v1 import admin, coupons, complaints, kyc, settings as settings_router, delivery_ratings
 from app.api.v1 import quality, workflow
+from app.api.v1 import education
 from app.api.v1 import ai
 _ai_router = ai.router
 
@@ -328,6 +335,7 @@ from app.api.v1 import refunds
 app.include_router(refunds.router, prefix="/api/v1/refunds", tags=["Refunds"])
 app.include_router(quality.router, prefix="/api/v1/quality", tags=["Quality"])
 app.include_router(workflow.router, prefix="/api/v1/workflow", tags=["Workflow"])
+app.include_router(education.router, prefix="/api/v1/education", tags=["Education Center"])
 app.include_router(_ai_router, prefix="/api/v1/ai", tags=["AI"])
 
 if __name__ == "__main__":
@@ -342,3 +350,16 @@ if __name__ == "__main__":
 app.include_router(settlements.router, prefix="/api/v1/settlements", tags=["Settlements"])
 from app.api.v1 import local_hubs
 app.include_router(local_hubs.router, prefix="/api/v1", tags=["Local Hubs"])
+
+# Wrap the fully configured FastAPI app so CORS also covers unhandled 500
+# responses. Adding CORSMiddleware with add_middleware alone places it inside
+# Starlette's ServerErrorMiddleware, which can produce browser-visible
+# "No Access-Control-Allow-Origin" errors when an endpoint crashes.
+app = CORSMiddleware(
+    app,
+    allow_origins=cors_origins,
+    allow_origin_regex=cors_regex or None,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)

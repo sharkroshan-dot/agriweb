@@ -1,6 +1,6 @@
 from typing import Optional, Dict, Any, List
 from bson import ObjectId
-from datetime import datetime
+from datetime import datetime, timedelta
 from app.repositories.base_repository import BaseRepository
 import logging
 
@@ -22,7 +22,18 @@ class SessionRepository(BaseRepository):
     async def get_active_by_user(self, user_id: str, limit: int = 50) -> List[Dict[str, Any]]:
         try:
             return await self.find_many(
-                {"userId": ObjectId(user_id), "revoked": False, "deletedAt": None},
+                {
+                    "userId": ObjectId(user_id),
+                    "revoked": False,
+                    "deletedAt": None,
+                    "$or": [
+                        {"expiresAt": {"$gt": datetime.utcnow()}},
+                        {
+                            "expiresAt": {"$exists": False},
+                            "lastSeenAt": {"$gt": datetime.utcnow() - timedelta(minutes=30)},
+                        },
+                    ],
+                },
                 sort=[("lastSeenAt", -1)],
                 limit=limit,
             )
@@ -64,7 +75,18 @@ class SessionRepository(BaseRepository):
 
     async def count_active(self, user_id: str) -> int:
         try:
-            return await self.count({"userId": ObjectId(user_id), "revoked": False, "deletedAt": None})
+            return await self.count({
+                "userId": ObjectId(user_id),
+                "revoked": False,
+                "deletedAt": None,
+                "$or": [
+                    {"expiresAt": {"$gt": datetime.utcnow()}},
+                    {
+                        "expiresAt": {"$exists": False},
+                        "lastSeenAt": {"$gt": datetime.utcnow() - timedelta(minutes=30)},
+                    },
+                ],
+            })
         except Exception as e:
             logger.error(f"Session count error: {e}")
             return 0

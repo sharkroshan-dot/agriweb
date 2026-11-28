@@ -1,6 +1,6 @@
 import { getSession } from "next-auth/react";
 
-type HttpMethod = "GET" | "POST" | "PUT" | "DELETE";
+type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 let sessionPromise: Promise<any> | null = null;
 let sessionCache: { value: any; expiresAt: number } | null = null;
@@ -331,6 +331,8 @@ export const api = {
     request<T>("POST", path, { ...options, body }),
   put: <T = any>(path: string, body?: unknown, options?: Omit<ApiRequestOptions, "body">) =>
     request<T>("PUT", path, { ...options, body }),
+  patch: <T = any>(path: string, body?: unknown, options?: Omit<ApiRequestOptions, "body">) =>
+    request<T>("PATCH", path, { ...options, body }),
   delete: <T = any>(path: string, options?: ApiRequestOptions) => request<T>("DELETE", path, options),
   blob: (path: string, options?: ApiRequestOptions) => requestBlob(path, options),
   upload: (path: string, file: File) => uploadFile(path, file),

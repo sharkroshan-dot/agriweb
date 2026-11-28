@@ -33,6 +33,7 @@ interface MapProps {
     label?: string;
     displayLabel?: string;
     info?: string;
+    hoverInfo?: string;
     address?: string;
   }>;
   route?: Array<{ lat: number; lng: number }>;
@@ -264,7 +265,8 @@ export function Map({
       const inst = mapInstanceRef.current;
       const l = libsRef.current;
       if (!inst || !l) return;
-      const stops = stopsRef.current.filter(Boolean);
+      const markerStops = stopsRef.current.filter(Boolean);
+      const stops = route.length > 0 ? route.filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng)) : markerStops;
       if (stops.length === 0) return;
       const user = userPosRef.current;
 
@@ -280,7 +282,8 @@ export function Map({
       }
 
       clearRouteLine();
-      const points = user ? [user, ...stops] : stops;
+      const remainingStops = route.length >= 2 ? stops : markerStops;
+      const points = user ? [user, ...remainingStops] : remainingStops;
       const origin = { lat: points[0].lat, lng: points[0].lng };
       const destination = { lat: points[points.length - 1].lat, lng: points[points.length - 1].lng };
       const waypoints = points.slice(1, -1).map((p) => ({
@@ -297,6 +300,18 @@ export function Map({
           strokeColor: "#2563EB",
           strokeWeight: 5,
           strokeOpacity: 0.9,
+          icons: [{
+            icon: {
+              path: _maps.SymbolPath?.FORWARD_CLOSED_ARROW ?? "M 0,-1 1,1 -1,1 z",
+              scale: 3,
+              strokeColor: "#ffffff",
+              strokeWeight: 1,
+              fillColor: "#1D4ED8",
+              fillOpacity: 1,
+            },
+            offset: "50%",
+            repeat: "120px",
+          }],
           map: inst,
         });
         routeLineRef.current = line;
@@ -344,33 +359,20 @@ export function Map({
         title: marker.title || "",
       };
       if (marker.displayLabel) {
-        // Grouped delivery markers use a simple label above a small location
-        // pin. The label is the visual summary; clicking it still opens the
-        // full order details in the page panel.
-        const label = String(marker.displayLabel).replace(/\s+/g, " ").trim();
+        // Transparent grouped-location label: no white card behind the order count.
+        const label = String(marker.displayLabel).replace(/\\s+/g, " ").trim();
         const escapeSvg = (value: string) =>
-          value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-        // Keep the map marker intentionally minimal: only the grouped
-        // customer/product summary above a small location pin. Quantity,
-        // order IDs, selection state and route details belong in the panel
-        // opened after clicking the marker.
-        // Compact, readable marker: short label badge + clear pin.
-        // Full order details remain in the farmer panel after clicking.
-        // Use the familiar 📍 map-pin glyph requested by the farmer.
-        // Keep the label above it, but do not draw a custom triangle/circle pin.
+          value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\"/g, "&quot;");
         const markerParts = label.split(" · ");
-        const displayLine1 = markerParts.shift() || label;
-        const displayLine2 = markerParts.join(" · ");
-        const line1 = displayLine1.length > 28 ? displayLine1.slice(0, 26) + "…" : displayLine1;
-        const line2 = displayLine2.length > 32 ? displayLine2.slice(0, 30) + "…" : displayLine2;
-        const width = Math.min(270, Math.max(150, Math.max(line1.length, line2.length) * 6.2 + 28));
-        const height = line2 ? 88 : 70;
+        const stopNumber = markerParts.shift() || label;
+        const orderCount = markerParts.join(" · ");
+        const width = Math.min(190, Math.max(92, Math.max(stopNumber.length * 9, orderCount.length * 6.5) + 24));
+        const height = 62;
         const textX = width / 2;
         const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
-          <rect x="3" y="3" width="${width - 6}" height="${line2 ? 48 : 28}" rx="8" fill="#ffffff" fill-opacity="0.97" stroke="#cbd5e1" stroke-width="1.5"/>
-          <text x="${textX}" y="21" text-anchor="middle" fill="#0f172a" font-family="Arial,sans-serif" font-size="12" font-weight="700">${escapeSvg(line1)}</text>
-          ${line2 ? `<text x="${textX}" y="41" text-anchor="middle" fill="#475569" font-family="Arial,sans-serif" font-size="11" font-weight="600">${escapeSvg(line2)}</text>` : ""}
-          <text x="${textX}" y="${line2 ? 78 : 59}" text-anchor="middle" font-family="Arial,sans-serif" font-size="25">📍</text>
+          <text x="${textX}" y="15" text-anchor="middle" fill="#047857" stroke="#ffffff" stroke-width="4" paint-order="stroke" stroke-linejoin="round" font-family="Arial,sans-serif" font-size="13" font-weight="800">${escapeSvg(stopNumber)}</text>
+          ${orderCount ? `<text x="${textX}" y="29" text-anchor="middle" fill="#0f172a" stroke="#ffffff" stroke-width="4" paint-order="stroke" stroke-linejoin="round" font-family="Arial,sans-serif" font-size="11" font-weight="700">${escapeSvg(orderCount)}</text>` : ""}
+          <text x="${textX}" y="57" text-anchor="middle" font-family="Arial,sans-serif" font-size="25">📍</text>
         </svg>`;
         markerOptions.icon = {
           url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
@@ -378,15 +380,20 @@ export function Map({
           anchor: new core.Point(width / 2, height),
         };
       } else if (marker.color || marker.label) {
-        // Colored pin with an optional glyph (letter/number).
-        const pin = new markerLib.PinElement({
-          background: marker.color || "#EF4444",
-          borderColor: marker.color || "#EF4444",
-          glyphColor: "#FFFFFF",
-          scale: 1.2,
-          glyph: marker.label || "",
-        });
-        markerOptions.icon = pin.element;
+        // Use a high-contrast, opaque badge for stop numbers. PinElement glyphs
+        // can appear as white text directly over map tiles on some Maps builds.
+        const label = String(marker.label || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+        const width = Math.max(34, Math.min(116, label.length * 9 + 20));
+        const height = 38;
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+          <rect x="2" y="2" width="${width - 4}" height="34" rx="17" fill="#047857" stroke="#ffffff" stroke-width="3"/>
+          <text x="${width / 2}" y="24" text-anchor="middle" fill="#ffffff" stroke="#064e3b" stroke-width="1.2" paint-order="stroke" font-family="Arial,sans-serif" font-size="14" font-weight="700">${label}</text>
+        </svg>`;
+        markerOptions.icon = {
+          url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
+          scaledSize: new core.Size(width, height),
+          anchor: new core.Point(width / 2, height / 2),
+        };
       } else if (marker.icon) {
         markerOptions.icon = {
           url: marker.icon,
@@ -395,14 +402,24 @@ export function Map({
       }
       const markerInstance = new markerLib.Marker(markerOptions);
 
-      if (marker.info) {
+      if (marker.hoverInfo || marker.info) {
         const infoWindow = new _maps.InfoWindow({
-          content: `<div style="padding: 8px; max-width: 200px;">
+          // Put the location name and grouped order count in the popup header
+          // so useful information starts at the very top of the window.
+          headerContent: marker.title || "",
+          content: marker.hoverInfo || `<div style="padding: 8px; max-width: 200px;">
             <strong>${marker.title || ""}</strong>
             <p style="margin: 4px 0; font-size: 12px;">${marker.info}</p>
           </div>`,
+          maxWidth: 360,
         });
 
+        markerInstance.addListener("mouseover", () => {
+          infoWindow.open(mapInstance, markerInstance);
+        });
+        // Keep the info window open while the pointer moves from the pin
+        // into the popup, so users can scroll through every order in the group.
+        // The user can dismiss it with the InfoWindow close button or open another pin.
         markerInstance.addListener("click", () => {
           infoWindow.open(mapInstance, markerInstance);
           if (onMarkerClick) onMarkerClick(marker);
@@ -652,7 +669,7 @@ export function Map({
     const fallbackCenter = { lat: Number(center.lat), lng: Number(center.lng) };
     const fallbackCircle = circle ? { lat: Number(circle.center.lat), lng: Number(circle.center.lng), radiusKm: Number(circle.radiusKm || 0) } : null;
     const fallbackUser = userLocation ? { lat: Number(userLocation.lat), lng: Number(userLocation.lng) } : null;
-    const leafletDocument = String.raw`<!doctype html>\n<html><head><meta charset=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"/>\n<link rel=\"stylesheet\" href=\"https://unpkg.com/leaflet@1.9.4/dist/leaflet.css\"/>\n<style>html,body,#map{height:100%;margin:0}body{font-family:Arial,sans-serif}.leaflet-control-attribution{font-size:9px}.pin{width:28px;height:28px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);display:flex;align-items:center;justify-content:center;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.3)}.pin span{transform:rotate(45deg);color:#fff;font-weight:700;font-size:11px}</style></head>\n<body><div id=\"map\"></div><script src=\"https://unpkg.com/leaflet@1.9.4/dist/leaflet.js\"><\/script><script>\nconst center=__CENTER__;const markers=__MARKERS__;const route=__ROUTE__;const circle=__CIRCLE__;const user=__USER__;\nconst map=L.map('map',{zoomControl:true}).setView([center.lat,center.lng],12);\nL.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);\nconst bounds=[];\nfunction addPoint(m){const text=String(m.displayLabel||m.title||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');const pinColor=m.color||'#2563EB';const parts=String(text).split(' · ');const line1=parts.shift()||String(text);const line2=parts.join(' · ');const short1=line1.length>28?line1.slice(0,26)+'…':line1;const short2=line2.length>32?line2.slice(0,30)+'…':line2;const html=m.displayLabel?'<div style="display:flex;flex-direction:column;align-items:center;transform:translateY(-2px)"><div style="max-width:260px;padding:5px 9px;border:1.5px solid #cbd5e1;border-radius:8px;background:rgba(255,255,255,.97);box-shadow:0 2px 7px rgba(15,23,42,.18);font:700 12px Arial,sans-serif;line-height:16px;white-space:nowrap;color:#0f172a;overflow:hidden;text-overflow:ellipsis;text-align:center">'+short1+(line2?'<div style="font-size:11px;font-weight:600;color:#475569">'+short2+'</div>':'')+'</div><div style="font-size:25px;line-height:30px;margin-top:2px">📍</div></div>':'<div class="pin" style="background:'+pinColor+'"><span>'+String(m.label||'').replace(/</g,'&lt;')+'</span></div>';const icon=L.divIcon({className:'',html,iconSize:m.displayLabel?[300,68]:[28,28],iconAnchor:m.displayLabel?[150,67]:[14,27],popupAnchor:[0,-60]});const marker=L.marker([m.lat,m.lng],{icon}).addTo(map);marker.bindPopup('<strong>'+m.title.replace(/</g,'&lt;')+'</strong><br><small>'+m.info.replace(/</g,'&lt;')+'</small>');marker.on('click',()=>parent.postMessage({type:'agri-map-marker',id:m.id},'*'));bounds.push([m.lat,m.lng]);}markers.forEach(addPoint);\nif(user){L.circleMarker([user.lat,user.lng],{radius:9,color:'#fff',weight:3,fillColor:'#2563eb',fillOpacity:1}).addTo(map).bindTooltip('Your location');bounds.push([user.lat,user.lng]);}\nif(circle&&circle.radiusKm>0){L.circle([circle.lat,circle.lng],{radius:circle.radiusKm*1000,color:'#6366f1',weight:2,fillOpacity:.08}).addTo(map);bounds.push([circle.lat,circle.lng]);}\nif(route.length>1)L.polyline(route.map(p=>[p.lat,p.lng]),{color:'#2563eb',weight:5}).addTo(map);\nif(bounds.length>1)map.fitBounds(bounds,{padding:[30,30]});\nmap.on('click',e=>parent.postMessage({type:'agri-map-click',lat:e.latlng.lat,lng:e.latlng.lng},'*'));\n<\/script></body></html>`
+    const leafletDocument = String.raw`<!doctype html>\n<html><head><meta charset=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"/>\n<link rel=\"stylesheet\" href=\"https://unpkg.com/leaflet@1.9.4/dist/leaflet.css\"/>\n<style>html,body,#map{height:100%;margin:0}body{font-family:Arial,sans-serif}.leaflet-control-attribution{font-size:9px}.pin{min-width:34px;height:34px;padding:0 8px;border-radius:18px;display:flex;align-items:center;justify-content:center;border:3px solid #fff;background:#047857;box-shadow:0 2px 7px rgba(0,0,0,.55)}.pin span{color:#fff;font-weight:800;font-size:13px;text-shadow:0 1px 2px #064e3b}</style></head>\n<body><div id=\"map\"></div><script src=\"https://unpkg.com/leaflet@1.9.4/dist/leaflet.js\"><\/script><script>\nconst center=__CENTER__;const markers=__MARKERS__;const route=__ROUTE__;const circle=__CIRCLE__;const user=__USER__;\nconst map=L.map('map',{zoomControl:true}).setView([center.lat,center.lng],12);\nL.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);\nconst bounds=[];\nfunction addPoint(m){const text=String(m.displayLabel||m.title||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');const pinColor=m.color||'#2563EB';const parts=String(text).split(' · ');const line1=parts.shift()||String(text);const line2=parts.join(' · ');const short1=line1.length>28?line1.slice(0,26)+'…':line1;const short2=line2.length>32?line2.slice(0,30)+'…':line2;const html=m.displayLabel?'<div style="display:flex;flex-direction:column;align-items:center;transform:translateY(-2px);white-space:nowrap;text-align:center;text-shadow:-2px -2px 0 #fff,2px -2px 0 #fff,-2px 2px 0 #fff,2px 2px 0 #fff,0 2px 5px rgba(255,255,255,.95)"><div style="font:800 13px Arial,sans-serif;line-height:15px;color:#047857">'+short1+'</div>'+(line2?'<div style="font:700 11px Arial,sans-serif;line-height:14px;color:#0f172a">'+short2+'</div>':'')+'<div style="font-size:25px;line-height:30px;margin-top:1px">📍</div></div>':'<div class="pin" style="background:'+pinColor+'"><span>'+String(m.label||'').replace(/</g,'&lt;')+'</span></div>';const icon=L.divIcon({className:'',html,iconSize:m.displayLabel?[190,62]:[Math.max(34,String(m.label||'').length*9+20),34],iconAnchor:m.displayLabel?[95,61]:[Math.max(17,(String(m.label||'').length*9+20)/2),17],popupAnchor:[0,-40]});const marker=L.marker([m.lat,m.lng],{icon}).addTo(map);marker.bindPopup('<strong>'+m.title.replace(/</g,'&lt;')+'</strong><br><small>'+m.info.replace(/</g,'&lt;')+'</small>');marker.on('click',()=>parent.postMessage({type:'agri-map-marker',id:m.id},'*'));bounds.push([m.lat,m.lng]);}markers.forEach(addPoint);\nif(user){L.circleMarker([user.lat,user.lng],{radius:9,color:'#fff',weight:3,fillColor:'#2563eb',fillOpacity:1}).addTo(map).bindTooltip('Your location');bounds.push([user.lat,user.lng]);}\nif(circle&&circle.radiusKm>0){L.circle([circle.lat,circle.lng],{radius:circle.radiusKm*1000,color:'#6366f1',weight:2,fillOpacity:.08}).addTo(map);bounds.push([circle.lat,circle.lng]);}\nif(route.length>1){const line=L.polyline(route.map(p=>[p.lat,p.lng]),{color:'#2563eb',weight:5}).addTo(map);const pts=line.getLatLngs();for(let i=0;i<pts.length-1;i++){const a=pts[i],b=pts[i+1];const mid=L.latLng((a.lat+b.lat)/2,(a.lng+b.lng)/2);const angle=Math.atan2(b.lng-a.lng,b.lat-a.lat)*180/Math.PI;const arrow=L.divIcon({className:'route-direction-arrow',html:'<div style="transform:rotate('+angle+'deg);color:#1d4ed8;font-size:22px;font-weight:900;text-shadow:-1px -1px #fff,1px 1px #fff">➤</div>',iconSize:[22,22],iconAnchor:[11,11]});L.marker(mid,{icon:arrow,interactive:false}).addTo(map);}}\nif(bounds.length>1)map.fitBounds(bounds,{padding:[30,30]});\nmap.on('click',e=>parent.postMessage({type:'agri-map-click',lat:e.latlng.lat,lng:e.latlng.lng},'*'));\n<\/script></body></html>`
 
       .replace("__CENTER__", JSON.stringify(fallbackCenter))
       .replace("__MARKERS__", JSON.stringify(fallbackMarkers))

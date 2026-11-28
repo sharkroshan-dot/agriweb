@@ -1,5 +1,5 @@
-import PaymentDashboard from "../../components/payments/payment-dashboard";
+import CustomerPaymentsWallet from "../../components/payments/customer-payments-wallet";
 
 export default function CustomerPaymentsPage() {
-  return <PaymentDashboard role="customer" />;
+  return <CustomerPaymentsWallet />;
 }

@@ -5,18 +5,22 @@ export interface ProgressProps extends React.HTMLAttributes<HTMLDivElement> {
   value?: number;
 }
 
-function getProgressWidthClass(value: number) {
-  if (value >= 80) return "w-full";
-  if (value >= 60) return "w-[80%]";
-  if (value >= 40) return "w-[60%]";
-  if (value >= 20) return "w-[40%]";
-  return "w-[20%]";
-}
-
 export function Progress({ className, value = 0, ...props }: ProgressProps) {
+  const percentage = Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 0;
+
   return (
-    <div className={cn("h-2 w-full overflow-hidden rounded-full bg-slate-200", className)} {...props}>
-      <div className={cn("h-full rounded-full bg-emerald-600 transition-all", getProgressWidthClass(Math.max(0, Math.min(100, value))))} />
+    <div
+      className={cn("h-2 w-full overflow-hidden rounded-full bg-slate-200", className)}
+      role="progressbar"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={Math.round(percentage)}
+      {...props}
+    >
+      <div
+        className="h-full rounded-full bg-emerald-600 transition-[width] duration-300 ease-out"
+        style={{ width: `${percentage}%` }}
+      />
     </div>
   );
 }

@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2880" height="320" viewBox="0 0 2880 320">
+<defs>
+ <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#dff3ff"/><stop offset=".55" stop-color="#f5fbff"/><stop offset="1" stop-color="#e8f7dc"/></linearGradient>
+ <linearGradient id="mountain" x1="0" y1="0" x2=".4" y2="1"><stop stop-color="#8ed1e8"/><stop offset=".55" stop-color="#5daecb"/><stop offset="1" stop-color="#3e91b2"/></linearGradient>
+ <linearGradient id="mountain2" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#b4e1ee"/><stop offset="1" stop-color="#75b9c9"/></linearGradient>
+ <linearGradient id="fieldBack" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#b9e85a"/><stop offset="1" stop-color="#70c735"/></linearGradient>
+ <linearGradient id="fieldFront" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#8bdc2c"/><stop offset="1" stop-color="#259b20"/></linearGradient>
+ <linearGradient id="wallet" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#d99b55"/><stop offset=".55" stop-color="#b66b32"/><stop offset="1" stop-color="#87451f"/></linearGradient>
+ <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#fff49a"/><stop offset=".48" stop-color="#ffc72e"/><stop offset="1" stop-color="#e58b00"/></linearGradient>
+ <linearGradient id="greenCard" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#27d977"/><stop offset="1" stop-color="#008044"/></linearGradient>
+ <linearGradient id="fade" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#fff" stop-opacity="1"/><stop offset=".32" stop-color="#fff" stop-opacity=".96"/><stop offset=".53" stop-color="#fff" stop-opacity=".64"/><stop offset=".7" stop-color="#fff" stop-opacity="0"/></linearGradient>
+ <filter id="shadow" x="-25%" y="-30%" width="160%" height="180%"><feDropShadow dx="0" dy="7" stdDeviation="7" flood-color="#24552c" flood-opacity=".24"/></filter>
+ <pattern id="cropRows" width="110" height="34" patternUnits="userSpaceOnUse"><path d="M-40 36 Q30 -9 150 36" fill="none" stroke="#e6ff8b" stroke-width="5" opacity=".65"/><path d="M-40 29 Q30 -16 150 29" fill="none" stroke="#278c1e" stroke-width="2" opacity=".55"/></pattern>
+</defs>
+<rect width="2880" height="320" fill="url(#sky)"/>
+<g fill="#fff" opacity=".7"><ellipse cx="1810" cy="58" rx="92" ry="14"/><ellipse cx="1870" cy="50" rx="55" ry="20"/><ellipse cx="2220" cy="44" rx="75" ry="13"/><ellipse cx="2270" cy="38" rx="43" ry="17"/></g>
+<path d="M0 210 Q170 172 310 194 T600 174 Q740 136 875 183 Q1010 126 1155 177 Q1285 105 1435 173 Q1580 119 1730 172 Q1885 93 2030 172 Q2180 115 2320 175 Q2490 112 2640 178 L2880 150 V320 H0Z" fill="url(#mountain2)"/>
+<path d="M0 225 Q160 195 310 210 Q440 170 560 201 Q700 155 840 208 Q980 163 1120 205 Q1260 142 1410 204 Q1550 164 1690 205 Q1830 140 1980 203 Q2120 165 2260 204 Q2400 145 2540 203 Q2700 157 2880 196 V320 H0Z" fill="url(#mountain)"/>
+<path d="M0 236 Q170 208 330 229 T650 220 T970 227 T1290 218 T1610 224 T1930 216 T2250 225 T2570 214 T2880 220 V320 H0Z" fill="#3c9c43"/>
+<g fill="#258d37" opacity=".9">
+ <circle cx="620" cy="220" r="17"/><circle cx="650" cy="216" r="23"/><circle cx="683" cy="221" r="16"/><circle cx="1000" cy="215" r="20"/><circle cx="1030" cy="210" r="25"/><circle cx="1065" cy="218" r="17"/><circle cx="1440" cy="213" r="20"/><circle cx="1470" cy="207" r="25"/><circle cx="1505" cy="215" r="17"/><circle cx="1870" cy="209" r="22"/><circle cx="1905" cy="205" r="25"/><circle cx="1940" cy="213" r="17"/><circle cx="2300" cy="207" r="22"/><circle cx="2335" cy="203" r="26"/><circle cx="2370" cy="212" r="17"/>
+</g>
+<path d="M0 246 Q400 220 800 247 T1600 241 T2400 237 T2880 228 V320 H0Z" fill="url(#fieldBack)"/>
+<path d="M0 270 Q430 230 870 267 T1740 256 T2600 248 T2880 247 V320 H0Z" fill="url(#fieldFront)"/>
+<path d="M0 270 Q430 230 870 267 T1740 256 T2600 248 T2880 247 V320 H0Z" fill="url(#cropRows)" opacity=".85"/>
+<path d="M0 302 Q500 260 1000 298 T2000 282 T2880 276 V320 H0Z" fill="#299a20"/>
+<path d="M0 302 Q500 260 1000 298 T2000 282 T2880 276 V320 H0Z" fill="url(#cropRows)" opacity=".7"/>
+<g filter="url(#shadow)">
+ <g fill="#24a92b" stroke="#168c27" stroke-width="3"><path d="M2580 122 Q2542 45 2610 9 Q2640 78 2580 122Z"/><path d="M2640 115 Q2654 31 2730 8 Q2738 79 2640 115Z"/><path d="M2730 132 Q2790 44 2865 58 Q2828 121 2730 132Z"/><path d="M2690 164 Q2634 99 2670 55 Q2722 112 2690 164Z"/></g>
+ <rect x="2480" y="112" width="300" height="166" rx="25" fill="url(#wallet)" stroke="#884a25" stroke-width="7"/>
+ <path d="M2495 135 Q2630 153 2765 135" fill="none" stroke="#f3c184" stroke-width="5" stroke-dasharray="7 8"/>
+ <rect x="2502" y="151" width="258" height="108" rx="17" fill="#a85f30" stroke="#e0a36a" stroke-width="4"/>
+ <path d="M2514 164 Q2630 180 2748 164" fill="none" stroke="#f5c995" stroke-width="3" opacity=".75"/>
+ <rect x="2705" y="177" width="85" height="54" rx="15" fill="#8d4a22" stroke="#e1a56b" stroke-width="5"/>
+ <circle cx="2747" cy="204" r="8" fill="#f7cf82"/>
+</g>
+<g filter="url(#shadow)">
+ <rect x="2315" y="207" width="250" height="95" rx="16" fill="url(#greenCard)" stroke="#c2ffd3" stroke-width="4"/>
+ <rect x="2340" y="230" width="34" height="27" rx="5" fill="#ffdb57" stroke="#d69b12" stroke-width="2"/>
+ <path d="M2340 243h34m-17-13v27" stroke="#d49a16" stroke-width="2"/>
+ <path d="M2395 238q13 8 0 17m9-23q21 14 0 29" fill="none" stroke="#d7ffe5" stroke-width="4" stroke-linecap="round"/>
+ <path d="M2340 280h76m-76 9h50" stroke="#e1ffec" stroke-width="5" stroke-linecap="round"/>
+</g>
+<g filter="url(#shadow)">
+ <circle cx="2705" cy="230" r="64" fill="url(#gold)" stroke="#d88a00" stroke-width="7"/>
+ <circle cx="2705" cy="230" r="51" fill="none" stroke="#fff0a0" stroke-width="5" opacity=".9"/>
+ <text x="2705" y="252" font-family="Arial,sans-serif" font-size="65" font-weight="700" text-anchor="middle" fill="#bd7200">₹</text>
+</g>
+<rect width="2880" height="320" fill="url(#fade)"/>
+</svg>

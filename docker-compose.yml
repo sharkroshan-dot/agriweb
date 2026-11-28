@@ -6,12 +6,16 @@ services:
     environment:
       ENVIRONMENT: development
       DEBUG: "true"
-      MONGODB_URI: mongodb://${MONGODB_USER:-admin}:${MONGODB_PASSWORD:-change-me}@mongodb:27017/agri?authSource=admin
+      MONGODB_URI: mongodb://${MONGODB_USER:-admin}:${MONGODB_PASSWORD:-change-me}@mongodb:27017/agri?replicaSet=rs0&authSource=admin
       MONGODB_DATABASE: agri
       REDIS_URL: redis://redis:6379
       JWT_SECRET: ${JWT_SECRET:-change-me-in-development}
     volumes: ["./backend:/app", "/app/__pycache__"]
-    depends_on: [mongodb, redis]
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_started
     networks: [agriconnect-network]
 
   website:
@@ -28,12 +32,29 @@ services:
   mongodb:
     image: mongo:7.0
     container_name: agriconnect-mongodb
+    entrypoint: ["/bin/bash", "/usr/local/bin/replica-set-entrypoint.sh"]
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all", "--keyFile", "/data/configdb/replica.key"]
     ports: ["27017:27017"]
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGODB_USER:-admin}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_PASSWORD:-change-me}
       MONGO_INITDB_DATABASE: agri
-    volumes: ["mongodb_data:/data/db"]
+    volumes:
+      - mongodb_data:/data/db
+      - mongodb_config:/data/configdb
+      - ./docker/mongodb/replica-set-entrypoint.sh:/usr/local/bin/replica-set-entrypoint.sh:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          mongosh --quiet --username "$$MONGO_INITDB_ROOT_USERNAME" --password "$$MONGO_INITDB_ROOT_PASSWORD"
+          --authenticationDatabase admin
+          --eval "try { rs.status().ok } catch (e) { rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'mongodb:27017'}]}).ok }"
+          | grep -q 1
+      interval: 5s
+      timeout: 10s
+      retries: 20
+      start_period: 10s
     networks: [agriconnect-network]
 
   redis:
@@ -50,13 +71,17 @@ services:
     environment:
       ENVIRONMENT: development
       DEBUG: "true"
-      MONGODB_URI: mongodb://${MONGODB_USER:-admin}:${MONGODB_PASSWORD:-change-me}@mongodb:27017/agri?authSource=admin
+      MONGODB_URI: mongodb://${MONGODB_USER:-admin}:${MONGODB_PASSWORD:-change-me}@mongodb:27017/agri?replicaSet=rs0&authSource=admin
       MONGODB_DATABASE: agri
       REDIS_URL: redis://redis:6379
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
     volumes: ["./backend:/app"]
-    depends_on: [mongodb, redis]
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_started
     networks: [agriconnect-network]
 
   celery-beat:
@@ -75,6 +100,7 @@ services:
 
 volumes:
   mongodb_data:
+  mongodb_config:
   redis_data:
 
 networks:

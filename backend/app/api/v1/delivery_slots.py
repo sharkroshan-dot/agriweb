@@ -8,12 +8,13 @@ Collections:
   - delivery_slots:        farmer-published delivery slot
   - delivery_slot_bookings: customer joins against a slot
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from pydantic import BaseModel, Field
 from bson import ObjectId
 import logging
+import re
 
 from app.api.v1.auth import get_current_user
 from app.repositories.base_repository import BaseRepository
@@ -40,25 +41,41 @@ class DeliverySlotCreate(BaseModel):
     startTime: str
     endTime: str
     radiusKm: int = Field(10, ge=1, le=100)
-    maxOrders: int = Field(25, ge=1, le=500)
+    maxCapacityKg: float = Field(5, gt=0, le=100000)
     cutoffTime: Optional[datetime] = None
     deliveryFee: float = Field(0, ge=0)
     notes: Optional[str] = None
+
+
+async def _booked_capacity(slot_id: ObjectId) -> float:
+    """Sum kilograms reserved by active customer bookings for a slot."""
+    rows = await booking_repo.find_many({
+        "slotId": slot_id,
+        "status": {"$in": ["joined", "order_linked"]},
+        "deletedAt": None,
+    }, limit=10000)
+    return round(sum(float(row.get("capacityKg", 0) or 0) for row in rows), 3)
+
+
+def _as_utc_naive(value: Optional[datetime]) -> Optional[datetime]:
+    """Normalize API datetimes to naive UTC for consistent MongoDB comparisons."""
+    if value is None:
+        return None
+    if value.tzinfo is not None:
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value
 
 
 async def _slot_status(slot: dict) -> str:
     """Effective status accounting for cutoff time and booking count."""
     if slot.get("status") == SLOT_CANCELLED:
         return SLOT_CANCELLED
-    cutoff = slot.get("cutoffTime")
+    cutoff = _as_utc_naive(slot.get("cutoffTime"))
     if cutoff and cutoff < datetime.utcnow():
         return "closed"
-    bookings = await booking_repo.count({
-        "slotId": slot["_id"],
-        "status": "joined",
-        "deletedAt": None,
-    })
-    if bookings >= int(slot.get("maxOrders", 25)):
+    capacity = float(slot.get("maxCapacityKg", 0) or 0)
+    booked = await _booked_capacity(slot["_id"])
+    if capacity > 0 and booked >= capacity:
         return SLOT_FULL
     return SLOT_OPEN
 
@@ -94,18 +111,29 @@ async def create_delivery_slot(
     if current_user.get("role") != "farmer":
         raise HTTPException(status_code=403, detail="Only farmers can publish delivery slots")
 
-    if data.date < datetime.utcnow():
+    if not data.area.strip():
+        raise HTTPException(status_code=422, detail="Delivery area is required")
+    if data.startTime >= data.endTime:
+        raise HTTPException(status_code=422, detail="End time must be later than start time")
+
+    # The browser sends ISO timestamps with a timezone suffix (for example, Z).
+    # MongoDB slot dates are stored as naive UTC, so normalize before comparing
+    # or persisting to avoid "offset-naive and offset-aware" TypeErrors (500).
+    slot_date = _as_utc_naive(data.date)
+    cutoff_time = _as_utc_naive(data.cutoffTime)
+    if slot_date is None or slot_date < datetime.utcnow():
         raise HTTPException(status_code=400, detail="Slot date must be in the future")
 
     slot = {
         "farmerId": ObjectId(current_user["_id"]),
         "area": data.area.strip(),
-        "date": data.date,
+        "date": slot_date,
         "startTime": data.startTime,
         "endTime": data.endTime,
         "radiusKm": data.radiusKm,
-        "maxOrders": data.maxOrders,
-        "cutoffTime": data.cutoffTime,
+        "maxCapacityKg": data.maxCapacityKg,
+        "bookedCapacityKg": 0.0,
+        "cutoffTime": cutoff_time,
         "deliveryFee": data.deliveryFee,
         "notes": data.notes,
         "status": SLOT_OPEN,
@@ -134,8 +162,64 @@ async def get_farmer_slots(
     for s in slots:
         _serialize_slot(s)
         s["status"] = await _slot_status(s)
-        s["bookings"] = await booking_repo.count({"slotId": s["_id"], "status": "joined", "deletedAt": None})
+        active_bookings = await booking_repo.find_many({
+            "slotId": s["_id"],
+            "status": {"$in": ["joined", "order_linked"]},
+            "deletedAt": None,
+        }, limit=10000)
+        s["bookingCount"] = len(active_bookings)
+        s["bookedCapacityKg"] = round(sum(float(row.get("capacityKg", 0) or 0) for row in active_bookings), 3)
+        s["remainingCapacityKg"] = round(max(0.0, float(s.get("maxCapacityKg", 0)) - s["bookedCapacityKg"]), 3)
     return {"success": True, "data": {"slots": slots, "count": len(slots)}}
+
+
+@router.get("/farmer/slots/{slot_id}/bookings")
+async def get_farmer_slot_bookings(
+    slot_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Return customer reservations and linked orders for a farmer-owned slot."""
+    if current_user.get("role") != "farmer":
+        raise HTTPException(status_code=403, detail="Only farmers can view slot bookings")
+    if not ObjectId.is_valid(slot_id):
+        raise HTTPException(status_code=404, detail="Delivery slot not found")
+    slot = await slot_repo.find_one({"_id": ObjectId(slot_id), "deletedAt": None})
+    if not slot:
+        raise HTTPException(status_code=404, detail="Delivery slot not found")
+    if str(slot.get("farmerId")) != str(current_user["_id"]):
+        raise HTTPException(status_code=403, detail="Not your delivery slot")
+
+    bookings = await booking_repo.find_many(
+        {"slotId": ObjectId(slot_id), "status": {"$in": ["joined", "order_linked"]}, "deletedAt": None},
+        sort=[("createdAt", 1)],
+        limit=500,
+    )
+    order_repo = BaseRepository("orders")
+    result = []
+    for booking in bookings:
+        order = await order_repo.get_by_id(str(booking.get("orderId"))) if booking.get("orderId") else None
+        customer = await user_repository.get_by_id(str(booking.get("customerId")))
+        result.append({
+            "id": str(booking["_id"]),
+            "status": booking.get("status"),
+            "createdAt": booking.get("createdAt"),
+            "deliveryFee": booking.get("deliveryFee", 0),
+            "capacityKg": booking.get("capacityKg", 0),
+            "orderId": str(order.get("_id")) if order else None,
+            "orderNumber": (order or {}).get("orderNumber"),
+            "orderStatus": (order or {}).get("orderStatus"),
+            "totalAmount": (order or {}).get("totalAmount"),
+            "items": [
+                {"productName": item.get("productName"), "quantity": item.get("quantity")}
+                for item in ((order or {}).get("items") or [])
+            ],
+            "customer": {
+                "name": f"{(customer or {}).get('firstName', '')} {(customer or {}).get('lastName', '')}".strip() or "Customer",
+                "phone": (customer or {}).get("phone"),
+            },
+            "deliveryAddress": (order or {}).get("deliveryAddress") or {},
+        })
+    return {"success": True, "data": {"bookings": result, "count": len(result)}}
 
 
 @router.put("/slots/{slot_id}")
@@ -148,27 +232,72 @@ async def update_delivery_slot(
     if current_user.get("role") != "farmer":
         raise HTTPException(status_code=403, detail="Only farmers can update delivery slots")
 
+    if not ObjectId.is_valid(slot_id):
+        raise HTTPException(status_code=404, detail="Delivery slot not found")
     slot = await slot_repo.find_one({"_id": ObjectId(slot_id), "deletedAt": None})
     if not slot:
         raise HTTPException(status_code=404, detail="Delivery slot not found")
     if str(slot.get("farmerId")) != str(current_user["_id"]):
         raise HTTPException(status_code=403, detail="Not your delivery slot")
 
+    # Once a customer has joined or linked an order to this slot, its
+    # published delivery promise must remain unchanged.
+    active_bookings = await booking_repo.find_many({
+        "slotId": ObjectId(slot_id),
+        "status": {"$in": ["joined", "order_linked"]},
+        "deletedAt": None,
+    }, limit=1)
+    if active_bookings:
+        raise HTTPException(
+            status_code=409,
+            detail="This delivery slot already has customer bookings and can no longer be edited.",
+        )
+
+    if not data.area or not data.area.strip():
+        raise HTTPException(status_code=422, detail="Delivery area is required")
+    if data.startTime >= data.endTime:
+        raise HTTPException(status_code=422, detail="End time must be later than start time")
+
+    slot_date = _as_utc_naive(data.date)
+    cutoff_time = _as_utc_naive(data.cutoffTime)
+    if slot_date is None or slot_date < datetime.utcnow():
+        raise HTTPException(status_code=400, detail="Slot date must be in the future")
+
     updates = {
         "area": data.area.strip(),
-        "date": data.date,
+        "date": slot_date,
         "startTime": data.startTime,
         "endTime": data.endTime,
         "radiusKm": data.radiusKm,
-        "maxOrders": data.maxOrders,
-        "cutoffTime": data.cutoffTime,
+        "maxCapacityKg": data.maxCapacityKg,
+        "cutoffTime": cutoff_time,
         "deliveryFee": data.deliveryFee,
         "notes": data.notes,
+        "updatedAt": datetime.utcnow(),
     }
-    ok = await slot_repo.update({"_id": ObjectId(slot_id)}, updates)
-    if not ok:
-        raise HTTPException(status_code=400, detail="Failed to update delivery slot")
-    updated = await slot_repo.find_one({"_id": ObjectId(slot_id)})
+
+    # Update atomically against both the selected slot ID and its owner.
+    # Use matched_count rather than modified_count: MongoDB reports
+    # modified_count=0 when the submitted values are unchanged, even though
+    # the selected slot exists and the request is valid.
+    result = await slot_repo.collection.update_one(
+        {
+            "_id": ObjectId(slot_id),
+            "farmerId": ObjectId(current_user["_id"]),
+            "deletedAt": None,
+        },
+        {"$set": updates},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Delivery slot not found or no longer belongs to this farmer")
+
+    updated = await slot_repo.find_one({
+        "_id": ObjectId(slot_id),
+        "farmerId": ObjectId(current_user["_id"]),
+        "deletedAt": None,
+    })
+    if not updated:
+        raise HTTPException(status_code=500, detail="Delivery slot was updated but could not be reloaded")
     return {"success": True, "data": _serialize_slot(updated)}
 
 
@@ -277,77 +406,59 @@ async def list_available_slots(
     lng: Optional[float] = Query(None),
     radius: int = Query(50, ge=2, le=200),
     area: Optional[str] = Query(None),
+    state: Optional[str] = Query(None),
+    postal_code: Optional[str] = Query(None),
 ):
-    """List delivery slots customers can join, optionally geo-filtered."""
+    """List all upcoming, bookable farmer slots for customer checkout.
+
+    Do not make village/district text matching a hard requirement here:
+    farmers often publish a village name while customer addresses contain
+    the parent town/district or PIN. The checkout presents the published
+    service area and the customer can choose the applicable slot.
+    """
     now = datetime.utcnow()
-    match: dict = {
-        "deletedAt": None,
-        "status": {"$ne": SLOT_CANCELLED},
-        "date": {"$gte": now},
-    }
-    if area:
-        match["area"] = {"$regex": f"^{area}"}
+    slots = await slot_repo.find_many(
+        {
+            "deletedAt": None,
+            "status": {"$ne": SLOT_CANCELLED},
+            "date": {"$gte": now},
+        },
+        sort=[("date", 1)],
+        limit=200,
+    )
 
-    pipeline = [
-        {"$match": match},
-        {"$lookup": {
-            "from": "farmer_profiles",
-            "localField": "farmerId",
-            "foreignField": "userId",
-            "as": "farm",
-        }},
-        {"$unwind": {"path": "$farm", "preserveNullAndEmptyArrays": True}},
-        {"$addFields": {
-            "useLocation": {
-                "$cond": {
-                    "if": {"$and": [{"$isArray": "$farm.location.coordinates"}, {"$gt": [{"$size": "$farm.location.coordinates"}, 0]}]},
-                    "then": "$farm.location",
-                    "else": "$farm.location",
-                }
-            }
-        }},
-        {"$sort": {"date": 1}},
-        {"$limit": 100},
-    ]
+    available = []
+    for slot in slots:
+        slot_id = slot.get("_id")
+        if not slot_id:
+            continue
 
-    if lat and lng:
-        pipeline = [
-            {"$match": match},
-            {"$lookup": {
-                "from": "farmer_profiles",
-                "localField": "farmerId",
-                "foreignField": "userId",
-                "as": "farm",
-            }},
-            {"$unwind": {"path": "$farm", "preserveNullAndEmptyArrays": True}},
-            {
-                "$geoNear": {
-                    "near": {"type": "Point", "coordinates": [lng, lat]},
-                    "distanceField": "distance",
-                    "maxDistance": radius * 1000,
-                    "spherical": True,
-                    "query": {"status": {"$ne": SLOT_CANCELLED}, "deletedAt": None, "date": {"$gte": now}},
-                }
-            },
-            {"$sort": {"date": 1}},
-            {"$limit": 100},
-        ]
+        effective_status = await _slot_status(slot)
+        if effective_status != SLOT_OPEN:
+            continue
 
-    slots = await slot_repo.aggregate(pipeline)
-    for s in slots:
-        _serialize_slot(s)
-        s["status"] = await _slot_status(s)
-        s["bookings"] = await booking_repo.count({"slotId": s["_id"], "status": "joined", "deletedAt": None})
-        if s.get("distance"):
-            s["distanceKm"] = round(s["distance"] / 1000, 2)
-        farm = s.pop("farm", None) or {}
-        s["farmerInfo"] = {
-            "name": farm.get("farmName") or "Farmer",
-            "farmName": farm.get("farmName"),
-            "rating": farm.get("rating"),
-            "farmAddress": farm.get("farmAddress"),
+        booked_capacity = await _booked_capacity(slot_id)
+        max_capacity = float(slot.get("maxCapacityKg", 0) or 0)
+        remaining_capacity = round(max(0.0, max_capacity - booked_capacity), 3)
+        if remaining_capacity <= 0:
+            continue
+
+        farmer_id = str(slot.get("farmerId") or "")
+        farmer_info = await _farmer_brief(farmer_id) if farmer_id else {
+            "name": "Farmer",
+            "farmName": None,
+            "rating": None,
+            "farmAddress": None,
         }
-    return {"success": True, "data": {"slots": slots, "count": len(slots)}}
+
+        _serialize_slot(slot)
+        slot["status"] = effective_status
+        slot["bookedCapacityKg"] = booked_capacity
+        slot["remainingCapacityKg"] = remaining_capacity
+        slot["farmerInfo"] = farmer_info
+        available.append(slot)
+
+    return {"success": True, "data": {"slots": available, "count": len(available)}}
 
 
 @router.post("/slots/{slot_id}/join")
@@ -368,14 +479,14 @@ async def join_delivery_slot(
     if cutoff and cutoff < datetime.utcnow():
         raise HTTPException(status_code=400, detail="Cutoff time has passed for this slot")
 
-    bookings = await booking_repo.count({"slotId": ObjectId(slot_id), "status": "joined", "deletedAt": None})
-    if bookings >= int(slot.get("maxOrders", 25)):
-        raise HTTPException(status_code=400, detail="This delivery slot is full")
+    booked_capacity = await _booked_capacity(ObjectId(slot_id))
+    if booked_capacity >= float(slot.get("maxCapacityKg", 0) or 0):
+        raise HTTPException(status_code=400, detail="This delivery slot has no remaining delivery capacity")
 
     existing = await booking_repo.find_one({
         "slotId": ObjectId(slot_id),
         "customerId": ObjectId(current_user["_id"]),
-        "status": "joined",
+        "status": {"$in": ["joined", "order_linked"]},
         "deletedAt": None,
     })
     if existing:
@@ -425,7 +536,7 @@ async def leave_delivery_slot(
 async def get_my_slots(current_user: dict = Depends(get_current_user)):
     """List slots the current customer has joined, with slot + farmer info."""
     pipeline = [
-        {"$match": {"customerId": ObjectId(current_user["_id"]), "status": "joined", "deletedAt": None}},
+        {"$match": {"customerId": ObjectId(current_user["_id"]), "status": {"$in": ["joined", "order_linked"]}, "deletedAt": None}},
         {"$lookup": {
             "from": "delivery_slots",
             "localField": "slotId",

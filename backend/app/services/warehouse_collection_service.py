@@ -12,12 +12,15 @@ _DISTRICT_ALIASES = {
     "trichirapalli": "tiruchirappalli",
     "tiruchirapalli": "tiruchirappalli",
     "tiruchirappalli": "tiruchirappalli",
+    "manachanallur": "tiruchirappalli",
+    "manachanallur taluk": "tiruchirappalli",
+    "chettikulam": "perambalur",
     "krishnagiri district": "krishnagiri",
 }
 _KNOWN_DISTRICT_ALIASES = {
-    "tiruchirappalli": ("tiruchirappalli", "tiruchirapalli", "trichirapalli", "trichy"),
+    "tiruchirappalli": ("tiruchirappalli", "tiruchirapalli", "trichirapalli", "trichy", "manachanallur"),
     "krishnagiri": ("krishnagiri",),
-    "perambalur": ("perambalur",),
+    "perambalur": ("perambalur", "chettikulam"),
     "coimbatore": ("coimbatore",),
     "tiruppur": ("tiruppur", "tirupur"),
     "erode": ("erode",),
@@ -30,6 +33,9 @@ _KNOWN_DISTRICT_ALIASES = {
 
 def normalize_collection_district(value: Any) -> str:
     raw = " ".join(str(value or "").strip().lower().replace(",", " ").replace("-", " ").split())
+    for suffix in (" district", " dist.", " dist"):
+        if raw.endswith(suffix):
+            raw = raw[:-len(suffix)].strip()
     return _DISTRICT_ALIASES.get(raw, raw)
 
 

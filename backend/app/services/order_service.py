@@ -20,13 +20,14 @@ from app.core.config import settings
 from app.repositories.reservation_repository import reservation_repository
 from app.repositories.base_repository import BaseRepository
 from app.services.delivery_availability_service import get_delivery_service_availability, estimate_fastest_eligibility
+delivery_slot_repository = BaseRepository("delivery_slots")
+delivery_slot_booking_repository = BaseRepository("delivery_slot_bookings")
 import httpx
 import secrets
 import logging
 
 logger = logging.getLogger(__name__)
 harvest_preorder_repository = BaseRepository("harvest_preorders")
-
 # Approximate city-centre fallback for legacy orders that contain only text
 # addresses. This keeps radius filtering usable when public geocoders throttle
 # requests or are unavailable. New addresses should still save exact GeoJSON.
@@ -440,6 +441,7 @@ class OrderService:
                 "productId": ObjectId(item.productId),
                 "variantId": ObjectId(item.variantId) if item.variantId else None,
                 "productName": product["name"],
+                "productImage": next((url for url in (product.get("images") or []) if isinstance(url, str) and url.strip()), None) or product.get("image") or product.get("imageUrl"),
                 "quantity": item.quantity,
                 "unitPrice": effective_unit_price,
                 "batchId": str(product.get("batchId")) if product.get("batchId") else None,
@@ -465,6 +467,40 @@ class OrderService:
         if not farmer_id:
             raise OrderCreationError("No farmer associated with the products in this order")
         
+        selected_delivery_slot = None
+        if data.deliverySlotId:
+            if not ObjectId.is_valid(str(data.deliverySlotId)):
+                raise OrderCreationError("Invalid delivery slot selection.")
+            selected_delivery_slot = await delivery_slot_repository.get_by_id(str(data.deliverySlotId))
+            if not selected_delivery_slot or str(selected_delivery_slot.get("farmerId")) != str(farmer_id):
+                raise OrderCreationError("Selected delivery slot is not available for this farmer.")
+            if selected_delivery_slot.get("status") != "open":
+                raise OrderCreationError("Selected delivery slot is no longer open.")
+            cutoff = selected_delivery_slot.get("cutoffTime")
+            if cutoff and cutoff < datetime.utcnow():
+                raise OrderCreationError("The booking cutoff for this delivery slot has passed.")
+            requested_capacity_kg = round(sum(float(item.quantity or 0) for item in data.items), 3)
+            if requested_capacity_kg <= 0:
+                raise OrderCreationError("Order quantity must be greater than zero to reserve a delivery slot.")
+            active_slot_bookings = await delivery_slot_booking_repository.find_many({
+                "slotId": ObjectId(data.deliverySlotId),
+                "status": {"$in": ["joined", "order_linked"]},
+                "deletedAt": None,
+            }, limit=10000)
+            booked_capacity_kg = sum(float(booking.get("capacityKg", 0) or 0) for booking in active_slot_bookings)
+            max_capacity_kg = float(selected_delivery_slot.get("maxCapacityKg", 0) or 0)
+            if max_capacity_kg <= 0 or booked_capacity_kg + requested_capacity_kg > max_capacity_kg + 1e-9:
+                remaining_kg = max(0.0, max_capacity_kg - booked_capacity_kg)
+                raise OrderCreationError(
+                    f"DELIVERY_SLOT_CAPACITY|{remaining_kg:g}|{requested_capacity_kg:g}"
+                )
+            # The selected, farmer-published slot is authoritative for the
+            # delivery date. Checkout already filters slots by the customer's
+            # selected India-local date; comparing two independently serialized
+            # midnight timestamps here can introduce a UTC/local-day mismatch.
+            # Persist the actual slot date below instead of rejecting a valid
+            # slot because the redundant requestedDeliveryDate shifted zones.
+
         delivery_address = None
         if data.deliveryType == DeliveryType.DELIVERY:
             if not data.deliveryAddressId:
@@ -490,10 +526,12 @@ class OrderService:
                 "state": address.get("state", ""),
                 "zipCode": address.get("zip_code") or address.get("zipCode", ""),
                 "country": address.get("country", ""),
+                "phoneNumber": address.get("phone_number") or address.get("phoneNumber") or "",
+                "alternativePhoneNumber": address.get("alternative_phone_number") or address.get("alternativePhoneNumber") or "",
                 "location": location
             }
         
-        discount = 0
+        coupon_discount = 0
         if data.couponCode:
             coupon = await coupon_repository.get_by_code(data.couponCode)
             if coupon and coupon.get("status") == "active":
@@ -503,10 +541,35 @@ class OrderService:
                     subtotal
                 )
                 if is_valid:
-                    discount = await coupon_repository.calculate_discount(
+                    coupon_discount = await coupon_repository.calculate_discount(
                         data.couponCode,
                         subtotal
                     )
+
+        redeem_points = int(data.redeemPoints or 0)
+        points_discount = 0
+        if redeem_points:
+            from app.api.v1.loyalty import _get_account, POINTS_PER_RS_REWARD, MAX_REDEEM_POINTS
+            if redeem_points > MAX_REDEEM_POINTS:
+                raise OrderCreationError(f"Maximum {MAX_REDEEM_POINTS} AgriPoints can be used per order.")
+            if redeem_points % POINTS_PER_RS_REWARD != 0:
+                raise OrderCreationError(
+                    f"AgriPoints must be redeemed in multiples of {POINTS_PER_RS_REWARD} (100 points = ₹1)."
+                )
+            loyalty_account = await _get_account(customer_id)
+            available_points = int(loyalty_account.get("balance") or 0)
+            if redeem_points > available_points:
+                raise OrderCreationError(
+                    f"Insufficient AgriPoints. You have {available_points} points available."
+                )
+            points_discount = redeem_points // POINTS_PER_RS_REWARD
+            eligible_amount = max(0, subtotal - coupon_discount)
+            if points_discount > eligible_amount:
+                raise OrderCreationError(
+                    f"AgriPoints discount cannot exceed the eligible product amount of ₹{eligible_amount:.2f}."
+                )
+
+        discount = coupon_discount + points_discount
         
         is_pickup = data.deliveryType == DeliveryType.PICKUP
         delivery_charge = 0
@@ -608,6 +671,12 @@ class OrderService:
             effective_requested_delivery_date = next_available
             effective_delivery_time_slot = "next_available"
 
+        if selected_delivery_slot:
+            # A farmer-published slot is an explicit delivery commitment and
+            # takes precedence over generic partner next-service suggestions.
+            effective_requested_delivery_date = selected_delivery_slot.get("date")
+            effective_delivery_time_slot = selected_delivery_slot.get("startTime")
+
         order_data = {
             "customerId": ObjectId(customer_id),
             "idempotencyKey": data.idempotencyKey,
@@ -624,6 +693,9 @@ class OrderService:
             "platformFee": platform_fee,
             "platformCommission": platform_commission,
             "discount": discount,
+            "couponDiscount": coupon_discount,
+            "pointsRedeemed": redeem_points,
+            "pointsDiscount": points_discount,
             "totalAmount": total_amount,
             "paymentMethod": data.paymentMethod.value,
             "paymentStatus": PaymentStatus.PENDING.value,
@@ -639,7 +711,9 @@ class OrderService:
             "pickupDate": data.pickupDate,
             "pickupTimeSlot": data.pickupTimeSlot,
             "requestedDeliveryDate": effective_requested_delivery_date,
-            "deliveryTimeSlot": effective_delivery_time_slot,
+            "deliveryTimeSlot": (selected_delivery_slot.get("startTime") if selected_delivery_slot else effective_delivery_time_slot),
+            "deliverySlotId": ObjectId(data.deliverySlotId) if data.deliverySlotId else None,
+            "deliverySlotArea": selected_delivery_slot.get("area") if selected_delivery_slot else None,
             "deliverySpeed": delivery_speed,
             "deliveryAvailabilityStatus": (delivery_availability or {}).get("status"),
             "deliveryAvailabilityMessage": (delivery_availability or {}).get("message"),
@@ -703,7 +777,73 @@ class OrderService:
                     logger.exception("Failed to release checkout reservation for %s", product_id)
             raise OrderCreationError("Failed to save order to database")
 
-        if data.couponCode and discount > 0:
+        if selected_delivery_slot:
+            # Link the confirmed checkout record to the published delivery batch.
+            # Booking rows are tied to the order, so repeated checkout retries do not
+            # create an unrelated customer-only slot reservation.
+            existing_booking = await delivery_slot_booking_repository.find_one({
+                "slotId": ObjectId(data.deliverySlotId),
+                "customerId": ObjectId(customer_id),
+                "status": {"$in": ["joined", "order_linked"]},
+                "deletedAt": None,
+            })
+            if existing_booking:
+                await delivery_slot_booking_repository.update(
+                    {"_id": existing_booking["_id"]},
+                    {"orderId": ObjectId(order_id), "status": "order_linked", "capacityKg": requested_capacity_kg},
+                )
+            else:
+                await delivery_slot_booking_repository.create({
+                    "slotId": ObjectId(data.deliverySlotId),
+                    "orderId": ObjectId(order_id),
+                    "farmerId": ObjectId(farmer_id),
+                    "customerId": ObjectId(customer_id),
+                    "status": "order_linked",
+                    "capacityKg": requested_capacity_kg,
+                    "deliveryFee": selected_delivery_slot.get("deliveryFee", 0),
+                })
+            await delivery_slot_repository.update(
+                {"_id": ObjectId(data.deliverySlotId)},
+                {"lastBookingAt": datetime.utcnow()},
+            )
+
+        if redeem_points:
+            try:
+                from app.api.v1.loyalty import redeem_points_for_order
+                await redeem_points_for_order(customer_id, redeem_points, order_id)
+                await order_repository.update(
+                    {"_id": ObjectId(order_id)},
+                    {"loyaltyRedemptionStatus": "redeemed", "updatedAt": datetime.utcnow()},
+                )
+            except Exception as exc:
+                # Do not leave an order active when its AgriPoints discount was not debited.
+                try:
+                    await order_repository.update(
+                        {"_id": ObjectId(order_id)},
+                        {"orderStatus": OrderStatus.CANCELLED.value, "loyaltyRedemptionStatus": "failed", "updatedAt": datetime.utcnow()},
+                    )
+                except Exception:
+                    logger.exception("Could not cancel order after AgriPoints redemption failure: %s", order_id)
+                for product_id, quantity, inventory_id in reserved_items:
+                    try:
+                        await inventory_repository.atomic_release(product_id, quantity, inventory_id=inventory_id)
+                    except Exception:
+                        logger.exception("Could not release inventory after AgriPoints redemption failure: %s", product_id)
+                try:
+                    from app.api.v1.loyalty import refund_order_points
+                    await refund_order_points(customer_id, order_id)
+                except Exception:
+                    logger.exception("Could not reverse AgriPoints debit after checkout failure for order %s", order_id)
+                try:
+                    await delivery_slot_booking_repository.update(
+                        {"orderId": ObjectId(order_id), "status": "order_linked"},
+                        {"status": "cancelled", "updatedAt": datetime.utcnow()},
+                    )
+                except Exception:
+                    logger.exception("Could not release delivery-slot booking after AgriPoints failure for order %s", order_id)
+                raise OrderCreationError(str(exc))
+
+        if data.couponCode and coupon_discount > 0:
             try:
                 await coupon_repository.record_usage(data.couponCode, customer_id)
             except Exception as exc:
@@ -840,9 +980,22 @@ class OrderService:
                     "phone": partner.get("phone")
                 }
         
-        # Convert ObjectId fields to strings for response serialization
+        # Convert ObjectId fields to strings and hydrate product images for
+        # legacy orders whose item snapshot predates productImage support.
         order["id"] = str(order["_id"])
         for item in order.get("items", []):
+            product_id = str(item.get("productId")) if item.get("productId") else None
+            if product_id and not (item.get("productImage") or item.get("image") or item.get("imageUrl")):
+                try:
+                    product = await product_repository.get_by_id(product_id)
+                    if product:
+                        images = product.get("images") or []
+                        item["productImage"] = next(
+                            (url for url in images if isinstance(url, str) and url.strip()),
+                            None,
+                        ) or product.get("image") or product.get("imageUrl")
+                except Exception:
+                    logger.warning("Could not resolve product image for order item %s", product_id)
             if isinstance(item.get("productId"), ObjectId):
                 item["productId"] = str(item["productId"])
             if item.get("variantId") and isinstance(item["variantId"], ObjectId):
@@ -892,8 +1045,8 @@ class OrderService:
             )
             and not order.get("deliveryVerificationCode")
         ):
-            from app.core.security import SecurityService
-            code = SecurityService.generate_otp(6)
+            from app.core.security import Security
+            code = Security.generate_otp(6)
             token = secrets.token_urlsafe(32)
             issued_at = datetime.utcnow()
             try:
@@ -1235,6 +1388,13 @@ class OrderService:
                 },
             )
 
+        if success and new_status in (OrderStatus.CANCELLED, OrderStatus.REFUNDED) and int(order.get("pointsRedeemed") or 0) > 0:
+            try:
+                from app.api.v1.loyalty import refund_order_points
+                await refund_order_points(str(order.get("customerId")), order_id)
+            except Exception:
+                logger.exception("Failed to restore AgriPoints for cancelled/refunded order %s", order_id)
+
         # Notify the roles affected by every authoritative status transition.
         # The actor is excluded so the user who made the change is not spammed.
         try:
@@ -1274,8 +1434,8 @@ class OrderService:
                 logger.warning(f"Failed to send ready notification: {e}")
         elif new_status == OrderStatus.READY_FOR_PICKUP and is_pickup:
             try:
-                from app.core.security import SecurityService
-                code = SecurityService.generate_otp(6)
+                from app.core.security import Security
+                code = Security.generate_otp(6)
                 await order_repository.update_order_field(order_id, "pickupCode", code)
             except Exception as e:
                 logger.warning(f"Failed to generate pickup code: {e}")
@@ -1316,6 +1476,14 @@ class OrderService:
             except Exception as e:
                 logger.warning(f"Failed to send in-transit notification: {e}")
         elif new_status == OrderStatus.DELIVERED and not is_pickup:
+            # Award AgriPoints only after the order has successfully reached
+            # Delivered. The loyalty service is idempotent per order.
+            try:
+                from app.api.v1.loyalty import award_points_for_delivered_order
+                delivered_order = await order_repository.get_by_id(order_id) or order
+                await award_points_for_delivered_order(delivered_order)
+            except Exception:
+                logger.exception("Failed to award AgriPoints for delivered order %s", order_id)
             if order.get("preorderId"):
                 await harvest_preorder_repository.update(
                     {"_id": ObjectId(order["preorderId"])},
@@ -1352,6 +1520,13 @@ class OrderService:
             except Exception as e:
                 logger.warning(f"Failed to send completed notification: {e}")
         elif new_status == OrderStatus.PICKED_UP and is_pickup:
+            # Farm pickup completion is also an eligible loyalty event.
+            try:
+                from app.api.v1.loyalty import award_points_for_delivered_order
+                completed_order = await order_repository.get_by_id(order_id) or order
+                await award_points_for_delivered_order(completed_order)
+            except Exception:
+                logger.exception("Failed to award AgriPoints for picked-up order %s", order_id)
             if order.get("preorderId"):
                 await harvest_preorder_repository.update(
                     {"_id": ObjectId(order["preorderId"])},

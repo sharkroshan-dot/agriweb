@@ -104,8 +104,7 @@ export default function LoginPage() {
   // Prefetch the post-login destination so navigation can start immediately
   // once authentication succeeds instead of waiting for the dashboard bundle.
   useEffect(() => {
-    const destination = callbackUrl || `/${role}/dashboard`;
-    router.prefetch(destination);
+    router.prefetch(`/${normalizeRole(role)}/dashboard`);
   }, [callbackUrl, role, router]);
 
   useEffect(() => {
@@ -127,8 +126,9 @@ export default function LoginPage() {
       redirect: false,
     });
     if (result?.ok) {
-      await updateSession();
-      router.push(callbackUrl || `/${role}/dashboard`);
+      const session = await updateSession();
+      const authenticatedRole = normalizeRole(session?.user?.role || role);
+      router.replace(`/${authenticatedRole}/dashboard`);
       return;
     }
 
@@ -209,8 +209,9 @@ export default function LoginPage() {
         redirect: false,
       });
       if (result?.ok) {
-        await updateSession();
-        router.push(callbackUrl || `/${actualRole}/dashboard`);
+        const session = await updateSession();
+        const authenticatedRole = normalizeRole(session?.user?.role || actualRole);
+        router.replace(`/${authenticatedRole}/dashboard`);
         return;
       }
       setError("Sign-in failed. Please try again.");
@@ -414,7 +415,7 @@ export default function LoginPage() {
         <p className="mt-4 text-center text-sm text-slate-500">
           New here?{" "}
           <Link
-            href={`/register${preselectedRole ? `?role=${preselectedRole}` : ""}`}
+            href={`/register?${new URLSearchParams({ ...(preselectedRole ? { role: preselectedRole } : {}), ...(callbackUrl ? { callbackUrl } : {}) }).toString()}`}
             className="font-medium text-emerald-600"
           >
             Create an account

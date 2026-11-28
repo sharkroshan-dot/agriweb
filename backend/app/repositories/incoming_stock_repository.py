@@ -40,7 +40,11 @@ class IncomingStockRepository(BaseRepository):
         skip: int = 0,
         limit: int = 100
     ) -> List[Dict[str, Any]]:
-        filter = {"warehouseId": ObjectId(warehouse_id), "deletedAt": None}
+        # Older incoming rows may store warehouseId as a string while newer
+        # rows use ObjectId. Query both representations so the warehouse
+        # receiving page does not silently hide valid farm-pickup arrivals.
+        warehouse_refs = [ObjectId(warehouse_id), warehouse_id]
+        filter = {"warehouseId": {"$in": warehouse_refs}, "deletedAt": None}
         if status:
             filter["status"] = status
 

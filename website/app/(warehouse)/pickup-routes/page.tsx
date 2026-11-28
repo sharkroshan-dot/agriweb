@@ -1,218 +1,923 @@
 "use client";
 
-import React from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { MapPin, Route, Plus, CheckCircle2, Users, PackageCheck, Truck, ExternalLink } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
+import {
+  MapPin, Truck, RefreshCw, Search, Package,
+  AlertTriangle, CheckCircle2, Map as MapIcon,
+  Sprout, ChevronRight, Users, ArrowUp, ArrowDown,
+  Clock3, Route, Warehouse,
+} from "lucide-react";
+import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
+import { WarehousePageHeader } from "../../components/warehouse/warehouse-page-header";
 import { api } from "../../lib/api/client";
+import { geocodeAddress } from "../../lib/geo/geocode";
+import { Map as SharedMap } from "../../components/shared/map";
 import toast from "react-hot-toast";
 
-const routeStatusLabel = (value: string) => ({
-  offered: "Waiting for partner",
-  assigned: "Assigned to partner",
-  started: "Pickup in progress",
-  arrived_at_farm: "At farm",
-  collected: "Collection recorded",
-  departed_farm: "All farms departed",
-  completed: "Route completed",
-  returned_to_warehouse: "Returned to warehouse",
-  received: "Received",
-  stored: "Stored in inventory",
-} as Record<string, string>)[value] || value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
-
-const formatDateTime = (value: any) => {
-  if (!value) return "Not recorded";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+type Job = Record<string, any>;
+const READY = new Set(["ready_for_pickup"]);
+const COLLECTION_STATUS = [
+  ["scheduled", "Waiting for Farmer"],
+  ["ready_for_pickup", "Ready for Pickup"],
+  ["team_assigned", "Team Assigned"],
+  ["en_route", "En Route"],
+  ["arrived_at_farm", "At Farm"],
+  ["collected", "Collected"],
+  ["departed_farm", "Departed"],
+  ["arrived_warehouse", "At Warehouse"],
+] as const;
+const getFarmRouteKey = (job: Job): string => {
+  for (const field of ["farmId", "farmProfileId", "sourceFarmId"]) {
+    const value = String(job?.[field] || "").trim();
+    if (value) return "farm:" + value.toLowerCase();
+  }
+  const location = job?.pickupLocation && typeof job.pickupLocation === "object" ? job.pickupLocation : {};
+  const address = location.formattedAddress || location.address || location.farmAddress || job?.pickupAddress;
+  if (address && String(address).trim()) return "address:" + String(address).trim().toLowerCase().split(/\\s+/).join(" ");
+  const farmerId = String(job?.farmerId || "").trim();
+  if (farmerId) return "farmer:" + farmerId.toLowerCase();
+  const farmerName = String(job?.farmerName || job?.farmName || "").trim();
+  if (farmerName && !["farmer", "farm", "unknown farmer"].includes(farmerName.toLowerCase())) return "name:" + farmerName.toLowerCase().split(/\\s+/).join(" ");
+  const coordinates = location.coordinates;
+  if (Array.isArray(coordinates) && coordinates.length >= 2) {
+    const lat = Number(Number(coordinates[1]).toFixed(4));
+    const lng = Number(Number(coordinates[0]).toFixed(4));
+    if (Number.isFinite(lat) && Number.isFinite(lng)) return "location:" + lng + ":" + lat;
+  }
+  return "collection:" + idOf(job);
+};
+const getTeamCapacity = (team: Job) => Number(team.capacity || team.vehicleCapacity || 0);
+const getFarmProgress = (farmJobs: Job[]) => {
+  const rank = new Map<string, number>(COLLECTION_STATUS.map(([key], index) => [key, index]));
+  const ranked = farmJobs.map((job) => rank.get(String(job.status || "scheduled")) ?? 0);
+  const current = ranked.length ? Math.min(...ranked) : 0;
+  return { stage: COLLECTION_STATUS[current]?.[1] || "Waiting for Farmer", count: ranked.filter((value) => value === current).length, total: ranked.length, mixed: new Set(farmJobs.map((job) => job.status)).size > 1 };
+};
+const STATUS_LABEL: Record<string, string> = {
+  scheduled: "Waiting for farmer", ready_for_pickup: "Ready for pickup",
+  team_assigned: "Partner assigned", en_route: "En route", arrived_at_farm: "At farm",
+  collected: "Collected", departed_farm: "Departed farm", arrived_warehouse: "At warehouse",
+  completed: "Pickup completed", received: "Received at warehouse", cancelled: "Cancelled",
 };
 
-const stopStatusLabel = (value: string) => ({
-  pending: "Waiting for pickup",
-  ready_for_pickup: "Ready for pickup",
-  team_assigned: "Team assigned",
-  en_route: "On the way",
-  started: "Pickup started",
-  arrived_at_farm: "Arrived at farm",
-  collected: "Collected",
-  departed_farm: "Departed farm",
-  arrived_warehouse: "At warehouse",
-} as Record<string, string>)[value] || value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+function idOf(job: Job) { return String(job.id || job._id || ""); }
+function areaOf(job: Job) {
+  // Only read farm-origin fields. Generic order fields such as area, town,
+  // locality or district can describe the buyer/delivery destination.
+  const farmer = job.farmerProfile || job.farmer || job.profile || {};
+  const farmLocation = job.farmLocation || job.pickupLocation || farmer.farmLocation || farmer.farmAddress || {};
+  const farmerLocation = farmer.farmLocation || farmer.farmAddress || {};
+  const candidates = [
+    job.farmVillage, job.farmAreaName, job.farmLocality, job.farmTaluk, job.farmTown,
+    farmLocation.farmVillage, farmLocation.village, farmLocation.locality,
+    farmLocation.farmAreaName, farmLocation.farmLocality, farmLocation.taluk,
+    farmLocation.subDistrict, farmLocation.town,
+    farmer.farmVillage, farmer.farmAreaName, farmer.farmLocality, farmer.farmTaluk, farmer.farmTown,
+    farmerLocation.village, farmerLocation.locality, farmerLocation.taluk,
+    farmerLocation.subDistrict, farmerLocation.town,
+  ];
+  const districtLabels = new Set([
+    "ariyalur", "chengalpattu", "chennai", "coimbatore", "cuddalore",
+    "dharmapuri", "dindigul", "erode", "kallakurichi", "kancheepuram",
+    "kanniyakumari", "karur", "krishnagiri", "madurai", "mayiladuthurai",
+    "nagapattinam", "namakkal", "nilgiris", "perambalur", "pudukkottai",
+    "ramanathapuram", "ranipet", "salem", "sivaganga", "tenkasi",
+    "thanjavur", "theni", "thoothukudi", "tiruchirappalli", "tirunelveli",
+    "tirupathur", "tiruppur", "tiruvallur", "tiruvannamalai", "tiruvarur",
+    "vellore", "virudhunagar", "trichy", "trichirapalli", "tiruchirapalli",
+  ]);
+  const directArea = candidates.find((value) => {
+    if (typeof value !== "string" || !value.trim()) return false;
+    const cleaned = value.trim();
+    const normalized = normalizeDistrict(cleaned);
+    return !["unknown", "n/a", "na", "not available", "none", "null"].includes(cleaned.toLowerCase())
+      && !districtLabels.has(cleaned.toLowerCase().replace(/[^a-z]/g, ""))
+      && !districtLabels.has(normalized)
+      && !isRoadOrAddressLabel(cleaned);
+  });
+  if (directArea) return String(directArea).trim();
+
+  // A street address alone is not enough to infer a village. Never use the
+  // trailing generic district appended to an order/delivery address.
+  return "Farm locality not recorded";
+}
+function districtOf(job: Job) {
+  // Pickup routing is based only on the farm/pickup origin. Do not use the
+  // generic job.district field: legacy order records may store the delivery
+  // destination district there.
+  const farmer = job.farmerProfile || job.farmer || job.profile || {};
+  const location = job.farmLocation || job.pickupLocation || farmer.farmLocation || farmer.farmAddress || {};
+  const candidates = [
+    job.farmDistrict, location.farmDistrict, location.district,
+    farmer.farmDistrict, farmer.farmLocation?.district, farmer.farmAddress?.district,
+  ].filter((value) => typeof value === "string" && value.trim());
+  if (candidates.length) return String(candidates[0]).trim();
+
+  const farmAddress = [
+    job.pickupAddress, job.farmAddress, location.address, location.formattedAddress,
+    farmer.pickupAddress, farmer.farmAddress,
+  ].filter((value) => typeof value === "string").join(" ").toLowerCase();
+  const addressDistrictAliases: Record<string, string> = {
+    trichy: "tiruchirappalli", trichirapalli: "tiruchirappalli",
+    tiruchirapalli: "tiruchirappalli", tiruchirappalli: "tiruchirappalli",
+    perambalur: "perambalur", coimbatore: "coimbatore",
+    krishnagiri: "krishnagiri", chennai: "chennai",
+  };
+  const match = Object.entries(addressDistrictAliases)
+    .find(([alias]) => new RegExp("\\b" + alias + "\\b", "i").test(farmAddress));
+  return match?.[1] || "";
+}
+function normalizeDistrict(value: unknown) {
+  const normalized = String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const aliases: Record<string, string> = {
+    trichy: "tiruchirappalli",
+    trichirapalli: "tiruchirappalli",
+    tiruchirapalli: "tiruchirappalli",
+    tiruchirappalli: "tiruchirappalli",
+    manachanallur: "tiruchirappalli",
+    "manachanallur taluk": "tiruchirappalli",
+    chettikulam: "perambalur",
+    kanyakumari: "kanniyakumari",
+    pudukottai: "pudukkottai",
+    thirunelveli: "tirunelveli",
+    thiruvallur: "tiruvallur",
+    thiruvannamalai: "tiruvannamalai",
+    thiruvarur: "tiruvarur",
+    sivagangai: "sivaganga",
+    tirupur: "tiruppur",
+  };
+  return aliases[normalized] || normalized;
+}
+function coordinatesOf(job: Job): [number, number] | null {
+  const location = job.pickupLocation || job.farmLocation || {};
+  const raw = location.coordinates || location.coords;
+  let lat: number, lng: number;
+  if (Array.isArray(raw) && raw.length >= 2) { lng = Number(raw[0]); lat = Number(raw[1]); }
+  else if (raw && typeof raw === "object") { lat = Number(raw.lat ?? raw.latitude); lng = Number(raw.lng ?? raw.longitude ?? raw.lon); }
+  else { lat = Number(location.lat ?? location.latitude ?? job.latitude); lng = Number(location.lng ?? location.longitude ?? job.longitude); }
+  return Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 ? [lat, lng] : null;
+}
+function isRoadOrAddressLabel(value: unknown) {
+  const text = String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
+  return !text || /\b(main road|road|street|st\.?|highway|hwy|bypass|cross street|roadways)\b/.test(text) ||
+    (/\b(trichy|tiruchirappalli|tiruchirapalli)\b/.test(text) && text.split(" ").length > 1);
+}
+function areaKey(value: string) { return value.toLowerCase().replace(/\s+/g, " ").trim(); }
+function escapeMapText(value: unknown) { return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/\'/g, "&#39;"); }
 
 export default function PickupRoutesPage() {
-  const routesQ = useQuery({
-    queryKey: ["warehousePickupRoutes"],
-    queryFn: () => api.get("/warehouse/me/pickup-routes"),
+  const [selectedArea, setSelectedArea] = useState("all");
+  const [expandedTaluks, setExpandedTaluks] = useState<string[]>([]);
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [collectionType, setCollectionType] = useState("all");
+  const [datePeriod, setDatePeriod] = useState<"all" | "today" | "yesterday" | "week" | "month">("all");
+  const [search, setSearch] = useState("");
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [teamId, setTeamId] = useState("");
+  const [assignmentMode, setAssignmentMode] = useState<"auto_assign" | "offer" | "assign_team">("assign_team");
+  const [routePlanningMode, setRoutePlanningMode] = useState<"automatic" | "manual">("automatic");
+  const [manualFarmOrder, setManualFarmOrder] = useState<string[]>([]);
+  const [expandedFarmCards, setExpandedFarmCards] = useState<Record<string, boolean>>({});
+  const [assigning, setAssigning] = useState(false);
+  const [activeFarmId, setActiveFarmId] = useState("");
+  const [areaSearch, setAreaSearch] = useState("");
+  const [geocodedCoords, setGeocodedCoords] = useState<Record<string, [number, number]>>({});
+  const [geocodingIds, setGeocodingIds] = useState<string[]>([]);
+  const [geocodeAttempted, setGeocodeAttempted] = useState<Record<string, boolean>>({});
+
+  const warehouseQ = useQuery({
+    queryKey: ["warehousePickupDistrictProfile"],
+    queryFn: () => api.get("/warehouse/me"),
+    staleTime: 60000,
+    refetchInterval: 60000,
+  });
+
+  const jobsQ = useQuery({
+    queryKey: ["warehousePickupAreaPlanning"],
+    queryFn: () => api.get("/warehouse/me/collections", { params: { status: "all" } }),
     refetchInterval: 10000,
+    staleTime: 0,
   });
   const teamsQ = useQuery({
-    queryKey: ["warehousePickupTeams"],
+    queryKey: ["warehousePickupAreaTeams"],
     queryFn: () => api.get("/warehouse/me/pickup-team/members"),
     refetchInterval: 15000,
   });
 
-  const routes = routesQ.data?.data?.routes || [];
-  const teams = teamsQ.data?.data?.members || [];
-  const [selectedTeamId, setSelectedTeamId] = React.useState("");
+  const areasQ = useQuery({
+    queryKey: ["warehousePickupAreaDirectory"],
+    queryFn: () => api.get("/warehouse/me/pickup-areas"),
+    refetchInterval: 60000,
+    staleTime: 30000,
+  });
 
-  const selectedTeam = teams.find((team: any) => team.id === selectedTeamId);
+  // Accept both direct API payloads and { data: ... } response envelopes.
+  // Guard arrays so malformed/alternate responses cannot crash page rendering.
+  const rawJobs = jobsQ.data?.data?.collections ?? jobsQ.data?.collections ?? jobsQ.data?.orders ?? jobsQ.data?.data?.orders;
+  const rawTeams = teamsQ.data?.data?.members ?? teamsQ.data?.members ?? teamsQ.data?.teams ?? teamsQ.data?.data?.teams;
+  const allJobs: Job[] = Array.isArray(rawJobs) ? rawJobs.filter((job: unknown): job is Job => Boolean(job) && typeof job === "object") : [];
+  const teams: Job[] = Array.isArray(rawTeams) ? rawTeams.filter((team: unknown): team is Job => Boolean(team) && typeof team === "object") : [];
+  // Resolve the signed-in warehouse's district from the authoritative
+  // warehouse profile first, then use the same coverage returned by collections.
+  // This prevents the page from silently showing zero areas/orders while the
+  // collections request is still loading or an older API response omits coverage.
+  const warehouseProfile = warehouseQ.data?.data?.data ?? warehouseQ.data?.data ?? warehouseQ.data ?? {};
+  const warehouseAddress = warehouseProfile.address && typeof warehouseProfile.address === "object" ? warehouseProfile.address : {};
+  const warehouseLocation = warehouseProfile.location && typeof warehouseProfile.location === "object" ? warehouseProfile.location : {};
+  const profileDistricts = [
+    ...(Array.isArray(warehouseProfile.farmCollectionDistricts) ? warehouseProfile.farmCollectionDistricts : []),
+    warehouseProfile.farmCollectionDistrict,
+    warehouseProfile.district,
+    warehouseAddress.district,
+    warehouseAddress.city,
+    warehouseLocation.district,
+    warehouseLocation.city,
+  ].filter((value): value is string => typeof value === "string" && Boolean(value.trim()));
+  const collectionDistricts = Array.isArray(jobsQ.data?.data?.data?.configuredFarmCollectionDistricts)
+    ? jobsQ.data.data.data.configuredFarmCollectionDistricts
+    : Array.isArray(jobsQ.data?.data?.configuredFarmCollectionDistricts)
+      ? jobsQ.data.data.configuredFarmCollectionDistricts
+      : Array.isArray(jobsQ.data?.configuredFarmCollectionDistricts)
+        ? jobsQ.data.configuredFarmCollectionDistricts
+        : [];
+  const directoryDistricts = Array.isArray(areasQ.data?.data?.data?.districts)
+    ? areasQ.data.data.data.districts
+    : Array.isArray(areasQ.data?.data?.districts)
+      ? areasQ.data.data.districts
+      : Array.isArray(areasQ.data?.districts)
+        ? areasQ.data.districts
+        : [];
+  const configuredDistricts: string[] = profileDistricts.length
+    ? profileDistricts
+    : collectionDistricts.length
+      ? collectionDistricts
+      : directoryDistricts;
+  const allowedDistrictKeys = new Set(configuredDistricts.map(normalizeDistrict).filter(Boolean));
+  // The API already scopes this collection list to the signed-in warehouse.
+  // Keep its assigned/in-progress/completed pickup jobs visible even when an
+  // older farmer profile has no district field serialized on the collection.
+  // Explicit district mismatches remain excluded from this warehouse's plan.
+  // Pickup Routes is only for farm-stock collection inside this warehouse's
+  // configured district. Completed/assigned pickup history is not assignable.
+  const districtJobs = allJobs.filter((job) => {
+    const farmDistrictKey = normalizeDistrict(districtOf(job));
+    // This endpoint is already scoped to the signed-in warehouse's collection
+    // queue. Keep legacy rows whose farm district is absent from the payload;
+    // exclude only a positively identified farm-origin district mismatch.
+    return !allowedDistrictKeys.size || !farmDistrictKey || allowedDistrictKeys.has(farmDistrictKey);
+  });
+  // Keep assigned and in-progress jobs visible so B2B assignments made from
+  // either page are reflected here; only ready, unassigned jobs are selectable.
+  const PICKUP_VISIBLE = new Set([
+    "ready_for_pickup", "team_assigned", "en_route", "arrived_at_farm",
+    "collected", "departed_farm", "arrived_warehouse", "received", "completed",
+  ]);
+  const jobs = districtJobs.filter((job) =>
+    PICKUP_VISIBLE.has(String(job.status || "").toLowerCase())
+  );
+  const eligibleTeams = teams.filter((team) => Number(team.capacity || team.vehicleCapacity || 0) > 0);
+  const selectedTeam = eligibleTeams.find((team) => String(team.id) === teamId);
 
-  const createRoutes = async () => {
-    const capacity = Number(selectedTeam?.capacity || 0);
-    if (!selectedTeamId || capacity <= 0) {
-      toast.error("Select an approved pickup vehicle with a registered carrying capacity.");
+  // If the B2B page or another warehouse user assigns a selected job, remove
+  // it from this page's local bulk selection as soon as the shared queue refreshes.
+  useEffect(() => {
+    setSelectedIds((current) => {
+      const next = current.filter((id) => jobs.some((job) =>
+        idOf(job) === id &&
+        READY.has(String(job.status || "").toLowerCase()) &&
+        !job.pickupRouteId &&
+        !job.collectionTeamId
+      ));
+      return next.length === current.length && next.every((id, index) => id === current[index]) ? current : next;
+    });
+  }, [jobs]);
+
+  const areas = useMemo(() => {
+    const groups = new Map<string, { key: string; name: string; areaType?: string; jobs: Job[]; totalOrders: number; readyToAssign: number; collectionIds: string[]; serviceAreas?: string[]; pickupRadiusKm?: number; villages?: string[]; villageCount?: number }>();
+    const registeredAreas = areasQ.data?.data?.registeredAreas;
+    const directoryRows = Array.isArray(registeredAreas) && registeredAreas.length
+      ? registeredAreas
+      : (areasQ.data?.data?.zones ?? areasQ.data?.data?.areas ?? areasQ.data?.zones ?? areasQ.data?.areas ?? []);
+    if (Array.isArray(directoryRows)) {
+      directoryRows.forEach((area: Job) => {
+        const areaDistrict = normalizeDistrict(area.district || area.districtName || "");
+        // The API has already restricted this directory to the warehouse's
+        // configured districtKey. Some legacy area-master rows omit their
+        // display district, so only reject a row with an explicit mismatch.
+        if (allowedDistrictKeys.size && areaDistrict && !allowedDistrictKeys.has(areaDistrict)) return;
+        const name = String(area.name || "").trim();
+        if (!name) return;
+        const key = String(area.key || area.hubId || areaKey(name));
+        groups.set(key, {
+          key, name, areaType: area.taluk ? ("Village / locality · " + area.taluk) : String(area.areaType || "Registered pickup area"), jobs: [],
+          totalOrders: Number(area.totalOrders || 0),
+          readyToAssign: Number(area.readyOrders ?? area.readyToAssign ?? 0),
+          collectionIds: Array.isArray(area.collectionIds) ? area.collectionIds.map(String) : [],
+          serviceAreas: Array.isArray(area.aliases) ? area.aliases : (Array.isArray(area.serviceAreas) ? area.serviceAreas : []),
+          villages: Array.isArray(area.villages) ? area.villages.map(String) : [],
+          villageCount: Number(area.villageCount || (Array.isArray(area.villages) ? area.villages.length : 0)),
+          pickupRadiusKm: Number(area.pickupRadiusKm || 0),
+          registeredFarmCount: Number(area.registeredFarmCount || 0),
+        } as any);
+      });
+    }
+    const collectionToZone = new Map<string, string>();
+    const areaAliases = new Map<string, string>();
+    groups.forEach((area) => {
+      area.collectionIds.forEach((id) => collectionToZone.set(id, area.key));
+      [area.name, (area as any).taluk, ...(area.serviceAreas || []), ...((area as any).villages || [])].forEach((value) => {
+        const normalized = areaKey(String(value || ""));
+        if (normalized) areaAliases.set(normalized, area.key);
+      });
+    });
+    jobs.forEach((job) => {
+      const id = idOf(job);
+      const location = job.pickupLocation || job.farmLocation || {};
+      const farmer = job.farmerProfile || job.farmer || job.profile || {};
+      const farmerLocation = farmer.farmLocation || farmer.farmAddress || farmer.address || {};
+      const explicitAreas = [
+        job.farmVillage, job.farmAreaName, job.farmLocality, job.farmTown, job.farmTaluk,
+        job.village, job.villageName, job.locality, job.taluk, job.subDistrict, job.town, job.area,
+        location.village, location.locality, location.taluk, location.subDistrict, location.town, location.area,
+        farmer.farmVillage, farmer.village, farmer.farmAreaName, farmer.farmLocality,
+        farmer.locality, farmer.farmTaluk, farmer.taluk, farmer.subDistrict, farmer.farmTown, farmer.town,
+        farmerLocation.village, farmerLocation.locality, farmerLocation.taluk, farmerLocation.subDistrict,
+        farmerLocation.town, farmerLocation.area,
+      ].filter((value): value is string => typeof value === "string" && Boolean(value.trim()) && !isRoadOrAddressLabel(value));
+      // Farm addresses can be strings or nested objects (farmAddress,
+      // farmLocation, addressLine1/addressLine2, etc.). Flatten only
+      // farm-origin locality/address fields before matching configured aliases.
+      // Farm addresses may be strings or nested objects. Read locality fields
+      // from the farm origin, including addressLine1/addressLine2.
+      const addressValues: string[] = [];
+      const collectFarmAddress = (value: unknown, depth = 0) => {
+        if (depth > 4 || value == null) return;
+        if (typeof value === "string" || typeof value === "number") {
+          const text = String(value).trim();
+          if (text) addressValues.push(text);
+          return;
+        }
+        if (Array.isArray(value)) {
+          value.forEach((item) => collectFarmAddress(item, depth + 1));
+          return;
+        }
+        if (typeof value === "object") {
+          Object.entries(value as Record<string, unknown>).forEach(([key, nested]) => {
+            if (/address|line[12]?|village|locality|hamlet|town|taluk|subdistrict|district|city|state|pincode|postal|zip|formatted/i.test(key)) {
+              collectFarmAddress(nested, depth + 1);
+            }
+          });
+        }
+      };
+      [
+        job.pickupAddress, job.farmAddress, job.farmLocation, job.pickupLocation,
+        farmer.pickupAddress, farmer.farmAddress, farmer.farmLocation, farmerLocation,
+        farmer.address,
+      ].forEach((value) => collectFarmAddress(value));
+      const address = addressValues.join(", ");
+      const addressParts = address.split(/[,;|]/).map((part) => part.trim())
+        .filter((part) => part && !isRoadOrAddressLabel(part)).map(areaKey);
+      const normalizedAddress = " " + address.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim() + " ";
+      const aliasMatches = Array.from(areaAliases.entries())
+        .filter(([alias]) => {
+          const normalizedAlias = " " + alias.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim() + " ";
+          return alias.length >= 3 && normalizedAddress.includes(normalizedAlias);
+        })
+        .sort((a, b) => b[0].length - a[0].length);
+      const matchedKey = explicitAreas.map((value) => areaAliases.get(areaKey(value))).find(Boolean)
+        || addressParts.map((value) => areaAliases.get(value)).find(Boolean)
+        || aliasMatches[0]?.[1];
+      // Only place a collection in a canonical pickup-area directory entry.
+      // Do not manufacture an area from generic order fields or destination
+      // address fragments when the farm locality cannot be verified.
+      const key = collectionToZone.get(id) || matchedKey;
+      if (!key || !groups.has(key)) return;
+      const group = groups.get(key)!;
+      group.jobs.push(job);
+    });
+    groups.forEach((group) => {
+      group.totalOrders = Math.max(Number(group.totalOrders || 0), group.jobs.length);
+      const readyFromJobs = group.jobs.filter((job) => READY.has(String(job.status || "")) && !job.pickupRouteId && !job.collectionTeamId).length;
+      group.readyToAssign = Math.max(Number(group.readyToAssign || 0), readyFromJobs);
+    });
+    return Array.from(groups.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [jobs, areasQ.data, allowedDistrictKeys]);
+
+  // Prefer server-computed counts linked to farmer profiles when legacy collection IDs
+  // cannot be joined to the browser's current collection payload.
+  const farmCountForArea = (area: Job) => Math.max(
+    Number((area as any).registeredFarmCount || 0),
+    new Set((area.jobs || []).map((job: Job) => getFarmRouteKey(job))).size
+  );
+  const readyCountForArea = (area: Job) => Math.max(
+    Number((area as any).readyOrders ?? (area as any).readyToAssign ?? 0),
+    (area.jobs || []).filter((job: Job) =>
+      READY.has(String(job.status || "").toLowerCase()) && !job.pickupRouteId && !job.collectionTeamId
+    ).length
+  );
+
+  const taluks: Job[] = useMemo(() => {
+    const registered = areasQ.data?.data?.registeredAreas;
+    if (Array.isArray(registered) && registered.length) return [];
+    const rows = areasQ.data?.data?.taluks ?? areasQ.data?.taluks ?? [];
+    return Array.isArray(rows) ? rows.filter((item: unknown): item is Job => Boolean(item) && typeof item === "object") : [];
+  }, [areasQ.data]);
+  const selectedTaluk = taluks.find((taluk) => taluk.key === selectedArea);
+  const selectedZone = areas.find((area) => area.key === selectedArea);
+  const selectedGroupName = selectedTaluk?.name || selectedZone?.name || "All areas";
+
+  const filtered = useMemo(() => {
+    const zone = areas.find((area) => area.key === selectedArea);
+    const taluk = taluks.find((item) => item.key === selectedArea);
+    const orderIds = new Set(taluk?.collectionIds || zone?.collectionIds || []);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+    const week = new Date(today);
+    week.setDate(week.getDate() - ((week.getDay() + 6) % 7));
+    const month = new Date(now.getFullYear(), now.getMonth(), 1);
+    return jobs.filter((job) => {
+      const areaMatch = selectedArea === "all" || orderIds.has(idOf(job)) || zone?.jobs.some((item) => idOf(item) === idOf(job));
+      const statusMatch = statusFilter === "all" || String(job.status || "") === statusFilter;
+      const typeMatch = collectionType === "all" || String(job.collectionType || "bulk_harvest") === collectionType;
+      const rawDate = job.readyAt || job.readyForPickupAt || job.scheduledAt || job.createdAt || job.updatedAt;
+      const jobDate = rawDate ? new Date(rawDate) : null;
+      const validDate = Boolean(jobDate && !Number.isNaN(jobDate.getTime()));
+      let dateMatch = true;
+      if (datePeriod === "today") {
+        const active = ["ready_for_pickup", "team_assigned", "en_route", "arrived_at_farm", "collected", "departed_farm"].includes(String(job.status || "").toLowerCase());
+        dateMatch = validDate ? ((jobDate as Date) >= today && (jobDate as Date) < tomorrow) || (active && (jobDate as Date) < today) : active;
+      } else if (datePeriod !== "all") {
+        dateMatch = validDate && (datePeriod === "yesterday"
+          ? (jobDate as Date) >= yesterday && (jobDate as Date) < today
+          : datePeriod === "week" ? (jobDate as Date) >= week && (jobDate as Date) < tomorrow
+          : (jobDate as Date) >= month && (jobDate as Date) < tomorrow);
+      }
+      const term = search.trim().toLowerCase();
+      const text = [job.farmerName, job.orderNumber, job.orderId, job.productName, job.pickupAddress, areaOf(job), districtOf(job), job.status].join(" ").toLowerCase();
+      return areaMatch && statusMatch && typeMatch && dateMatch && (!term || text.includes(term));
+    });
+  }, [jobs, areas, taluks, selectedArea, statusFilter, collectionType, datePeriod, search]);
+
+  // Resolve missing farm GPS coordinates from the farm pickup address.
+  // Requests are serialized to avoid sending a burst to the free geocoder.
+  useEffect(() => {
+    let cancelled = false;
+    const resolveMissingFarmCoordinates = async () => {
+      const pending = filtered.filter((job) => {
+        const id = idOf(job);
+        const address = String(job.pickupAddress || job.farmAddress || job.farmLocation?.address || job.pickupLocation?.address || "").trim();
+        return id && address && !coordinatesOf(job) && !geocodedCoords[id] && !geocodeAttempted[id];
+      });
+      if (!pending.length) {
+        // Avoid creating a fresh [] state on every render; that caused the
+        // map page's effect chain to repeatedly render when all addresses
+        // were already resolved or none had a usable address.
+        setGeocodingIds((current) => current.length ? [] : current);
+        return;
+      }
+      const pendingIds = pending.map(idOf);
+      setGeocodingIds((current) =>
+        current.length === pendingIds.length && current.every((id, index) => id === pendingIds[index])
+          ? current
+          : pendingIds
+      );
+      for (const job of pending) {
+        if (cancelled) return;
+        const id = idOf(job);
+        const address = String(job.pickupAddress || job.farmAddress || job.farmLocation?.address || job.pickupLocation?.address || "").trim();
+        // Add known farm district and country context to improve Indian address matches.
+        const query = [address, districtOf(job), "Tamil Nadu", "India"].filter(Boolean).join(", ");
+        try {
+          const result = await geocodeAddress(query);
+          if (!cancelled && result && Number.isFinite(result.lat) && Number.isFinite(result.lng)) {
+            setGeocodedCoords((current) => ({ ...current, [id]: [result.lat, result.lng] }));
+          }
+        } catch {
+          // Keep the order visible in the coordinate-verification list.
+        }
+        if (!cancelled) {
+          setGeocodeAttempted((current) => current[id] ? current : { ...current, [id]: true });
+          setGeocodingIds((current) => current.filter((value) => value !== id));
+        }
+        // Keep requests paced for public geocoding providers.
+        await new Promise((resolve) => setTimeout(resolve, 1100));
+      }
+    };
+    void resolveMissingFarmCoordinates();
+    return () => { cancelled = true; };
+  }, [filtered, geocodedCoords, geocodeAttempted]);
+
+  const farmGroups = useMemo(() => {
+    const groups = new Map<string, { key: string; farmerName: string; pickupAddress: string; jobs: Job[] }>();
+    for (const job of filtered) {
+      const key = getFarmRouteKey(job);
+      if (!groups.has(key)) groups.set(key, {
+        key,
+        farmerName: String(job.farmerName || "Farmer details unavailable"),
+        pickupAddress: String(job.pickupAddress || areaOf(job)),
+        jobs: [],
+      });
+      groups.get(key)!.jobs.push(job);
+    }
+    return Array.from(groups.values()).map((farm) => {
+      const readyJobs = farm.jobs.filter((job) => READY.has(String(job.status || "").toLowerCase()) && !job.pickupRouteId && !job.collectionTeamId);
+      const readyIds = readyJobs.map(idOf);
+      const selectedCount = readyIds.filter((id) => selectedIds.includes(id)).length;
+      const statuses = farm.jobs.map((job) => String(job.status || "scheduled"));
+      const progressIndex = Math.min(...statuses.map((status) => Math.max(0, COLLECTION_STATUS.findIndex(([key]) => key === status))));
+      return {
+        ...farm,
+        readyJobs,
+        readyIds,
+        selectedCount,
+        allReadySelected: readyIds.length > 0 && selectedCount === readyIds.length,
+        totalQuantity: farm.jobs.reduce((sum, job) => sum + Number(job.quantity || 0), 0),
+        currentStage: COLLECTION_STATUS[progressIndex]?.[1] || "Collection in progress",
+        mixedStages: new Set(statuses).size > 1,
+        routeCount: new Set(farm.jobs.map((job) => job.pickupRouteId).filter(Boolean).map(String)).size,
+      };
+    });
+  }, [filtered, selectedIds]);
+
+  const selectedJobs = jobs.filter((job) => selectedIds.includes(idOf(job)));
+  const selectedWeight = selectedJobs.reduce((sum, job) => sum + Number(job.quantity || 0), 0);
+  const selectedAreaJobs = useMemo(() => {
+    if (selectedArea === "all") return jobs;
+    const zone = areas.find((area) => area.key === selectedArea);
+    const taluk = taluks.find((item) => item.key === selectedArea);
+    const ids = new Set(taluk?.collectionIds || zone?.collectionIds || []);
+    return jobs.filter((job) => ids.has(idOf(job)) || Boolean(zone?.jobs.some((item) => idOf(item) === idOf(job))));
+  }, [jobs, areas, taluks, selectedArea]);
+  // Bulk selection deliberately ignores table search/status filters so it
+  // selects every eligible collection in this area, including rows below fold.
+  const eligibleAreaFarms = selectedAreaJobs.filter((job) =>
+    READY.has(String(job.status || "")) && !job.pickupRouteId && !job.collectionTeamId && idOf(job)
+  );
+  const allEligibleSelected = eligibleAreaFarms.length > 0 &&
+    eligibleAreaFarms.every((job) => selectedIds.includes(idOf(job)));
+  const selectAllEligibleFarms = () => setSelectedIds((current) => {
+    const ids = eligibleAreaFarms.map(idOf);
+    return allEligibleSelected
+      ? current.filter((id) => !ids.includes(id))
+      : Array.from(new Set([...current, ...ids]));
+  });
+  const areaSummary = useMemo(() => {
+    const source = selectedArea === "all" ? jobs : filtered;
+    return {
+      total: source.length,
+      ready: source.filter((job) => READY.has(String(job.status || "")) && !job.pickupRouteId && !job.collectionTeamId).length,
+      assigned: source.filter((job) => Boolean(job.pickupRouteId || job.collectionTeamId)),
+      completed: source.filter((job) => ["arrived_warehouse", "received", "completed"].includes(String(job.status || ""))).length,
+    };
+  }, [jobs, selectedArea, filtered]);
+
+  // The map represents physical farms, not collection-order rows. A farm
+  // with several collection orders must create exactly one map marker.
+  const farmMarkers = useMemo(() => {
+    const farmGroups = new Map<string, { representative: Job; coords: [number, number]; orders: Job[] }>();
+    for (const job of filtered) {
+      const coords = coordinatesOf(job) || geocodedCoords[idOf(job)] || null;
+      if (!coords) continue;
+      // Use the same canonical farm key as the registered-farm summary so
+      // the map and dashboard cannot count the same address as two farms.
+      const key = getFarmRouteKey(job);
+      const existing = farmGroups.get(key);
+      if (existing) {
+        existing.orders.push(job);
+        // Prefer coordinates saved on the farm profile over per-order
+        // geocoding so all orders from the same farm share one pin.
+        if (coordinatesOf(job)) existing.coords = coords;
+      } else {
+        farmGroups.set(key, { representative: job, coords, orders: [job] });
+      }
+    }
+    return Array.from(farmGroups.entries()).map(([key, farm]) => {
+      const job = farm.representative;
+      const quantity = farm.orders.reduce((sum, order) => sum + Number(order.quantity || 0), 0);
+      const orderLabels = farm.orders.slice(0, 4).map((order) =>
+        String(order.orderNumber || order.eventOrderNumber || "Pickup order")
+      ).join(", ");
+      return {
+        id: idOf(job),
+        farmKey: key,
+        lat: farm.coords[0],
+        lng: farm.coords[1],
+        title: escapeMapText(job.farmerName || job.farmName || "Farm pickup"),
+        info: escapeMapText(`${farm.orders.length} collection orders · ${quantity.toFixed(1)} kg · ${orderLabels}${farm.orders.length > 4 ? "…" : ""}`),
+      };
+    });
+  }, [filtered, geocodedCoords]);
+  const mapCenter = useMemo(() => farmMarkers.length
+    ? { lat: farmMarkers.reduce((sum, marker) => sum + marker.lat, 0) / farmMarkers.length, lng: farmMarkers.reduce((sum, marker) => sum + marker.lng, 0) / farmMarkers.length }
+    : { lat: 10.7905, lng: 78.7047 }, [farmMarkers]);
+
+  const toggleOrder = (id: string) => setSelectedIds((current) => current.includes(id) ? current.filter((x) => x !== id) : [...current, id]);
+  const selectedFarmStops = useMemo(() => {
+    const selected = new Set(selectedIds);
+    const groups = new Map<string, { key: string; farmerName: string; pickupAddress: string; jobIds: string[]; quantity: number; hasCoordinates: boolean }>();
+    for (const job of jobs) {
+      const id = idOf(job);
+      if (!selected.has(id) || !READY.has(String(job.status || "")) || job.pickupRouteId || job.collectionTeamId) continue;
+      const key = getFarmRouteKey(job);
+      if (!groups.has(key)) {
+        const coords = coordinatesOf(job);
+        groups.set(key, { key, farmerName: String(job.farmerName || "Farmer details unavailable"), pickupAddress: String(job.pickupAddress || areaOf(job)), jobIds: [], quantity: 0, hasCoordinates: Boolean(coords) });
+      }
+      const group = groups.get(key)!;
+      group.jobIds.push(id);
+      group.quantity += Number(job.quantity || 0);
+    }
+    return Array.from(groups.values());
+  }, [jobs, selectedIds]);
+  const orderedManualFarmStops = useMemo(() => {
+    const byKey = new Map(selectedFarmStops.map((farm) => [farm.key, farm]));
+    const result = manualFarmOrder.filter((key) => byKey.has(key)).map((key) => byKey.get(key)!);
+    selectedFarmStops.forEach((farm) => { if (!manualFarmOrder.includes(farm.key)) result.push(farm); });
+    return result;
+  }, [selectedFarmStops, manualFarmOrder]);
+  const moveManualFarmStop = (farmKey: string, direction: -1 | 1) => {
+    const order = orderedManualFarmStops.map((farm) => farm.key);
+    const index = order.indexOf(farmKey);
+    const next = index + direction;
+    if (index < 0 || next < 0 || next >= order.length) return;
+    [order[index], order[next]] = [order[next], order[index]];
+    setManualFarmOrder(order);
+  };
+  const assignAreaOrders = async () => {
+    if (selectedArea === "all") {
+      toast.error("Select one pickup area first. A pickup assignment must belong to one area.");
       return;
     }
-    try {
-      await api.post("/warehouse/me/pickup-routes", { maxWeightKg: capacity });
-      toast.success("Pickup route(s) created. Approved partners will receive offers; otherwise eligible delivery partners can pick them up.");
-      await routesQ.refetch();
-    } catch (e: any) {
-      toast.error(e?.message || "No ready farms available");
+    if (!selectedIds.length) { toast.error("Select eligible pickup orders first."); return; }
+    const areaCollectionIds = new Set(selectedAreaJobs.map(idOf));
+    if (selectedJobs.some((job) => !areaCollectionIds.has(idOf(job)))) {
+      toast.error("Select orders from one pickup area only. Clear the selection and try again.");
+      return;
     }
+    const invalid = selectedJobs.filter((job) => !READY.has(String(job.status || "")) || job.pickupRouteId || job.collectionTeamId);
+    if (invalid.length) { toast.error("Some selected orders are no longer eligible. Refresh and select again."); return; }
+    if (assignmentMode === "assign_team" && (!selectedTeam || !selectedTeam.deliveryPartnerId)) {
+      toast.error("Select an approved pickup team with a linked delivery partner."); return;
+    }
+    if (assignmentMode === "assign_team" && selectedWeight > getTeamCapacity(selectedTeam)) {
+      toast.error(`Selected orders total ${selectedWeight.toFixed(1)} kg, above this vehicle's capacity.`); return;
+    }
+    if (assignmentMode !== "assign_team" && !eligibleTeams.length) {
+      toast.error("Approve a pickup team and register its vehicle capacity before planning routes."); return;
+    }
+    setAssigning(true);
+    try {
+      const response = await api.post("/warehouse/me/pickup-routes", {
+        collectionIds: selectedIds,
+        maxWeightKg: assignmentMode === "assign_team" ? getTeamCapacity(selectedTeam) : Math.max(...eligibleTeams.map(getTeamCapacity)),
+        assignmentMode,
+        ...(routePlanningMode === "manual" ? { manualStopOrder: orderedManualFarmStops.map((farm) => farm.key) } : {}),
+        ...(assignmentMode === "assign_team" ? { deliveryPartnerId: selectedTeam.deliveryPartnerId } : {}),
+      });
+      toast.success(response?.message || response?.data?.message || `Pickup planning completed for ${selectedIds.length} selected order(s).`);
+      setSelectedIds([]);
+      setManualFarmOrder([]);
+      await Promise.all([jobsQ.refetch(), teamsQ.refetch(), areasQ.refetch()]);
+    } catch (error: any) {
+      toast.error(error?.message || "Unable to plan selected pickups.");
+    } finally { setAssigning(false); }
   };
 
+  const openLocation = (job: Job) => {
+    const coords = coordinatesOf(job);
+    const query = coords ? `${coords[0]},${coords[1]}` : job.pickupAddress || areaOf(job);
+    window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`, "_blank", "noopener,noreferrer");
+  };
+
+  const searchedAreas = areas.filter((area) => area.name.toLowerCase().includes(areaSearch.trim().toLowerCase()));
+  // Derive live farm counts from the actual collection queue. The area-directory
+  // endpoint can contain stale/zero registeredFarmCount values even when jobs exist.
+  const registeredFarmTotal = Math.max(
+    new Set(jobs.map((job) => getFarmRouteKey(job))).size,
+    areas.reduce((sum, area) => sum + farmCountForArea(area), 0)
+  );
+  const readyFarmTotal = new Set(jobs.filter((job) => READY.has(String(job.status || "")) && !job.pickupRouteId && !job.collectionTeamId).map((job) => String(job.farmerId || job.farmerUserId || job.farmId || idOf(job)))).size;
+
   return (
-    <div className="space-y-6">
-      <div className="rounded-2xl bg-gradient-to-r from-emerald-700 via-emerald-600 to-teal-600 p-6 text-white shadow-sm sm:p-8">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <div className="flex items-center gap-2 text-emerald-100 text-base">
-              <Route className="h-4 w-4" /> Daily pickup planning
-            </div>
-            <h1 className="mt-2 text-3xl font-bold">Pickup Routes</h1>
-            <p className="mt-2 max-w-2xl text-base leading-relaxed text-emerald-50">
-              Routes are sized by the selected vehicle capacity. The system adds as many farm stops as that vehicle can carry; there is no fixed stop limit. The first eligible partner to accept wins the route.
-            </p>
+    <main className="warehouse-pickup-routes-page w-full space-y-5 pb-8">
+      <WarehousePageHeader
+        eyebrow="Farm collection"
+        title="Area-wise Pickup Routes"
+        description="Plan collections by farm area, review pickup locations and assign approved partners to ready farms."
+        meta={<span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700"><MapIcon className="h-3.5 w-3.5"/>{configuredDistricts.length ? `District coverage: ${configuredDistricts.join(", ")}` : "District coverage not configured"}</span>}
+        actions={<Button variant="outline" onClick={() => { jobsQ.refetch(); teamsQ.refetch(); areasQ.refetch(); }} disabled={jobsQ.isFetching || areasQ.isFetching} className="h-10 gap-2 rounded-xl"><RefreshCw className={`h-4 w-4 ${jobsQ.isFetching || areasQ.isFetching ? "animate-spin" : ""}`}/>Refresh</Button>}
+      />
+
+      {!jobsQ.isLoading && !jobsQ.isError && allowedDistrictKeys.size === 0 && <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">Farm Collection district coverage is missing. Pickup Routes is intentionally not showing orders from other districts. Configure this warehouse’s district in Warehouse Settings, then refresh.</div>}
+      <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+        {[
+          { label: "Registered farms", value: registeredFarmTotal, icon: Sprout },
+          { label: "Pickup areas in district", value: areas.length, icon: MapIcon },
+          { label: "Farms ready for pickup", value: readyFarmTotal, icon: Package },
+          { label: "Available pickup partners", value: eligibleTeams.length, icon: Users },
+        ].map((item) => <Card key={item.label} className="border-slate-200 shadow-sm"><CardContent className="flex items-center gap-3 p-4"><span className="rounded-lg bg-emerald-50 p-2 text-emerald-700"><item.icon className="h-5 w-5"/></span><div><p className="text-xs text-slate-500">{item.label}</p><p className="text-2xl font-bold tabular-nums text-slate-900">{jobsQ.isError ? "—" : item.value}</p></div></CardContent></Card>)}
+      </section>
+
+      <section className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(225px,0.72fr)_minmax(420px,1.55fr)_minmax(290px,0.92fr)]">
+        <Card className="h-fit overflow-hidden rounded-2xl border-slate-200 shadow-sm">
+          <div className="border-b border-slate-100 p-4">
+            <div className="flex items-center justify-between gap-2"><div><h2 className="font-semibold text-slate-950">Pickup areas</h2><p className="mt-1 text-xs text-slate-500">Areas in this warehouse district</p></div><Badge className="border-emerald-100 bg-emerald-50 text-emerald-800">{areas.length} areas</Badge></div>
+            <div className="relative mt-3"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"/><input value={areaSearch} onChange={(e) => setAreaSearch(e.target.value)} placeholder="Search pickup area…" className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-3 text-sm outline-none focus:border-emerald-500 focus:bg-white"/></div>
           </div>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-            <label className="text-sm font-medium text-emerald-50">
-              <span className="mb-1 flex items-center gap-1"><Truck className="h-4 w-4" /> Planning vehicle</span>
-              <select value={selectedTeamId} onChange={(e) => setSelectedTeamId(e.target.value)} className="h-11 min-w-56 rounded-lg border border-white/30 bg-white px-3 text-base text-slate-900">
-                <option value="">Select vehicle</option>
-                {teams.map((team: any) => (
-                  <option key={team.id} value={team.id} disabled={!team.capacity}>
-                    {team.name || "Pickup Partner"} · {team.vehicleType || "Vehicle"} · {team.capacity ? `${team.capacity} kg` : "Capacity not registered"}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <Button variant="secondary" onClick={createRoutes} disabled={!selectedTeamId || !selectedTeam?.capacity}>
-              <Plus className="mr-2 h-4 w-4" /> Create & Offer Routes
-            </Button>
-          </div>
-        </div>
-      </div>
+          <div className="max-h-[560px] space-y-2 overflow-y-auto p-3">
+            <button
+              type="button"
+              onClick={() => { setSelectedArea("all"); setActiveFarmId(""); setSelectedIds([]); }}
+              className={"w-full rounded-lg border p-3 text-left transition-colors " + (selectedArea === "all" ? "border-emerald-300 bg-emerald-50" : "border-slate-200 hover:bg-slate-50")}
+            >
+              <span className="flex items-center justify-between gap-3 text-sm font-semibold text-slate-900">
+                <span>All farm pickup areas</span><span className="tabular-nums">{registeredFarmTotal} farms</span>
+              </span>
+              <span className="mt-1 block text-xs text-slate-500">{jobs.length} collection orders · {readyFarmTotal} farms with pickup-ready stock</span>
+            </button>
 
-      {selectedTeam && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-base leading-relaxed text-emerald-900"><strong>{selectedTeam.name || "Selected vehicle"}</strong> · {selectedTeam.vehicleType || "Vehicle"} · <strong>{selectedTeam.capacity} kg capacity</strong>. Route planning will continue adding farm stops until this capacity is reached.</div>}
-
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Card><CardContent className="p-5"><p className="text-sm text-muted-foreground">All Pickup Routes</p><p className="text-2xl font-bold">{routes.length}</p></CardContent></Card>
-        <Card><CardContent className="p-5"><p className="text-xs text-muted-foreground">Total Farm Stops</p><p className="text-2xl font-bold">{routes.reduce((n: number, r: any) => n + (r.totalStops || 0), 0)}</p></CardContent></Card>
-        <Card><CardContent className="p-5"><p className="text-xs text-muted-foreground">Approved Pickup Partners</p><p className="text-2xl font-bold">{teams.length}</p></CardContent></Card>
-      </div>
-
-      <div className="space-y-4">
-        {routes.length === 0 ? (
-          <Card className="p-12 text-center">
-            <Route className="mx-auto h-12 w-12 text-muted-foreground" />
-            <h2 className="mt-4 font-semibold">No unfinished pickup routes</h2>
-            <p className="mt-2 text-sm text-muted-foreground">All routes may be completed or no routes have been created yet. Unfinished routes from previous days will remain visible here until they are completed, cancelled, or closed. To create a new route, select eligible pickups in Farm Collection.</p>
-          </Card>
-        ) : routes.map((r: any) => (
-          <Card key={r.id} className="overflow-hidden">
-            <CardHeader className="border-b bg-slate-50/70">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <CardTitle className="text-base">🚚 {r.routeNumber || "Pickup Route"}</CardTitle>
-                  <p className="mt-1 text-base text-muted-foreground">
-                    Assignment date: {r.routeDate || (r.createdAt ? new Date(r.createdAt).toLocaleDateString() : "Date unavailable")} · {r.totalStops || (r.stops || []).length} farms · {r.totalOrders || (r.stops || []).reduce((sum: number, stop: any) => sum + (stop.orderCount || stop.orders?.length || 1), 0)} orders · {r.totalQuantity || 0} kg
-                  </p>
-                </div>
-                <Badge className="px-4 py-2 text-sm font-bold tracking-normal">{routeStatusLabel(String(r.status || "offered"))}</Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="p-5">
-              {r.status === "returned_to_warehouse" && (
-                <div className="mb-4 flex flex-col gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <p className="flex items-center gap-2 font-semibold text-blue-900"><PackageCheck className="h-4 w-4" />Ready for Warehouse Receiving</p>
-                    <p className="mt-1 text-xs text-blue-800">The pickup partner returned this route. Receive each incoming stock record, complete quality check, then Store it to update warehouse inventory.</p>
-                  </div>
-                  <Button variant="outline" onClick={() => { window.location.href = "/incoming"; }}>Open Incoming</Button>
-                </div>
-              )}
-              <div className="space-y-3">
-                {(r.stops || []).map((s: any, i: number) => {
-                  const orderCount = Number(s.orderCount || (Array.isArray(s.orders) ? s.orders.length : 0) || 0);
-                  return (
-                    <div key={s.farmKey || s.collectionId || i} className="flex items-start gap-3 rounded-xl border border-emerald-200 p-3">
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-base font-bold text-emerald-700">{i + 1}</div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-base font-semibold">{s.farmerName || "Farmer details unavailable"}</p>
-                        <p className="mt-1 flex items-center gap-2 text-sm leading-relaxed text-muted-foreground"><MapPin className="h-4 w-4 shrink-0" /> {s.pickupAddress || "Farm address not provided"}</p>
-                        <p className="mt-1 text-base font-medium text-muted-foreground">{orderCount} {orderCount === 1 ? "order" : "orders"} · {s.quantity || 0} kg total</p>
-                        {s.distanceFromPreviousKm != null && <p className="mt-1 text-sm text-muted-foreground">Distance from previous stop: {Number(s.distanceFromPreviousKm).toFixed(1)} km</p>}
-                        {(s.arrivedAt || s.collectedAt || s.departedAt || s.completedAt) && <div className="mt-2 flex flex-wrap gap-x-4 gap-y-2 text-sm text-muted-foreground">{s.arrivedAt && <span>Arrived: {formatDateTime(s.arrivedAt)}</span>}{s.collectedAt && <span>Collected: {formatDateTime(s.collectedAt)}</span>}{s.departedAt && <span>Departed: {formatDateTime(s.departedAt)}</span>}</div>}
-                        <div className="mt-3">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="default"
-                            onClick={() => {
-                              const params = new URLSearchParams();
-                              params.set("search", String(s.farmerName || ""));
-                              if (s.farmKey) params.set("focusFarm", String(s.farmKey));
-                              if (Array.isArray(s.collectionIds) && s.collectionIds.length) params.set("focusCollections", s.collectionIds.join(","));
-                              else if (s.collectionId) params.set("focusCollections", String(s.collectionId));
-                              window.location.href = `/collections?${params.toString()}`;
-                            }}
-                          >
-                            <ExternalLink className="mr-2 h-4 w-4" /> View Orders
-                          </Button>
-                        </div>
-                      </div>
-                      <Badge variant="outline" className="shrink-0 px-3 py-2 text-sm font-semibold tracking-normal">{stopStatusLabel(String(s.status || "pending"))}</Badge>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="mt-5 flex flex-col gap-3 rounded-xl bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <p className="flex items-center gap-2 text-sm font-semibold">
-                    {r.deliveryPartnerId ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : <Users className="h-4 w-4 text-amber-600" />}
-                    {r.deliveryPartnerId
-                      ? "Route Accepted"
-                      : r.assignmentMode === "delivery_marketplace"
-                        ? "Open to Delivery Partners"
-                        : "Waiting for Pickup Partner Acceptance"}
-                  </p>
-                  {r.deliveryPartnerId ? (
-                    <div className="mt-2 space-y-2 text-base">
-                      <p><span className="font-medium">Accepted by:</span> {r.deliveryPartnerName || "Pickup Partner"}</p>
-                      <p className="text-muted-foreground">
-                        🚚 {r.deliveryPartnerVehicleType || "Vehicle not specified"} · {r.deliveryPartnerVehicleNumber || "Vehicle number not specified"}
-                      </p>
-                      <p className="text-sm font-medium text-emerald-700">This route is now assigned exclusively to this pickup partner.</p>
-                    </div>
-                  ) : (
-                    <p className="text-sm leading-relaxed text-muted-foreground">
-                      {r.assignmentMode === "delivery_marketplace"
-                        ? "No approved pickup partner is available. Eligible delivery partners can accept this route based on vehicle capacity and availability."
-                        : "All approved pickup partners can see and accept this route. First acceptance wins."}
-                    </p>
+            {searchedAreas.length ? searchedAreas.map((area) => {
+              const active = selectedArea === area.key;
+              const registeredFarmCount = farmCountForArea(area);
+              return (
+                <button
+                  type="button"
+                  key={area.key}
+                  onClick={() => { setSelectedArea(area.key); setActiveFarmId(""); setSelectedIds([]); }}
+                  className={"w-full rounded-xl border p-3 text-left transition " + (active ? "border-emerald-300 bg-emerald-50/70 ring-1 ring-emerald-100" : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50")}
+                >
+                  <span className="flex items-center justify-between gap-3">
+                    <span className="min-w-0 truncate text-sm font-semibold text-slate-900">{area.name}</span>
+                    <span className={"shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold tabular-nums " + (registeredFarmCount > 0 ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-500")}>
+                      {registeredFarmCount} {registeredFarmCount === 1 ? "farm" : "farms"}
+                    </span>
+                  </span>
+                  <span className="mt-1 block text-xs text-slate-500">Taluk pickup area · includes registered villages</span>
+                  {Array.isArray((area as any).villages) && (area as any).villages.length > 0 && (
+                    <span className="mt-1 block text-[11px] leading-4 text-slate-500">
+                      Villages: {(area as any).villages.slice(0, 4).join(", ")}{(area as any).villages.length > 4 ? ` +${(area as any).villages.length - 4} more` : ""}
+                    </span>
                   )}
-                </div>
-                <Badge variant={r.deliveryPartnerId ? "default" : "outline"} className="shrink-0 px-4 py-2 text-sm font-bold tracking-normal">
-                  {r.deliveryPartnerId ? "Assigned" : r.assignmentMode === "delivery_marketplace" ? "Delivery Marketplace" : "Open Offer"}
-                </Badge>
+                  <span className="mt-2 flex items-center justify-between gap-2 text-xs"><span className="text-slate-500">{readyCountForArea(area)} orders ready · {Math.max(Number(area.totalOrders || 0), area.jobs.length)} total orders</span><ChevronRight className={"h-4 w-4 " + (active ? "text-emerald-700" : "text-slate-300")}/></span>
+                </button>
+              );
+            }) : (
+              <div className="rounded-lg border border-dashed border-slate-300 p-5 text-center">
+                <MapPin className="mx-auto h-6 w-6 text-slate-400" />
+                <p className="mt-2 text-sm font-medium text-slate-700">{areasQ.isLoading ? "Loading pickup areas…" : "No pickup areas configured"}</p>
+                <p className="mt-1 text-xs text-slate-500">Add active villages and localities to the district pickup area master.</p>
               </div>
-            </CardContent>
+            )}
+          </div>
+        </Card>
+
+        <div className="min-w-0 space-y-4">
+          <Card className="overflow-hidden rounded-2xl border-slate-200 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 p-4">
+              <div><h2 className="flex items-center gap-2 font-semibold text-slate-950"><MapPin className="h-4 w-4 text-emerald-700"/> Pickup location map</h2><p className="mt-1 text-xs text-slate-500">{farmMarkers.length} located farms · {new Set(filtered.filter((job) => !coordinatesOf(job) && !geocodedCoords[idOf(job)]).map(getFarmRouteKey)).size} farms without coordinates</p></div>
+              <Badge variant="outline">{selectedGroupName}</Badge>
+            </div>
+            {farmMarkers.length ? <SharedMap center={mapCenter} zoom={11} markers={farmMarkers} drawRoute={false} height="300px" className="w-full" onMarkerClick={(marker: any) => setActiveFarmId(String(marker?.id || ""))} /> : <div className="flex h-[260px] flex-col items-center justify-center gap-2 bg-slate-50 text-center"><MapPin className="h-8 w-8 text-slate-400"/><p className="text-sm font-medium text-slate-700">No verified farm coordinates in this area</p><p className="text-xs text-slate-500">Orders remain available below. Add verified GPS coordinates to the farmer's farm profile to show a marker.</p></div>}
+            <div className="flex flex-wrap gap-3 border-t bg-slate-50 px-4 py-3 text-xs text-slate-600"><span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5"/> Each marker represents one farm; multiple orders are grouped together</span><span>Only farms in this warehouse district are included</span></div>
           </Card>
-        ))}
-      </div>
-    </div>
+          {activeFarmId && (() => {
+            const active = filtered.find((job) => idOf(job) === activeFarmId);
+            if (!active) return null;
+            return <Card className="border-emerald-200 shadow-sm"><CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+              <div><p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Selected farm marker</p><p className="mt-1 font-semibold text-slate-900">{active.farmerName || "Farm"} · {active.orderNumber || active.eventOrderNumber || "Pickup order"}</p><p className="mt-1 text-xs text-slate-600">{active.pickupAddress || "Farm address unavailable"} · {active.productName || "Product"} · {Number(active.quantity || 0)} kg</p></div>
+              <Button size="sm" variant="outline" onClick={() => setActiveFarmId("")}>Close</Button>
+            </CardContent></Card>;
+          })()}
+
+          {filtered.some((job) => !coordinatesOf(job) && !geocodedCoords[idOf(job)]) && <Card className="border-amber-200 shadow-sm">
+            <div className="border-b border-amber-100 p-4">
+              <h3 className="flex items-center gap-2 font-semibold text-slate-900"><AlertTriangle className="h-4 w-4 text-amber-600"/> Farms needing location coordinates</h3>
+              <p className="mt-1 text-xs text-slate-500">{filtered.filter((job) => !coordinatesOf(job) && !geocodedCoords[idOf(job)]).length} pickup orders still need a resolvable farm address. Address matches are being converted to map coordinates automatically where possible.</p>
+            </div>
+            <div className="max-h-48 divide-y overflow-y-auto">
+              {filtered.filter((job) => !coordinatesOf(job) && !geocodedCoords[idOf(job)]).map((job) => <div key={idOf(job)} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
+                <div className="min-w-0"><p className="truncate font-medium text-slate-800">{job.farmerName || "Farmer details unavailable"} · {job.orderNumber || job.eventOrderNumber || "Pickup order"}</p><p className="truncate text-xs text-slate-500">{job.pickupAddress || "No farm pickup address saved"} · {areaOf(job)}</p></div>
+                <Badge variant="outline">{geocodingIds.includes(idOf(job)) ? "Locating…" : "Address needs review"}</Badge>
+              </div>)}
+            </div>
+          </Card>}
+
+          <Card className="border-slate-200 shadow-sm">
+            <div className="flex flex-col gap-3 border-b p-4 lg:flex-row lg:items-center lg:justify-between">
+              <div><h2 className="font-semibold text-slate-900">Farms ready for collection</h2><p className="mt-1 text-xs text-slate-500">Only farm stock marked Ready for Pickup in this warehouse district is shown for pickup-partner assignment.</p></div>
+              <Button
+                variant={allEligibleSelected ? "secondary" : "outline"}
+                size="sm"
+                onClick={selectAllEligibleFarms}
+                disabled={!eligibleAreaFarms.length}
+                className="h-10 shrink-0 gap-2 rounded-xl border-emerald-200 px-3 font-semibold text-emerald-800 hover:bg-emerald-50"
+              >
+                <CheckCircle2 className="h-4 w-4"/>
+                {allEligibleSelected ? "Deselect all eligible farms" : "Select all eligible farms"} ({eligibleAreaFarms.length})
+              </Button>
+            </div>
+            <div className="grid gap-2 border-b border-slate-100 bg-slate-50/70 p-3 md:grid-cols-2 xl:grid-cols-3">
+              <select value={collectionType} onChange={(e) => setCollectionType(e.target.value)} className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm"><option value="all">All collection types</option><option value="bulk_harvest">Bulk harvest · Warehouse fulfillment</option><option value="event_fulfillment_transfer">Customer event orders</option><option value="packed_orders_transfer">Packed orders · Long distance</option></select>
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm"><option value="all">All pickup statuses</option>{Object.entries(STATUS_LABEL).map(([key, value]) => <option key={key} value={key}>{value}</option>)}</select>
+              <div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"/><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search farmer, order, product…" className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-sm"/></div>
+              <div className="flex flex-wrap gap-1.5 md:col-span-2 xl:col-span-3">
+                {([["all","All time"],["today","Today"],["yesterday","Yesterday"],["week","This week"],["month","This month"]] as const).map(([value,title]) => <Button key={value} size="sm" variant={datePeriod===value?"default":"outline"} className={datePeriod===value?"bg-emerald-700 hover:bg-emerald-800":""} onClick={()=>setDatePeriod(value)}>{title}</Button>)}
+                <span className="ml-auto self-center text-xs text-slate-500">{filtered.length} orders shown</span>
+              </div>
+            </div>
+            {jobsQ.isLoading ? <div className="p-10 text-center text-sm text-slate-500">Loading pickup orders…</div> : jobsQ.isError ? <div className="p-8 text-center"><AlertTriangle className="mx-auto h-8 w-8 text-rose-500"/><p className="mt-2 text-sm font-medium">Unable to load pickup orders</p><Button className="mt-3" variant="outline" onClick={() => jobsQ.refetch()}>Try again</Button></div> : filtered.length === 0 ? <div className="p-10 text-center text-sm text-slate-500">No orders match the selected filters.</div> : <div className="max-h-[480px] divide-y overflow-y-auto">
+              {farmGroups.map((farm) => {
+                const farmId = "pickup-farm-" + farm.key.replace(/[^a-zA-Z0-9_-]/g, "-");
+                const expanded = Boolean(expandedFarmCards[farm.key]);
+                return <div key={farm.key} className="border-b last:border-b-0">
+                  <div className="flex flex-col gap-3 bg-emerald-50/50 p-4 sm:flex-row sm:items-center">
+                    <input type="checkbox" aria-label={`Select all ready orders from ${farm.farmerName}`} checked={farm.allReadySelected} disabled={!farm.readyIds.length} onChange={(event)=>setSelectedIds((current)=>event.target.checked?Array.from(new Set([...current,...farm.readyIds])):current.filter((id)=>!farm.readyIds.includes(id)))} className="h-5 w-5 accent-emerald-700 disabled:opacity-40"/>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2"><p className="font-semibold text-slate-950">{farm.farmerName}</p><Badge className="bg-emerald-100 text-emerald-800">{farm.readyJobs.length} ready</Badge><Badge variant="outline">{farm.jobs.length} total orders</Badge>{farm.routeCount>0&&<Badge className="bg-violet-100 text-violet-800">{farm.routeCount} route(s) planned</Badge>}</div>
+                      <p className="mt-1 flex items-start gap-1.5 text-xs text-slate-600"><MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0"/>{farm.pickupAddress || "Farm address not provided"} · {areaOf(farm.jobs[0])}</p>
+                      <p className="mt-1 text-xs font-medium text-slate-700">{farm.totalQuantity.toLocaleString()} kg expected · Current stage: {farm.currentStage}{farm.mixedStages?" · Mixed order stages":""}</p>
+                    </div>
+                    <Button type="button" size="sm" variant="outline" aria-expanded={expanded} aria-controls={farmId} onClick={()=>setExpandedFarmCards((current)=>({...current,[farm.key]:!current[farm.key]}))}>{expanded?"Hide orders":`View ${farm.jobs.length} orders`} <ChevronRight className={`ml-1 h-4 w-4 transition-transform ${expanded?"rotate-90":""}`}/></Button>
+                  </div>
+                  {expanded&&<div id={farmId} className="space-y-2 bg-white p-3 sm:p-4">
+                    {farm.jobs.map((job)=>{
+                      const id=idOf(job); const canAssign=READY.has(String(job.status||"").toLowerCase())&&!job.pickupRouteId&&!job.collectionTeamId; const coords=coordinatesOf(job);
+                      const isSelected=selectedIds.includes(id);
+                      return <div key={id} className="flex flex-col gap-3 rounded-xl border border-slate-200 p-3 sm:flex-row sm:items-center">
+                        <input type="checkbox" aria-label={`Select order ${job.orderNumber||id}`} checked={isSelected} disabled={!canAssign} onChange={()=>toggleOrder(id)} className="h-4 w-4 accent-emerald-700 disabled:opacity-40"/>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2"><span className="text-sm font-semibold text-slate-900">{job.orderNumber||job.eventOrderNumber||"Pickup order"}</span><Badge variant="outline">{STATUS_LABEL[String(job.status)]||String(job.status||"Unknown").replace(/_/g," ")}</Badge>{job.pickupRouteId&&<Badge className="bg-violet-100 text-violet-800">{job.routeNumber?"Route "+job.routeNumber:"Route planned"}</Badge>}</div>
+                          <p className="mt-1 text-sm text-slate-700">{job.productName||"Product details unavailable"} · {Number(job.quantity||0)} kg · {job.packageCount||1} package(s)</p>
+                          <p className="mt-1 text-xs text-slate-500">Collection team: {job.collectionTeamName|| (job.collectionTeamId?"Assigned":"Not assigned")} · {job.warehouseName||"Destination warehouse"}</p>
+                          {job.actualCollectedQuantity!=null&&<p className="mt-1 text-xs font-semibold text-emerald-700">Collected: {job.actualCollectedQuantity} kg</p>}
+                          {job.districtMatchStatus&&job.districtMatchStatus!=="matched"&&<p className="mt-1 text-xs text-amber-700">{job.districtMatchMessage||"Verify farm district before assignment."}</p>}
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2"><span className={`text-xs font-medium ${canAssign?"text-emerald-700":"text-slate-400"}`}>{canAssign?"Eligible":"Not assignable"}</span><Button size="sm" variant="outline" onClick={()=>openLocation(job)} disabled={!coords&&!job.pickupAddress}>Map</Button></div>
+                      </div>;
+                    })}
+                  </div>}
+                </div>;
+              })}
+
+            </div>}
+          </Card>
+        </div>
+<Card className="h-fit min-w-0 overflow-hidden rounded-2xl border-slate-200 shadow-sm xl:col-start-3 xl:row-start-1 xl:sticky xl:top-4">
+        <div className="flex flex-col gap-3 border-b border-slate-100 p-4">
+          <div className="flex items-center gap-3">
+            <span className="rounded-xl bg-emerald-50 p-2.5 text-emerald-700"><Truck className="h-5 w-5"/></span>
+            <div><h2 className="font-semibold text-slate-950">Assign pickup partner</h2><p className="mt-0.5 text-xs text-slate-500">Assign the selected farm collections to an approved partner and vehicle.</p></div>
+          </div>
+          <Badge variant="outline" className="w-fit">{selectedIds.length} farms selected</Badge>
+        </div>
+        <CardContent className="grid gap-3 p-4 sm:p-5">
+          {assignmentMode === "assign_team" && <label className="block min-w-0 space-y-1.5 text-xs font-semibold text-slate-700">Approved pickup partner and vehicle
+            <select value={teamId} onChange={(e) => setTeamId(e.target.value)} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"><option value="">Select partner / vehicle</option>{eligibleTeams.map((team) => <option key={team.id} value={team.id}>{team.name || "Pickup partner"} · {team.vehicleType || "Vehicle"} · {team.capacity || team.vehicleCapacity} kg</option>)}</select>
+          </label>}
+          <label className="block space-y-1.5 text-xs font-semibold text-slate-700">Route planning
+            <select value={routePlanningMode} onChange={(e)=>setRoutePlanningMode(e.target.value as "automatic"|"manual")} className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal"><option value="automatic">Automatic · optimize farm stops</option><option value="manual">Manual · choose farm stop order</option></select>
+          </label>
+          <label className="block space-y-1.5 text-xs font-semibold text-slate-700">Assignment method
+            <select value={assignmentMode} onChange={(e)=>setAssignmentMode(e.target.value as "auto_assign"|"offer"|"assign_team")} className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal"><option value="assign_team">Assign all selected area orders to this team</option><option value="offer">Offer selected area orders to approved partners</option><option value="auto_assign">Auto-plan and assign teams</option></select>
+          </label>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-600">
+            {assignmentMode === "assign_team" && "The selected approved partner receives the complete route for this pickup area. Vehicle capacity is checked before assignment."}
+            {assignmentMode === "offer" && "The route is offered to approved pickup partners. The first eligible partner to accept it claims the route; other partners cannot claim it afterward."}
+            {assignmentMode === "auto_assign" && "The system distributes separate routes across idle approved teams, selecting a vehicle with sufficient capacity for each route."}
+          </div>
+          {routePlanningMode==="manual"&&<div className="rounded-xl border border-blue-200 bg-blue-50/50 p-3">
+            <p className="text-xs font-semibold text-slate-800">Manual farm stop order · {orderedManualFarmStops.length} stops</p>
+            {orderedManualFarmStops.length?<ol className="mt-2 space-y-2">{orderedManualFarmStops.map((farm,index)=><li key={farm.key} className="flex items-center gap-2 rounded-lg bg-white p-2"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100 text-xs font-bold">{index+1}</span><span className="min-w-0 flex-1 truncate text-xs font-medium">{farm.farmerName} · {farm.jobIds.length} orders · {farm.quantity} kg</span><div className="flex gap-1"><Button size="icon" variant="outline" disabled={index===0} onClick={()=>moveManualFarmStop(farm.key,-1)}><ArrowUp className="h-3 w-3"/></Button><Button size="icon" variant="outline" disabled={index===orderedManualFarmStops.length-1} onClick={()=>moveManualFarmStop(farm.key,1)}><ArrowDown className="h-3 w-3"/></Button></div></li>)}</ol>:<p className="mt-1 text-xs text-slate-500">Select farm orders to build the stop sequence.</p>}
+          </div>}
+          <div className="rounded-xl border border-slate-200 px-3.5 py-2.5">
+            <p className="text-xs font-medium text-slate-500">Planning summary</p>
+            <p className="mt-1 text-sm font-semibold text-slate-900">{selectedIds.length} orders · {selectedFarmStops.length} farms · {selectedWeight.toFixed(1)} kg</p>
+            <p className="mt-1 text-[11px] text-slate-500">{selectedTeam? `Vehicle capacity: ${getTeamCapacity(selectedTeam)} kg`:"Choose a pickup vehicle to validate capacity."}</p>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5">
+            <p className="text-xs font-medium text-slate-500">Selected pickup load</p>
+            <p className="mt-1 text-lg font-bold tabular-nums text-slate-950">{selectedIds.length} orders <span className="text-slate-300">·</span> {selectedWeight.toFixed(1)} kg</p>
+            <p className="mt-0.5 text-[11px] text-slate-500">{selectedTeam ? `Vehicle capacity: ${selectedTeam.capacity || selectedTeam.vehicleCapacity} kg` : "Select a partner to check capacity"}</p>
+          </div>
+          <div className="rounded-xl border border-slate-200 px-3.5 py-2.5">
+            <p className="text-xs font-medium text-slate-500">Assignment status</p>
+            <p className={`mt-1 text-sm font-semibold ${selectedTeam && selectedWeight > Number(selectedTeam.capacity || selectedTeam.vehicleCapacity || 0) ? "text-rose-700" : "text-slate-800"}`}>{selectedTeam && selectedWeight > Number(selectedTeam.capacity || selectedTeam.vehicleCapacity || 0) ? "Capacity exceeded" : selectedIds.length ? "Ready to assign" : "Awaiting farm selection"}</p>
+          </div>
+          <Button onClick={assignAreaOrders} disabled={assigning || selectedArea==="all" || !selectedIds.length || (assignmentMode==="assign_team" && (!selectedTeam || !selectedTeam.deliveryPartnerId || selectedWeight>getTeamCapacity(selectedTeam))) || (assignmentMode!=="assign_team" && eligibleTeams.length===0)} className="h-11 w-full rounded-xl bg-emerald-700 px-4 font-semibold text-white hover:bg-emerald-800"><Route className="mr-2 h-4 w-4"/>{assigning ? "Planning pickups…" : selectedArea==="all" ? "Select one pickup area" : routePlanningMode==="manual" ? "Create manual route" : "Plan selected pickups"}</Button>
+        </CardContent>
+        {selectedTeam && selectedWeight > Number(selectedTeam.capacity || selectedTeam.vehicleCapacity || 0) && <p className="border-t border-rose-100 bg-rose-50 px-5 py-2.5 text-xs text-rose-700">Selected quantity exceeds this vehicle's capacity. Remove farms or select a vehicle with sufficient capacity.</p>}
+        {eligibleTeams.length === 0 && <p className="border-t border-amber-100 bg-amber-50 px-5 py-2.5 text-xs text-amber-800">No approved pickup partner with registered vehicle capacity is available. Review Pickup Partners first.</p>}
+      </Card>
+      </section>
+
+      
+
+            <p className="text-center text-xs text-slate-400">Pickup Routes is dedicated to farm collection within this warehouse’s configured district. Customer and business delivery destinations are not included.</p>
+    </main>
   );
 }

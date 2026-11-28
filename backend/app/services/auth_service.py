@@ -96,30 +96,38 @@ class AuthService:
     
     @staticmethod
     async def authenticate_user(username: str, password: str) -> Optional[Dict[str, Any]]:
-        """Authenticate by email, username, or phone, including local hub manager accounts."""
+        """Authenticate by email, username, or normalized phone number."""
         identifier = (username or "").strip()
         if not identifier or not password:
             return None
 
         normalized = identifier.lower()
         candidates = []
-        # Search email and username independently. This also supports legacy hub
-        # records where the identifier was stored with inconsistent casing.
+
+        # Keep username lookup on the generic repository path; use the
+        # repository's dedicated normalizers for email and phone lookups.
+        if "@" not in identifier:
+            candidates.append(await user_repository.find_one({
+                "username": normalized,
+                "deletedAt": None,
+            }))
+        candidates.append(await user_repository.get_by_email(normalized))
+
         if "@" in identifier:
-            candidates.append({"email": normalized, "deletedAt": None})
-            candidates.append({"username": normalized, "deletedAt": None})
+            # Some legacy accounts used an email-like string as their username.
+            candidates.append(await user_repository.find_one({
+                "username": normalized,
+                "deletedAt": None,
+            }))
         else:
-            candidates.append({"username": normalized, "deletedAt": None})
-            candidates.append({"email": normalized, "deletedAt": None})
             try:
                 phone = normalize_phone_number(identifier)
-                candidates.append({"phone": phone, "deletedAt": None})
+                candidates.append(await user_repository.get_by_phone(phone))
             except ValueError:
                 pass
 
         seen_ids = set()
-        for query in candidates:
-            user = await user_repository.find_one(query)
+        for user in candidates:
             if not user:
                 continue
             user_id = str(user.get("_id") or "")
@@ -128,14 +136,17 @@ class AuthService:
             if user_id:
                 seen_ids.add(user_id)
             password_hash = user.get("passwordHash") or user.get("password_hash") or ""
-            if password_hash:
-                try:
-                    if Security.verify_password(password, password_hash):
-                        if user.get("isActive", True) is False or user.get("status") in ("suspended", "disabled", "inactive"):
-                            return None
-                        return user
-                except (ValueError, TypeError):
-                    continue
+            if not password_hash:
+                continue
+            try:
+                if Security.verify_password(password, password_hash):
+                    if user.get("isActive", True) is False or user.get("status") in (
+                        "suspended", "disabled", "inactive"
+                    ):
+                        return None
+                    return user
+            except (ValueError, TypeError):
+                continue
         return None
 
     @staticmethod

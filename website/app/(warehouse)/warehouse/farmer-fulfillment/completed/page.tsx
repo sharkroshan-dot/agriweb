@@ -120,7 +120,7 @@ export default function CompletedFarmerFulfillmentPage() {
   const total = groups.reduce((sum, group) => sum + group.orders.length, 0);
   const completedTotal = groups.reduce((sum, group) => sum + group.completedCount, 0);
 
-  return <div className="space-y-6">
+  return <div className="warehouse-fulfillment-completed-page space-y-6">
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div>
         <p className="text-sm font-medium text-emerald-700">Farmer Fulfillment</p>

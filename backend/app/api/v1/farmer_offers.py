@@ -45,8 +45,9 @@ class CouponCreate(BaseModel):
     discountType: str = "percentage"
     discountValue: float = Field(..., gt=0)
     minOrderValue: float = Field(0, ge=0)
-    maxDiscount: Optional[float] = Field(None, ge=0)
+    maxDiscount: Optional[float] = Field(None, gt=0)
     usageLimit: Optional[int] = Field(None, gt=0)
+    startAt: Optional[datetime] = None
     expiresAt: Optional[datetime] = None
     eligibility: str = "all"
 
@@ -126,7 +127,9 @@ async def create_farmer_coupon(data: CouponCreate, current_user: dict = Depends(
         raise HTTPException(400, "Discount type must be percentage or fixed")
     if data.discountType == "percentage" and data.discountValue > 100:
         raise HTTPException(400, "Percentage discount cannot exceed 100")
-    code = data.code.upper()
+    if data.startAt and data.expiresAt and data.expiresAt <= data.startAt:
+        raise HTTPException(400, "Coupon expiry must be after its start date")
+    code = data.code.strip().upper()
     if await coupon_repo.find_one({"code": code}):
         raise HTTPException(400, "Coupon code already exists")
     now = datetime.utcnow()
@@ -144,8 +147,15 @@ async def update_farmer_coupon(coupon_id: str, data: CouponCreate, current_user:
     except Exception: raise HTTPException(400, "Invalid coupon id")
     doc = await coupon_repo.find_one({"_id": oid, "ownerType": "farmer", "farmerId": ObjectId(str(current_user["_id"]))})
     if not doc: raise HTTPException(404, "Coupon not found")
+    if data.startAt and data.expiresAt and data.expiresAt <= data.startAt:
+        raise HTTPException(400, "Coupon expiry must be after its start date")
+    code = data.code.strip().upper()
+    duplicate = await coupon_repo.find_one({"code": code, "_id": {"$ne": oid}})
+    if duplicate:
+        raise HTTPException(400, "Coupon code already exists")
     values = data.model_dump()
-    values["code"] = data.code.upper()
+    values["code"] = code
+    values["status"] = "scheduled" if data.startAt and data.startAt > datetime.utcnow() else "active"
     values["updatedAt"] = datetime.utcnow()
     await coupon_repo.collection.update_one({"_id": oid}, {"$set": values})
     doc.update(values)

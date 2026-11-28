@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Loader2,
@@ -245,7 +245,17 @@ function RateBusinessModal({ order, onClose }: { order: any; onClose: () => void
 
 export default function FarmerBulkOrdersPage() {
   const queryClient = useQueryClient();
+  const [targetB2bOrderId, setTargetB2bOrderId] = useState("");
   const [tab, setTab] = useState<"bulk" | "b2b">("bulk");
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const orderId = params.get("orderId") || "";
+    if (params.get("tab") === "b2b" || orderId) {
+      setTargetB2bOrderId(orderId);
+      setTab("b2b");
+    }
+  }, []);
   const [bulkFilter, setBulkFilter] = useState("");
   const [b2bFilter, setB2bFilter] = useState("");
   const [weighingFor, setWeighingFor] = useState<string | null>(null);
@@ -297,6 +307,8 @@ export default function FarmerBulkOrdersPage() {
     queryKey: ["b2b", "farmer", "orders"],
     queryFn: () => api.get("/b2b/orders"),
   });
+  const b2bOrders = useMemo(() => b2bData?.data?.orders || [], [b2bData]);
+
 
   const advanceMutation = useMutation({
     mutationFn: (payload: { id: string; status: string }) => api.put(`/bulk-orders/orders/${payload.id}/status`, { status: payload.status }),
@@ -328,6 +340,21 @@ export default function FarmerBulkOrdersPage() {
     onError: (err: any) => toast.error(err?.message || "Failed to update order"),
   });
 
+  useEffect(() => {
+    if (!targetB2bOrderId) return;
+    setTab("b2b");
+    setB2bFilter("");
+    if (b2bLoading) return;
+    const matchingOrder = b2bOrders.find((order: any) =>
+      String(order.id || order._id || order.orderId || "") === targetB2bOrderId
+    );
+    if (!matchingOrder) return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById("b2b-order-" + targetB2bOrderId)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [targetB2bOrderId, b2bLoading, b2bOrders]);
+
   if (bulkLoading || b2bLoading || eventFulfillmentLoading) {
     return (
       <div className="flex h-40 items-center justify-center">
@@ -351,8 +378,6 @@ export default function FarmerBulkOrdersPage() {
   }));
   const allBulkOrders = [...orders, ...eventOrders];
 
-  const b2bOrders = b2bData?.data?.orders || [];
-
   const filterBulk = (list: any[]) => {
     if (bulkFilter === "active") return list.filter((o) => !["delivered", "completed", "cancelled"].includes(o.status));
     if (bulkFilter === "completed") return list.filter((o) => ["delivered", "completed"].includes(o.status));
@@ -369,6 +394,8 @@ export default function FarmerBulkOrdersPage() {
 
   const visibleOrders = filterBulk(allBulkOrders);
   const visibleB2bOrders = filterB2b(b2bOrders);
+
+
 
   const nextOfB2b = (status: string) => {
     const i = b2bFlow.indexOf(status);
@@ -496,7 +523,11 @@ export default function FarmerBulkOrdersPage() {
                 const hasWeighed = o.preparedKg != null;
                 const canWeigh = ["confirmed", "preparing", "quality_check"].includes(o.status);
                 return (
-                  <Card key={o.id}>
+                  <Card
+                    key={o.id}
+                    id={targetB2bOrderId && String(o.id || o._id || o.orderId || "") === targetB2bOrderId ? "b2b-order-" + targetB2bOrderId : undefined}
+                    className={targetB2bOrderId && String(o.id || o._id || o.orderId || "") === targetB2bOrderId ? "border-2 border-emerald-500 bg-emerald-50/30 shadow-md ring-2 ring-emerald-100" : undefined}
+                  >
                     <CardContent className="space-y-3 p-4">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
@@ -673,11 +704,18 @@ export default function FarmerBulkOrdersPage() {
                           <div className="flex flex-wrap items-center gap-2">
                             <p className="font-medium">{o.orderNumber || o.id}</p>
                             <Badge variant={b2bStatusVariant[o.status] || "secondary"}>{o.status.replace(/_/g, " ")}</Badge>
+                            {o.isReplacementSupply ? <Badge variant="outline">Replacement supply</Badge> : null}
                             {o.qualityGrade ? <Badge variant="outline">{o.qualityGrade}</Badge> : null}
                           </div>
                           <p className="text-sm text-gray-500">
                             {o.productName} · {o.quantityKg} kg · ₹{o.pricePerKg}/kg · {(o.businessInfo || {})?.businessName || "Business buyer"}
                           </p>
+                          {o.isReplacementSupply && (
+                            <p className="mt-1 text-xs font-medium text-indigo-700">
+                              Replacement for contract {o.contractNumber || "—"} · covers {o.replacementForShortageKg ?? o.quantityKg} kg shortage
+                              {o.scheduledDeliveryDate ? ` · delivery ${String(o.scheduledDeliveryDate).slice(0, 10)}` : ""}
+                            </p>
+                          )}
                         </div>
                         <div className="text-right">
                           <p className="text-lg font-bold text-emerald-600">{formatPrice(o.totalAmount)}</p>

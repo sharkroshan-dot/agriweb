@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 import math
+import re
 from zoneinfo import ZoneInfo
 from pydantic import BaseModel, Field
 from bson import ObjectId
@@ -37,6 +38,7 @@ from app.services.warehouse_collection_service import (
     farmer_collection_district,
     serialize_collection,
     warehouse_collection_districts,
+    normalize_collection_district,
 )
 from app.repositories.warehouse_pickup_team_repository import warehouse_pickup_team_repository
 from app.repositories.warehouse_pickup_route_repository import warehouse_pickup_route_repository
@@ -59,6 +61,13 @@ def _make_json_safe(value: Any) -> Any:
     if isinstance(value, datetime):
         return value.isoformat()
     return value
+class WarehouseRouteCorrectionRequest(BaseModel):
+    deliveryAddress: str = Field(..., min_length=5, max_length=500)
+    deliveryLocality: str = Field(..., min_length=2, max_length=120)
+    deliveryDistrict: str = Field(..., min_length=2, max_length=120)
+    sourceWarehouseDistrict: str = Field(..., min_length=2, max_length=120)
+
+
 class WarehouseReceiveRequest(BaseModel):
     quantity: int = Field(..., gt=0)
     usableQuantity: Optional[float] = Field(None, ge=0)
@@ -98,11 +107,14 @@ router = APIRouter()
 
 
 def _enforce_warehouse_operating_window(window: str) -> None:
-    """Enforce warehouse logistics windows in IST at the API boundary."""
+    """Enforce the daytime dispatch window for downstream warehouse transfers.
+
+    Farm pickup routes may be planned and assigned by warehouse managers at
+    any time. The 20:00-06:00 IST period is the intended farm collection shift,
+    not a restriction on creating or assigning the route in advance.
+    """
     now = datetime.now(ZoneInfo("Asia/Kolkata"))
     is_farm_pickup_window = now.hour >= 20 or now.hour < 6
-    if window == "farm_pickup" and not is_farm_pickup_window:
-        raise HTTPException(status_code=409, detail="Farm pickup routes can only be assigned or started between 20:00 and 06:00 IST.")
     if window == "downstream_transfer" and is_farm_pickup_window:
         raise HTTPException(status_code=409, detail="Warehouse-to-warehouse and local-hub transfers can only be dispatched between 06:00 and 20:00 IST.")
 
@@ -927,6 +939,193 @@ async def get_my_collections(
             incoming_doc["_id"] = ObjectId(str(incoming_id))
             await ensure_collection_job(incoming_doc, "bulk_harvest", "warehouse_fulfillment")
 
+    # Reconcile Farmer Fulfillment pickups by the farm's district, not only by
+    # the warehouseId saved on the order. The farmer's Ready for Pickup action
+    # can create a valid collection job against an older/stale warehouse
+    # assignment; without this district pass that job is invisible to the
+    # warehouse manager whose configured coverage actually serves the farm.
+    farmer_ready_candidates = await orders_collection.find({
+        "$and": [
+            {"deletedAt": None},
+            {"$or": [
+                {"warehouseCollectionStatus": {"$in": ["ready_for_pickup", "pickup_requested"]}},
+                {"warehouseFulfillmentStage": {"$in": ["pickup_requested", "ready_for_pickup"]}},
+                {"orderStatus": "ready_for_pickup"},
+                {"transferStatus": {"$in": ["awaiting_farm_pickup", "ready_for_pickup", "pickup_requested"]}},
+                {"readyForPickup": True},
+                {"transferReadyForPickup": True},
+                {"warehouseTransferReadyForPickup": True},
+            ]},
+            {"$or": [
+                {"fulfillmentMethod": {"$in": ["farm_direct", "farmer", "farm_direct_delivery", "farmer_fulfillment", "farmer_fulfillment_transfer"]}},
+                {"fulfillmentType": {"$in": ["farm_direct", "farmer", "farm_direct_delivery", "farmer_fulfillment", "farmer_fulfillment_transfer"]}},
+                {"fulfillment_type": {"$in": ["farm_direct", "farmer", "farm_direct_delivery", "farmer_fulfillment", "farmer_fulfillment_transfer"]}},
+            ]},
+        ]
+    }).to_list(length=2000)
+
+    farmer_pickups_reconciled = 0
+    for farmer_order in farmer_ready_candidates:
+        farmer_order_id = farmer_order.get("_id")
+        if not farmer_order_id:
+            continue
+        farmer_order_id_text = str(farmer_order_id)
+        farmer_profile = await get_farmer(str(farmer_order.get("farmerId") or ""))
+        farm_location = (
+            farmer_order.get("farmLocation")
+            or farmer_order.get("farmerLocation")
+            or farmer_order.get("pickupLocation")
+            or (farmer_profile or {}).get("farmLocation")
+            or (farmer_profile or {}).get("farmAddress")
+            or (farmer_profile or {}).get("location")
+            or (farmer_profile or {}).get("address")
+            or {}
+        )
+        if not isinstance(farm_location, dict):
+            farm_location = {"address": str(farm_location)}
+        farm_district = farmer_collection_district(
+            farmer_profile, farm_location, configured_districts
+        )
+        # A manager may only claim a farm when it belongs to this warehouse's
+        # configured district coverage. Unknown districts stay visible through
+        # the originally assigned warehouse and are never guessed/reassigned.
+        if not farm_district or farm_district not in configured_districts:
+            continue
+
+        assigned_values = [
+            str(farmer_order.get("sourceWarehouseId") or ""),
+            str(farmer_order.get("warehouseId") or ""),
+        ]
+        assigned_values = [value for value in assigned_values if value and value not in {"None", ""}]
+        assigned_to_other_valid_warehouse = False
+        for assigned_id in dict.fromkeys(assigned_values):
+            if assigned_id == warehouse_id or not ObjectId.is_valid(assigned_id):
+                continue
+            assigned_warehouse = await warehouse_repository.get_by_id(assigned_id)
+            if assigned_warehouse and farm_district in warehouse_collection_districts(assigned_warehouse):
+                assigned_to_other_valid_warehouse = True
+                break
+        if assigned_to_other_valid_warehouse:
+            continue
+
+        order_refs = [farmer_order_id, farmer_order_id_text]
+        incoming_rows = await incoming_stock_repository.find_many({
+            "$and": [
+                {"orderId": {"$in": order_refs}},
+                {"deletedAt": None},
+                {"sourceMode": "farmer_fulfillment_transfer"},
+                {"status": {"$nin": ["received", "quality_check", "stored", "rejected", "cancelled", "delivered"]}},
+            ]
+        }, skip=0, limit=1000)
+
+        # Do not move a shipment after a pickup team has accepted it or a
+        # collection route has started. Such an assignment remains authoritative.
+        movable_rows = []
+        for incoming_row in incoming_rows:
+            job = await warehouse_collection_repository.get_by_incoming(str(incoming_row.get("_id") or ""))
+            if job and (
+                job.get("pickupRouteId")
+                or job.get("collectionTeamId")
+                or str(job.get("status") or "") not in {"", "scheduled", "ready_for_pickup"}
+            ):
+                continue
+            movable_rows.append((incoming_row, job))
+
+        now = datetime.utcnow()
+        await orders_collection.update_one(
+            {"_id": farmer_order_id},
+            {"$set": {
+                "warehouseId": warehouse["_id"],
+                "sourceWarehouseId": warehouse["_id"],
+                "sourceWarehouseName": warehouse.get("name") or warehouse.get("warehouseName"),
+                "warehouseCollectionStatus": "ready_for_pickup",
+                "warehouseFulfillmentStage": "pickup_requested",
+                "updatedAt": now,
+            }},
+        )
+
+        order_items = farmer_order.get("items") or []
+        for line in order_items:
+            quantity = float(line.get("actualPackedQuantity", line.get("packedQuantity", line.get("quantity", 0))) or 0)
+            if quantity <= 0:
+                continue
+            product_id = str(line.get("productId") or line.get("product_id") or "")
+            variant_id = str(line.get("variantId") or line.get("variant_id") or "")
+            incoming = next((
+                row for row, _job in movable_rows
+                if str(row.get("productId") or "") == product_id
+                and str(row.get("variantId") or "") == variant_id
+            ), None)
+            if incoming:
+                await incoming_stock_repository.update(
+                    {"_id": incoming["_id"]},
+                    {
+                        "warehouseId": warehouse["_id"],
+                        "readyForPickup": True,
+                        "transferReadyForPickup": True,
+                        "packingRequired": False,
+                        "warehousePackingRequired": False,
+                        "packingVerified": True,
+                        "updatedAt": now,
+                    },
+                )
+                incoming.update({
+                    "warehouseId": warehouse["_id"],
+                    "readyForPickup": True,
+                    "transferReadyForPickup": True,
+                    "packingRequired": False,
+                    "warehousePackingRequired": False,
+                    "packingVerified": True,
+                })
+            else:
+                incoming_doc = {
+                    "warehouseId": warehouse["_id"],
+                    "orderId": farmer_order_id,
+                    "orderNumber": farmer_order.get("orderNumber") or farmer_order.get("orderNo"),
+                    "farmerId": ObjectId(str(farmer_order.get("farmerId"))) if ObjectId.is_valid(str(farmer_order.get("farmerId") or "")) else farmer_order.get("farmerId"),
+                    "productId": ObjectId(product_id) if ObjectId.is_valid(product_id) else product_id,
+                    "variantId": ObjectId(variant_id) if ObjectId.is_valid(variant_id) else (variant_id or None),
+                    "productName": line.get("productName") or line.get("name") or "Product",
+                    "quantity": quantity,
+                    "expectedQuantity": quantity,
+                    "unit": line.get("unit") or "kg",
+                    "sourceMode": "farmer_fulfillment_transfer",
+                    "collectionType": "packed_orders_transfer",
+                    "fulfillmentType": "farmer_fulfillment",
+                    "shipmentType": "farmer_fulfillment",
+                    "packingRequired": False,
+                    "warehousePackingRequired": False,
+                    "packingVerified": True,
+                    "readyForPickup": True,
+                    "transferReadyForPickup": True,
+                    "readyForPickupAt": farmer_order.get("warehouseCollectionRequestedAt") or now,
+                    "pickupLocation": farm_location,
+                    "farmLocation": farm_location,
+                    "packageCount": 1,
+                    "status": "scheduled",
+                    "expectedDate": now,
+                    "createdAt": now,
+                    "updatedAt": now,
+                    "deletedAt": None,
+                }
+                incoming_id = await incoming_stock_repository.create_incoming(incoming_doc)
+                if not incoming_id:
+                    logger.error("Could not reconcile Farmer Fulfillment pickup for order %s", farmer_order_id_text)
+                    continue
+                incoming_doc["_id"] = ObjectId(str(incoming_id))
+                incoming = incoming_doc
+
+            await ensure_collection_job(
+                incoming, "packed_orders_transfer", "farmer_fulfillment_transfer"
+            )
+            farmer_pickups_reconciled += 1
+
+    logger.info(
+        "Farm Collection Farmer Fulfillment reconciliation warehouse=%s candidates=%s reconciled_lines=%s configured_districts=%s",
+        warehouse_id, len(farmer_ready_candidates), farmer_pickups_reconciled,
+        sorted(configured_districts),
+    )
+
     candidate_orders = await orders_collection.find({
         "$and": [
             {"deletedAt": None},
@@ -1073,7 +1272,135 @@ async def get_my_collections(
         len(jobs),
     )
 
-    # Reload after reconciliation so newly-created pickup jobs appear immediately.
+    # Reconcile B2B Ready-for-Pickup orders into the same collection jobs
+    # used by Pickup Routes. This makes B2B orders assignable from either page.
+    b2b_orders_collection = MongoDB.get_collection("b2b_orders")
+    warehouse_refs = [ObjectId(warehouse_id), warehouse_id]
+    b2b_candidates = await b2b_orders_collection.find({
+        "$and": [
+            {"deletedAt": None},
+            {"status": {"$in": ["ready_for_pickup", "picked_up"]}},
+            {"$or": [
+                {"sourceWarehouseId": {"$in": warehouse_refs}},
+                {"assignedWarehouseId": {"$in": warehouse_refs}},
+                {"pickupWarehouseId": {"$in": warehouse_refs}},
+                {"warehouseId": {"$in": warehouse_refs}},
+            ]},
+        ],
+    }).to_list(length=1000)
+    for b2b_order in b2b_candidates:
+        b2b_order_id = str(b2b_order.get("_id") or "")
+        if not ObjectId.is_valid(b2b_order_id):
+            continue
+        existing_b2b_jobs = await warehouse_collection_repository.get_by_order(b2b_order_id, "b2b")
+        # Reuse the existing job even after collection/warehouse arrival.
+        # Creating a fresh row for a picked-up B2B order would make it appear
+        # assignable again and could cause a duplicate farm visit.
+        collection_job = next(
+            (row for row in existing_b2b_jobs if str(row.get("status") or "") != "cancelled"),
+            None,
+        )
+        farmer_id = str(b2b_order.get("farmerId") or "")
+        farmer_profile = await farmer_repository.get_by_id(farmer_id) if ObjectId.is_valid(farmer_id) else None
+        farm_location = (
+            (farmer_profile or {}).get("farmLocation")
+            or (farmer_profile or {}).get("location")
+            or (farmer_profile or {}).get("farmAddress")
+            or (farmer_profile or {}).get("address")
+            or b2b_order.get("farmLocation")
+            or b2b_order.get("pickupLocation")
+            or {}
+        )
+        if isinstance(farm_location, str):
+            farm_location = {"formattedAddress": farm_location}
+        order_quantity = float(
+            b2b_order.get("packedQuantityKg")
+            or b2b_order.get("quantityKg")
+            or b2b_order.get("quantity")
+            or 0
+        )
+        order_number = b2b_order.get("orderNumber") or b2b_order.get("orderNo") or f"B2B-{b2b_order_id[-6:]}"
+        farmer_name = (
+            (farmer_profile or {}).get("farmName")
+            or (farmer_profile or {}).get("ownerName")
+            or (farmer_profile or {}).get("name")
+            or b2b_order.get("farmerName")
+            or "Farmer"
+        )
+        pickup_team_id = str(b2b_order.get("pickupTeam") or "")
+        pickup_route = await warehouse_pickup_route_repository.find_one({
+            "$and": [
+                {"warehouseId": {"$in": warehouse_refs}},
+                {"deletedAt": None},
+                {"status": {"$nin": ["cancelled", "closed", "archived", "returned_to_warehouse"]}},
+                {"$or": [
+                    {"b2bOrderId": b2b_order_id},
+                    {"stops.b2bOrderId": b2b_order_id},
+                    {"stops.orderId": b2b_order_id},
+                    {"stops.orders.b2bOrderId": b2b_order_id},
+                ]},
+            ],
+        })
+        initial_collection_status = (
+            "collected" if b2b_order.get("status") == "picked_up"
+            else "team_assigned" if pickup_team_id
+            else "ready_for_pickup"
+        )
+        if not collection_job:
+            collection_id = await warehouse_collection_repository.create_job({
+                "warehouseId": ObjectId(warehouse_id),
+                "orderId": ObjectId(b2b_order_id),
+                "b2bOrderId": b2b_order_id,
+                "orderNumber": order_number,
+                "farmerId": ObjectId(farmer_id) if ObjectId.is_valid(farmer_id) else None,
+                "farmerName": farmer_name,
+                "productName": b2b_order.get("productName") or "B2B produce",
+                "quantity": order_quantity,
+                "pickupLocation": farm_location if isinstance(farm_location, dict) else {},
+                "pickupAddress": (farmer_profile or {}).get("farmAddress") or (farmer_profile or {}).get("address") or b2b_order.get("farmAddress") or "Farm address not provided",
+                "collectionType": "b2b",
+                "status": initial_collection_status,
+                "collectionTeamId": ObjectId(pickup_team_id) if ObjectId.is_valid(pickup_team_id) else None,
+                "collectionTeamName": b2b_order.get("pickupTeamName"),
+                "collectionVehicleNumber": b2b_order.get("pickupVehicle"),
+                "pickupRouteId": ObjectId(str(pickup_route.get("_id"))) if pickup_route and ObjectId.is_valid(str(pickup_route.get("_id"))) else None,
+                "pickupRouteStatus": "assigned" if pickup_team_id else "offered" if pickup_route else None,
+                "pickupAssignmentSource": b2b_order.get("pickupAssignmentSource"),
+                "createdFrom": "b2b_order",
+            })
+            if not collection_id:
+                logger.warning("Could not reconcile B2B pickup collection job for order %s", b2b_order_id)
+        else:
+            sync_fields = {
+                "b2bOrderId": b2b_order_id,
+                "orderNumber": order_number,
+                "collectionType": "b2b",
+                "farmerName": farmer_name,
+                "productName": b2b_order.get("productName") or collection_job.get("productName") or "B2B produce",
+                "quantity": order_quantity or collection_job.get("quantity") or 0,
+                "pickupLocation": farm_location if isinstance(farm_location, dict) else collection_job.get("pickupLocation") or {},
+                "pickupAddress": (farmer_profile or {}).get("farmAddress") or (farmer_profile or {}).get("address") or b2b_order.get("farmAddress") or collection_job.get("pickupAddress") or "Farm address not provided",
+            }
+            if pickup_team_id and ObjectId.is_valid(pickup_team_id):
+                sync_fields.update({
+                    "collectionTeamId": ObjectId(pickup_team_id),
+                    "collectionTeamName": b2b_order.get("pickupTeamName") or "Assigned pickup partner",
+                    "collectionVehicleNumber": b2b_order.get("pickupVehicle"),
+                    "status": (
+                        collection_job.get("status")
+                        if str(collection_job.get("status") or "") in ("en_route", "arrived_at_farm", "collected", "departed_farm", "arrived_warehouse")
+                        else "team_assigned"
+                    ) if b2b_order.get("status") == "ready_for_pickup" else collection_job.get("status"),
+                    "pickupAssignmentSource": b2b_order.get("pickupAssignmentSource") or "b2b_fulfillment",
+                })
+            if pickup_route and pickup_route.get("_id"):
+                sync_fields.update({
+                    "pickupRouteId": pickup_route["_id"],
+                    "pickupRouteStatus": pickup_route.get("status") or "offered",
+                })
+            await warehouse_collection_repository.update_job(str(collection_job["_id"]), sync_fields)
+
+    # Reload after reconciliation so newly-created general and B2B pickup jobs appear immediately.
     jobs = await warehouse_collection_repository.get_by_warehouse(warehouse_id, status_filter, limit=1000)
 
     async def display_name_for_profile(profile: Optional[Dict[str, Any]], default: str) -> str:
@@ -1308,8 +1635,65 @@ async def get_my_collections(
                 ]
                 pickup_address = ", ".join(part for part in address_parts if part) or None
 
+        # Preserve locality fields separately so Pickup Routes can group farms
+        # by village/town within the warehouse district instead of showing one
+        # generic "Area not identified" group.
+        profile = farmer_profile if isinstance(farmer_profile, dict) else {}
+        # Farmer profiles in older records use different address containers.
+        # Inspect all known structured locations and their nested address objects.
+        address_sources = [
+            # Include the complete records as well as their nested location
+            # objects: older collection/order documents often store locality
+            # and taluk fields at the top level.
+            job, (order or {}), profile, (product or {}),
+            job.get("pickupLocation"), job.get("farmLocation"),
+            (order or {}).get("farmLocation"), (order or {}).get("farmerLocation"),
+            profile.get("farmLocation"), profile.get("farmAddress"),
+            profile.get("address"), profile.get("location"),
+            (product or {}).get("farmLocation"), (product or {}).get("farmAddress"),
+        ]
+        # Older records store the address as a nested object (sometimes several
+        # levels deep) or use snake_case keys. Walk the complete address tree.
+        flattened_sources: List[Dict[str, Any]] = []
+        pending = list(address_sources)
+        while pending:
+            source = pending.pop(0)
+            if isinstance(source, dict):
+                flattened_sources.append(source)
+                pending.extend(value for value in source.values() if isinstance(value, dict))
+            elif isinstance(source, list):
+                pending.extend(value for value in source if isinstance(value, dict))
+        address_sources = flattened_sources
+
+        def first_address_value(*keys: str) -> Optional[str]:
+            normalized_keys = {key.casefold() for key in keys}
+            for source in address_sources:
+                for key, raw_value in source.items():
+                    if str(key).casefold() in normalized_keys:
+                        value = readable(raw_value)
+                        if value:
+                            return value
+            for key in keys:
+                value = readable(profile.get(key))
+                if value:
+                    return value
+            return None
+
+        locality = first_address_value(
+            "village", "villageName", "village_name", "farmVillage", "farm_village",
+            "locality", "localityName", "locality_name", "area", "areaName", "area_name",
+            "panchayat", "gramPanchayat", "gram_panchayat", "hamlet", "ward",
+        )
+        town = first_address_value("town", "townName", "town_name", "taluk", "talukName", "taluk_name", "tehsil", "mandal", "block")
+        city = first_address_value("city", "cityName", "city_name", "farmCity", "farm_city", "municipality")
+        farm_area_name = locality or town or city
+
         item.update({
             "farmerName": farmer_name,
+            "farmVillage": locality,
+            "farmTown": town,
+            "farmCity": city,
+            "farmAreaName": farm_area_name,
             "productName": product_name,
             "orderNumber": order_number,
             "eventOrderNumber": event_order_number,
@@ -1363,6 +1747,806 @@ async def get_my_collections(
                 "departed": sum(1 for x in result if x.get("status") == "departed_farm"),
                 "atWarehouse": sum(1 for x in result if x.get("status") == "arrived_warehouse"),
             },
+        },
+    }
+
+
+
+@router.get("/me/pickup-areas", response_model=dict)
+async def get_my_pickup_areas(current_user: dict = Depends(get_current_user)):
+    """Return registered farm areas in this warehouse's district with live pickup counts.
+
+    The directory is derived from active farmer profiles, not from today's pickup
+    orders, so registered areas remain visible when their order count is zero.
+    """
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can view pickup areas")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    if not warehouse:
+        raise HTTPException(status_code=404, detail="Warehouse not found")
+
+    coverage = warehouse_collection_districts(warehouse)
+    if not coverage:
+        return {"success": True, "data": {"districts": [], "areas": [], "zones": [], "taluks": [], "directorySource": "farmer_profiles"}}
+
+    def is_road_or_address_label(value: Any) -> bool:
+        text = " ".join(str(value or "").strip().casefold().split())
+        if not text:
+            return True
+        return bool(
+            re.search(r"\b(main road|road|street|st\.?|highway|hwy|bypass|cross street|roadways)\b", text)
+            or (re.search(r"\b(trichy|tiruchirappalli|tiruchirapalli)\b", text) and len(text.split()) > 1)
+        )
+
+    def area_from_profile(profile: dict) -> Optional[str]:
+        # Farm location data has several legacy shapes. Inspect all nested
+        # address objects and both camelCase/snake_case fields; GPS coordinates
+        # are deliberately not part of locality resolution.
+        locality_keys = {
+            "farmvillage", "village", "villagename", "farmareaname",
+            "farmlocality", "locality", "localityname", "area", "areaname",
+            "grampanchayat", "panchayat", "hamlet", "ward",
+            "farmtaluk", "taluk", "subdistrict", "sub_district",
+            "tehsil", "mandal", "block", "farmtown", "town", "townname",
+            "farmcity", "city", "cityname", "registeredvillage",
+            "districtarea", "farmarea", "panchayatname", "gramapanchayat",
+        }
+        preferred = [
+            "farmvillage", "village", "villagename", "farmareaname",
+            "farmlocality", "locality", "localityname", "area", "areaname",
+            "grampanchayat", "panchayat", "hamlet", "ward",
+            "farmtaluk", "taluk", "subdistrict", "sub_district",
+            "tehsil", "mandal", "block", "farmtown", "town", "townname",
+            "farmcity", "city", "cityname", "registeredvillage",
+            "districtarea", "farmarea", "panchayatname", "gramapanchayat",
+        ]
+        found: Dict[str, str] = {}
+        address_texts: List[str] = []
+        pending = [profile]
+        visited = set()
+        while pending:
+            node = pending.pop(0)
+            if not isinstance(node, dict) or id(node) in visited:
+                continue
+            visited.add(id(node))
+            for key, value in node.items():
+                normalized_key = str(key).casefold().replace("_", "").replace("-", "").replace(" ", "")
+                if normalized_key in {
+                    "address", "formattedaddress", "fulladdress", "pickupaddress",
+                    "farmaddress", "farmaddressline", "addressline", "streetaddress",
+                    "addressline1", "addressline2", "line1", "line2",
+                    "farmaddress1", "farmaddress2",
+                } and isinstance(value, str) and value.strip():
+                    address_texts.append(" ".join(value.strip().split()))
+                # Farmer profile schemas exist in both camelCase and
+                # snake_case. Normalize key spelling before testing locality fields.
+                normalized_key = str(key).casefold().replace("_", "").replace("-", "").replace(" ", "")
+                if normalized_key in locality_keys and isinstance(value, str) and value.strip():
+                    cleaned = " ".join(value.strip().split())
+                    if cleaned.casefold() not in {"unknown", "n/a", "na", "not available", "none", "null"}:
+                        # A district/city label is not a farm pickup locality.
+                        # Keep searching lower-level address fields instead.
+                        # A district/city name must never be promoted to a
+                        # farm locality just because a legacy profile stored it
+                        # in a generic "area", "town" or "locality" field.
+                        district_labels = {normalized_area(value) for value in coverage}
+                        district_labels.update({
+                            "ariyalur", "chengalpattu", "chennai", "coimbatore",
+                            "cuddalore", "dharmapuri", "dindigul", "erode",
+                            "kallakurichi", "kancheepuram", "kanniyakumari",
+                            "karur", "krishnagiri", "madurai", "mayiladuthurai",
+                            "nagapattinam", "namakkal", "nilgiris", "perambalur",
+                            "pudukkottai", "ramanathapuram", "ranipet", "salem",
+                            "sivaganga", "tenkasi", "thanjavur", "theni",
+                            "thoothukudi", "tiruchirappalli", "tirunelveli",
+                            "tirupathur", "tiruppur", "tiruvallur",
+                            "tiruvannamalai", "tiruvarur", "vellore", "virudhunagar",
+                            "trichy", "trichirapalli", "tiruchirapalli",
+                            "kanyakumari", "pudukottai", "thirunelveli",
+                            "thiruvallur", "thiruvannamalai", "thiruvarur",
+                            "sivagangai", "tirupur",
+                        })
+                        if normalized_area(cleaned) not in district_labels and not is_road_or_address_label(cleaned):
+                            found.setdefault(normalized_key, cleaned)
+                if isinstance(value, dict):
+                    pending.append(value)
+                elif isinstance(value, list):
+                    pending.extend(item for item in value if isinstance(item, dict))
+        for key in preferred:
+            if found.get(key):
+                candidate = found[key]
+                matched = canonical_area(candidate)
+                if matched:
+                    return str(matched.get("name") or candidate).strip()
+                # Continue to address aliases if this field was a composite
+                # address or a district-level value rather than a known area.
+
+        # Legacy farmer profiles sometimes store the village/locality only
+        # inside a single formatted address string. Match that address against
+        # the active district pickup-area master aliases (longest alias first).
+        # Do not infer a locality from road names or the district/city itself.
+        address_blob = " | ".join(address_texts)
+        if address_blob:
+            normalized_blob = normalized_area(address_blob)
+            aliases = sorted(master_by_alias.items(), key=lambda item: len(item[0]), reverse=True)
+            for alias, master in aliases:
+                if not alias or len(alias) < 3:
+                    continue
+                if re.search(r"(?<![a-z0-9])" + re.escape(alias) + r"(?![a-z0-9])", normalized_blob):
+                    return str(master.get("name") or alias).strip() or None
+        return None
+
+    profiles_collection = MongoDB.get_collection("farmer_profiles")
+    profiles = await profiles_collection.find({"deletedAt": None}).to_list(length=10000)
+    pickup_jobs = await warehouse_collection_repository.get_by_warehouse(str(warehouse["_id"]), None, limit=5000)
+    hubs = await MongoDB.get_collection("warehouses").find({
+        "parentWarehouseId": warehouse["_id"], "facilityType": "local_hub",
+        "status": "active", "deletedAt": None,
+    }).to_list(length=500)    # Canonical district locality directory maintained by administrators.
+    area_master = await MongoDB.get_collection("district_pickup_areas").find({
+        "districtKey": {"$in": list(coverage)},
+        "isActive": True, "deletedAt": None,
+    }).to_list(length=5000)
+
+    def normalized_area(value: Any) -> str:
+        return " ".join(str(value or "").casefold().split())
+    master_by_alias: Dict[str, dict] = {}
+    for master in area_master:
+        canonical = str(master.get("name") or "").strip()
+        if not canonical: continue
+        for alias in [canonical, *(master.get("aliases") or [])]:
+            master_by_alias[normalized_area(alias)] = master
+
+    # The warehouse pickup directory uses these taluk-level buckets for
+    # Tiruchirappalli even when the admin-maintained village master is empty.
+    # Add them to the same resolver BEFORE farmer profiles and collection jobs
+    # are processed, so composite addresses can resolve consistently.
+    fallback_taluk_names = {
+        "tiruchirappalli": [
+            "Lalgudi", "Manachanallur", "Manapparai", "Marungapuri", "Musiri",
+            "Srirangam", "Thottiam", "Thuraiyur", "Tiruchirapalli (West)",
+            "Tiruchirappalli (East)", "Tiruverumbur",
+        ],
+    }
+    district_aliases_for_areas = {
+        "trichy": "tiruchirappalli",
+        "tiruchirapalli": "tiruchirappalli",
+        "tiruchirappalli": "tiruchirappalli",
+    }
+    for covered_district in coverage:
+        district_key = district_aliases_for_areas.get(normalize_collection_district(covered_district), normalize_collection_district(covered_district))
+        for taluk_name in fallback_taluk_names.get(district_key, []):
+            synthetic = {
+                "name": taluk_name,
+                "taluk": taluk_name,
+                "district": "Tiruchirappalli",
+                "aliases": [],
+                "isFallbackDirectoryEntry": True,
+            }
+            master_by_alias.setdefault(normalized_area(taluk_name), synthetic)
+
+    def canonical_area(value: Optional[str]) -> Optional[dict]:
+        if not value:
+            return None
+        normalized = normalized_area(value)
+        exact = master_by_alias.get(normalized)
+        if exact:
+            return exact
+        # Farm addresses are frequently stored as composite strings such as
+        # "Lalgudi, Tiruchirappalli, Tamil Nadu" or "Village - Taluk - District".
+        # Match a complete locality alias inside that farm-origin string, using
+        # the longest alias first so a taluk name wins over a shorter substring.
+        for alias, master in sorted(master_by_alias.items(), key=lambda item: len(item[0]), reverse=True):
+            if len(alias) < 3:
+                continue
+            if re.search(r"(?<![a-z0-9])" + re.escape(alias) + r"(?![a-z0-9])", normalized):
+                return master
+        return None
+
+    def explicit_farm_district(*sources: Any) -> Optional[str]:
+        """Read an explicitly recorded farm district without treating locality as district."""
+        for source in sources:
+            if not isinstance(source, dict):
+                continue
+            candidates = [source.get("farmDistrict"), source.get("district")]
+            for nested_key in ("farmAddress", "farmLocation", "pickupLocation", "address", "location"):
+                nested = source.get(nested_key)
+                if isinstance(nested, dict):
+                    candidates.extend([nested.get("farmDistrict"), nested.get("district")])
+            for candidate in candidates:
+                if isinstance(candidate, str) and candidate.strip():
+                    return normalize_collection_district(candidate)
+        return None
+
+    def taluk_from_profile(profile: dict) -> Optional[str]:
+        taluk_keys = {"farmtaluk", "taluk", "subdistrict", "tehsil", "mandal"}
+        pending = [profile]
+        visited = set()
+        while pending:
+            node = pending.pop(0)
+            if not isinstance(node, dict) or id(node) in visited:
+                continue
+            visited.add(id(node))
+            for key, value in node.items():
+                normalized_key = str(key).casefold().replace("_", "").replace("-", "").replace(" ", "")
+                if normalized_key in taluk_keys and isinstance(value, str) and value.strip():
+                    cleaned = " ".join(value.strip().split())
+                    if cleaned.casefold() not in {"unknown", "n/a", "na", "not available", "none", "null"} and not is_road_or_address_label(cleaned):
+                        return cleaned
+                if isinstance(value, dict):
+                    pending.append(value)
+                elif isinstance(value, list):
+                    pending.extend(item for item in value if isinstance(item, dict))
+        return None
+
+    def taluk_from_job(job: dict) -> Optional[str]:
+        location = job.get("farmLocation") or job.get("pickupLocation") or {}
+        candidates = [job.get("farmTaluk"), job.get("taluk"), job.get("subDistrict"), job.get("tehsil")]
+        if isinstance(location, dict):
+            candidates.extend([location.get("taluk"), location.get("subDistrict"), location.get("tehsil")])
+        for candidate in candidates:
+            if isinstance(candidate, str) and candidate.strip():
+                return " ".join(candidate.strip().split())
+        return None
+
+    def profile_coordinates(profile: dict) -> Optional[tuple]:
+        candidates = [profile.get("farmLocation"), profile.get("farmAddress"), profile.get("location"), profile.get("address")]
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            raw = candidate.get("coordinates")
+            if isinstance(raw, (list, tuple)) and len(raw) >= 2:
+                try:
+                    lon, lat = float(raw[0]), float(raw[1])
+                    if -180 <= lon <= 180 and -90 <= lat <= 90:
+                        return lat, lon
+                except (TypeError, ValueError):
+                    pass
+            for lat_key, lon_key in (("latitude", "longitude"), ("lat", "lng"), ("lat", "lon")):
+                try:
+                    lat, lon = float(candidate.get(lat_key)), float(candidate.get(lon_key))
+                    if -90 <= lat <= 90 and -180 <= lon <= 180:
+                        return lat, lon
+                except (TypeError, ValueError):
+                    pass
+        return None
+
+    async def geocode_farm_profile(profile: dict) -> tuple[Optional[tuple], Optional[str]]:
+        """Resolve a missing farm pin from its farm address, never its buyer address."""
+        existing = profile_coordinates(profile)
+        if existing:
+            return existing, None
+        farm_address = profile.get("farmAddress") or profile.get("farmAddressText") or ""
+        farm_location = profile.get("farmLocation") if isinstance(profile.get("farmLocation"), dict) else {}
+        address_obj = farm_address if isinstance(farm_address, dict) else {}
+        address_parts = [
+            address_obj.get("addressLine1") or address_obj.get("address_line1") or address_obj.get("line1") or farm_address if isinstance(farm_address, str) else "",
+            address_obj.get("addressLine2") or address_obj.get("address_line2") or address_obj.get("line2") or "",
+            address_obj.get("village") or address_obj.get("locality") or address_obj.get("town") or "",
+            address_obj.get("district") or profile.get("farmDistrict") or profile.get("district") or "",
+            address_obj.get("state") or profile.get("farmState") or profile.get("state") or "Tamil Nadu",
+            address_obj.get("pincode") or address_obj.get("zipCode") or profile.get("farmPincode") or "",
+            address_obj.get("country") or "India",
+        ]
+        query = ", ".join(" ".join(str(part).split()) for part in address_parts if str(part or "").strip())
+        if not query:
+            return None, None
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                response = await client.get(
+                    "https://nominatim.openstreetmap.org/search",
+                    params={"q": query, "format": "jsonv2", "addressdetails": 1, "limit": 1, "countrycodes": "in"},
+                    headers={"User-Agent": "AgriConnect/1.0 (farm pickup geocoding)"},
+                )
+                response.raise_for_status()
+                results = response.json()
+            if not results:
+                return None, None
+            result = results[0]
+            lat, lon = float(result["lat"]), float(result["lon"])
+            if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                return None, None
+            details = result.get("address") or {}
+            locality = next((str(details.get(key)).strip() for key in (
+                "village", "hamlet", "suburb", "neighbourhood", "quarter", "town"
+            ) if details.get(key)), None)
+            # Do not treat the district/city as a farm locality.
+            if locality and normalize_collection_district(locality) in coverage:
+                locality = None
+            location_update = {
+                "type": "Point",
+                "coordinates": [lon, lat],
+                "geocodingSource": "nominatim",
+                "geocodedAt": datetime.utcnow(),
+                "geocodedAddress": query,
+            }
+            profile_id = profile.get("_id")
+            if profile_id:
+                await profiles_collection.update_one(
+                    {"_id": profile_id},
+                    {"$set": {"farmLocation": {**farm_location, **location_update}}},
+                )
+            profile["farmLocation"] = {**farm_location, **location_update}
+            return (lat, lon), locality
+        except Exception as exc:
+            logger.warning("Farm pickup geocoding failed for farmer profile %s: %s", profile.get("_id"), exc)
+            return None, None
+
+    def hub_coordinates(hub: dict) -> Optional[tuple]:
+        location = hub.get("location") or {}
+        raw = location.get("coordinates") if isinstance(location, dict) else None
+        if isinstance(raw, (list, tuple)) and len(raw) >= 2:
+            try:
+                lon, lat = float(raw[0]), float(raw[1])
+                if -180 <= lon <= 180 and -90 <= lat <= 90:
+                    return lat, lon
+            except (TypeError, ValueError):
+                return None
+        return None
+
+    def distance_km_local(a: tuple, b: tuple) -> float:
+        lat1, lon1, lat2, lon2 = map(math.radians, (a[0], a[1], b[0], b[1]))
+        dlat, dlon = lat2 - lat1, lon2 - lon1
+        value = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
+        return 6371.0 * 2 * math.asin(min(1.0, math.sqrt(value)))
+    profile_area_by_id: Dict[str, str] = {}
+    # Pickup cards are taluk-level. Keep the farm's village as a child label
+    # so many villages roll up into one area instead of creating separate cards.
+    profile_area_name_by_id: Dict[str, str] = {}
+    profile_village_by_id: Dict[str, str] = {}
+    profile_taluk_by_id: Dict[str, str] = {}
+    profile_coords_by_id: Dict[str, tuple] = {}
+    profile_directory: List[Dict[str, Any]] = []
+    # Collection jobs are already assigned to this warehouse. Use their farmer
+    # references as an authoritative link when older farmer profiles do not
+    # contain a district field that the district resolver can recognize.
+    job_farmer_refs = set()
+    for job in pickup_jobs:
+        for field in ("farmerId", "farmerUserId", "farmId"):
+            value = job.get(field)
+            if value:
+                job_farmer_refs.add(str(value))
+    geocoded_farm_count = 0
+    geocoded_farm_limit = 5
+    for profile in profiles:
+        profile_ref_values = {
+            str(value) for value in (
+                profile.get("_id"), profile.get("userId"), profile.get("farmerId")
+            ) if value
+        }
+        is_linked_to_pickup = bool(profile_ref_values & job_farmer_refs)
+        location = profile.get("farmLocation") or profile.get("farmAddress") or profile.get("location") or profile.get("address") or {}
+        profile_ids = {
+            str(value) for value in (
+                profile.get("_id"), profile.get("userId"), profile.get("farmerId")
+            ) if value
+        }
+        district_match = farmer_collection_district(profile, location, coverage)
+        recorded_district = explicit_farm_district(profile, location)
+        # A collection-job relationship must never override a known farm
+        # district mismatch. It is only a fallback for legacy profiles whose
+        # district has not been recorded at all.
+        if recorded_district and recorded_district not in coverage:
+            continue
+        if district_match not in coverage and not (profile_ids & job_farmer_refs and not recorded_district):
+            continue
+        area_name = area_from_profile(profile)
+        matched_master = canonical_area(area_name)
+        # The master may resolve a village alias to its parent taluk. Prefer
+        # that parent for grouping, while retaining the actual village label.
+        explicit_taluk = taluk_from_profile(profile)
+        taluk_name = (
+            str((matched_master or {}).get("taluk") or "").strip()
+            or (str((matched_master or {}).get("name") or "").strip() if matched_master else "")
+            or explicit_taluk
+        )
+        village_name = None
+        if area_name and matched_master and normalized_area(area_name) != normalized_area(matched_master.get("name")):
+            village_name = area_name
+        if not village_name:
+            village_name = area_from_profile(profile)
+        area_name = taluk_name or (str(matched_master.get("name") or "").strip() if matched_master else area_name)
+        area_key = normalized_area(area_name) if area_name else ""
+        coords = profile_coordinates(profile)
+        # Geocode only profiles that have pickup jobs in this warehouse and
+        # only a small batch per request. Coordinates are persisted to avoid
+        # repeatedly calling the public geocoder on page refreshes.
+        geocoded_locality = None
+        if not coords and is_linked_to_pickup and geocoded_farm_count < geocoded_farm_limit:
+            coords, geocoded_locality = await geocode_farm_profile(profile)
+            if coords:
+                geocoded_farm_count += 1
+        if not area_name and geocoded_locality:
+            matched_master = canonical_area(geocoded_locality)
+            area_name = str(matched_master.get("name") or geocoded_locality) if matched_master else geocoded_locality
+            area_key = normalized_area(area_name)
+        if area_name and not taluk_name and matched_master:
+            taluk_name = str(matched_master.get("taluk") or "").strip() or None
+        profile_directory.append({
+            # "area" is the parent pickup card; the village is retained as
+            # child metadata instead of becoming a separate zero-count card.
+            "area": area_name,
+            "village": village_name,
+            "taluk": taluk_name or area_name,
+            "farmerId": str(profile.get("userId") or profile.get("farmerId") or profile.get("_id") or ""),
+        })
+        for identity in (profile.get("_id"), profile.get("userId"), profile.get("farmerId")):
+            if identity:
+                identity_key = str(identity)
+                if area_key:
+                    profile_area_by_id[identity_key] = area_key
+                    profile_area_name_by_id[identity_key] = area_name or ""
+                if village_name:
+                    profile_village_by_id[identity_key] = village_name
+                if taluk_name:
+                    profile_taluk_by_id[identity_key] = taluk_name
+                if coords:
+                    profile_coords_by_id[identity_key] = coords
+
+    # Operational zones are Local Hubs, not hundreds of village records.
+    # Explicit village/locality assignment takes precedence; GPS radius is the
+    # fallback for farms not covered by an explicit assignment.
+    zones: List[Dict[str, Any]] = []
+    for hub in hubs:
+        hub_district = normalize_collection_district(hub.get("district") or "")
+        if hub_district and hub_district not in coverage:
+            continue
+        service_areas = sorted({normalized_area(x) for x in (hub.get("serviceAreas") or []) if str(x).strip()})
+        zones.append({
+            "key": str(hub["_id"]), "hubId": str(hub["_id"]),
+            "name": str(hub.get("name") or "Local Hub"),
+            "areaType": "Local hub pickup zone",
+            "serviceAreas": service_areas,
+            "pickupRadiusKm": float(hub.get("pickupRadiusKm") or 15),
+            "totalOrders": 0, "readyToAssign": 0, "collectionIds": [],
+            "hubCoordinates": hub_coordinates(hub),
+        })
+
+    unassigned_zone = {
+        "key": "district-unassigned", "hubId": None,
+        "name": "Other district farms", "areaType": "Outside configured local hub coverage",
+        "serviceAreas": [], "pickupRadiusKm": 0,
+        "totalOrders": 0, "readyToAssign": 0, "collectionIds": [],
+        "hubCoordinates": None,
+    }
+    for job in pickup_jobs:
+        farmer_id = str(job.get("farmerId") or job.get("farmerUserId") or job.get("farmId") or "")
+        area_key = profile_area_by_id.get(farmer_id)
+        if not area_key:
+            explicit_candidates = [
+                job.get("farmVillage"), job.get("farm_village"), job.get("village"),
+                job.get("villageName"), job.get("village_name"), job.get("locality"),
+                job.get("farmLocality"), job.get("farm_locality"), job.get("farmAreaName"),
+                job.get("farm_area_name"), job.get("farmTaluk"), job.get("farm_taluk"),
+                job.get("taluk"), job.get("subDistrict"), job.get("sub_district"),
+                job.get("farmTown"), job.get("farm_town"), job.get("town"),
+            ]
+            explicit = next((value for value in explicit_candidates
+                if isinstance(value, str) and value.strip() and not is_road_or_address_label(value)), None)
+            area_key = normalized_area(explicit) if explicit else ""
+        coords = profile_coords_by_id.get(farmer_id)
+        if not coords:
+            location = job.get("farmLocation") or job.get("pickupLocation") or {}
+            raw = location.get("coordinates") if isinstance(location, dict) else None
+            if isinstance(raw, (list, tuple)) and len(raw) >= 2:
+                try:
+                    coords = (float(raw[1]), float(raw[0]))
+                except (TypeError, ValueError):
+                    coords = None
+
+        chosen = None
+        # First match an explicit locality to one configured hub's service area.
+        if area_key:
+            explicit_matches = [zone for zone in zones if area_key in zone["serviceAreas"]]
+            if len(explicit_matches) == 1:
+                chosen = explicit_matches[0]
+            elif len(explicit_matches) > 1 and coords:
+                chosen = min(
+                    explicit_matches,
+                    key=lambda zone: distance_km_local(coords, zone["hubCoordinates"])
+                    if zone["hubCoordinates"] else float("inf"),
+                )
+            elif explicit_matches:
+                chosen = sorted(explicit_matches, key=lambda zone: zone["name"].casefold())[0]
+        # Radius is a fallback only when no explicit service-area match exists.
+        if chosen is None and coords:
+            nearby = []
+            for zone in zones:
+                hub_point = zone["hubCoordinates"]
+                if not hub_point:
+                    continue
+                distance = distance_km_local(coords, hub_point)
+                if distance <= zone["pickupRadiusKm"]:
+                    nearby.append((distance, zone))
+            if nearby:
+                chosen = min(nearby, key=lambda item: item[0])[1]
+        if chosen is None:
+            chosen = unassigned_zone
+
+        chosen["totalOrders"] += 1
+        chosen["collectionIds"].append(str(job.get("_id") or job.get("id") or ""))
+        status_value = str(job.get("status") or "").strip().lower()
+        if status_value == "ready_for_pickup" and not job.get("pickupRouteId"):
+            chosen["readyToAssign"] += 1
+
+    visible_zones = zones + [unassigned_zone]
+    for zone in visible_zones:
+        zone.pop("hubCoordinates", None)
+    visible_zones.sort(key=lambda item: (item["name"] == "Other district farms", item["name"].casefold()))
+
+    # Taluk directory is the administrative view for pickup planning. It includes
+    # every known village/locality from farmer profiles, even when no order is ready.
+    taluk_groups: Dict[str, Dict[str, Any]] = {}
+    for item in profile_directory:
+        taluk_name = item.get("taluk") or "Taluk not identified"
+        taluk_key = normalized_area(taluk_name)
+        group = taluk_groups.setdefault(taluk_key, {
+            "key": "taluk:" + taluk_key, "name": taluk_name, "areaNames": set(),
+            "registeredFarmerIds": set(), "readyFarmerIds": set(),
+            "collectionIds": [], "readyOrders": 0, "totalOrders": 0,
+        })
+        if item.get("area"):
+            group["areaNames"].add(item["area"])
+        if item.get("farmerId"):
+            group["registeredFarmerIds"].add(item["farmerId"])
+
+    for job in pickup_jobs:
+        farmer_id = str(job.get("farmerId") or job.get("farmerUserId") or "")
+        taluk_name = profile_taluk_by_id.get(farmer_id) or taluk_from_job(job) or "Taluk not identified"
+        taluk_key = normalized_area(taluk_name)
+        group = taluk_groups.setdefault(taluk_key, {
+            "key": "taluk:" + taluk_key, "name": taluk_name, "areaNames": set(),
+            "registeredFarmerIds": set(), "readyFarmerIds": set(),
+            "collectionIds": [], "readyOrders": 0, "totalOrders": 0,
+        })
+        area_name = profile_area_name_by_id.get(farmer_id)
+        area_name = area_name or job.get("farmVillage") or job.get("farmAreaName") or job.get("village") or job.get("locality") or job.get("farmTown")
+        if area_name:
+            group["areaNames"].add(str(area_name).strip())
+        job_id = str(job.get("_id") or job.get("id") or "")
+        if job_id:
+            group["collectionIds"].append(job_id)
+        group["totalOrders"] += 1
+        if str(job.get("status") or "").strip().lower() == "ready_for_pickup" and not job.get("pickupRouteId"):
+            group["readyOrders"] += 1
+            if farmer_id:
+                group["readyFarmerIds"].add(farmer_id)
+
+    taluks = []
+    for group in taluk_groups.values():
+        areas_list = sorted(group["areaNames"], key=str.casefold)
+        taluks.append({
+            "key": group["key"], "name": group["name"],
+            "areaNames": areas_list, "areaCount": len(areas_list),
+            "registeredFarmCount": len(group["registeredFarmerIds"]),
+            "readyFarmCount": len(group["readyFarmerIds"]),
+            "readyOrders": group["readyOrders"], "totalOrders": group["totalOrders"],
+            "collectionIds": group["collectionIds"],
+        })
+    taluks.sort(key=lambda item: item["name"].casefold())
+
+    # Build locality cards from the master first, retaining localities with zero orders.
+    # Tiruchirappalli's initial pickup-area directory includes the five taluk-level
+    # areas requested for the warehouse pickup workflow. Keep these visible even
+    # before farmers or orders exist there; administrators can extend the master
+    # with more villages/localities at any time.
+    area_groups: Dict[str, Dict[str, Any]] = {}
+    # Complete Tamil Nadu revenue-taluks directory. Keep this administrative
+    # directory available for every warehouse district, including areas with
+    # zero registered farms/orders. Names are based on the TNPSC district/taluk
+    # list; the admin district_pickup_areas collection can add local aliases.
+    default_district_areas = {
+        "ariyalur": ("Ariyalur", ["Ariyalur", "Andimadam", "Sendurai", "Udaiyarpalayam"]),
+        "chengalpattu": ("Chengalpattu", ["Chengalpattu", "Cheyyur", "Maduranthakam", "Pallavaram", "Tambaram", "Thirukalukundram", "Tiruporur", "Vandalur"]),
+        "chennai": ("Chennai", ["Alandur", "Ambattur", "Aminjikarai", "Ayanavaram", "Egmore", "Guindy", "Madhavaram", "Madhuravoyal", "Mambalam", "Mylapore", "Perambur", "Purasavakkam", "Sholinganallur", "Thiruvottriyur", "Tondiarpet", "Velacherry"]),
+        "coimbatore": ("Coimbatore", ["Aanaimalai", "Annur", "Coimbatore (North)", "Coimbatore (South)", "Kinathukadavu", "Madukarai", "Mettupalayam", "Perur", "Pollachi", "Sulur", "Valparai"]),
+        "cuddalore": ("Cuddalore", ["Cuddalore", "Bhuvanagiri", "Chidambaram", "Kattumannarkoil", "Kurinjipadi", "Panruti", "Srimushnam", "Thittakudi", "Veppur", "Virudhachalam"]),
+        "dharmapuri": ("Dharmapuri", ["Dharmapuri", "Harur", "Karimangalam", "Nallampalli", "Palacode", "Pappireddipatti", "Pennagaram"]),
+        "dindigul": ("Dindigul", ["Atthur", "Dindigul (East)", "Dindigul (West)", "Guziliyamparai", "Kodaikanal", "Natham", "Nilakottai", "Oddanchatram", "Palani", "Vedasandur"]),
+        "erode": ("Erode", ["Erode", "Anthiyur", "Bhavani", "Gobichettipalayam", "Kodumudi", "Modakurichi", "Nambiyur", "Perundurai", "Sathiyamangalam", "Thalavadi"]),
+        "kallakurichi": ("Kallakurichi", ["Kallakurichi", "Chinnaselam", "Kalvarayan Hills", "Sankarapuram", "Tirukoilur", "Ulundurpet"]),
+        "kancheepuram": ("Kancheepuram", ["Kancheepuram", "Kundrathur", "Sriperumbudur", "Uthiramerur", "Walajabad"]),
+        "kanniyakumari": ("Kanniyakumari", ["Agasteeswaram", "Kalkulam", "Killiyur", "Thiruvatar", "Thovalai", "Vilavankodu"]),
+        "karur": ("Karur", ["Karur", "Aravakurichi", "Kadavur", "Krishnarayapuram", "Kulithalai", "Manmangalam", "Pugalur"]),
+        "krishnagiri": ("Krishnagiri", ["Krishnagiri", "Anjetty", "Bargur", "Hosur", "Pochampalli", "Sulagiri", "Thenkanikottai", "Uthangarai"]),
+        "madurai": ("Madurai", ["Kallikudi", "Madurai (East)", "Madurai (North)", "Madurai (South)", "Madurai (West)", "Melur", "Peraiyur", "Thirumangalam", "Thiruparankundram", "Usilampatti", "Vadipatti"]),
+        "mayiladuthurai": ("Mayiladuthurai", ["Mayiladuthurai", "Kuthalam", "Sirkali", "Tharangambadi"]),
+        "nagapattinam": ("Nagapattinam", ["Nagapattinam", "Kilvelur", "Thirukkuvalai", "Vedaranyam"]),
+        "namakkal": ("Namakkal", ["Namakkal", "Kholli Hills", "Kumarapalayam", "Mohanoor", "Paramathi Velur", "Rasipuram", "Senthamangalam", "Tiruchengode"]),
+        "nilgiris": ("The Nilgiris", ["Udagamandalam", "Coonoor", "Gudalur", "Kothagiri", "Kundah", "Pandalur"]),
+        "perambalur": ("Perambalur", ["Perambalur", "Alathur", "Kunnam", "Veppanthattai"]),
+        "pudukkottai": ("Pudukkottai", ["Pudukkottai", "Alangudi", "Aranthangi", "Avudiyarkoil", "Gandarvakottai", "Iluppur", "Karambakudi", "Kulathur", "Manamelkudi", "Ponnamaravathi", "Thirumayam", "Viralimalai"]),
+        "ramanathapuram": ("Ramanathapuram", ["Ramanathapuram", "Kadaladi", "Kamuthi", "Kezhakarai", "Mudukulathur", "Paramakudi", "Rajasingamangalam", "Rameswaram", "Tiruvadanai"]),
+        "ranipet": ("Ranipet", ["Arakkonam", "Arcot", "Kalavai", "Nemili", "Sholingur", "Walajah"]),
+        "salem": ("Salem", ["Salem", "Attur", "Edapadi", "Gangavalli", "Kadaiyampatti", "Mettur", "Omalur", "Pethanayakanpalayam", "Salem South", "Salem West", "Sankari", "Vazhapadi", "Yercaud"]),
+        "sivaganga": ("Sivaganga", ["Sivagangai", "Devakottai", "Ilayankudi", "Kalaiyarkovil", "Karaikudi", "Manamadurai", "Singampunari", "Thirupuvanam", "Tirupathur"]),
+        "tenkasi": ("Tenkasi", ["Tenkasi", "Alangulam", "Kadayanallur", "Sankarankovil", "Shenkottai", "Sivagiri", "Thiruvengadam", "Veerakeralampudur"]),
+        "thanjavur": ("Thanjavur", ["Thanjavur", "Boothalur", "Kumbakonam", "Orathanadu", "Papanasam", "Pattukottai", "Peravurani", "Thiruvaiyaru", "Thiruvidaimaruthur"]),
+        "theni": ("Theni", ["Theni", "Aandipatti", "Bodinayakanur", "Periyakulam", "Uthamapalayam"]),
+        "thoothukudi": ("Thoothukudi", ["Thoothukudi", "Eral", "Ettayapuram", "Kayathar", "Kovilpatti", "Ottapidaram", "Sattankulam", "Srivaikundam", "Tiruchendur", "Vilathikulam"]),
+        "tiruchirappalli": ("Tiruchirappalli", ["Lalgudi", "Manachanallur", "Manapparai", "Marungapuri", "Musiri", "Srirangam", "Thottiam", "Thuraiyur", "Tiruchirapalli (West)", "Tiruchirappalli (East)", "Tiruverumbur"]),
+        "tirunelveli": ("Tirunelveli", ["Tirunelveli", "Ambasamudram", "Cheranmahadevi", "Manur", "Nanguneri", "Palayamkottai", "Radhapuram", "Thisayanvilai"]),
+        "tiruppur": ("Tiruppur", ["Avinashi", "Dharapuram", "Kangeyam", "Madathukkulam", "Oothukuli", "Palladam", "Tiruppur (North)", "Tiruppur (South)", "Udumalaipettai"]),
+        "tirupathur": ("Tirupathur", ["Tirupathur", "Ambur", "Natrampalli", "Vaniyambadi"]),
+        "tiruvallur": ("Tiruvallur", ["Thiruvallur", "Avadi", "Gummidipoondi", "Pallipattu", "Ponneri", "Poonamallee", "R.K. Pet", "Tiruthani", "Uthukottai"]),
+        "tiruvannamalai": ("Tiruvannamalai", ["Thiruvannamalai", "Arni", "Chengam", "Chetpet", "Cheyyar", "Jamunamarathur", "Kalasapakkam", "Kilpennathur", "Polur", "Thandramet", "Vandavasi", "Vembakkam"]),
+        "tiruvarur": ("Tiruvarur", ["Thiruvarur", "Kodavasal", "Koothanallur", "Mannargudi", "Nannilam", "Needamangalam", "Thiruthuraipoondi", "Valangaiman"]),
+        "vellore": ("Vellore", ["Vellore", "Aanikattu", "Gudiyatham", "K V Kuppam", "Katpadi", "Pernambut"]),
+        "viluppuram": ("Villupuram", ["Villupuram", "Gingee", "Kandachipuram", "Marakanam", "Melmalaiyanur", "Thiruvennainallur", "Tindivanam", "Vanur", "Vikravandi"]),
+        "virudhunagar": ("Virudhunagar", ["Virudhunagar", "Aruppukottai", "Kariyapatti", "Rajapalayam", "Sathur", "Sivakasi", "Srivilliputhur", "Tiruchuli", "Vembakottai", "Watrap"]),
+    }
+    district_aliases = {
+        "the nilgiris": "nilgiris", "udagamandalam": "nilgiris",
+        "kanyakumari": "kanniyakumari", "trichy": "tiruchirappalli",
+        "tiruchirapalli": "tiruchirappalli", "pudukottai": "pudukkottai",
+        "thirunelveli": "tirunelveli", "thiruvallur": "tiruvallur",
+        "thiruvannamalai": "tiruvannamalai", "thiruvarur": "tiruvarur",
+        "sivagangai": "sivaganga", "the nilgiris (udagamandalam)": "nilgiris",
+    }
+    for district_key in coverage:
+        normalized_district = normalize_collection_district(district_key)
+        canonical_key = district_aliases.get(normalized_district, normalized_district)
+        if canonical_key not in default_district_areas:
+            # Resolve aliases by normalized substring only when it is unambiguous.
+            matches = [key for key in default_district_areas if key in normalized_district or normalized_district in key]
+            canonical_key = matches[0] if len(matches) == 1 else canonical_key
+        directory = default_district_areas.get(canonical_key)
+        if not directory:
+            continue
+        canonical_district, default_areas = directory
+        for name in default_areas:
+            key = "area:" + normalized_area(name)
+            area_groups[key] = {
+                "key": key, "name": name, "taluk": name,
+                "district": canonical_district, "aliases": [],
+                "villages": set(), "registeredFarmIds": set(), "readyFarmIds": set(),
+                "collectionIds": [], "totalOrders": 0, "readyOrders": 0,
+            }
+    for master in area_master:
+        name = str(master.get("name") or "").strip()
+        if not name: continue
+        key = "area:" + normalized_area(name)
+        area_groups[key] = {
+            "key": key, "name": name, "taluk": master.get("taluk"),
+            "district": master.get("district"), "aliases": master.get("aliases") or [],
+            # Admin-maintained aliases represent registered villages/localities
+            # served by this taluk pickup area.
+            "villages": {
+                str(alias).strip() for alias in (master.get("aliases") or [])
+                if str(alias).strip() and normalized_area(alias) != normalized_area(name)
+            },
+            "registeredFarmIds": set(), "readyFarmIds": set(),
+            "collectionIds": [], "totalOrders": 0, "readyOrders": 0,
+        }
+    for item in profile_directory:
+        name = item.get("area")
+        if not name: continue
+        master = canonical_area(name)
+        canonical = str((master or {}).get("taluk") or (master or {}).get("name") or name).strip()
+        key = "area:" + normalized_area(canonical)
+        group = area_groups.setdefault(key, {
+            "key": key, "name": canonical, "taluk": canonical,
+            "district": None, "aliases": [], "villages": set(), "registeredFarmIds": set(),
+            "readyFarmIds": set(), "collectionIds": [], "totalOrders": 0, "readyOrders": 0,
+        })
+        if item.get("village"):
+            group.setdefault("villages", set()).add(str(item["village"]).strip())
+        if item.get("farmerId"): group["registeredFarmIds"].add(item["farmerId"])
+    for job in pickup_jobs:
+        farmer_id = str(job.get("farmerId") or job.get("farmerUserId") or job.get("farmId") or "")
+        linked_profile = None
+        # Collection records do not always carry the same farmer reference as
+        # the farmer profile. Resolve through the linked order/product exactly
+        # as the Farm Collection list does before deciding that an area is absent.
+        # Resolve the entire pickup-job relationship chain. Older collection
+        # jobs may omit farmerId/orderId while the linked incoming-stock row
+        # still contains them; Farm Collection already follows these links.
+        incoming_id = str(job.get("incomingStockId") or "")
+        linked_incoming = None
+        if incoming_id and ObjectId.is_valid(incoming_id):
+            linked_incoming = await incoming_stock_repository.get_by_id(incoming_id)
+        order_id = str(job.get("orderId") or (linked_incoming or {}).get("orderId") or "")
+        linked_order = None
+        if order_id and ObjectId.is_valid(order_id):
+            linked_order = await order_repository.get_by_id(order_id)
+        order_items = (linked_order or {}).get("items") or []
+        first_item = order_items[0] if order_items else {}
+        product_id = str(job.get("productId") or (linked_incoming or {}).get("productId") or first_item.get("productId") or "")
+        linked_product = None
+        if product_id and ObjectId.is_valid(product_id):
+            linked_product = await product_repository.get_by_id(product_id)
+        farmer_refs = [
+            job.get("farmerId"), job.get("farmerUserId"), job.get("farmId"),
+            (linked_incoming or {}).get("farmerId"), (linked_incoming or {}).get("farmerUserId"),
+            (linked_order or {}).get("farmerId"), (linked_order or {}).get("farmer_id"),
+            first_item.get("farmerId"), first_item.get("farmer_id"),
+            (linked_product or {}).get("farmerId"), (linked_product or {}).get("farmer_id"),
+            (linked_product or {}).get("ownerId"), (linked_product or {}).get("sellerId"),
+        ]
+        for farmer_ref in farmer_refs:
+            if not farmer_ref:
+                continue
+            farmer_key = str(farmer_ref)
+            linked_profile = await farmer_repository.get_by_user_id(farmer_key)
+            if not linked_profile and ObjectId.is_valid(farmer_key):
+                linked_profile = await farmer_repository.get_by_id(farmer_key)
+            if linked_profile:
+                farmer_id = str(linked_profile.get("userId") or farmer_key)
+                break
+
+        # Use the farm's actual district as the source of truth. A job may
+        # be linked to this warehouse through legacy assignment data, but it
+        # must not be counted under this district's pickup areas when the
+        # farmer address explicitly belongs to another district.
+        job_location = job.get("farmLocation") or job.get("pickupLocation") or {}
+        linked_district = farmer_collection_district(linked_profile or {}, job_location, coverage)
+        recorded_job_district = explicit_farm_district(linked_profile or {}, linked_incoming or {}, job, job_location)
+        if recorded_job_district and recorded_job_district not in coverage:
+            continue
+        if linked_district and linked_district not in coverage:
+            continue
+
+        raw_name = (
+            profile_area_name_by_id.get(farmer_id)
+            or area_from_profile(linked_profile or {})
+            or area_from_profile(linked_incoming or {})
+            or area_from_profile(job)
+            or job.get("farmVillage") or job.get("farmAreaName")
+            or job.get("village") or job.get("locality") or job.get("farmTown")
+        )
+        master = canonical_area(str(raw_name)) if raw_name else None
+        canonical = str((master or {}).get("taluk") or (master or {}).get("name") or raw_name or "").strip()
+        if not canonical:
+            canonical = profile_area_name_by_id.get(farmer_id, "")
+        if not canonical:
+            # Do not fabricate a taluk from a district/city-level address. Keep
+            # these orders out of a false area count until the farm locality is
+            # actually available on its linked profile or pickup location.
+            continue
+        key = "area:" + normalized_area(canonical)
+        group = area_groups.setdefault(key, {
+            "key": key, "name": canonical, "taluk": canonical,
+            "district": (master or {}).get("district") or ("Tiruchirappalli" if normalized_area(canonical) in {normalized_area(x) for x in fallback_taluk_names.get("tiruchirappalli", [])} else None),
+            "aliases": (master or {}).get("aliases") or [],
+            "villages": set(), "registeredFarmIds": set(), "readyFarmIds": set(),
+            "collectionIds": [], "totalOrders": 0, "readyOrders": 0,
+        })
+        village_name = profile_village_by_id.get(farmer_id)
+        if not village_name:
+            village_name = raw_name if master and normalized_area(raw_name) != normalized_area(canonical) else None
+        if village_name:
+            group.setdefault("villages", set()).add(str(village_name).strip())
+        job_id = str(job.get("_id") or job.get("id") or "")
+        if job_id: group["collectionIds"].append(job_id)
+        group["totalOrders"] += 1
+        if farmer_id: group["registeredFarmIds"].add(farmer_id)
+        if str(job.get("status") or "").strip().lower() == "ready_for_pickup" and not job.get("pickupRouteId"):
+            group["readyOrders"] += 1
+            if farmer_id: group["readyFarmIds"].add(farmer_id)
+    registered_areas = [{
+        "key": group["key"], "name": group["name"], "taluk": group["taluk"],
+        "district": group["district"], "aliases": group["aliases"],
+        "villages": sorted(group.get("villages") or set(), key=str.casefold),
+        "villageCount": len(group.get("villages") or set()),
+        "registeredFarmCount": len(group["registeredFarmIds"]),
+        "readyFarmCount": len(group["readyFarmIds"]),
+        "totalOrders": group["totalOrders"], "readyOrders": group["readyOrders"],
+        "collectionIds": group["collectionIds"],
+    } for group in area_groups.values()]
+    registered_areas.sort(key=lambda item: item["name"].casefold())
+    return {        "success": True,
+        "data": {
+            "districts": sorted(coverage),
+            "areas": visible_zones,
+            "zones": visible_zones,
+            "taluks": taluks,
+            "registeredAreas": registered_areas,
+            "areaMasterCount": len(area_master),
+            "directorySource": "admin_district_area_master_with_farmer_profile_fallback",
+            "coverageMode": "explicit_locality_first_then_nearest_hub_radius",
+            "defaultPickupRadiusKm": 15,
+            "message": "Local Hub zones are operational pickup areas. Assign village/locality coverage in Local Hub Management; farms without an explicit match are assigned to the nearest hub only when verified farm and hub coordinates fall within its configured radius.",
         },
     }
 
@@ -3851,6 +5035,97 @@ async def get_farmer_fulfillment_consolidations(current_user: dict = Depends(get
 
 
 
+@router.post("/me/farmer-fulfillment/{order_id}/publish-nearby-delivery")
+async def publish_nearby_farmer_fulfillment_delivery(
+    order_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Publish a received Nearby order to all eligible delivery partners; first acceptance wins."""
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can publish Nearby delivery jobs")
+    if not ObjectId.is_valid(order_id):
+        raise HTTPException(status_code=400, detail="Invalid order ID")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    order = await order_repository.get_by_id(order_id)
+    if not warehouse or not order:
+        raise HTTPException(status_code=404, detail="Order or warehouse not found")
+    warehouse_id = str(warehouse["_id"])
+    if str(order.get("sourceWarehouseId") or order.get("warehouseId") or "") != warehouse_id:
+        raise HTTPException(status_code=403, detail="Only the source warehouse can publish this delivery")
+    if str(order.get("deliveryType") or "").strip().lower() == "pickup":
+        raise HTTPException(status_code=409, detail="Customer-pickup orders cannot be published for delivery")
+    if str(order.get("orderStatus") or order.get("status") or "").strip().lower() in ("cancelled", "canceled", "refunded", "delivered", "completed"):
+        raise HTTPException(status_code=409, detail="A cancelled or completed order cannot be published")
+    incoming = await _get_farmer_fulfillment_incoming_rows(order, warehouse_id)
+    if not incoming:
+        raise HTTPException(status_code=409, detail="Confirm physical receipt in Incoming Stock before publishing delivery")
+    for row in incoming:
+        expected = float(row.get("quantity") or row.get("expectedQuantity") or row.get("plannedQuantity") or 0)
+        received = None
+        for key in ("quantityReceived", "receivedQuantity", "actualReceivedQuantity", "actualQuantityReceived", "receivedQty"):
+            if row.get(key) is not None:
+                try: received = float(row.get(key) or 0)
+                except (TypeError, ValueError): received = 0.0
+                break
+        if received is None:
+            received = expected if str(row.get("status") or "").lower() in ("received", "stored") else 0.0
+        if str(row.get("status") or "").lower() not in ("received", "stored") or received + 1e-9 < expected:
+            raise HTTPException(status_code=409, detail="The complete shipment must be physically received before publishing delivery")
+    address = order.get("deliveryAddress") or order.get("shippingAddress") or {}
+    if not isinstance(address, dict):
+        address = {}
+    destination = address.get("location") or address.get("deliveryLocation") or order.get("customerLocation") or address
+    source = warehouse.get("location") or {}
+    source_coords = source.get("coordinates") if isinstance(source, dict) else None
+    if not source_coords or len(source_coords) < 2:
+        lat = source.get("lat", source.get("latitude")) if isinstance(source, dict) else None
+        lng = source.get("lng", source.get("longitude")) if isinstance(source, dict) else None
+        if lat is not None and lng is not None: source_coords = [float(lng), float(lat)]
+    destination_coords = destination.get("coordinates") if isinstance(destination, dict) else None
+    if not destination_coords or len(destination_coords) < 2:
+        lat = address.get("lat", address.get("latitude"))
+        lng = address.get("lng", address.get("longitude"))
+        if lat is not None and lng is not None: destination_coords = [float(lng), float(lat)]
+    if not source_coords or len(source_coords) < 2 or not destination_coords or len(destination_coords) < 2:
+        raise HTTPException(status_code=409, detail="Verified warehouse and customer delivery coordinates are required")
+    distance = _haversine_km(float(source_coords[1]), float(source_coords[0]), float(destination_coords[1]), float(destination_coords[0]))
+    threshold = float(order.get("nearbyDeliveryThresholdKm") or warehouse.get("nearbyDeliveryThresholdKm") or 15.0)
+    source_address = warehouse.get("address") if isinstance(warehouse.get("address"), dict) else {}
+    source_district = str(warehouse.get("district") or source_address.get("district") or order.get("sourceDistrict") or order.get("farmerDistrict") or "").strip().casefold()
+    destination_district = str(address.get("district") or (destination.get("district") if isinstance(destination, dict) else "") or order.get("destinationDistrict") or "").strip().casefold()
+    if classify_farmer_fulfillment_route(distance, threshold, source_district, destination_district, True) != "nearby":
+        raise HTTPException(status_code=409, detail=f"This order is not eligible for Nearby delivery (distance {distance:.1f} km; threshold {threshold:g} km)")
+    existing = await delivery_job_repository.get_by_order_id(order_id)
+    if existing and str(existing.get("jobType") or "") == "farmer_fulfillment_nearby_delivery":
+        status = str(existing.get("status") or "").lower()
+        if status in ("open", "accepted", "in_transit", "picked_up", "delivered", "completed"):
+            return {"success": True, "data": {"orderId": order_id, "jobId": str(existing["_id"]), "status": existing.get("status"), "eligiblePartnerCount": len(existing.get("eligiblePartnerIds") or [])}, "message": "Nearby delivery request is already published; no duplicate job was created"}
+    elif existing:
+        raise HTTPException(status_code=409, detail="Another delivery job already exists for this order")
+    required_weight = job_weight_kg(order)
+    eligible = await eligible_partners_for_job(float(source_coords[1]), float(source_coords[0]), required_weight, job_type="farmer_fulfillment_nearby_delivery")
+    if not eligible:
+        raise HTTPException(status_code=409, detail="No available, verified delivery partners with sufficient capacity are currently nearby. Try publishing again later.")
+    eligible_ids = [str(p["id"]) for p in eligible]
+    pickup = {"type": "warehouse", "id": warehouse_id, "name": warehouse.get("name") or "Source Warehouse", "address": source.get("address") or warehouse.get("address") or "", "coordinates": [float(source_coords[0]), float(source_coords[1])]}
+    patched = dict(order)
+    patched["deliveryPickupLocation"] = pickup
+    job_doc = build_job_document(patched, {"name": pickup["name"], "address": pickup["address"], "lat": float(source_coords[1]), "lng": float(source_coords[0])}, distance, eligible_partner_ids=eligible_ids)
+    job_doc.update({"jobType": "farmer_fulfillment_nearby_delivery", "deliveryPickupLocation": pickup, "pickupLocation": pickup, "sourceWarehouseId": ObjectId(warehouse_id), "status": JOB_OPEN, "singleFinalDelivery": True, "partnerAssignmentOpen": True})
+    job_id = await delivery_job_repository.create_job(job_doc)
+    if not job_id:
+        raise HTTPException(status_code=409, detail="Could not publish the Nearby delivery request")
+    now = datetime.utcnow()
+    await order_repository.update({"_id": ObjectId(order_id)}, {"deliveryPartnerJobId": ObjectId(str(job_id)), "deliveryPickupLocation": pickup, "deliveryResponsibility": "delivery_partner", "deliveryDecisionStatus": "partner_search", "partnerAssignmentOpen": True, "nearbyDeliveryPublishedAt": now, "nearbyDeliveryEligiblePartnerCount": len(eligible_ids), "logisticsMode": "farmer_to_delivery_partner", "farmerFulfillmentRouteType": "nearby", "updatedAt": now})
+    for partner in eligible:
+        try:
+            await NotificationService.send_custom_notification(str(partner.get("userId") or ""), f"Nearby delivery available for order {order.get('orderNumber') or order_id}. Accept it in your delivery jobs to claim it.", title="New Nearby Delivery Job", data={"type": "delivery_job_available", "jobId": str(job_id), "orderId": order_id})
+        except Exception:
+            logger.exception("Unable to notify eligible Nearby delivery partner")
+    await order_repository.append_tracking_event(order_id, "nearby_delivery_published", "Delivery request published to partners", f"The warehouse published this Nearby order to {len(eligible_ids)} eligible delivery partners. The first partner to accept receives the job.", actor_id=str(current_user["_id"]), actor_role="warehouse", metadata={"deliveryJobId": str(job_id), "eligiblePartnerCount": len(eligible_ids), "distanceKm": round(distance, 2)})
+    return {"success": True, "data": {"orderId": order_id, "jobId": str(job_id), "status": JOB_OPEN, "eligiblePartnerCount": len(eligible_ids), "distanceKm": round(distance, 2)}, "message": f"Delivery request published to {len(eligible_ids)} eligible partners. First acceptance wins."}
+
+
 @router.put("/me/farmer-fulfillment/{order_id}/assign-nearby-delivery-partner")
 async def assign_nearby_farmer_fulfillment_delivery_partner(
     order_id: str,
@@ -4143,6 +5418,7 @@ async def assign_farmer_fulfillment_destination_warehouse(
         destination = await warehouse_for_district(
             destination_district.casefold(), required_capacity=0.0,
             exclude_warehouse_id=source_id, allow_capacity_override=False,
+            allow_regional_fallback=False,
         )
         if not destination:
             raise HTTPException(status_code=409, detail="No active destination warehouse serves the Bulk/Event customer's district. Activate or configure a destination warehouse first.")
@@ -4484,27 +5760,8 @@ async def assign_farmer_fulfillment_destination_warehouse(
         raise HTTPException(status_code=409, detail="This order belongs in Same-District routing, not Inter-District routing")
     if route_distance is not None and route_distance <= nearby_threshold and direct_delivery_configured:
         raise HTTPException(status_code=409, detail=f"This order is within the {nearby_threshold:g} km Nearby threshold; use Nearby delivery instead")
-    if existing_destination_id:
-        if existing_destination_id == source_id:
-            raise HTTPException(status_code=409, detail="Destination warehouse must be different from the source warehouse")
-        if logistics_mode != "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner":
-            await order_repository.update({"_id": ObjectId(order_id)}, {
-                "logisticsMode": "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner",
-                "updatedAt": datetime.utcnow(),
-            })
-        return {
-            "success": True,
-            "data": {
-                "destinationWarehouseId": existing_destination_id,
-                "destinationWarehouseName": order.get("destinationWarehouseName"),
-                "destinationDistrict": order.get("destinationDistrict"),
-                "destinationWarehouseDistrict": order.get("destinationWarehouseDistrict"),
-                "destinationWarehouseRegionalFallback": bool(order.get("destinationWarehouseRegionalFallback")),
-                "destinationWarehouseCapacityOverrideRequired": bool(order.get("destinationWarehouseCapacityOverrideRequired")),
-                "alreadyAssigned": True,
-            },
-            "message": "A destination warehouse is already assigned.",
-        }
+    if existing_destination_id == source_id:
+        raise HTTPException(status_code=409, detail="Destination warehouse must be different from the source warehouse")
     # Farmer-packed products are handed over for immediate onward delivery.
     # Choose the destination by customer district, not inventory/storage capacity.
     required_capacity = 0.0
@@ -4513,6 +5770,7 @@ async def assign_farmer_fulfillment_destination_warehouse(
         required_capacity=0.0,
         exclude_warehouse_id=source_id,
         allow_capacity_override=False,
+            allow_regional_fallback=False,
     )
     if not destination:
         raise HTTPException(
@@ -4520,6 +5778,19 @@ async def assign_farmer_fulfillment_destination_warehouse(
             detail="No active destination warehouse other than the source warehouse is available. Add or activate the warehouse serving the customer district; a warehouse with a capacity shortfall can be assigned with explicit confirmation.",
         )
     destination_id = str(destination["_id"])
+    if existing_destination_id == destination_id:
+        return {
+            "success": True,
+            "data": {
+                "destinationWarehouseId": destination_id,
+                "destinationWarehouseName": destination.get("name") or destination.get("warehouseName") or "Destination Warehouse",
+                "destinationDistrict": customer_district,
+                "destinationWarehouseRegionalFallback": False,
+                "destinationWarehouseCapacityOverrideRequired": False,
+                "alreadyAssigned": True,
+            },
+            "message": "The active warehouse serving the customer's delivery district is already assigned.",
+        }
     destination_address = destination.get("address") if isinstance(destination.get("address"), dict) else {}
     destination_location = destination.get("location") if isinstance(destination.get("location"), dict) else {}
     destination_warehouse_district = str(
@@ -4657,10 +5928,9 @@ async def dispatch_farmer_fulfillment_to_destination(
     capacityOverrideConfirmed: bool = Query(False),
     current_user: dict = Depends(get_current_user),
 ):
-    """Dispatch a sealed farmer-packed order from source to destination warehouse."""
+    """Prepare the destination-transfer manifest; pickup team assignment and route start are separate steps."""
     if current_user.get("role") != "warehouse":
-        raise HTTPException(status_code=403, detail="Only warehouse managers can dispatch farmer fulfillment transfers")
-    _enforce_warehouse_operating_window("downstream_transfer")
+        raise HTTPException(status_code=403, detail="Only warehouse managers can prepare farmer fulfillment transfers")
     if not ObjectId.is_valid(order_id):
         raise HTTPException(status_code=400, detail="Invalid order ID")
     warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
@@ -6224,18 +7494,20 @@ async def get_warehouse_customer_orders(
     if not warehouse:
         raise HTTPException(status_code=404, detail="Warehouse not found")
 
+    # Customer enquiries may concern active, delivered, cancelled or refunded
+    # orders. Keep the lookup scoped to this warehouse, but do not hide closed
+    # orders: staff often need to answer questions about previous deliveries.
     query: Dict[str, Any] = {
         "warehouseId": ObjectId(str(warehouse["_id"])),
         "fulfillmentMethod": "warehouse",
         "deletedAt": None,
-        "orderStatus": {"$nin": ["delivered", "completed", "cancelled", "refunded"]},
     }
     if stage:
         query["warehouseFulfillmentStage"] = stage
 
     orders = await order_repository.find_many(
-        query, skip=0, limit=200,
-        sort=[("orderDate", -1), ("createdAt", -1), ("updatedAt", -1), ("_id", -1)],
+        query, skip=0, limit=500,
+        sort=[("updatedAt", -1), ("orderDate", -1), ("createdAt", -1), ("_id", -1)],
     )
     result = []
     for order in orders:
@@ -6248,22 +7520,39 @@ async def get_warehouse_customer_orders(
         result.append({
             "id": str(order["_id"]),
             "orderNumber": order.get("orderNumber") or str(order["_id"])[-8:],
-            "orderStatus": order.get("orderStatus"),
-            "warehouseFulfillmentStage": order.get("warehouseFulfillmentStage") or "awaiting_farmer_confirmation",
+            "orderStatus": order.get("orderStatus") or order.get("status"),
+            "warehouseFulfillmentStage": order.get("warehouseFulfillmentStage"),
+            "logisticsMode": order.get("logisticsMode"),
+            "transferStatus": order.get("transferStatus"),
+            "warehouseCollectionStatus": order.get("warehouseCollectionStatus"),
+            "warehouseReceivedAt": order.get("warehouseReceivedAt"),
+            "transferDispatchedAt": order.get("transferDispatchedAt") or order.get("dispatchedAt"),
+            "destinationWarehouseReceivedAt": order.get("destinationWarehouseReceivedAt") or order.get("transferReceivedAt"),
+            "warehouseTransferId": str(order.get("warehouseTransferId")) if order.get("warehouseTransferId") else None,
+            "warehouseTransfer": _make_json_safe(order.get("warehouseTransfer") or order.get("transfer") or {}),
+            "transferLegs": _make_json_safe(order.get("transferLegs") or []),
             "fulfillmentMethod": order.get("fulfillmentMethod"),
             "totalAmount": order.get("totalAmount", 0),
             "paymentStatus": order.get("paymentStatus"),
             "shortageResolutionRequired": bool(order.get("shortageResolutionRequired")),
             "packingComplete": bool(order.get("packingComplete")),
             "packingVerified": bool(order.get("packingVerified")),
-            "deliveryPartnerRoute": order.get("deliveryPartnerRoute"),
-            "deliveryAddress": order.get("deliveryAddress") or {},
+            "deliveryPartnerRoute": _make_json_safe(order.get("deliveryPartnerRoute")),
+            "deliveryStatus": order.get("deliveryStatus") or order.get("delivery_status"),
+            "trackingNumber": order.get("trackingNumber") or order.get("trackingId") or order.get("tracking_id"),
+            "estimatedDelivery": order.get("estimatedDelivery") or order.get("expectedDeliveryDate") or order.get("deliveryDate"),
+            "dispatchedAt": order.get("dispatchedAt") or order.get("shippedAt"),
+            "deliveredAt": order.get("deliveredAt"),
+            "statusHistory": _make_json_safe(order.get("statusHistory") or order.get("status_history") or []),
+            "deliveryPartner": _make_json_safe(order.get("deliveryPartner") or order.get("assignedDeliveryPartner")),
+            "deliveryAddress": _make_json_safe(order.get("deliveryAddress") or {}),
             "customer": {
                 "name": (
                     f"{customer.get('firstName', '')} {customer.get('lastName', '')}".strip()
                     if customer else "Customer"
                 ),
                 "phone": customer.get("phone") if customer else None,
+                "email": customer.get("email") if customer else None,
             },
             "items": [
                 {
@@ -6278,6 +7567,7 @@ async def get_warehouse_customer_orders(
             ],
             "createdAt": order.get("createdAt"),
             "updatedAt": order.get("updatedAt"),
+            "orderDate": order.get("orderDate"),
         })
     return {"success": True, "data": {"orders": result}}
 
@@ -6689,7 +7979,6 @@ async def create_pickup_routes(
 ):
     if current_user.get("role") != "warehouse":
         raise HTTPException(status_code=403, detail="Only warehouse managers can create pickup routes")
-    _enforce_warehouse_operating_window("farm_pickup")
     warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
     if not warehouse:
         raise HTTPException(status_code=404, detail="Warehouse not found")
@@ -6731,9 +8020,16 @@ async def create_pickup_routes(
             team_capacity = 0
         if team_capacity <= 0:
             raise HTTPException(status_code=400, detail="Selected pickup team has no registered carrying capacity")
-        route_capacity = data.maxWeightKg or team_capacity
-        if route_capacity > team_capacity:
-            route_capacity = team_capacity
+        # "Assign to selected team" is one area -> one partner/vehicle.
+        # Do not silently split one area's workload into multiple routes that
+        # would all be assigned to the same vehicle beyond its carrying limit.
+        selected_total_weight = sum(float(job.get("quantity") or 0) for job in jobs)
+        if selected_total_weight > team_capacity:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Selected area workload is {selected_total_weight:g} kg, above the selected vehicle capacity of {team_capacity:g} kg. Select a larger vehicle or reduce the selected orders.",
+            )
+        route_capacity = team_capacity
     elif data.assignmentMode == "auto_assign":
         if not members:
             raise HTTPException(status_code=400, detail="Approve at least one pickup team before using automatic assignment")
@@ -6829,22 +8125,27 @@ async def create_pickup_routes(
             continue
 
         route_doc = await warehouse_pickup_route_repository.get_by_id(route_id)
-        # Reserve each job while a partner offer is open, too. It stays in
-        # Ready for Pickup until a partner accepts, but cannot be planned twice.
+        # Reserve every selected job atomically while the offer is open. A
+        # second page/user cannot plan or assign the same collection concurrently.
+        reserved_collection_ids: List[str] = []
+        reservation_failed = False
         for stop in group.get("stops") or []:
             for collection_id in (stop.get("collectionIds") or [stop.get("collectionId")]):
-                if not collection_id or not ObjectId.is_valid(str(collection_id)):
+                collection_id = str(collection_id or "")
+                if not ObjectId.is_valid(collection_id):
                     continue
-                await warehouse_collection_repository.update_job(
-                    str(collection_id),
-                    {
-                        "pickupRouteId": ObjectId(route_id),
-                        "pickupRouteStatus": "offered",
-                        "status": "ready_for_pickup",
-                        "collectionTeamId": None,
-                        "teamAssignedAt": None,
-                    },
-                )
+                reserved = await warehouse_collection_repository.reserve_job_for_route(collection_id, route_id)
+                if not reserved:
+                    reservation_failed = True
+                    break
+                reserved_collection_ids.append(collection_id)
+            if reservation_failed:
+                break
+        if reservation_failed:
+            for reserved_id in reserved_collection_ids:
+                await warehouse_collection_repository.release_route_reservation(reserved_id, route_id)
+            await warehouse_pickup_route_repository.update_route(route_id, {"status": "cancelled", "cancelReason": "Pickup job was claimed by another workflow before route reservation completed."})
+            raise HTTPException(status_code=409, detail="One or more pickup jobs were assigned or reserved in another warehouse page. Refresh the pickup list and select the available farms again.")
 
         if data.assignmentMode in {"assign_team", "auto_assign"}:
             membership = dict(assignments[index])
@@ -7070,7 +8371,16 @@ async def get_my_incoming_stock(
     try:
         routes = await warehouse_pickup_route_repository.get_by_warehouse(str(warehouse["_id"]))
         for route in routes:
-            if str(route.get("status") or "") in ("completed", "returned_to_warehouse"):
+            route_state = str(route.get("status") or "").strip().lower()
+            stops = route.get("stops") or []
+            all_stops_departed = bool(stops) and all(
+                str(stop.get("status") or "").strip().lower() == "departed_farm"
+                for stop in stops
+            )
+            # Make collected shipments visible as soon as the partner finishes
+            # every farm stop. They remain in transit until the partner confirms
+            # physical warehouse handover; warehouse staff cannot receive them yet.
+            if route_state in ("departed_farm", "completed", "returned_to_warehouse") or all_stops_departed:
                 await WarehouseService.create_pickup_route_incoming(str(route.get("_id")))
     except Exception:
         logger.exception("Failed to reconcile completed pickup routes into incoming stock")
@@ -7123,6 +8433,30 @@ async def get_my_incoming_stock(
                         safe_item["packingRequired"] = collection_job.get("packingRequired")
             except Exception:
                 logger.exception("Could not sync incoming shipment arrival from collection %s", collection_id)
+
+        # Repair legacy incoming rows when the delivery partner recorded the
+        # warehouse handover on the parent pickup route but the collection-job
+        # back-reference is missing or stale. This keeps Receive enabled only
+        # after the route has actually been returned to this warehouse.
+        if not safe_item.get("arrivedWarehouseAt") and item.get("pickupRouteId"):
+            try:
+                pickup_route = await warehouse_pickup_route_repository.get_by_id(str(item.get("pickupRouteId")))
+                if pickup_route and str(pickup_route.get("status") or "").lower() == "returned_to_warehouse":
+                    route_arrival = pickup_route.get("returnedAt") or pickup_route.get("updatedAt") or datetime.utcnow()
+                    await incoming_stock_repository.update(
+                        {"_id": item["_id"]},
+                        {
+                            "arrivedWarehouseAt": route_arrival,
+                            "warehouseArrivalConfirmed": True,
+                            "updatedAt": datetime.utcnow(),
+                        },
+                    )
+                    safe_item["arrivedWarehouseAt"] = route_arrival
+                    safe_item["warehouseArrivalConfirmed"] = True
+                    if str(safe_item.get("status") or "").lower() in ("scheduled", "ready_for_pickup"):
+                        safe_item["status"] = "in_transit"
+            except Exception:
+                logger.exception("Could not repair warehouse arrival from pickup route for incoming %s", safe_item["id"])
 
         # Resolve Mongo IDs into human-readable names for the warehouse receiving UI.
         farmer_id = str(item.get("farmerId") or "")
@@ -7221,6 +8555,37 @@ async def get_my_incoming_stock(
                     ])).strip() or "Customer details unavailable"
             except Exception:
                 logger.exception("Could not resolve order details for incoming shipment %s", safe_item["id"])
+        # B2B pickup rows reference the separate b2b_orders collection. Do not
+        # try to hydrate these IDs from customer orders: that leaves the warehouse
+        # receiving page with missing order and product details.
+        b2b_order_id = str(safe_item.get("b2bOrderId") or "")
+        if b2b_order_id and ObjectId.is_valid(b2b_order_id):
+            try:
+                from app.repositories.base_repository import BaseRepository
+                b2b_order = await BaseRepository("b2b_orders").get_by_id(b2b_order_id)
+                if b2b_order:
+                    safe_item["b2bOrderId"] = b2b_order_id
+                    safe_item["orderNumber"] = (
+                        b2b_order.get("orderNumber") or b2b_order.get("orderNo")
+                        or safe_item.get("b2bOrderNumber") or safe_item.get("orderNumber")
+                    )
+                    safe_item["b2bOrderNumber"] = safe_item.get("orderNumber")
+                    safe_item["productName"] = (
+                        b2b_order.get("productName") or b2b_order.get("product")
+                        or safe_item.get("productName")
+                    )
+                    safe_item["farmerName"] = (
+                        b2b_order.get("farmerName") or safe_item.get("farmerName")
+                    )
+                    safe_item["farmName"] = safe_item.get("farmName") or safe_item["farmerName"]
+                    safe_item["b2bOrderStatus"] = b2b_order.get("status")
+                    safe_item["buyerName"] = (
+                        b2b_order.get("businessName") or b2b_order.get("buyerName")
+                        or safe_item.get("buyerName")
+                    )
+            except Exception:
+                logger.exception("Could not resolve B2B order details for incoming shipment %s", safe_item["id"])
+
         # Event/Bulk transfer rows are not linked through the normal customer orderId.
         # Prefer their explicit event reference, then generate a stable readable ID.
         event_order_number = (
@@ -7256,6 +8621,34 @@ async def get_my_incoming_stock(
         safe_item["farmerName"] = safe_item.get("farmerName") or safe_item["farmName"]
         safe_item["productName"] = safe_item.get("productName") or "Product name unavailable"
         safe_item["orderNumber"] = safe_item.get("orderNumber") or "Order reference unavailable"
+
+        # Expose the actual assigned farm-pickup delivery partner on each
+        # incoming shipment so the warehouse page can filter by partner name.
+        route_id = str(safe_item.get("pickupRouteId") or "")
+        if route_id and ObjectId.is_valid(route_id):
+            try:
+                pickup_route = await warehouse_pickup_route_repository.get_by_id(route_id)
+                if pickup_route:
+                    route_display = await enrich_pickup_route_display(pickup_route)
+                    safe_item["deliveryPartnerName"] = (
+                        route_display.get("deliveryPartnerName")
+                        or safe_item.get("deliveryPartnerName")
+                    )
+                    safe_item["deliveryPartnerId"] = str(
+                        pickup_route.get("deliveryPartnerId") or safe_item.get("deliveryPartnerId") or ""
+                    ) or None
+                    safe_item["pickupRouteNumber"] = route_display.get("routeNumber")
+            except Exception:
+                logger.exception("Could not resolve delivery partner for incoming shipment %s", safe_item["id"])
+
+        # Preserve an already-hydrated partner name from collection/order records
+        # when a legacy shipment has no pickupRouteId.
+        safe_item["deliveryPartnerName"] = (
+            safe_item.get("deliveryPartnerName")
+            or safe_item.get("pickupTeamName")
+            or safe_item.get("collectionTeamName")
+            or safe_item.get("assignedPartnerName")
+        )
         safe_incoming.append(safe_item)
     return {
         "success": True,
@@ -7371,7 +8764,11 @@ async def receive_incoming_stock(
         incoming_record
         and str(incoming_record.get("warehouseId")) == str(warehouse["_id"])
         and str(incoming_record.get("sourceMode") or "") in ("farmer_fulfillment_transfer", "event_fulfillment_transfer")
-        and not incoming_record.get("arrivedWarehouseAt")
+        and not (
+            incoming_record.get("arrivedWarehouseAt")
+            or incoming_record.get("warehouseArrivalConfirmed")
+            or str(incoming_record.get("collectionStatus") or "").lower() == "arrived_warehouse"
+        )
     ):
         raise HTTPException(
             status_code=409,
@@ -7562,12 +8959,25 @@ async def update_incoming_quality(
         raise HTTPException(status_code=404, detail="Incoming shipment not found")
     source_mode = str(incoming.get("sourceMode") or "")
     incoming_status = str(incoming.get("status") or "").lower()
-    if source_mode == "farmer_fulfillment_transfer":
-        raise HTTPException(status_code=409, detail="Farmer Fulfillment orders are already packed. Skip warehouse quality inspection and continue to Farmer Fulfillment Transfers / Consolidation.")
+    # Farmer-packed orders also pass through this explicit warehouse quality
+    # decision. They skip repacking, not the receiving quality gate.
     # Event portions may be quality-rechecked after a failed inspection, without
     # issuing a second physical receipt or creating a duplicate receipt record.
-    if incoming_status != "received" and not (source_mode == "event_fulfillment_transfer" and incoming_status == "rejected"):
+    physically_received = bool(
+        incoming.get("receivedAt")
+        or incoming.get("receivedDate")
+        or incoming.get("warehouseReceivedAt")
+        or incoming.get("bulkShipmentReceivedAt")
+    )
+    if incoming_status not in {"received", "quality_check"} and not (
+        source_mode == "event_fulfillment_transfer" and incoming_status == "rejected"
+    ):
         raise HTTPException(status_code=400, detail="Receive the physical shipment before quality inspection")
+    # Bulk-lot receiving records are intentionally placed in quality_check
+    # while awaiting the separate inspection decision. Permit that state only
+    # when physical receipt has actually been recorded.
+    if incoming_status == "quality_check" and not physically_received:
+        raise HTTPException(status_code=400, detail="Complete physical receipt before quality inspection")
     if data.usableQuantity is not None and float(data.usableQuantity) > float(incoming.get("quantityReceived") or incoming.get("quantity") or 0):
         raise HTTPException(status_code=400, detail="Usable quantity cannot exceed received quantity")
 
@@ -7583,8 +8993,9 @@ async def update_incoming_quality(
         update["qualityRejectedAt"] = datetime.utcnow()
     elif data.qualityCheck == "passed":
         update["qualityPassedAt"] = datetime.utcnow()
-        if source_mode == "event_fulfillment_transfer" and incoming_status == "rejected":
-            update["status"] = "received"
+        # A successful inspection releases both received and quality_check
+        # shipments to the next warehouse stage (Store / Packing).
+        update["status"] = "received"
     # Keep the permanent receipt snapshot aligned with the latest quality decision
     # while retaining its original receipt number and receipt timestamp.
     existing_receipt = incoming.get("receipt") if isinstance(incoming.get("receipt"), dict) else {}
@@ -7813,7 +9224,6 @@ async def get_packing_tasks(status: Optional[str] = None, current_user: dict = D
             if row.get("orderId")
             and str(row.get("sourceMode") or "").strip().lower() not in ("farmer_fulfillment", "farmer_fulfillment_transfer")
             and str(row.get("fulfillmentType") or "").strip().lower() not in ("farmer_fulfillment", "farmer_fulfillment_transfer", "farmer packed")
-            and row.get("packingRequired") is not False
         }
         for order_id in order_ids:
             if not ObjectId.is_valid(order_id):
@@ -8591,12 +10001,10 @@ async def return_farmer_fulfillment_to_farmer(
                 "orderId": order_id,
                 "warehouseId": warehouse_id,
             },
-            priority=NotificationPriority.URGENT,
-            mandatory=True,
+            priority=NotificationPriority.URGENT,            mandatory=True,
         )
     except Exception:
         logger.exception("Failed to notify farmer about warehouse return request")
-
     return {
         "success": True,
         "data": {"transferId": str(transfer_id), "status": "pending_farmer_acceptance"},
@@ -8920,6 +10328,20 @@ async def get_my_outgoing_stock(
         if not order_for_route:
             item.update({"routeCategory": "needs_location", "routeDataComplete": False, "routeDecisionReason": "Order details are unavailable"})
             continue
+
+        # The outgoing-stock row stores MongoDB orderId for relationships and
+        # actions. The UI must show the customer-facing order number instead.
+        # Keep the database ID in orderId, and enrich a separate readable field.
+        customer_order_number = (
+            order_for_route.get("orderNumber")
+            or order_for_route.get("orderNo")
+            or order_for_route.get("referenceNumber")
+            or order_for_route.get("displayOrderNumber")
+        )
+        if customer_order_number:
+            item["orderNumber"] = str(customer_order_number)
+            item["customerOrderNumber"] = str(customer_order_number)
+
         # Farmer-packed transfers must never be routed from this queue.
         if str(order_for_route.get("fulfillmentMethod") or "").strip().lower() == "farmer":
             item.update({"routeCategory": "farmer_fulfillment_transfer", "routeDataComplete": False, "routeDecisionReason": "Continue in Farmer Fulfillment Transfers"})
@@ -8999,6 +10421,14 @@ async def get_my_outgoing_stock(
             "nearbyThresholdKm": threshold,
             "sourceDistrict": source_district or None,
             "destinationDistrict": destination_district or None,
+            "deliveryDistrict": destination_district or None,
+            "customerDistrict": destination_district or None,
+            # Include the resolved customer destination so Fulfillment & Dispatch
+            # can select the nearest active local hub instead of relying only on
+            # a district string. This includes coordinates recovered from a
+            # saved customer address when the checkout snapshot is incomplete.
+            "deliveryLocation": _make_json_safe(destination_location),
+            "deliveryAddress": _make_json_safe(address or saved_address or {}),
             "directDeliveryConfigured": direct_configured,
             "routeDecisionReason": reason,
         })
@@ -9877,3 +11307,67 @@ async def search_warehouse_transfer_order(
         result["outgoingLines"] = [{"id": str(x.get("_id") or ""), "status": x.get("status"), "quantity": x.get("quantity"), "productId": str(x.get("productId") or "")} for x in outgoing_rows]
         results.append(_make_json_safe(result))
     return {"success": True, "data": {"orders": results, "count": len(results), "searchQuery": query}}
+
+@router.put("/me/orders/{order_id}/route-correction")
+async def correct_order_route_details(
+    order_id: str,
+    data: WarehouseRouteCorrectionRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Allow the assigned warehouse manager to correct route-critical address fields."""
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can correct route details")
+    if not ObjectId.is_valid(order_id):
+        raise HTTPException(status_code=400, detail="Invalid order ID")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    if not warehouse:
+        raise HTTPException(status_code=404, detail="Warehouse not found")
+    warehouse_id = str(warehouse["_id"])
+    order = await order_repository.get_by_id(order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    assigned_warehouse_ids = {
+        str(order.get(key) or "")
+        for key in ("warehouseId", "sourceWarehouseId", "fulfillmentWarehouseId")
+        if order.get(key)
+    }
+    if warehouse_id not in assigned_warehouse_ids:
+        raise HTTPException(status_code=403, detail="This order is not assigned to your warehouse")
+    address = order.get("deliveryAddress") if isinstance(order.get("deliveryAddress"), dict) else {}
+    address.update({
+        "addressLine1": data.deliveryAddress.strip(),
+        "locality": data.deliveryLocality.strip(),
+        "district": data.deliveryDistrict.strip(),
+    })
+    now = datetime.utcnow()
+    source_district = data.sourceWarehouseDistrict.strip()
+    destination_district = data.deliveryDistrict.strip()
+    source_norm = re.sub(r"[^a-z0-9]+", " ", source_district.lower()).strip()
+    destination_norm = re.sub(r"[^a-z0-9]+", " ", destination_district.lower()).strip()
+    route_category = "same_district" if source_norm == destination_norm else "inter_district"
+    update = {
+        "deliveryAddress": address,
+        "deliveryLocality": data.deliveryLocality.strip(),
+        "deliveryDistrict": destination_district,
+        "destinationDistrict": destination_district,
+        "sourceWarehouseDistrict": source_district,
+        "sourceDistrict": source_district,
+        "routeCategory": route_category,
+        "routeDataComplete": True,
+        "routeReviewReason": None,
+        "routeReviewDetails": None,
+        "routeIssue": None,
+        "updatedAt": now,
+    }
+    result = await order_repository.collection.update_one(
+        {"_id": ObjectId(order_id), "deletedAt": None},
+        {"$set": update},
+    )
+    if result.matched_count != 1:
+        raise HTTPException(status_code=404, detail="Order not found")
+    refreshed = await order_repository.get_by_id(order_id)
+    return {
+        "success": True,
+        "data": _make_json_safe(refreshed),
+        "message": "Order details saved. Route classification recalculated; review the resulting route before dispatch.",
+    }

@@ -60,8 +60,7 @@ const navigation: Record<Role, Item[]> = {
   business: [
     { label: "Dashboard", href: "/business/dashboard", icon: LayoutDashboard },
     { label: "RFQs", href: "/business/rfqs", icon: ClipboardList },
-    { label: "Orders", href: "/business/orders", icon: ShoppingCart },
-    { label: "Deliveries", href: "/business/deliveries", icon: Truck },
+    { label: "Orders & Deliveries", href: "/business/orders", icon: ShoppingCart },
     { label: "Suppliers", href: "/business/suppliers", icon: Users },
     { label: "Analytics", href: "/business/analytics", icon: BarChart3 },
   ],
@@ -81,7 +80,7 @@ export function RoleMobileNav({ role }: { role: Role }) {
   return (
     <nav
       aria-label={`${role} quick navigation`}
-      className="border-b border-slate-200 bg-white px-3 py-2 md:hidden"
+      className="role-mobile-nav border-b border-slate-200 bg-white px-3 py-2 md:hidden"
     >
       <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
         {navigation[role].map((item) => {

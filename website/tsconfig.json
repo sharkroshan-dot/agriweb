@@ -28,10 +28,14 @@
     "**/*.tsx",
     ".next-codex-fresh/types/**/*.ts",
     ".next-codex/types/**/*.ts",
+    ".next-dev-1232/types/**/*.ts",
+    ".next-dev-9320/types/**/*.ts",
+    ".next-dev-9832/types/**/*.ts",
+    ".next-persist-test/types/**/*.ts",
     ".next-temp/types/**/*.ts",
     ".next/types/**/*.ts",
     "next-env.d.ts",
-    ".next-persist-test/types/**/*.ts"
+    ".next-dev-13088/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

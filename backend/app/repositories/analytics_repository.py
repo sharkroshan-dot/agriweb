@@ -304,6 +304,33 @@ class AnalyticsRepository(BaseRepository):
         metrics["orderStatusCounts"] = await self.get_farmer_order_status_counts(farmer_id, from_date, to_date)
         metrics["orderStats"] = self._map_order_stats(metrics["orderStatusCounts"])
         orders_trend = await self.find_many(filter, limit=10000)
+
+        # Privacy-safe customer behaviour summary: aggregate IDs only; never expose customer details.
+        customer_order_counts: Dict[str, int] = {}
+        monthly_customers: Dict[str, set] = {}
+        monthly_revenue: Dict[str, float] = {}
+        for order in orders_trend:
+            customer_id = str(order.get("customerId") or order.get("buyerUserId") or "")
+            order_date = order.get("orderDate") or order.get("createdAt")
+            if customer_id:
+                customer_order_counts[customer_id] = customer_order_counts.get(customer_id, 0) + 1
+            if isinstance(order_date, datetime):
+                month_key = order_date.strftime("%Y-%m")
+                monthly_revenue[month_key] = monthly_revenue.get(month_key, 0.0) + float(order.get("totalAmount") or 0)
+                if customer_id:
+                    monthly_customers.setdefault(month_key, set()).add(customer_id)
+        unique_customers = len(customer_order_counts)
+        repeat_customers = sum(1 for count in customer_order_counts.values() if count > 1)
+        metrics["customerInsights"] = {
+            "uniqueCustomers": unique_customers,
+            "repeatCustomers": repeat_customers,
+            "repeatRate": round(repeat_customers / unique_customers * 100, 1) if unique_customers else 0,
+            "monthlyTrend": [
+                {"month": month, "customers": len(monthly_customers.get(month, set())), "revenue": round(monthly_revenue.get(month, 0.0), 2)}
+                for month in sorted(monthly_revenue.keys())
+            ],
+        }
+
         trend = _build_revenue_trend(orders_trend, from_date, to_date, "week")
         for point in trend:
             point["label"] = point.get("name", "")

@@ -52,9 +52,9 @@ export const useCartStore = create<CartStore>()(
 			removeItem: (id, variantId) => set((state) => ({
 				items: state.items.filter((i) => !(i.id === id && (variantId === undefined || i.variantId === variantId))),
 			})),
-			updateQuantity: (id, quantity) =>
+			updateQuantity: (id, quantity, variantId) =>
 				set((state) => ({
-					items: state.items.map((i) => (i.id === id ? { ...i, quantity: Math.max(1, quantity) } : i)),
+					items: state.items.map((i) => (i.id === id && (variantId === undefined || i.variantId === variantId) ? { ...i, quantity: Math.max(1, quantity) } : i)),
 				})),
 			updateItem: (id, patch) =>
 				set((state) => ({

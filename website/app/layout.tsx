@@ -5,6 +5,8 @@ import { Providers } from "./(customer)/providers";
 import { Header } from "./components/common/header";
 import { NavigationProgress } from "./components/shared/navigation-progress";
 import "./globals.css";
+import "./styles/agriconnect-experience.css";
+import "./styles/agriconnect-pages.css";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -19,7 +21,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" data-scroll-behavior="smooth" suppressHydrationWarning>
       <body className={`${inter.className} min-h-screen bg-slate-50 text-slate-900 antialiased`} suppressHydrationWarning>
         <Providers>
           <NavigationProgress />

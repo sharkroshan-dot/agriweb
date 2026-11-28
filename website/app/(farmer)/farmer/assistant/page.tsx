@@ -25,7 +25,7 @@ interface ChatMessage {
   action?: string;
 }
 
-export default function FarmerAssistantPage() {
+export function FarmerAssistantContent() {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 0,
@@ -300,3 +300,6 @@ export default function FarmerAssistantPage() {
     </div>
   );
 }
+
+
+export default function FarmerAssistantPage() { return <FarmerAssistantContent />; }

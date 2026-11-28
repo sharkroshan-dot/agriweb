@@ -3,13 +3,15 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from datetime import datetime, timedelta
 from typing import Optional
 import logging
+import hashlib
+import secrets
 
 from bson import ObjectId
 
 from app.core.security import Security, validate_password_strength
 from app.core.config import settings
 from app.utils.helpers import normalize_phone_number
-from app.utils.totp import generate_secret, verify_code, otpauth_uri
+from app.utils.totp import generate_secret, verify_code, otpauth_uri, decrypt_secret
 from app.schemas.auth import (
     UserRegister, UserLogin, TokenResponse, 
     OTPRequest, OTPVerify, PasswordResetRequest,
@@ -23,6 +25,7 @@ from app.services.risk_engine import risk_engine
 from app.repositories.session_repository import session_repository
 from app.repositories.user_repository import user_repository
 from app.database.redis import RedisClient
+from app.schemas.notification import NotificationType, NotificationPriority
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -56,7 +59,7 @@ def _device_label(ua: str) -> str:
 
 
 async def _register_session(user_id: str, jti: str, ip: Optional[str], ua: str) -> None:
-    """Record a login session (best-effort)."""
+    """Record a login session with the same expiry as the access token."""
     try:
         await session_repository.create_session({
             "userId": ObjectId(user_id),
@@ -64,6 +67,7 @@ async def _register_session(user_id: str, jti: str, ip: Optional[str], ua: str) 
             "ip": ip,
             "userAgent": ua,
             "device": _device_label(ua),
+            "expiresAt": datetime.utcnow() + timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES),
         })
     except Exception as exc:
         logger.error(f"Session registration failed: {exc}")
@@ -122,6 +126,33 @@ async def _send_otp_for_phone(phone: str, otp_type: str, otp: Optional[str] = No
     except Exception as exc:
         logger.error(f"OTP storage or delivery failed for {phone}: {exc}", exc_info=True)
         return {"sent": False, "otp": otp_value, "email_sent": False, "sms_sent": False}
+
+
+async def _send_recovery_code(user_id: str, channel: str, destination: str) -> dict:
+    code = Security.generate_otp()
+    key = f"security:recovery:{user_id}:{channel}"
+    await RedisClient.set_cache(key, {
+        "code_hash": Security.hash_otp(code),
+        "destination": destination,
+        "attempts": 0,
+    }, ttl=settings.OTP_EXPIRY_MINUTES * 60)
+    if channel == "email":
+        sent = await NotificationService.send_otp_email(destination, code)
+    else:
+        sent = await NotificationService.send_otp(destination, code)
+    if settings.DEBUG:
+        logger.warning("Recovery verification code for %s/%s: %s", user_id, channel, code)
+    return {"sent": bool(sent), "expiresIn": settings.OTP_EXPIRY_MINUTES * 60}
+
+
+async def _resolve_login_user(identifier: str):
+    value = (identifier or "").strip()
+    if "@" in value:
+        return await UserService.get_user_by_email(value)
+    try:
+        return await UserService.get_user_by_phone(normalize_phone_number(value))
+    except Exception:
+        return await UserService.get_user_by_phone(value)
 
 
 async def _send_registration_otp(user: dict, phone: str) -> dict:
@@ -203,7 +234,9 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         )
     
     # PII / secret minimization: never expose the password hash or reset tokens.
+    password_configured = bool(user.get("passwordHash"))
     user = {k: v for k, v in user.items() if k not in ("passwordHash", "passwordResetToken", "otpHash")}
+    user["passwordConfigured"] = password_configured
     
     return user
 
@@ -350,10 +383,12 @@ async def login(form_data: LoginForm = Depends(), request: Request = None):
     # Check if username is email or phone
     user = await AuthService.authenticate_user(form_data.username, form_data.password)
     if not user:
+        failed_user = await _resolve_login_user(form_data.username)
         await AuditService.log(
-            actor_id=None, actor_role=None, action="login", resource="auth",
-            outcome="failure", ip=ip, user_agent=ua,
-            metadata={"reason": "bad_credentials"},
+            actor_id=str(failed_user["_id"]) if failed_user else None,
+            actor_role=failed_user.get("role") if failed_user else None,
+            action="login", resource="auth", outcome="failure", ip=ip, user_agent=ua,
+            metadata={"reason": "bad_credentials", "identifierType": "email" if "@" in form_data.username else "phone"},
         )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -362,9 +397,13 @@ async def login(form_data: LoginForm = Depends(), request: Request = None):
         )
 
     # 2FA: privileged accounts with TOTP enabled must present a valid code.
-    if user.get("totpEnabled") and user.get("role") in PRIVILEGED_ROLES:
+    if user.get("totpEnabled"):
         totp_code = (form_data.totp_code or "").strip()
-        if not totp_code or not verify_code(user.get("totpSecret", ""), totp_code):
+        totp_valid = bool(totp_code and verify_code(decrypt_secret(user.get("totpSecret", "")), totp_code))
+        backup_hashes = list(user.get("totpBackupCodeHashes") or [])
+        backup_hash = hashlib.sha256(totp_code.upper().encode("utf-8")).hexdigest() if totp_code else ""
+        backup_valid = bool(backup_hash and backup_hash in backup_hashes)
+        if not totp_valid and not backup_valid:
             await AuditService.log(
                 actor_id=str(user["_id"]), actor_role=user.get("role"), action="login",
                 resource="auth", outcome="failure", ip=ip, user_agent=ua,
@@ -374,6 +413,17 @@ async def login(form_data: LoginForm = Depends(), request: Request = None):
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Two-factor authentication code required or invalid",
                 headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        # Consume a backup code immediately; it can only be used once.
+        if backup_valid:
+            backup_hashes.remove(backup_hash)
+            await user_repository.update_user(str(user["_id"]), {"totpBackupCodeHashes": backup_hashes})
+            await AuditService.log(
+                actor_id=str(user["_id"]), actor_role=user.get("role"),
+                action="use_2fa_backup_code", resource="auth", outcome="success",
+                ip=ip, user_agent=ua,
+                metadata={"remainingBackupCodes": len(backup_hashes)},
             )
 
     # Check if user is verified
@@ -388,26 +438,35 @@ async def login(form_data: LoginForm = Depends(), request: Request = None):
             )
         )
     
-    # Detect new device based on IP + User-Agent fingerprint
+    # Compare the incoming browser fingerprint with previously recorded sessions.
     user_id = str(user["_id"])
     is_new_device = False
-    device_key = f"device:{user_id}:{ua or 'no-ua'}"
-    devices = await RedisClient.get_cache("active_devices") or {}
-    user_devices = devices.get(user_id, [])
-    if ua and user_id not in user_devices:
-        # Simple new device detection: check if this UA+IP combo exists
-        existing_ua = next((d for d in user_devices if d.get("ua") == ua), None)
-        if not existing_ua:
-            is_new_device = True
-            user_devices.append({"ua": ua, "ip": ip, "lastSeen": datetime.utcnow().isoformat()})
-            # Keep only last 5 devices per user
-            if len(user_devices) > 5:
-                user_devices = user_devices[-5:]
-            devices[user_id] = user_devices
-            await RedisClient.set_cache("active_devices", devices, ttl=86400 * 30)
+    if ua:
+        known_device = await session_repository.collection.find_one({
+            "userId": ObjectId(user_id), "userAgent": ua
+        })
+        is_new_device = known_device is None
     
     # Log new device detection
     await _log_login_event(str(user["_id"]), user.get("role"), ip, ua, is_new_device)
+    if is_new_device:
+        device_name = _device_label(ua)
+        alert_title = "New device signed in"
+        alert_message = f"A new sign-in to your AgriConnect account was detected from {device_name} (IP: {ip or 'unavailable'}). If this wasn't you, change your password immediately."
+        try:
+            await NotificationService.create_in_app_notification(
+                user_id=user_id, type=NotificationType.SECURITY, title=alert_title,
+                message=alert_message, data={"event": "new_device", "ip": ip, "device": device_name},
+                priority=NotificationPriority.HIGH, mandatory=True,
+            )
+        except Exception:
+            logger.exception("Could not create new-device security notification")
+        if user.get("email"):
+            await NotificationService.send_email(
+                user["email"], "New device sign-in to your AgriConnect account",
+                f"<p>{alert_message}</p><p>If you recognize this activity, no action is needed. Otherwise change your password and revoke unknown sessions.</p>",
+                plain_text=alert_message + " If this wasn't you, change your password and revoke unknown sessions.",
+            )
     
     # Create tokens
     access_token = Security.create_access_token(
@@ -530,6 +589,12 @@ async def verify_otp(otp_data: OTPVerify, request: Request = None):
             detail="User not found"
         )
     
+    if user.get("totpEnabled"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account uses two-factor authentication. Sign in with your password and authenticator code instead of phone OTP.",
+        )
+
     # Mark as verified if not
     if not user.get("isVerified", user.get("is_verified", False)):
         await UserService.mark_verified(str(user["_id"]))
@@ -547,6 +612,35 @@ async def verify_otp(otp_data: OTPVerify, request: Request = None):
     # Delete OTP from cache
     await RedisClient.delete_cache(cache_key)
     logger.info(f"OTP verification successful for {normalized_phone}")
+
+    # Detect and notify about OTP-based sign-ins from a previously unseen browser.
+    otp_user_id = str(user["_id"])
+    known_otp_device = await session_repository.collection.find_one({
+        "userId": ObjectId(otp_user_id), "userAgent": ua
+    }) if ua else True
+    if not known_otp_device:
+        device_name = _device_label(ua)
+        message = f"A new sign-in to your AgriConnect account was detected from {device_name} (IP: {ip or 'unavailable'}). If this wasn't you, change your password immediately."
+        await AuditService.log(
+            actor_id=otp_user_id, actor_role=user.get("role"), action="login",
+            resource="auth", outcome="new_device", ip=ip, user_agent=ua,
+            metadata={"newDevice": True, "method": "otp"},
+        )
+        try:
+            await NotificationService.create_in_app_notification(
+                user_id=otp_user_id, type=NotificationType.SECURITY,
+                title="New device signed in", message=message,
+                data={"event": "new_device", "ip": ip, "device": device_name},
+                priority=NotificationPriority.HIGH, mandatory=True,
+            )
+        except Exception:
+            logger.exception("Could not create OTP new-device security notification")
+        if user.get("email"):
+            await NotificationService.send_email(
+                user["email"], "New device sign-in to your AgriConnect account",
+                f"<p>{message}</p><p>If you don't recognize this activity, change your password and revoke unknown sessions.</p>",
+                plain_text=message,
+            )
 
     # Record the session and audit the login.
     await _register_session(str(user["_id"]), _jti_from_token(access_token) or "", ip, ua)
@@ -822,18 +916,34 @@ async def setup_2fa(current_user: dict = Depends(get_current_user)):
     }
 
 
+@router.post("/2fa/cancel-setup")
+async def cancel_2fa_setup(current_user: dict = Depends(get_current_user)):
+    """Clear a pending TOTP secret without changing an already-enabled factor."""
+    if current_user.get("totpEnabled"):
+        raise HTTPException(status_code=400, detail="Two-factor authentication is already enabled")
+    await user_repository.update_user(str(current_user["_id"]), {"totpSecret": "", "totpEnabled": False, "totpBackupCodeHashes": [], "totpBackupCodesGeneratedAt": None})
+    return {"success": True, "message": "Two-factor setup cancelled"}
+
+
 @router.post("/2fa/enable")
 async def enable_2fa(code: str = Body(..., embed=True), current_user: dict = Depends(get_current_user)):
     """Activate 2FA after verifying a code generated by the setup secret."""
-    secret = current_user.get("totpSecret", "")
+    secret = decrypt_secret(current_user.get("totpSecret", ""))
     if not secret or not verify_code(secret, code):
         raise HTTPException(status_code=400, detail="Invalid or missing 2FA code — enter the current code shown in your authenticator app")
+    # Generate one-time backup codes. Only SHA-256 hashes are stored.
+    backup_codes = [secrets.token_hex(4).upper() for _ in range(10)]
+    backup_hashes = [hashlib.sha256(code.encode("utf-8")).hexdigest() for code in backup_codes]
     await UserService.update_totp_secret(str(current_user["_id"]), secret, enabled=True)
+    await user_repository.update_user(str(current_user["_id"]), {
+        "totpBackupCodeHashes": backup_hashes,
+        "totpBackupCodesGeneratedAt": datetime.utcnow(),
+    })
     await AuditService.log(
         actor_id=str(current_user["_id"]), actor_role=current_user.get("role"),
         action="enable_2fa", resource="auth", outcome="success",
     )
-    return {"success": True, "message": "Two-factor authentication enabled"}
+    return {"success": True, "message": "Two-factor authentication enabled", "backupCodes": backup_codes}
 
 
 @router.post("/2fa/disable")
@@ -865,8 +975,118 @@ async def get_2fa_status(current_user: dict = Depends(get_current_user)):
 
 # ============== SECURITY CENTER ==============
 
+@router.post("/recovery/{channel}/request")
+async def request_recovery_verification(channel: str, payload: dict = Body(...), current_user: dict = Depends(get_current_user)):
+    if channel not in {"phone", "email"}:
+        raise HTTPException(status_code=400, detail="Recovery channel must be phone or email")
+    raw = str(payload.get("destination") or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Enter a recovery phone number or email address")
+    if channel == "email":
+        destination = raw.lower()
+        if "@" not in destination or len(destination) > 254:
+            raise HTTPException(status_code=400, detail="Enter a valid email address")
+        existing = await UserService.get_user_by_email(destination)
+        if existing and str(existing["_id"]) != str(current_user["_id"]):
+            raise HTTPException(status_code=409, detail="This email is already associated with another account")
+    else:
+        try:
+            destination = normalize_phone_number(raw)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Enter a valid phone number with country code")
+        existing = await UserService.get_user_by_phone(destination)
+        if existing and str(existing["_id"]) != str(current_user["_id"]):
+            raise HTTPException(status_code=409, detail="This phone number is already associated with another account")
+    result = await _send_recovery_code(str(current_user["_id"]), channel, destination)
+    if not result["sent"] and not settings.DEBUG:
+        raise HTTPException(status_code=503, detail="Verification code could not be delivered. Check notification configuration and try again.")
+    return {"success": True, "message": "Verification code sent" if result["sent"] else "Development code generated; check backend logs", "expiresIn": result["expiresIn"]}
+
+
+@router.post("/recovery/{channel}/verify")
+async def verify_recovery_destination(channel: str, payload: dict = Body(...), current_user: dict = Depends(get_current_user)):
+    if channel not in {"phone", "email"}:
+        raise HTTPException(status_code=400, detail="Recovery channel must be phone or email")
+    code = str(payload.get("code") or "").strip()
+    if not code.isdigit() or len(code) != 6:
+        raise HTTPException(status_code=400, detail="Enter the 6-digit verification code")
+    key = f"security:recovery:{current_user['_id']}:{channel}"
+    cached = await RedisClient.get_cache(key)
+    if not cached:
+        raise HTTPException(status_code=400, detail="Code expired. Request a new verification code.")
+    attempts = int(cached.get("attempts", 0))
+    if attempts >= 5:
+        await RedisClient.delete_cache(key)
+        raise HTTPException(status_code=429, detail="Too many attempts. Request a new code.")
+    if not Security.verify_otp(code, cached.get("code_hash", "")):
+        cached["attempts"] = attempts + 1
+        await RedisClient.set_cache(key, cached, ttl=settings.OTP_EXPIRY_MINUTES * 60)
+        raise HTTPException(status_code=400, detail="Incorrect verification code")
+    destination = cached["destination"]
+    field = "recoveryEmail" if channel == "email" else "recoveryPhone"
+    verified_field = "recoveryEmailVerified" if channel == "email" else "recoveryPhoneVerified"
+    await user_repository.update_user(str(current_user["_id"]), {
+        field: destination, verified_field: True,
+        f"{field}VerifiedAt": datetime.utcnow(),
+    })
+    await RedisClient.delete_cache(key)
+    await AuditService.log(actor_id=str(current_user["_id"]), actor_role=current_user.get("role"), action=f"recovery_{channel}_verified", resource="auth", outcome="success")
+    return {"success": True, "message": f"Recovery {channel} verified"}
+
+
+@router.post("/change-password")
+async def change_password(
+    payload: dict = Body(...),
+    current_user: dict = Depends(get_current_user),
+    token: str = Depends(oauth2_scheme),
+):
+    """Change password after verifying the current password."""
+    current_password = str(payload.get("currentPassword") or "")
+    new_password = str(payload.get("newPassword") or "")
+    if not current_password or not new_password:
+        raise HTTPException(status_code=400, detail="Current password and new password are required")
+    valid, message = validate_password_strength(new_password)
+    if not valid:
+        raise HTTPException(status_code=400, detail=message)
+    if current_password == new_password:
+        raise HTTPException(status_code=400, detail="Choose a new password different from your current password")
+    changed = await UserService.change_password(str(current_user["_id"]), current_password, new_password)
+    if not changed:
+        raise HTTPException(status_code=400, detail="Current password is incorrect or password could not be updated")
+    await user_repository.update_user(str(current_user["_id"]), {"passwordChangedAt": datetime.utcnow()})
+    current_jti = _jti_from_token(token) or ""
+    await session_repository.revoke_all_for_user(str(current_user["_id"]), except_jti=current_jti)
+    await AuditService.log(
+        actor_id=str(current_user["_id"]), actor_role=current_user.get("role"),
+        action="password_changed", resource="auth", outcome="success",
+    )
+    return {"success": True, "message": "Password changed. Other sessions have been signed out."}
+
+
+@router.get("/security-activity")
+async def security_activity(limit: int = 30, current_user: dict = Depends(get_current_user)):
+    """Return recent security audit events for the signed-in user only."""
+    safe_limit = max(1, min(limit, 100))
+    from app.repositories.audit_log_repository import audit_log_repository
+    rows = await audit_log_repository.collection.find({
+        "actorId": str(current_user["_id"]),
+        "resource": {"$in": ["auth", "session"]},
+    }).sort("createdAt", -1).limit(safe_limit).to_list(length=safe_limit)
+    events = []
+    for row in rows:
+        created = row.get("createdAt")
+        events.append({
+            "id": str(row.get("_id", "")),
+            "action": row.get("action", "security_event"),
+            "outcome": row.get("outcome", "success"),
+            "ip": row.get("ip"),
+            "createdAt": created.isoformat() if hasattr(created, "isoformat") else None,
+        })
+    return {"success": True, "data": events}
+
+
 @router.get("/security-center")
-async def security_center(current_user: dict = Depends(get_current_user)):
+async def security_center(current_user: dict = Depends(get_current_user), token: str = Depends(oauth2_scheme)):
     """Account security overview: sessions, 2FA, risk flags, verifications."""
     user_id = str(current_user["_id"])
     sessions = await session_repository.get_active_by_user(user_id)
@@ -891,6 +1111,18 @@ async def security_center(current_user: dict = Depends(get_current_user)):
     }
     risk = risk_engine.evaluate(risk_event)
 
+    # Deterministic account-protection score based on real configured controls.
+    security_checks = {
+        "passwordConfigured": bool(current_user.get("passwordConfigured")),
+        "twoFactorEnabled": bool(current_user.get("totpEnabled")),
+        "recoveryPhoneVerified": bool(current_user.get("recoveryPhoneVerified")),
+        "recoveryEmailVerified": bool(current_user.get("recoveryEmailVerified")),
+        "hasActiveSession": session_count > 0,
+    }
+    weights = {"passwordConfigured": 25, "twoFactorEnabled": 25, "recoveryPhoneVerified": 15, "recoveryEmailVerified": 15, "hasActiveSession": 20}
+    security_score = sum(weights[key] for key, enabled in security_checks.items() if enabled)
+    security_level = "strong" if security_score >= 80 else "moderate" if security_score >= 50 else "needs_attention"
+
     # Verification status (best-effort; KYC data may be absent).
     verification: dict = {}
     trust_score: int = 0
@@ -909,6 +1141,14 @@ async def security_center(current_user: dict = Depends(get_current_user)):
         "data": {
             "userId": user_id,
             "role": current_user.get("role"),
+            "currentJti": _jti_from_token(token),
+            "securityScore": security_score,
+            "securityLevel": security_level,
+            "securityChecks": security_checks,
+            "recoveryPhone": current_user.get("recoveryPhone"),
+            "recoveryPhoneVerified": bool(current_user.get("recoveryPhoneVerified")),
+            "recoveryEmail": current_user.get("recoveryEmail"),
+            "recoveryEmailVerified": bool(current_user.get("recoveryEmailVerified")),
             "mfaEnabled": bool(current_user.get("totpEnabled")),
             "activeSessions": session_count,
             "sessions": sessions,
@@ -918,6 +1158,6 @@ async def security_center(current_user: dict = Depends(get_current_user)):
             "verification": verification,
             "trustScore": trust_score,
             "passwordChangedAt": current_user.get("passwordChangedAt"),
-            "lastLoginAt": current_user.get("lastLoginAt"),
+            "lastLoginAt": current_user.get("lastLoginAt") or current_user.get("lastLogin"),
         },
     }

@@ -59,17 +59,18 @@ def select_route_team_assignments(
     memberships: List[Dict[str, Any]],
     busy_partner_ids: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
-    """Choose an approved team for each route using per-route vehicle capacity.
+    """Choose a different idle approved team for each route in this batch.
 
-    Vehicle capacity is a limit for each pickup trip, not a lifetime/daily
-    balance. A previous route must not consume the vehicle's capacity for a new
-    route. The same approved team may therefore be selected for multiple routes
-    in one planning batch; every individual route is still checked against the
-    team's registered capacity.
+    Teams already carrying an active route today are excluded, and a team
+    selected for one route is removed from this batch's remaining pool. Vehicle
+    capacity is validated independently for each route.
     """
+    busy_ids = {str(value) for value in (busy_partner_ids or []) if str(value)}
     available = []
     for member in memberships:
         partner_id = str(member.get("deliveryPartnerId") or "")
+        if not partner_id or partner_id in busy_ids:
+            continue
         try:
             capacity = float(member.get("capacity") or 0)
         except (TypeError, ValueError):
@@ -88,10 +89,11 @@ def select_route_team_assignments(
                 f"No approved pickup team has enough registered vehicle capacity for a "
                 f"{required:g} kg route. Check the approved team's capacity or split the route."
             )
-        # Best-fit by registered capacity. Do not remove the chosen team after
-        # assignment: capacity applies independently to each pickup route.
+        # Best-fit by registered capacity, then reserve this partner for
+        # this route so automatic allocation distributes work across teams.
         chosen = min(suitable, key=lambda member: member["_assignmentCapacity"])
         assignments.append({key: value for key, value in chosen.items() if key != "_assignmentCapacity"})
+        available.remove(chosen)
     return assignments
 
 
@@ -311,31 +313,205 @@ async def build_smart_routes(
     return routes
 
 
+async def _sync_b2b_order_pickup_assignment(
+    collection_job: Dict[str, Any],
+    route: Dict[str, Any],
+    partner_id: str,
+    membership: Dict[str, Any],
+) -> None:
+    """Mirror a confirmed shared collection assignment onto its B2B order."""
+    collection_type = str(collection_job.get("collectionType") or "").strip().lower()
+    b2b_order_id = str(
+        collection_job.get("b2bOrderId")
+        or (collection_job.get("orderId") if collection_type == "b2b" else "")
+        or ""
+    )
+    if collection_type != "b2b" and not collection_job.get("b2bOrderId"):
+        return
+    if not ObjectId.is_valid(b2b_order_id):
+        return
+
+    now = datetime.utcnow()
+    b2b_orders = MongoDB.get_collection("b2b_orders")
+    # Never overwrite a different partner's active assignment. This also makes
+    # route acceptance safe when the same order is visible in both warehouse UIs.
+    result = await b2b_orders.update_one(
+        {
+            "_id": ObjectId(b2b_order_id),
+            "status": "ready_for_pickup",
+            "$or": [
+                {"pickupTeam": {"$exists": False}},
+                {"pickupTeam": None},
+                {"pickupTeam": ""},
+                {"pickupTeam": partner_id},
+            ],
+        },
+        {"$set": {
+            "pickupTeam": partner_id,
+            "pickupRouteId": str(route.get("_id") or ""),
+            "pickupTeamName": membership.get("name") or membership.get("partnerName") or membership.get("displayName") or route.get("deliveryPartnerName") or "Assigned pickup partner",
+            "pickupVehicle": (
+                route.get("deliveryPartnerVehicleNumber")
+                or membership.get("vehicleNumber")
+                or membership.get("vehicleRegistrationNumber")
+                or membership.get("registrationNumber")
+                or ""
+            ),
+            "pickupAssignedAt": route.get("assignedAt") or now,
+            "pickupAssignedBy": str(route.get("assignedBy") or ""),
+            "pickupWarehouseId": str(route.get("warehouseId") or collection_job.get("warehouseId") or ""),
+            "sourceWarehouseId": str(route.get("warehouseId") or collection_job.get("warehouseId") or ""),
+            "assignedWarehouseId": str(route.get("warehouseId") or collection_job.get("warehouseId") or ""),
+            "pickupAssignmentSource": route.get("assignmentSource") or "pickup_routes",
+            "warehouseCollectionStatus": "team_assigned",
+            "warehouseFulfillmentStage": "pickup_assigned",
+            "updatedAt": now,
+        }},
+    )
+    if result.matched_count != 1:
+        current_order = await b2b_orders.find_one({"_id": ObjectId(b2b_order_id)})
+        if current_order and str(current_order.get("pickupTeam") or "") == partner_id and str(current_order.get("pickupRouteId") or "") == str(route.get("_id") or ""):
+            return
+        raise ValueError("This B2B order was assigned through another warehouse page. Refresh both pages and retry.")
+
+
 async def assign_route(route: Dict[str, Any], membership: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     partner_id = str(membership["deliveryPartnerId"])
     route_id = str(route["_id"])
-    await warehouse_pickup_route_repository.update_route(route_id, {
+    now = datetime.utcnow()
+    route_update = {
         "deliveryPartnerId": ObjectId(partner_id),
+        "deliveryPartnerName": membership.get("name") or membership.get("partnerName") or membership.get("displayName") or route.get("deliveryPartnerName"),
+        "deliveryPartnerVehicleType": membership.get("vehicleType") or route.get("deliveryPartnerVehicleType"),
+        "deliveryPartnerVehicleNumber": (
+            membership.get("vehicleNumber")
+            or membership.get("vehicleRegistrationNumber")
+            or membership.get("registrationNumber")
+            or route.get("deliveryPartnerVehicleNumber")
+        ),
         "status": "assigned",
-        "assignedAt": datetime.utcnow(),
+        "assignedAt": route.get("assignedAt") or now,
         "assignedBy": route.get("assignedBy"),
-    })
-    for stop in route.get("stops") or []:
-        collection_ids = stop.get("collectionIds") or [stop.get("collectionId")]
-        for collection_id in collection_ids:
-            if not collection_id or not ObjectId.is_valid(str(collection_id)):
-                continue
-            await warehouse_collection_repository.update_job(str(collection_id), {
-                "pickupRouteId": ObjectId(route_id),
-                "collectionTeamId": ObjectId(partner_id),
-                "status": "team_assigned",
-                "teamAssignedAt": datetime.utcnow(),
-            })
-    try:
-        await NotificationService.send_custom_notification(
-            str(membership["deliveryPartnerUserId"]),
-            f"Pickup route {route.get('routeNumber', route_id)} assigned: {len(route.get('stops') or [])} farm stops.",
+        "assignmentSource": route.get("assignmentSource") or "pickup_routes",
+        "updatedAt": now,
+    }
+    current_route = await warehouse_pickup_route_repository.get_by_id(route_id)
+    if not current_route:
+        raise ValueError("This pickup route no longer exists. Refresh both warehouse pages.")
+    current_partner_id = str(current_route.get("deliveryPartnerId") or "")
+    claimed_here = False
+    if str(current_route.get("status") or "") == "offered" and not current_partner_id:
+        claimed_route = await warehouse_pickup_route_repository.claim_route(
+            route_id,
+            partner_id,
+            assigned_by=str(route.get("assignedBy") or ""),
+            partner_name=route_update["deliveryPartnerName"],
+            vehicle_type=route_update["deliveryPartnerVehicleType"],
+            vehicle_number=route_update["deliveryPartnerVehicleNumber"],
         )
+        if not claimed_route:
+            latest = await warehouse_pickup_route_repository.get_by_id(route_id)
+            if not latest or str(latest.get("deliveryPartnerId") or "") != partner_id:
+                raise ValueError("Another pickup partner or warehouse page claimed this route first. Refresh both pages.")
+            current_route = latest
+        else:
+            current_route = claimed_route
+            claimed_here = True
+    elif current_partner_id != partner_id:
+        raise ValueError("This pickup route is already assigned to another pickup partner.")
+    assigned_route = {**current_route, **route_update, "_id": current_route.get("_id")}
+    reserved_jobs: List[Dict[str, Any]] = []
+
+    # Claim every collection row conditionally. If any stop was claimed from
+    # another page, roll back only the rows and route claim made by this call.
+    for stop in assigned_route.get("stops") or []:
+        collection_ids = stop.get("collectionIds") or [
+            str(item.get("collectionId") or "") for item in (stop.get("orders") or [])
+        ] or [stop.get("collectionId")]
+        for collection_id in collection_ids:
+            collection_id = str(collection_id or "")
+            if not ObjectId.is_valid(collection_id):
+                continue
+            collection_job = await warehouse_collection_repository.get_by_id(collection_id)
+            if not collection_job:
+                for previous in reserved_jobs:
+                    await warehouse_collection_repository.release_route_assignment(previous["id"], route_id, partner_id)
+                if claimed_here:
+                    await warehouse_pickup_route_repository.unclaim_route(route_id, partner_id)
+                raise ValueError("A farm pickup in this route no longer exists. Refresh both warehouse pages.")
+            existing_team = str(collection_job.get("collectionTeamId") or "")
+            existing_route = str(collection_job.get("pickupRouteId") or "")
+            if existing_team and existing_team != partner_id:
+                for previous in reserved_jobs:
+                    await warehouse_collection_repository.release_route_assignment(previous["id"], route_id, partner_id)
+                if claimed_here:
+                    await warehouse_pickup_route_repository.unclaim_route(route_id, partner_id)
+                raise ValueError("This farm pickup is already assigned to another pickup partner. Refresh both warehouse pages.")
+            if existing_route and existing_route != route_id:
+                for previous in reserved_jobs:
+                    await warehouse_collection_repository.release_route_assignment(previous["id"], route_id, partner_id)
+                if claimed_here:
+                    await warehouse_pickup_route_repository.unclaim_route(route_id, partner_id)
+                raise ValueError("This farm pickup already belongs to another active pickup route.")
+            assigned_job = await warehouse_collection_repository.assign_job_to_route(
+                collection_id,
+                route_id,
+                partner_id,
+                {
+                    "pickupRouteStatus": "assigned",
+                    "collectionTeamName": route_update["deliveryPartnerName"],
+                    "collectionVehicleNumber": route_update["deliveryPartnerVehicleNumber"],
+                    "pickupAssignmentSource": route.get("assignmentSource") or "pickup_routes",
+                },
+            )
+            if not assigned_job:
+                for previous in reserved_jobs:
+                    await warehouse_collection_repository.release_route_assignment(previous["id"], route_id, partner_id)
+                if claimed_here:
+                    await warehouse_pickup_route_repository.unclaim_route(route_id, partner_id)
+                raise ValueError("This farm pickup was assigned by another warehouse workflow. Refresh both pages before continuing.")
+            reserved_jobs.append({"id": collection_id, "job": assigned_job})
+
+    route_updated = await warehouse_pickup_route_repository.update_route(route_id, route_update)
+    if not route_updated:
+        for previous in reserved_jobs:
+            await warehouse_collection_repository.release_route_assignment(previous["id"], route_id, partner_id)
+        if claimed_here:
+            await warehouse_pickup_route_repository.unclaim_route(route_id, partner_id)
+        raise ValueError("The pickup route could not be confirmed. Refresh both pages and try again.")
+
+    # Mirror the winning partner to every linked B2B order only after all route
+    # stops have been assigned successfully. Roll back this route if a B2B
+    # order was concurrently claimed from the other warehouse page.
+    try:
+        for previous in reserved_jobs:
+            await _sync_b2b_order_pickup_assignment(previous["job"], assigned_route, partner_id, membership)
+    except ValueError:
+        b2b_orders = MongoDB.get_collection("b2b_orders")
+        for previous in reserved_jobs:
+            job = previous["job"]
+            b2b_id = str(job.get("b2bOrderId") or (job.get("orderId") if str(job.get("collectionType") or "").lower() == "b2b" else "") or "")
+            if ObjectId.is_valid(b2b_id):
+                await b2b_orders.update_one(
+                    {"_id": ObjectId(b2b_id), "pickupTeam": partner_id, "pickupRouteId": route_id, "status": "ready_for_pickup"},
+                    {"$unset": {
+                        "pickupTeam": "", "pickupRouteId": "", "pickupTeamName": "",
+                        "pickupVehicle": "", "pickupAssignedAt": "", "pickupAssignedBy": "",
+                        "pickupWarehouseId": "", "pickupAssignmentSource": "",
+                        "warehouseCollectionStatus": "", "warehouseFulfillmentStage": "",
+                    }, "$set": {"updatedAt": datetime.utcnow()}},
+                )
+        for previous in reserved_jobs:
+            await warehouse_collection_repository.release_route_assignment(previous["id"], route_id, partner_id)
+        await warehouse_pickup_route_repository.unclaim_route(route_id, partner_id)
+        raise
+    try:
+        user_id = str(membership.get("deliveryPartnerUserId") or membership.get("userId") or "")
+        if user_id:
+            await NotificationService.send_custom_notification(
+                user_id,
+                f"Pickup route {route.get('routeNumber', route_id)} assigned: {len(route.get('stops') or [])} farm stops.",
+            )
     except Exception:
         pass
     return await warehouse_pickup_route_repository.get_by_id(route_id)
@@ -425,6 +601,13 @@ async def enrich_pickup_route_display(route: Dict[str, Any]) -> Dict[str, Any]:
             return None
         if key not in order_cache:
             order_cache[key] = await order_repository.get_by_id(key)
+            # B2B purchase orders are stored separately from retail orders.
+            # Pickup routes may point to either collection, so resolve both.
+            if not order_cache[key]:
+                try:
+                    order_cache[key] = await MongoDB.get_collection("b2b_orders").find_one({"_id": ObjectId(key)})
+                except Exception:
+                    order_cache[key] = None
         return order_cache[key]
 
     async def product_by_id(raw_id: Any) -> Optional[Dict[str, Any]]:
@@ -479,6 +662,25 @@ async def enrich_pickup_route_display(route: Dict[str, Any]) -> Dict[str, Any]:
         or _human_text((warehouse or {}).get("warehouseName"))
         or "Assigned warehouse"
     )
+    warehouse_address = (warehouse or {}).get("address") or (warehouse or {}).get("warehouseAddress") or (warehouse or {}).get("fullAddress")
+    result["warehouseAddress"] = (
+        _human_text(result.get("warehouseAddress"))
+        or address_text(warehouse_address)
+        or address_text((warehouse or {}).get("location"))
+        or address_text((warehouse or {}).get("contactAddress"))
+    )
+    result["warehouseLocation"] = (
+        result.get("warehouseLocation")
+        or (warehouse or {}).get("location")
+        or (warehouse_address.get("location") if isinstance(warehouse_address, dict) else None)
+        or (warehouse_address.get("coordinates") if isinstance(warehouse_address, dict) else None)
+    )
+    result["warehousePhone"] = (
+        _human_text(result.get("warehousePhone"))
+        or _human_text((warehouse or {}).get("phone"))
+        or _human_text((warehouse or {}).get("contactNumber"))
+        or _human_text((warehouse or {}).get("phoneNumber"))
+    )
     route_number = _human_text(result.get("routeNumber"))
     if route_number and route_number.isdigit():
         route_number = f"Pickup Route {route_number}"
@@ -501,6 +703,12 @@ async def enrich_pickup_route_display(route: Dict[str, Any]) -> Dict[str, Any]:
         _human_text(result.get("deliveryPartnerVehicleNumber"))
         or _human_text((partner or {}).get("vehicleNumber"))
     )
+    result["vehicleCapacity"] = (
+        result.get("vehicleCapacity")
+        or (partner or {}).get("vehicleCapacity")
+        or (partner or {}).get("capacityKg")
+        or (partner or {}).get("capacity")
+    )
 
     display_stops = []
     status_rank = {
@@ -514,12 +722,86 @@ async def enrich_pickup_route_display(route: Dict[str, Any]) -> Dict[str, Any]:
         collection_id = str(order_ref.get("collectionId") or "")
         job = await warehouse_collection_repository.get_by_id(collection_id) if ObjectId.is_valid(collection_id) else None
         if not job:
-            order_item_data["farmerName"] = _human_text(order_ref.get("farmerName") or farm_stop.get("farmerName")) or "Farmer details unavailable"
-            order_item_data["farmerPhone"] = _human_text(order_ref.get("farmerPhone") or farm_stop.get("farmerPhone"))
-            order_item_data["productName"] = _human_text(order_ref.get("productName")) or "Product details unavailable"
-            order_item_data["orderNumber"] = _human_text(order_ref.get("orderNumber"))
-            order_item_data["pickupAddress"] = address_text(order_ref.get("pickupLocation") or farm_stop.get("pickupLocation")) or "Farm address not provided"
-            order_item_data["status"] = _human_text(order_ref.get("status")) or "pending"
+            # Older route snapshots may reference a collection job that has since
+            # been archived or may never have had a collectionId. Resolve the
+            # linked order, farmer and product independently so the partner still
+            # sees the real farm and order details instead of placeholder fields.
+            order_id = str(order_ref.get("orderId") or order_ref.get("b2bOrderId") or "")
+            order = await order_by_id(order_id)
+            b2b_order = None
+            if not order and ObjectId.is_valid(order_id):
+                try:
+                    b2b_order = await MongoDB.get_collection("b2b_orders").find_one({"_id": ObjectId(order_id)})
+                except Exception:
+                    b2b_order = None
+            order = order or b2b_order or {}
+            farmer_id = str(order_ref.get("farmerId") or farm_stop.get("farmerId") or order.get("farmerId") or "")
+            farmer = await farmer_by_id(farmer_id)
+            farmer_user = await user_by_id((farmer or {}).get("userId") or farmer_id)
+            product_id = str(order_ref.get("productId") or order.get("productId") or "")
+            product = await product_by_id(product_id)
+            order_items = order.get("items") or []
+            first_item = next((item for item in order_items if not product_id or str(item.get("productId") or item.get("product_id") or "") == product_id), order_items[0] if order_items else {})
+            farmer_name = (
+                _human_text(order_ref.get("farmerName"))
+                or _human_text(farm_stop.get("farmerName"))
+                or _human_text((farmer or {}).get("farmName"))
+                or _human_text((farmer or {}).get("ownerName"))
+                or _human_text((farmer or {}).get("name"))
+                or _person_name(farmer_user)
+                or "Farmer details unavailable"
+            )
+            location = (
+                order_ref.get("pickupLocation")
+                or farm_stop.get("pickupLocation")
+                or order.get("pickupLocation")
+                or order.get("farmLocation")
+                or (farmer or {}).get("farmLocation")
+                or (farmer or {}).get("location")
+                or {}
+            )
+            address = (
+                address_text(order_ref.get("pickupAddress"))
+                or address_text(order_ref.get("pickupLocation"))
+                or address_text(farm_stop.get("pickupAddress"))
+                or address_text(location)
+                or address_text((farmer or {}).get("farmAddress"))
+                or address_text((farmer or {}).get("address"))
+            )
+            product_name = (
+                _human_text(order_ref.get("productName"))
+                or _human_text(order.get("productName"))
+                or _human_text(first_item.get("productName"))
+                or _human_text(first_item.get("name"))
+                or _human_text((product or {}).get("name"))
+                or _human_text((product or {}).get("productName"))
+                or _human_text((product or {}).get("title"))
+                or "Product details unavailable"
+            )
+            order_number = (
+                _human_text(order_ref.get("orderNumber") or order_ref.get("orderNo"))
+                or _human_text(order.get("orderNumber") or order.get("orderNo") or order.get("referenceNumber"))
+            )
+            if order_number and not order_number.upper().startswith(("ORD", "ORDER", "#", "B2B")):
+                order_number = "ORD-" + order_number
+            order_item_data.update({
+                "farmerName": farmer_name,
+                "farmerPhone": (
+                    _human_text(order_ref.get("farmerPhone"))
+                    or _human_text((farmer_user or {}).get("phone"))
+                    or _human_text((farmer_user or {}).get("phoneNumber"))
+                    or _human_text((farmer or {}).get("phone"))
+                ),
+                "farmerEmail": _human_text((farmer_user or {}).get("email")),
+                "productName": product_name,
+                "orderNumber": order_number or "Order reference unavailable",
+                "pickupAddress": address or "Farm address not provided",
+                "pickupLocation": location,
+                "status": _human_text(order_ref.get("status")) or _human_text(farm_stop.get("status")) or "pending",
+                "quantity": float(order_ref.get("quantity") or order.get("packedQuantityKg") or order.get("quantityKg") or order.get("quantity") or first_item.get("quantity") or 0),
+                "actualQuantity": order_ref.get("actualQuantity"),
+                "batchNumber": _human_text(order_ref.get("batchNumber")),
+            })
             return order_item_data
 
         order = await order_by_id(job.get("orderId") or order_ref.get("orderId"))

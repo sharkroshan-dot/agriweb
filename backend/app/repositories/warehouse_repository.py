@@ -212,35 +212,172 @@ class WarehouseRepository(BaseRepository):
         radius_km: int = 200,
         limit: int = 10,
     ) -> Optional[Dict[str, Any]]:
-        """Select the nearest active warehouse with capacity and storage compatibility."""
-        candidates = await self.get_nearby_warehouses(lat, lng, radius_km, limit=limit)
-        eligible = []
-        requested_storage = (storage_type or "").strip().lower()
+        """Select the nearest active warehouse with capacity.
+
+        Prefer the geospatial index, but fall back to scanning active warehouse
+        records because older warehouse documents may store coordinates as
+        lat/lng fields or nested address data instead of GeoJSON. This avoids
+        incorrectly reporting that no warehouse exists when a legacy record is
+        active and has sufficient capacity.
+        """
         from math import radians, sin, cos, asin, sqrt
-        for warehouse in candidates:
-            total = float(warehouse.get("totalCapacity", 0) or 0)
-            used = float(warehouse.get("usedCapacity", 0) or 0)
-            free = max(0.0, total - used)
-            supported = [str(x).strip().lower() for x in (warehouse.get("supportedStorageTypes") or [])]
-            storage_ok = not requested_storage or not supported or requested_storage in supported
-            if free + 1e-9 < float(required_capacity or 0) or not storage_ok:
-                continue
-            location = warehouse.get("location") or {}
-            coords = location.get("coordinates") if isinstance(location, dict) else None
-            if not isinstance(coords, (list, tuple)) or len(coords) < 2:
-                continue
-            lon2, lat2 = float(coords[0]), float(coords[1])
-            dlon, dlat = radians(lon2 - lng), radians(lat2 - lat)
-            a = sin(dlat / 2) ** 2 + cos(radians(lat)) * cos(radians(lat2)) * sin(dlon / 2) ** 2
-            distance_km = 6371.0088 * 2 * asin(sqrt(a))
-            eligible.append((distance_km, warehouse, free))
-        if not eligible:
+        from app.database.mongodb import MongoDB
+
+        try:
+            farm_lat, farm_lng = float(lat), float(lng)
+        except (TypeError, ValueError):
             return None
-        eligible.sort(key=lambda x: (x[0], -x[2], str(x[1].get("name", ""))))
+        if not (-90 <= farm_lat <= 90 and -180 <= farm_lng <= 180):
+            return None
+
+        candidates: List[Dict[str, Any]] = []
+        seen: set[str] = set()
+
+        def add_candidate(row: Optional[Dict[str, Any]]) -> None:
+            if not row:
+                return
+            key = str(row.get("_id") or row.get("id") or "")
+            if key and key not in seen:
+                seen.add(key)
+                candidates.append(row)
+
+        # Fast path: indexed GeoJSON lookup. Legacy documents may not be
+        # represented in this result, so this is not the only source.
+        try:
+            for row in await self.get_nearby_warehouses(
+                farm_lat, farm_lng, radius_km, limit=max(limit, 50)
+            ):
+                add_candidate(row)
+        except Exception:
+            logger.warning("Geospatial warehouse lookup failed; using compatibility scan", exc_info=True)
+
+        # Compatibility path for warehouses with legacy location/capacity fields.
+        try:
+            collection = MongoDB.get_collection("warehouses")
+            legacy_rows = await collection.find({
+                "$or": [
+                    {"deletedAt": None},
+                    {"deleted_at": None},
+                    {"deletedAt": {"$exists": False}},
+                ]
+            }).to_list(length=2000)
+            for row in legacy_rows:
+                add_candidate(row)
+        except Exception:
+            logger.exception("Could not load warehouse compatibility candidates")
+
+        requested_storage = (storage_type or "").strip().lower()
+        eligible = []
+
+        def first_number(row: Dict[str, Any], keys: tuple[str, ...]) -> Optional[float]:
+            for key in keys:
+                value = row.get(key)
+                if value is not None and value != "":
+                    try:
+                        return float(value)
+                    except (TypeError, ValueError):
+                        continue
+            return None
+
+        def extract_point(value: Any) -> Optional[tuple[float, float]]:
+            if not isinstance(value, dict):
+                return None
+            nested_keys = ("location", "coordinates", "address", "geoLocation", "geo_location")
+            for key in nested_keys:
+                nested = value.get(key)
+                if isinstance(nested, dict):
+                    point = extract_point(nested)
+                    if point:
+                        return point
+                elif key in ("coordinates", "location") and isinstance(nested, (list, tuple)) and len(nested) >= 2:
+                    try:
+                        # GeoJSON coordinates are [longitude, latitude].
+                        first, second = float(nested[0]), float(nested[1])
+                        if -180 <= first <= 180 and -90 <= second <= 90:
+                            return second, first
+                    except (TypeError, ValueError):
+                        pass
+            latitude = value.get("lat", value.get("latitude"))
+            longitude = value.get("lng", value.get("longitude", value.get("lon", value.get("long"))))
+            try:
+                if latitude is not None and longitude is not None:
+                    latitude, longitude = float(latitude), float(longitude)
+                    if -90 <= latitude <= 90 and -180 <= longitude <= 180:
+                        return latitude, longitude
+            except (TypeError, ValueError):
+                pass
+            return None
+
+        for warehouse in candidates:
+            # Explicitly inactive/deleted records must never be assigned.
+            if warehouse.get("isActive") is False or warehouse.get("is_active") is False:
+                continue
+            status = str(warehouse.get("status") or "").strip().lower()
+            if status in {"inactive", "disabled", "suspended", "deleted", "rejected", "archived"}:
+                continue
+            if warehouse.get("deletedAt") or warehouse.get("deleted_at"):
+                continue
+
+            total = first_number(warehouse, (
+                "totalCapacity", "total_capacity", "capacity", "storageCapacity", "storage_capacity"
+            ))
+            used = first_number(warehouse, (
+                "usedCapacity", "used_capacity", "currentCapacityUsed", "current_capacity_used"
+            ))
+            # A missing capacity is not proof of free capacity. Do not assign
+            # stock to a warehouse whose capacity cannot be verified.
+            if total is None:
+                continue
+            free = max(0.0, total - (used or 0.0))
+            if free + 1e-9 < float(required_capacity or 0):
+                continue
+
+            supported = [
+                str(item).strip().lower()
+                for item in (warehouse.get("supportedStorageTypes") or warehouse.get("supported_storage_types") or [])
+            ]
+            storage_ok = not requested_storage or not supported or requested_storage in supported
+            if not storage_ok:
+                continue
+
+            location = (
+                warehouse.get("location") or warehouse.get("coordinates")
+                or warehouse.get("address") or warehouse.get("geoLocation")
+                or warehouse.get("geo_location") or {}
+            )
+            warehouse_point = extract_point(location)
+            if not warehouse_point:
+                warehouse_point = extract_point(warehouse)
+            if not warehouse_point:
+                continue
+
+            lat2, lng2 = warehouse_point
+            dlat = radians(lat2 - farm_lat)
+            dlng = radians(lng2 - farm_lng)
+            a = (
+                sin(dlat / 2) ** 2
+                + cos(radians(farm_lat)) * cos(radians(lat2)) * sin(dlng / 2) ** 2
+            )
+            distance_km = 6371.0088 * 2 * asin(sqrt(max(0.0, min(1.0, a))))
+            if distance_km > float(radius_km):
+                continue
+            eligible.append((distance_km, warehouse, free))
+
+        if not eligible:
+            logger.warning(
+                "No eligible warehouse found for farm coordinates (%s, %s), "
+                "required_capacity=%s, radius_km=%s, candidate_count=%s",
+                farm_lat, farm_lng, required_capacity, radius_km, len(candidates),
+            )
+            return None
+
+        eligible.sort(key=lambda item: (
+            item[0], -item[2], str(item[1].get("name") or item[1].get("warehouseName") or "")
+        ))
         distance_km, warehouse, free = eligible[0]
         warehouse["selectionDistanceKm"] = round(distance_km, 1)
         warehouse["availableCapacity"] = round(free, 2)
-        warehouse["selectionReason"] = "Nearest suitable warehouse with available capacity"
+        warehouse["selectionReason"] = "Nearest active warehouse with verified available capacity"
         return warehouse
 
     async def get_warehouse_stats(self, warehouse_id: str) -> Dict[str, Any]:

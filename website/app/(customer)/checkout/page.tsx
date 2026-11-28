@@ -4,16 +4,17 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
-import { ShoppingCart, MapPin, ArrowLeft, Plus, CreditCard, Loader2, X, Truck, CalendarClock, Leaf, ShieldCheck, Smartphone, Landmark, Banknote, WalletCards, CheckCircle2 } from "lucide-react";
+import { ShoppingCart, MapPin, ArrowLeft, Plus, CreditCard, Loader2, X, Truck, CalendarClock, Leaf, ShieldCheck, Smartphone, Landmark, Banknote, WalletCards, CheckCircle2, Home, Building2, Pencil, Trash2, ClipboardList, Headphones, Phone, Package, Clock3, CalendarDays, Coins } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
 import { useCartStore } from "../../lib/store/cart-store";
 import { api } from "../../lib/api/client";
-import { formatPrice } from "../../lib/utils";
+import { formatDate, formatPrice } from "../../lib/utils";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { PageErrorState } from "../../components/common/page-state";
+import { CustomerPageHeader } from "../../components/customer/customer-page-header";
 
 type DeliveryQuote = {
   method: string;
@@ -55,6 +56,8 @@ type Address = {
   state: string;
   zip_code: string;
   country: string;
+  phone_number?: string;
+  alternative_phone_number?: string;
   address_type: string;
   is_default: boolean;
 };
@@ -75,6 +78,8 @@ const initialAddrForm = {
   zip_code: "",
   country: "India",
   landmark: "",
+  phone_number: "",
+  alternative_phone_number: "",
   address_type: "home" as string,
 };
 
@@ -94,31 +99,96 @@ export default function CheckoutPage() {
   );
 
   const [selectedAddressId, setSelectedAddressId] = useState<string>("");
-  const [paymentMethod, setPaymentMethod] = useState("razorpay");
-  const [specialInstructions, setSpecialInstructions] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("upi");
   const [isPlacing, setIsPlacing] = useState(false);
   const [showAddrForm, setShowAddrForm] = useState(false);
+  const [editingAddressId, setEditingAddressId] = useState<string | null>(null);
   const [addrForm, setAddrForm] = useState(initialAddrForm);
   const [razorpayReady, setRazorpayReady] = useState(false);
   const [savingAddr, setSavingAddr] = useState(false);
   const [deliveryQuote, setDeliveryQuote] = useState<DeliveryQuote | null>(null);
   const [deliveryAvailability, setDeliveryAvailability] = useState<DeliveryAvailability | null>(null);
   const [isEstimatingFee, setIsEstimatingFee] = useState(false);
-  const [deliveryDate, setDeliveryDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [deliveryDate, setDeliveryDate] = useState(() => new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" }));
   const [deliveryTimeSlot, setDeliveryTimeSlot] = useState("morning");
+  const [selectedDeliverySlotId, setSelectedDeliverySlotId] = useState("");
   const [selectedDeliverySpeed, setSelectedDeliverySpeed] = useState<"fastest_30m" | "standard">("standard");
   const [couponCode, setCouponCode] = useState("");
   const [couponDiscount, setCouponDiscount] = useState(0);
   const [couponAppliedCode, setCouponAppliedCode] = useState("");
   const [couponError, setCouponError] = useState("");
   const [applyingCoupon, setApplyingCoupon] = useState(false);
+  const [agriPointsInput, setAgriPointsInput] = useState("");
+  const [appliedAgriPoints, setAppliedAgriPoints] = useState(0);
+  const [agriPointsError, setAgriPointsError] = useState("");
   const [stockAdjustment, setStockAdjustment] = useState<{ productId: string; requested: number; available: number } | null>(null);
   const [completedOrderId, setCompletedOrderId] = useState("");
+  const [completedOrderSnapshot, setCompletedOrderSnapshot] = useState<any>(null);
   const [completedTransactionId, setCompletedTransactionId] = useState("");
   const [paymentStage, setPaymentStage] = useState("idle");
   const [paymentMessage, setPaymentMessage] = useState("");
   const [selectedUpiApp, setSelectedUpiApp] = useState("");
   const selectedUpiAppLabel = ({ gpay: "GPay", phonepe: "PhonePe", paytm: "Paytm" } as Record<string, string>)[selectedUpiApp] || "UPI";
+  const saveOrderConfirmation = (
+    orderId: string,
+    message: string,
+    transactionId = "",
+    orderSnapshot?: any
+  ) => {
+    if (typeof window === "undefined") return;
+    try {
+      let snapshot = orderSnapshot;
+      if (!snapshot) {
+        const pending = window.sessionStorage.getItem("agriconnect:pending-order-snapshot");
+        snapshot = pending ? JSON.parse(pending) : null;
+      }
+      const confirmation = {
+        orderId,
+        message,
+        transactionId,
+        orderSnapshot: snapshot || null,
+        savedAt: new Date().toISOString(),
+      };
+      window.sessionStorage.setItem("agriconnect:completed-order-confirmation", JSON.stringify(confirmation));
+      window.sessionStorage.removeItem("agriconnect:pending-order-snapshot");
+    } catch {
+      // Keep the in-memory confirmation available if browser storage is blocked.
+    }
+  };
+
+
+  // Zustand persist restores the cart from localStorage after the first client render.
+  // Do not interpret its temporary empty SSR state as a genuinely empty cart.
+  const [cartHydrated, setCartHydrated] = useState(false);
+  useEffect(() => {
+    const unsubscribe = useCartStore.persist.onFinishHydration(() => setCartHydrated(true));
+    if (useCartStore.persist.hasHydrated()) {
+      setCartHydrated(true);
+    } else {
+      void useCartStore.persist.rehydrate();
+    }
+    return unsubscribe;
+  }, []);
+
+  // Restore the completed order confirmation after normal refresh or hard refresh.
+  // Never redirect customers automatically after a successful order.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const saved = window.sessionStorage.getItem("agriconnect:completed-order-confirmation");
+      if (!saved) return;
+      const confirmation = JSON.parse(saved);
+      if (!confirmation?.orderId) return;
+      setCompletedOrderId(String(confirmation.orderId));
+      setCompletedTransactionId(String(confirmation.transactionId || ""));
+      setPaymentMessage(String(confirmation.message || "Your order is confirmed."));
+      if (confirmation.orderSnapshot) setCompletedOrderSnapshot(confirmation.orderSnapshot);
+      setPaymentStage("success");
+    } catch {
+      // Ignore invalid or unavailable session data and continue with checkout.
+    }
+  }, []);
+
 
   const { data: addressesData, isError: addressesError, refetch: refetchAddresses } = useQuery({
     queryKey: ["customerAddresses"],
@@ -126,12 +196,59 @@ export default function CheckoutPage() {
     enabled: items.length > 0 && status === "authenticated",
   });
 
+  const { data: profileData } = useQuery({
+    queryKey: ["checkout-customer-profile"],
+    queryFn: () => api.get("/users/me"),
+    enabled: status === "authenticated",
+    staleTime: 60_000,
+  });
+  // The /users/me profile endpoint returns the customer record under "user".
+  // Support both the normalized API response and older nested response envelopes.
+  const profilePayload = profileData?.data ?? profileData ?? {};
+  const profileUser =
+    profilePayload?.user ??
+    profileData?.user ??
+    profilePayload?.profile ??
+    profileData?.profile ??
+    profilePayload;
+  const profilePhone = String(
+    profileUser?.phone ??
+    profileUser?.phone_number ??
+    profileUser?.phoneNumber ??
+    profilePayload?.phone ??
+    profileData?.phone ??
+    ""
+  ).trim();
+
+
+  const { data: loyaltyPointsResponse, isLoading: loyaltyPointsLoading } = useQuery({
+    queryKey: ["checkout-agri-points"],
+    queryFn: () => api.get("/loyalty/me"),
+    enabled: status === "authenticated",
+    staleTime: 0,
+    refetchOnMount: "always",
+    retry: 1,
+  });
+  const loyaltyPointsPayload = loyaltyPointsResponse?.data ?? loyaltyPointsResponse ?? {};
+  const availableAgriPoints = Math.max(0, Number(loyaltyPointsPayload?.redeemablePoints ?? loyaltyPointsPayload?.balance ?? 0));
+
   const { data: walletInfoData } = useQuery({
     queryKey: ["customerCheckoutWallet"],
     queryFn: () => api.get("/payments/wallet/info"),
     enabled: status === "authenticated" && paymentMethod === "wallet",
     retry: false,
   });
+
+  const { data: completedOrderResponse } = useQuery({
+    queryKey: ["checkout-completed-order", completedOrderId],
+    queryFn: () => api.get(`/orders/${completedOrderId}`),
+    enabled: Boolean(completedOrderId) && paymentStage === "success",
+    refetchInterval: paymentStage === "success" ? 15000 : false,
+    retry: 1,
+  });
+
+  const completedOrder = completedOrderResponse?.data || completedOrderResponse || completedOrderSnapshot || {};
+
 
   const walletInfo = walletInfoData?.data || walletInfoData || {};
   const walletBalance = Number(
@@ -149,6 +266,46 @@ export default function CheckoutPage() {
   );
 
   const estimatedDeliveryAddressId = selectedAddressId || defaultAddress?.id;
+
+  const selectedCheckoutAddress = addresses.find((address) => address.id === estimatedDeliveryAddressId);
+  const { data: checkoutSlotsData, isLoading: checkoutSlotsLoading, isError: checkoutSlotsError, refetch: refetchCheckoutSlots } = useQuery({
+    queryKey: [
+      "checkout-delivery-slots",
+      estimatedDeliveryAddressId,
+      deliveryDate,
+    ],
+    queryFn: () => api.get("/delivery-slots/available", {
+      // Fetch all upcoming farmer-published slots first. The previous strict
+      // city/PIN regex hid valid village-level slots when the customer address
+      // used its parent town or district (for example, village vs. district).
+      // Each result still shows the farmer's published service area and radius.
+      params: { radius: 100 },
+    }),
+    enabled: Boolean(estimatedDeliveryAddressId) && items.length > 0 && status === "authenticated",
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    refetchInterval: 30_000,
+    retry: 2,
+  });
+  const checkoutCartWeightKg = items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+  const checkoutSlots = (checkoutSlotsData?.data?.slots || checkoutSlotsData?.slots || [])
+    .filter((slot: any) => {
+      if (slot.status !== "open" || Number(slot.remainingCapacityKg ?? slot.maxCapacityKg ?? 0) <= 0) return false;
+      // Farmer slot timestamps are UTC; checkout dates are India-local.
+      const parsedDate = new Date(slot.date);
+      if (Number.isNaN(parsedDate.getTime())) return false;
+      const slotDate = parsedDate.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+      return slotDate === deliveryDate;
+    })
+    .sort((a: any, b: any) => String(a.startTime || "").localeCompare(String(b.startTime || "")));
+  const selectedCheckoutSlot = checkoutSlots.find((slot: any) => slot.id === selectedDeliverySlotId);
+
+  useEffect(() => {
+    // A slot selected for another date/address must never remain attached to
+    // this checkout. Customers must choose one of the slots actually shown.
+    setSelectedDeliverySlotId("");
+  }, [deliveryDate, selectedCheckoutAddress?.id]);
 
   useEffect(() => {
     if (!estimatedDeliveryAddressId || items.length === 0) {
@@ -202,23 +359,6 @@ export default function CheckoutPage() {
   }, [estimatedDeliveryAddressId, items]);
 
   useEffect(() => {
-    const fastestAvailable =
-      deliveryQuote?.fastestEligible === true &&
-      deliveryAvailability?.serviceAvailable === true &&
-      deliveryAvailability?.partnerAvailable === true;
-
-    if (fastestAvailable) {
-      setSelectedDeliverySpeed((current) => current);
-    } else {
-      setSelectedDeliverySpeed("standard");
-    }
-  }, [
-    deliveryQuote?.fastestEligible,
-    deliveryAvailability?.serviceAvailable,
-    deliveryAvailability?.partnerAvailable,
-  ]);
-
-  useEffect(() => {
     const nextServiceAt = deliveryAvailability?.nextServiceAt;
     if (!nextServiceAt) return;
 
@@ -240,21 +380,61 @@ export default function CheckoutPage() {
     setAddrForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
+  const resetAddressForm = () => {
+    setAddrForm(initialAddrForm);
+    setEditingAddressId(null);
+    setShowAddrForm(false);
+  };
+
+  const handleEditAddress = (address: Address) => {
+    setEditingAddressId(address.id);
+    setAddrForm({
+      address_line1: address.address_line1 || "",
+      address_line2: address.address_line2 || "",
+      city: address.city || "",
+      state: address.state || "",
+      zip_code: address.zip_code || "",
+      country: address.country || "India",
+      landmark: (address as any).landmark || "",
+      phone_number: address.phone_number || profilePhone,
+      alternative_phone_number: address.alternative_phone_number || "",
+      address_type: address.address_type || "home",
+    });
+    setShowAddrForm(true);
+  };
+
+  const handleDeleteAddress = async (address: Address) => {
+    const confirmed = window.confirm(`Delete this ${address.address_type || "saved"} address? This action cannot be undone.`);
+    if (!confirmed) return;
+    try {
+      await api.delete(`/users/me/addresses/${address.id}`);
+      if (selectedAddressId === address.id) setSelectedAddressId("");
+      await queryClient.refetchQueries({ queryKey: ["customerAddresses"] });
+      toast.success("Address deleted successfully");
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to delete address");
+    }
+  };
+
   const handleAddAddress = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!addrForm.address_line1 || !addrForm.city || !addrForm.state || !addrForm.zip_code) {
-      toast.error("Fill in all required fields");
+    if (!addrForm.address_line1.trim() || !addrForm.city.trim() || !addrForm.state.trim() || !/^\d{6}$/.test(addrForm.zip_code.trim())) {
+      toast.error("Enter the address, city, state and a valid 6-digit PIN code.");
       return;
     }
     setSavingAddr(true);
     try {
-      await api.post("/users/me/addresses", addrForm);
+      if (editingAddressId) {
+        await api.put(`/users/me/addresses/${editingAddressId}`, addrForm);
+        setSelectedAddressId(editingAddressId);
+      } else {
+        await api.post("/users/me/addresses", addrForm);
+      }
       await queryClient.refetchQueries({ queryKey: ["customerAddresses"] });
-      setAddrForm(initialAddrForm);
-      setShowAddrForm(false);
-      toast.success("Address added");
+      resetAddressForm();
+      toast.success(editingAddressId ? "Address updated successfully" : "Address added successfully");
     } catch (err: any) {
-      const message = err?.message || "Failed to add address";
+      const message = err?.message || (editingAddressId ? "Failed to update address" : "Failed to add address");
       const cleaned = message.replace(/^"|"$/g, "");
       toast.error(cleaned.length > 120 ? cleaned.slice(0, 120) + "..." : cleaned);
     } finally {
@@ -326,6 +506,7 @@ export default function CheckoutPage() {
             setCompletedTransactionId(response.razorpay_payment_id || intentData.payment_id || "");
             setPaymentStage("success");
             setPaymentMessage("Payment verified successfully. Your order is confirmed.");
+            saveOrderConfirmation(orderId, "Payment verified successfully. Your order is confirmed.", response.razorpay_payment_id || intentData.payment_id || "");
             clearCart();
             toast.success("Payment successful! Order placed.");
             resolve();
@@ -389,9 +570,59 @@ export default function CheckoutPage() {
     setCouponError("");
   };
 
+  const maxAgriPointsByOrder = Math.floor(Math.max(0, displayTotal - couponDiscount)) * 100;
+  const maxAgriPoints = Math.min(Math.floor(availableAgriPoints / 100) * 100, maxAgriPointsByOrder, 10000);
+  const effectiveAgriPoints = Math.min(appliedAgriPoints, maxAgriPoints);
+  const agriPointsDiscount = effectiveAgriPoints / 100;
+
+  const handleApplyAgriPoints = () => {
+    const points = Number(agriPointsInput);
+    setAgriPointsError("");
+    if (!Number.isInteger(points) || points <= 0) {
+      setAgriPointsError("Enter a whole number of points to redeem.");
+      return;
+    }
+    if (points % 100 !== 0) {
+      setAgriPointsError("Points must be in multiples of 100 (100 points = ₹1).");
+      return;
+    }
+    if (points > availableAgriPoints) {
+      setAgriPointsError(`You have only ${availableAgriPoints.toLocaleString("en-IN")} points available.`);
+      return;
+    }
+    if (points > maxAgriPointsByOrder) {
+      setAgriPointsError("The AgriPoints discount cannot exceed your eligible product amount.");
+      return;
+    }
+    if (points > 10000) {
+      setAgriPointsError("You can redeem up to 10,000 points per order.");
+      return;
+    }
+    setAppliedAgriPoints(points);
+    toast.success(`${points.toLocaleString("en-IN")} AgriPoints applied (₹${(points / 100).toFixed(2)} off).`);
+  };
+
+  const handleRemoveAgriPoints = () => {
+    setAppliedAgriPoints(0);
+    setAgriPointsInput("");
+    setAgriPointsError("");
+  };
+
   const deliveryFeeValue = deliveryQuote?.fee ?? 0;
-  const platformFeeValue = Math.max(0, (displayTotal - couponDiscount) * 0.05);
-  const estimatedTotal = Math.max(0, displayTotal - couponDiscount + deliveryFeeValue + platformFeeValue);
+  const platformFeeValue = Math.max(0, displayTotal * 0.05);
+  const estimatedTotal = Math.max(0, displayTotal - couponDiscount - agriPointsDiscount + deliveryFeeValue + platformFeeValue);
+  const fastestDeliveryAvailable =
+    deliveryQuote?.fastestEligible === true &&
+    Number(deliveryQuote?.estimatedDeliveryMinutes) <= 30 &&
+    deliveryAvailability?.serviceAvailable === true &&
+    deliveryAvailability?.partnerAvailable === true;
+
+  useEffect(() => {
+    setSelectedDeliverySpeed(fastestDeliveryAvailable ? "fastest_30m" : "standard");
+  }, [
+    fastestDeliveryAvailable,
+  ]);
+
 
   const handlePlaceOrder = async (quantityOverrides?: Record<string, number>) => {
     const addressId = selectedAddressId || defaultAddress?.id;
@@ -410,6 +641,37 @@ export default function CheckoutPage() {
     if (selectedAddress && !/^\d{6}$/.test(selectedAddress.zip_code.trim())) {
       toast.error("Please select an address with a valid 6-digit PIN code.");
       return;
+    }
+    const primaryContact = selectedAddress?.phone_number?.trim() || profilePhone;
+    const primaryContactDigits = primaryContact.replace(/\\D/g, "");
+    if (
+      !primaryContact ||
+      !/^[+0-9\\s()-]+$/.test(primaryContact) ||
+      primaryContactDigits.length < 10 ||
+      primaryContactDigits.length > 15
+    ) {
+      toast.error("A valid primary phone number is required. Your profile number is filled automatically; you can change it in the delivery address form.");
+      return;
+    }
+    if (selectedAddress && !selectedAddress.phone_number?.trim()) {
+      try {
+        await api.put(`/users/me/addresses/${addressId}`, {
+          address_line1: selectedAddress.address_line1,
+          address_line2: selectedAddress.address_line2 || "",
+          city: selectedAddress.city,
+          state: selectedAddress.state,
+          zip_code: selectedAddress.zip_code,
+          country: selectedAddress.country || "India",
+          landmark: (selectedAddress as any).landmark || "",
+          phone_number: primaryContact,
+          alternative_phone_number: selectedAddress.alternative_phone_number || "",
+          address_type: selectedAddress.address_type || "home",
+        });
+        await queryClient.refetchQueries({ queryKey: ["customerAddresses"] });
+      } catch (error: any) {
+        toast.error(error?.message || "Could not save the profile phone number to this delivery address.");
+        return;
+      }
     }
 
     if (!deliveryQuote) {
@@ -445,27 +707,37 @@ export default function CheckoutPage() {
         })),
         deliveryAddressId: addressId,
         paymentMethod,
-        specialInstructions: specialInstructions || undefined,
         deliveryType: "delivery",
         requestedDeliveryDate: new Date(`${deliveryDate}T00:00:00`).toISOString(),
         idempotencyKey: idempotencyKeyRef.current,
         deliveryTimeSlot,
+        deliverySlotId: selectedCheckoutSlot?.id || undefined,
         deliverySpeed: selectedDeliverySpeed,
       };
 
       if (couponAppliedCode) {
         payload.couponCode = couponAppliedCode;
       }
+      if (effectiveAgriPoints > 0) {
+        payload.redeemPoints = effectiveAgriPoints;
+      }
 
       const res = await api.post("/orders/", payload);
       const order = res?.data || res;
 
       if (!order) throw new Error("Failed to create order");
+      try {
+        window.sessionStorage.setItem("agriconnect:pending-order-snapshot", JSON.stringify(order));
+      } catch {
+        // The server order remains authoritative if browser storage is unavailable.
+      }
 
       if (paymentMethod === "cash") {
         setCompletedOrderId(order.id || order._id);
         setPaymentStage("success");
         setPaymentMessage("Cash on delivery selected. Your order is confirmed and payment will be collected at delivery.");
+        setCompletedOrderSnapshot(order);
+        saveOrderConfirmation(order.id || order._id, "Cash on delivery selected. Your order is confirmed and payment will be collected at delivery.", "", order);
         clearCart();
         toast.success("Order placed successfully!");
       } else {
@@ -484,6 +756,8 @@ export default function CheckoutPage() {
           setCompletedOrderId(order.id || order._id);
           setCompletedTransactionId(intentData.payment_id || "");
           setPaymentMessage(intentData.message || "Wallet payment completed successfully. Your order is confirmed.");
+          setCompletedOrderSnapshot(order);
+          saveOrderConfirmation(order.id || order._id, intentData.message || "Wallet payment completed successfully. Your order is confirmed.", intentData.payment_id || "", order);
           clearCart();
           toast.success("Wallet payment successful!");
           return;
@@ -501,8 +775,12 @@ export default function CheckoutPage() {
       }
     } catch (err: any) {
       setPaymentStage("failed");
-      setPaymentMessage("Payment could not be completed. Your order can be retried safely.");
       const msg = err?.message || "";
+      setPaymentMessage(
+        paymentMethod === "cash"
+          ? (msg ? `Order could not be placed: ${msg}` : "Order could not be placed. Please review the checkout details and try again.")
+          : (msg || "Checkout could not be completed. Please review the details and try again.")
+      );
       const shortageMatch = msg.match(/STOCK_SHORTAGE\|([a-f0-9]{24})\|([0-9.]+)\|([0-9.]+)/i);
       let detail = err?.response?.data?.detail ?? err?.detail;
       if (!detail && typeof msg === "string" && msg.trim().startsWith("{")) {
@@ -544,33 +822,150 @@ export default function CheckoutPage() {
     return null;
   }
 
+  
   if (paymentStage === "success") {
+    const order = completedOrder || {};
+    const orderItems = Array.isArray(order.items) ? order.items : [];
+    const address = order.deliveryAddress || order.delivery_address || {};
+    const orderStatus = String(order.status || order.orderStatus || "confirmed").toLowerCase();
+    const paymentMethodLabel = String(order.paymentMethod || paymentMethod || "cash").toLowerCase();
+    const isCashOnDelivery = paymentMethodLabel === "cash" || paymentMethodLabel === "cod";
+    const orderNumber = order.orderNumber || order.order_number || order.id || order._id || completedOrderId;
+    const placedAt = order.createdAt || order.orderDate || order.created_at || new Date().toISOString();
+    const addressLines = [address.addressLine1 || address.address_line1, address.addressLine2 || address.address_line2, address.landmark, address.city, address.state, address.zipCode || address.zip_code || address.postalCode].filter(Boolean);
+    const primaryPhone = address.phoneNumber || address.phone_number || address.phone || "";
+    const alternatePhone = address.alternativePhoneNumber || address.alternative_phone_number || address.alternativePhone || "";
+    const subtotal = Number(order.subtotal ?? order.subTotal ?? order.totalBeforeDelivery ?? orderItems.reduce((sum: number, item: any) => sum + Number(item.totalPrice ?? (Number(item.unitPrice || 0) * Number(item.quantity || 0))), 0));
+    const deliveryCharge = Number(order.deliveryCharge ?? order.deliveryFee ?? 0);
+    const platformFee = Number(order.platformFee ?? 0);
+    const discount = Number(order.discount ?? 0);
+    const total = Number(order.totalAmount ?? order.total ?? (subtotal + deliveryCharge + platformFee - discount));
+    const stages = [
+      { label: "Order placed", keys: ["pending", "placed"], icon: ClipboardList },
+      { label: "Order confirmed", keys: ["confirmed"], icon: CheckCircle2 },
+      { label: "Farmer preparing", keys: ["preparing", "processing", "ready_for_delivery", "packed"], icon: Package },
+      { label: "Out for delivery", keys: ["dispatched", "in_transit", "out_for_delivery", "shipped", "delivered"], icon: Truck },
+    ];
+    const stageIndex = orderStatus === "delivered" ? 3 : ["dispatched", "in_transit", "out_for_delivery", "shipped"].includes(orderStatus) ? 3 : ["preparing", "processing", "ready_for_delivery", "packed"].includes(orderStatus) ? 2 : ["confirmed", "accepted"].includes(orderStatus) ? 1 : 0;
+    const paymentLabel = isCashOnDelivery ? "Cash on Delivery (COD)" : String(order.paymentMethod || paymentMethod).toUpperCase();
+    const totalQuantity = orderItems.reduce((sum: number, item: any) => sum + Number(item.quantity || 0), 0);
+
     return (
-      <div className="space-y-6 p-6">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" asChild>
-            <Link href="/orders"><ArrowLeft className="h-4 w-4" /></Link>
-          </Button>
-          <div>
-            <h1 className="text-2xl font-semibold">Order confirmation</h1>
-            <p className="text-sm text-muted-foreground">Your payment and order have been processed.</p>
+      <div className="customer-retail-shell space-y-4 pb-8">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 ring-4 ring-emerald-50"><CheckCircle2 className="h-9 w-9" /></div>
+            <div>
+              <div className="mb-1 flex flex-wrap items-center gap-2 text-xs font-medium text-slate-500"><Link href="/" className="hover:text-emerald-700">Home</Link><span>›</span><Link href="/checkout" className="hover:text-emerald-700">Checkout</Link><span>›</span><span className="text-slate-800">Order confirmation</span></div>
+              <h1 className="text-2xl font-extrabold tracking-tight text-slate-950 sm:text-3xl">Order placed successfully!</h1>
+              <p className="text-sm text-slate-600">Thank you for shopping with AgriConnect. Your order is confirmed.</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 rounded-xl border border-emerald-100 bg-emerald-50/70 px-4 py-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-white text-emerald-700"><ClipboardList className="h-6 w-6" /></div>
+            <div><p className="text-sm font-bold text-slate-900">Order <span className="text-emerald-700">#{orderNumber}</span></p><p className="text-xs text-slate-600">Placed on {formatDate(placedAt)}</p></div>
           </div>
         </div>
-        <Card className="border-emerald-200 bg-emerald-50/70">
-          <CardContent className="p-5 sm:p-6">
-            <div className="flex items-start gap-4">
-              <div className="rounded-full bg-emerald-100 p-3"><CheckCircle2 className="h-7 w-7 text-emerald-600" /></div>
-              <div className="min-w-0 flex-1">
-                <h2 className="text-lg font-semibold text-emerald-950">Payment successful</h2>
-                <p className="mt-1 text-sm text-emerald-800">{paymentMessage}</p>
-                {completedTransactionId && <p className="mt-2 text-xs text-emerald-900">Transaction ID: <span className="font-mono font-semibold">{completedTransactionId}</span></p>}
-                <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-                  <Button asChild><Link href={completedOrderId ? `/orders/${completedOrderId}` : "/orders"}>View order</Link></Button>
-                  <Button variant="outline" asChild><Link href="/payments">Payment history</Link></Button>
-                  <Button variant="outline" onClick={() => window.print()}>Print receipt</Button>
+
+        <div className="flex items-center gap-4 rounded-2xl border border-emerald-300 bg-gradient-to-r from-emerald-50 to-green-100 px-5 py-4">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><Truck className="h-7 w-7" /></div>
+          <div className="min-w-0 border-l border-emerald-300 pl-4">
+            <p className="font-extrabold text-emerald-800">{isCashOnDelivery ? "Order confirmed – Cash on Delivery" : "Payment confirmed"}</p>
+            <p className="text-sm text-slate-700">{paymentMessage || (isCashOnDelivery ? "Payment will be collected by the delivery partner when your order arrives." : "Your payment has been verified and your order is confirmed.")}</p>
+            {completedTransactionId && <p className="mt-1 text-xs text-slate-600">Transaction ID: {completedTransactionId}</p>}
+          </div>
+        </div>
+
+        <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(330px,0.9fr)]">
+          <div className="space-y-3">
+            <Card className="rounded-2xl border-slate-200 shadow-sm">
+              <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-lg"><Truck className="h-5 w-5 text-emerald-700" /> Delivery progress</CardTitle></CardHeader>
+              <CardContent className="px-4 pb-5 pt-2">
+                <div className="grid grid-cols-4 gap-1">
+                  {stages.map((stage, index) => {
+                    const Icon = stage.icon;
+                    const complete = index < stageIndex || index === 0;
+                    const active = index === stageIndex;
+                    return <div key={stage.label} className="relative flex flex-col items-center text-center">
+                      {index < stages.length - 1 && <div className={`absolute left-1/2 top-4 h-0.5 w-full ${index < stageIndex ? "bg-emerald-600" : "bg-slate-200"}`} />}
+                      <div className={`relative z-10 flex h-9 w-9 items-center justify-center rounded-full border-2 ${complete ? "border-emerald-600 bg-emerald-600 text-white" : active ? "border-emerald-600 bg-white text-emerald-700" : "border-slate-300 bg-white text-slate-400"}`}>{complete ? <CheckCircle2 className="h-5 w-5" /> : <Icon className="h-4 w-4" />}</div>
+                      <p className={`mt-2 text-xs font-bold sm:text-sm ${active ? "text-emerald-700" : complete ? "text-slate-900" : "text-slate-500"}`}>{stage.label}</p>
+                      {active && <span className="mt-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">Current status</span>}
+                    </div>;
+                  })}
                 </div>
-              </div>
-            </div>
+                <p className="mt-3 text-center text-xs text-slate-500">Your delivery progress updates as the farmer and delivery partner process your order.</p>
+              </CardContent>
+            </Card>
+
+            <Card className="rounded-2xl border-slate-200 shadow-sm">
+              <CardHeader className="pb-3"><CardTitle className="flex items-center gap-2 text-lg"><MapPin className="h-5 w-5 text-emerald-700" /> Delivery details</CardTitle></CardHeader>
+              <CardContent className="grid gap-4 border-t border-slate-100 p-4 md:grid-cols-[1.2fr_1fr_0.9fr]">
+                <div className="flex gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><Home className="h-5 w-5" /></div><div className="min-w-0"><p className="text-sm font-bold text-slate-900">Delivery address</p><p className="mt-1 text-sm leading-5 text-slate-600">{addressLines.length ? addressLines.join(", ") : "Delivery address will be shown in your order details."}</p></div></div>
+                <div className="flex gap-3 border-slate-200 md:border-l md:pl-4"><Phone className="mt-1 h-5 w-5 shrink-0 text-emerald-700" /><div><p className="text-sm font-bold text-slate-900">Contact numbers</p><p className="mt-1 text-sm text-slate-600">Primary: {primaryPhone || "Not provided"}</p><p className="text-sm text-slate-600">Alternative: {alternatePhone || "Not provided"}</p></div></div>
+                <div className="flex gap-3 border-slate-200 md:border-l md:pl-4"><CalendarDays className="mt-1 h-5 w-5 shrink-0 text-emerald-700" /><div><p className="text-sm font-bold text-slate-900">Delivery window</p><div className="mt-1 rounded-lg bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800">{order.deliveryDate || order.estimatedDeliveryDate ? formatDate(order.deliveryDate || order.estimatedDeliveryDate) : deliveryDate}<br />{order.deliveryTimeSlot || deliveryTimeSlot}</div></div></div>
+              </CardContent>
+            </Card>
+
+            <Card className="rounded-2xl border-slate-200 shadow-sm">
+              <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-lg"><ShoppingCart className="h-5 w-5 text-emerald-700" /> Items in your order ({orderItems.length || items.length})</CardTitle></CardHeader>
+              <CardContent className="p-0">
+                <div className="grid grid-cols-[minmax(0,1fr)_65px_90px] gap-2 border-y border-slate-100 bg-slate-50 px-4 py-2 text-xs font-bold text-slate-500"><span>Product</span><span className="text-center">Qty</span><span className="text-right">Price</span></div>
+                {(orderItems.length ? orderItems : items).map((item: any, index: number) => {
+                  const name = item.productName || item.name || "Product";
+                  const image = item.productImage || item.image;
+                  const quantity = Number(item.quantity || 0);
+                  const lineTotal = Number(item.totalPrice ?? item.total ?? (Number(item.unitPrice || item.price || 0) * quantity));
+                  return <div key={item.productId || item.id || index} className="grid grid-cols-[minmax(0,1fr)_65px_90px] items-center gap-2 border-b border-slate-100 px-4 py-3 last:border-0">
+                    <div className="flex min-w-0 items-center gap-3"><div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-slate-50">{image ? <img src={image} alt={name} className="h-full w-full object-cover" /> : <Package className="m-3 h-6 w-6 text-slate-300" />}</div><div className="min-w-0"><p className="truncate text-sm font-bold text-slate-900">{name}</p><p className="text-xs text-slate-500">{item.farmerName || item.sellerName || ""}</p></div></div>
+                    <span className="text-center text-sm text-slate-700">{quantity} {item.unit || ""}</span><span className="text-right text-sm font-semibold text-slate-900">{formatPrice(lineTotal)}</span>
+                  </div>;
+                })}
+                {!orderItems.length && <p className="p-4 text-xs text-slate-500">Your order items have been saved. Open View order for the complete item breakdown.</p>}
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="space-y-3">
+            <Card className="rounded-2xl border-slate-200 shadow-sm">
+              <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-lg"><ShoppingCart className="h-5 w-5 text-emerald-700" /> Order Summary</CardTitle></CardHeader>
+              <CardContent className="space-y-3 p-4">
+                <div className="flex justify-between text-sm text-slate-600"><span>Subtotal ({totalQuantity || items.reduce((sum, item) => sum + item.quantity, 0)} items)</span><span>{formatPrice(subtotal)}</span></div>
+                <div className="flex justify-between text-sm text-slate-600"><span>Delivery charge</span><span>{formatPrice(deliveryCharge)}</span></div>
+                {platformFee > 0 && <div className="flex justify-between text-sm text-slate-600"><span>Platform fee</span><span>{formatPrice(platformFee)}</span></div>}
+                {Number(order.couponDiscount ?? 0) > 0 && <div className="flex justify-between text-sm font-semibold text-emerald-700"><span>Coupon discount</span><span>−{formatPrice(Number(order.couponDiscount))}</span></div>}
+                {Number(order.pointsRedeemed ?? 0) > 0 && <div className="flex justify-between text-sm font-semibold text-emerald-700"><span>AgriPoints used ({Number(order.pointsRedeemed).toLocaleString("en-IN")} pts)</span><span>−{formatPrice(Number(order.pointsDiscount ?? Number(order.pointsRedeemed) / 100))}</span></div>}
+                {discount > 0 && Number(order.couponDiscount ?? 0) === 0 && Number(order.pointsRedeemed ?? 0) === 0 && <div className="flex justify-between text-sm font-semibold text-emerald-700"><span>Discount</span><span>−{formatPrice(discount)}</span></div>}
+                <div className="flex justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-base font-extrabold"><span>Total payable</span><span className="text-emerald-800">{formatPrice(total)}</span></div>
+                <div className="border-t border-slate-100 pt-3"><p className="flex items-center gap-2 font-bold text-slate-900"><CreditCard className="h-5 w-5 text-emerald-700" /> Payment Method</p><div className="mt-2 flex items-center justify-between rounded-xl border border-slate-200 p-3"><span className="flex items-center gap-2 text-sm font-semibold"><Banknote className="h-5 w-5 text-emerald-700" /> {paymentLabel}</span><span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-bold text-emerald-800">{isCashOnDelivery ? "Due on delivery" : "Paid"}</span></div></div>
+              </CardContent>
+            </Card>
+
+            <Card className="rounded-2xl border-slate-200 shadow-sm">
+              <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-lg"><Headphones className="h-5 w-5 text-emerald-700" /> Need help?</CardTitle></CardHeader>
+              <CardContent className="space-y-3 p-4"><p className="text-sm leading-5 text-slate-600">If you have any questions about your order, our support team is here to help.</p><Button asChild variant="outline" className="w-full border-emerald-600 font-bold text-emerald-800 hover:bg-emerald-50"><Link href="/contact"><Headphones className="mr-2 h-4 w-4" /> Contact support</Link></Button></CardContent>
+            </Card>
+          </div>
+        </div>
+
+        <div className="mx-auto grid w-full max-w-4xl gap-3 sm:grid-cols-2">
+          <Button asChild className="h-12 bg-emerald-700 text-base font-bold text-white hover:bg-emerald-800"><Link onClick={() => { try { window.sessionStorage.removeItem("agriconnect:completed-order-confirmation"); } catch {} }} href={completedOrderId ? `/orders/${completedOrderId}/track` : "/orders"}><Truck className="mr-2 h-5 w-5" /> Track your order</Link></Button>
+          <Button asChild variant="outline" className="h-12 border-emerald-700 text-base font-bold text-emerald-800 hover:bg-emerald-50"><Link onClick={() => { try { window.sessionStorage.removeItem("agriconnect:completed-order-confirmation"); } catch {} }} href="/marketplace"><ShoppingCart className="mr-2 h-5 w-5" /> Continue shopping</Link></Button>
+        </div>
+        <div className="flex flex-wrap items-center justify-center gap-5 text-xs font-medium text-slate-500"><span className="flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-emerald-700" /> Fresh from farms</span><span className="hidden h-4 border-l border-slate-300 sm:block" /><span className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-emerald-700" /> Secure checkout</span><span className="hidden h-4 border-l border-slate-300 sm:block" /><span className="flex items-center gap-2"><Truck className="h-4 w-4 text-emerald-700" /> Delivery updates</span></div>
+        {completedTransactionId && <p className="text-center text-xs text-slate-400">Transaction ID: {completedTransactionId}</p>}
+      </div>
+    );
+  }
+
+if (!cartHydrated) {
+    return (
+      <div className="customer-retail-shell">
+        <Card className="border-slate-200 shadow-sm">
+          <CardContent className="flex min-h-[260px] flex-col items-center justify-center gap-3 p-8 text-center">
+            <Loader2 className="h-8 w-8 animate-spin text-emerald-700" />
+            <p className="text-sm font-semibold text-slate-800">Restoring your cart…</p>
+            <p className="text-xs text-slate-500">Please wait while we load your saved items.</p>
           </CardContent>
         </Card>
       </div>
@@ -579,12 +974,12 @@ export default function CheckoutPage() {
 
   if (items.length === 0) {
     return (
-      <div className="space-y-6 p-6">
+      <div className="customer-retail-shell space-y-6">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>
             <Link href="/cart"><ArrowLeft className="h-4 w-4" /></Link>
           </Button>
-          <h1 className="text-2xl font-semibold">Checkout</h1>
+          <CustomerPageHeader eyebrow="Secure checkout" title="Complete your order" description={`${itemCount} item${itemCount !== 1 ? "s" : ""} · ${formatPrice(displayTotal)} before delivery and offers`} />
         </div>
         <Card>
           <CardContent className="flex flex-col items-center gap-3 p-8 text-center">
@@ -601,7 +996,7 @@ export default function CheckoutPage() {
   }
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="customer-retail-shell space-y-6">
       {stockAdjustment && (
         <div role="dialog" aria-modal="true" aria-labelledby="stock-adjustment-title" className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-md space-y-4 rounded-2xl bg-white p-6 shadow-xl">
@@ -624,13 +1019,32 @@ export default function CheckoutPage() {
         </div>
       )}
 
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" asChild>
-          <Link href="/cart"><ArrowLeft className="h-4 w-4" /></Link>
-        </Button>
-        <div>
-          <h1 className="text-2xl font-semibold">Checkout</h1>
-          <p className="text-sm text-muted-foreground">{itemCount} items · {formatPrice(displayTotal)}</p>
+      <div className="flex flex-wrap items-center justify-between gap-5">
+        <div className="flex items-center gap-4">
+          <Button variant="outline" size="icon" className="h-11 w-11 rounded-full border-slate-200 bg-white shadow-sm" asChild>
+            <Link href="/cart"><ArrowLeft className="h-4 w-4" /></Link>
+          </Button>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">Home · Cart · Checkout</p>
+            <h1 className="mt-1 text-2xl font-extrabold tracking-tight text-slate-950">Checkout</h1>
+            <p className="text-sm text-slate-600">Complete your order and get fresh produce from our farmers.</p>
+          </div>
+        </div>
+        <div className="flex min-w-[280px] flex-1 items-center justify-end gap-2 sm:max-w-[420px]" aria-label="Checkout progress">
+          <div className="flex flex-col items-center gap-1 text-xs font-semibold text-emerald-800">
+            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-700 text-white"><CheckCircle2 className="h-5 w-5" /></span>
+            Cart
+          </div>
+          <span className="h-px flex-1 bg-emerald-500" />
+          <div className="flex flex-col items-center gap-1 text-xs font-semibold text-emerald-800">
+            <span className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-emerald-600 bg-white text-emerald-700"><Truck className="h-5 w-5" /></span>
+            Checkout
+          </div>
+          <span className="h-px flex-1 bg-slate-200" />
+          <div className="flex flex-col items-center gap-1 text-xs font-medium text-slate-500">
+            <span className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-slate-200 bg-white"><CheckCircle2 className="h-5 w-5" /></span>
+            Order Placed
+          </div>
         </div>
       </div>
 
@@ -638,7 +1052,7 @@ export default function CheckoutPage() {
         <Card className={`border-2 ${paymentStage==="failed"?"border-red-200 bg-red-50/60":"border-blue-200 bg-blue-50/60"}`}>
           <CardContent className="flex items-center gap-3 p-4">
             {paymentStage==="failed" ? <X className="h-5 w-5 text-red-600"/> : <Loader2 className="h-5 w-5 animate-spin text-blue-600"/>}
-            <div><p className="font-semibold text-slate-900">{paymentStage==="creating"?"Preparing payment":paymentStage==="processing"?"Payment processing":"Payment needs attention"}</p><p className="text-xs text-slate-600">{paymentMessage}</p></div>
+            <div><p className="font-semibold text-slate-900">{paymentStage==="creating"?(paymentMethod==="cash"?"Placing your order":"Preparing payment"):paymentStage==="processing"?"Payment processing":paymentMethod==="cash"?"Order placement needs attention":"Checkout needs attention"}</p><p className="text-xs text-slate-600">{paymentMessage}</p></div>
           </CardContent>
         </Card>
       )}
@@ -651,231 +1065,93 @@ export default function CheckoutPage() {
         />
       )}
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
-        <div className="space-y-6">
-          {/* Delivery Type */}
-          <Card className="border-emerald-200 bg-emerald-50/40">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Truck className="h-5 w-5 text-emerald-600" /> Home Delivery
-              </CardTitle>
-              <CardDescription>Your order will be delivered to your doorstep</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {deliveryQuote && (
-                <div className="rounded-lg border bg-white p-4">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium text-slate-900">Delivery Fee</p>
-                    <span className="text-sm font-semibold text-emerald-700">
-                      {deliveryQuote.fee === 0 && deliveryQuote.freeDelivery ? (
-                        <>
-                          FREE
-                          {deliveryQuote.subsidy && (
-                            <span className="ml-2 text-xs text-emerald-600">(₹{deliveryQuote.subsidy} saved)</span>
-                          )}
-                        </>
-                      ) : (
-                        `₹${deliveryQuote.fee}`
-                      )}
-                    </span>
-                  </div>
-                  {deliveryQuote.distanceKm > 0 && (
-                    <p className="mt-2 text-xs text-slate-500">
-                      {deliveryQuote.distanceKm.toFixed(1)} km from farmer · ~45-60 min
-                    </p>
-                  )}
-                </div>
-              )}
-              {!deliveryQuote && (
-                <div className="rounded-lg border bg-white p-4 text-center">
-                  <p className="text-sm text-slate-500">Select a delivery address to calculate delivery fee</p>
-                </div>
-              )}
-              {deliveryAvailability && (
-                <div className={`mt-3 rounded-lg border p-4 ${deliveryAvailability.status === "available" ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
-                  <div className="flex items-start gap-3">
-                    <Truck className="mt-0.5 h-5 w-5 text-emerald-600" />
-                    <div className="min-w-0">
-                      <p className="font-semibold text-slate-900">
-                        {deliveryAvailability.status === "available"
-                          ? "🟢 Delivery service active"
-                          : deliveryAvailability.status === "scheduled_for_next_service"
-                            ? "🔴 Delivery service closed · 21:30–06:00"
-                            : "🟡 No suitable delivery partner right now"}
-                      </p>
-                      <p className="mt-1 text-sm text-slate-700">{deliveryAvailability.message}</p>
-                      {!deliveryAvailability.serviceAvailable && deliveryAvailability.nextServiceAt && (
-                        <p className="mt-2 text-sm font-semibold text-amber-900">
-                          Next available delivery: {new Date(deliveryAvailability.nextServiceAt).toLocaleString("en-IN", {
-                            timeZone: "Asia/Kolkata",
-                            dateStyle: "medium",
-                            timeStyle: "short",
-                          })}
-                        </p>
-                      )}
-                      {!deliveryAvailability.serviceAvailable && (
-                        <p className="mt-1 text-xs text-amber-800">
-                          Your order can still be placed. Product stock is not blocked by delivery-partner availability.
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-              {deliveryQuote?.fastestEligible &&
-                deliveryAvailability?.serviceAvailable &&
-                deliveryAvailability?.partnerAvailable && (
-                  <div className="mt-4 space-y-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-semibold text-slate-900">Choose your delivery speed</p>
-                        <p className="text-xs text-slate-500">Fastest is available only when the backend confirms the full journey can be completed within 30 minutes.</p>
-                      </div>
-                      <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
-                        Partner available
-                      </span>
-                    </div>
-
-                    <label
-                      className={`block cursor-pointer rounded-xl border-2 p-4 transition ${
-                        selectedDeliverySpeed === "fastest_30m"
-                          ? "border-emerald-500 bg-emerald-50 shadow-sm"
-                          : "border-slate-200 bg-white hover:border-emerald-300"
-                      }`}
-                    >
-                      <div className="flex items-start gap-3">
-                        <input
-                          type="radio"
-                          name="deliverySpeed"
-                          value="fastest_30m"
-                          checked={selectedDeliverySpeed === "fastest_30m"}
-                          onChange={() => setSelectedDeliverySpeed("fastest_30m")}
-                          className="mt-1 h-4 w-4 accent-emerald-600"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center justify-between gap-3">
-                            <div>
-                              <p className="font-bold text-emerald-900">⚡ Fastest Delivery</p>
-                              <p className="mt-0.5 text-sm font-semibold text-slate-900">
-                                Arrives in about {deliveryQuote.estimatedDeliveryMinutes || 30} minutes
-                              </p>
-                            </div>
-                            <span className="rounded-full bg-emerald-600 px-2.5 py-1 text-[11px] font-bold text-white">
-                              ≤ 30 MIN
-                            </span>
-                          </div>
-                          <p className="mt-2 text-xs text-emerald-800">
-                            Stock available · Delivery partner available · Estimated end-to-end time is within 30 minutes.
-                          </p>
-                          <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-medium text-slate-600">
-                            <span className="rounded-full bg-white px-2.5 py-1">✓ Farmer packing</span>
-                            <span className="rounded-full bg-white px-2.5 py-1">✓ Partner pickup</span>
-                            <span className="rounded-full bg-white px-2.5 py-1">✓ Customer delivery</span>
-                          </div>
-                        </div>
-                      </div>
-                    </label>
-
-                    <label
-                      className={`block cursor-pointer rounded-xl border-2 p-4 transition ${
-                        selectedDeliverySpeed === "standard"
-                          ? "border-blue-500 bg-blue-50 shadow-sm"
-                          : "border-slate-200 bg-white hover:border-blue-300"
-                      }`}
-                    >
-                      <div className="flex items-start gap-3">
-                        <input
-                          type="radio"
-                          name="deliverySpeed"
-                          value="standard"
-                          checked={selectedDeliverySpeed === "standard"}
-                          onChange={() => setSelectedDeliverySpeed("standard")}
-                          className="mt-1 h-4 w-4 accent-blue-600"
-                        />
-                        <div>
-                          <p className="font-bold text-blue-900">🚚 Standard Delivery</p>
-                          <p className="mt-0.5 text-sm font-medium text-slate-800">Choose your normal delivery schedule</p>
-                          <p className="mt-1 text-xs text-blue-800">The order follows the normal farmer → delivery partner workflow.</p>
-                        </div>
-                      </div>
-                    </label>
-
-                    <p className="flex items-center gap-2 text-[11px] text-slate-500">
-                      <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
-                      AgriConnect re-checks stock, delivery partner availability and ETA when you place the order.
-                    </p>
-                  </div>
-                )}
-
-              {deliveryQuote &&
-                !deliveryQuote.fastestEligible &&
-                deliveryAvailability?.serviceAvailable &&
-                deliveryAvailability?.partnerAvailable && (
-                  <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-4">
-                    <p className="font-semibold text-blue-900">🚚 Standard Delivery</p>
-                    <p className="mt-1 text-sm text-blue-800">
-                      Fastest 30-minute delivery is not feasible for this address right now. Standard delivery is available.
-                    </p>
-                  </div>
-                )}
-            </CardContent>
-          </Card>
-
+      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)] xl:gap-4">
+        <div className="space-y-3">
           {/* Delivery Address */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <MapPin className="h-5 w-5" /> Delivery Address
+          <Card className="overflow-hidden border-slate-200 shadow-sm">
+            <CardHeader className="border-b border-slate-100 bg-white px-5 py-3">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <MapPin className="h-5 w-5 text-emerald-700" /> Delivery Address
               </CardTitle>
-              <CardDescription>Choose where to deliver your order</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
+              </CardHeader>
+            <CardContent className="space-y-3 p-4">
               {addresses.length === 0 && !showAddrForm ? (
                 <p className="text-sm text-muted-foreground">No saved addresses yet.</p>
               ) : (
                 <div className="space-y-2">
                   {addresses.map((addr) => (
-                    <label
+                    <div
                       key={addr.id}
-                      className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition ${
+                      className={`flex items-center gap-3 rounded-xl border px-4 py-3.5 transition-all ${
                         (selectedAddressId || defaultAddress?.id) === addr.id
-                          ? "border-emerald-500 bg-emerald-50"
-                          : "hover:bg-gray-50"
+                          ? "border-emerald-500 bg-emerald-50/90 shadow-sm ring-1 ring-emerald-100"
+                          : "border-slate-200 bg-white hover:border-emerald-300"
                       }`}
                     >
-                      <input
-                        type="radio"
-                        name="deliveryAddress"
-                        value={addr.id}
-                        checked={(selectedAddressId || defaultAddress?.id) === addr.id}
-                        onChange={(e) => setSelectedAddressId(e.target.value)}
-                        className="mt-1"
-                      />
-                      <div className="text-sm">
-                        <p className="font-medium">
-                          {addr.address_line1}
-                          {addr.address_line2 && `, ${addr.address_line2}`}
-                        </p>
-                        <p className="text-muted-foreground">
-                          {addr.city}, {addr.state} - {addr.zip_code}
-                        </p>
-                        <p className="text-xs capitalize text-muted-foreground">{addr.address_type}</p>
+                      <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
+                        <input
+                          type="radio"
+                          name="deliveryAddress"
+                          value={addr.id}
+                          checked={(selectedAddressId || defaultAddress?.id) === addr.id}
+                          onChange={(e) => setSelectedAddressId(e.target.value)}
+                          className="h-4 w-4 shrink-0 accent-emerald-700"
+                        />
+                        <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${
+                          (selectedAddressId || defaultAddress?.id) === addr.id
+                            ? "bg-white text-emerald-700"
+                            : "bg-slate-100 text-slate-600"
+                        }`}>
+                          {addr.address_type?.toLowerCase() === "work" ? <Building2 className="h-5 w-5" /> : addr.address_type?.toLowerCase() === "home" ? <Home className="h-5 w-5" /> : <MapPin className="h-5 w-5" />}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="flex flex-wrap items-center gap-2">
+                            <span className="text-sm font-bold capitalize text-slate-950">{addr.address_type || "Delivery"}</span>
+                            {addr.is_default && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-800">Default</span>}
+                          </span>
+                          <span className="mt-1 block text-sm leading-5 text-slate-800">
+                            {addr.address_line1}{addr.address_line2 ? `, ${addr.address_line2}` : ""}
+                          </span>
+                          <span className="mt-0.5 block text-xs leading-4 text-slate-600">
+                            {addr.city}, {addr.state} – {addr.zip_code}
+                          </span>
+                        </span>
+                      </label>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <Button type="button" variant="outline" size="sm" onClick={() => handleEditAddress(addr)} className="h-8 px-2 text-xs" aria-label={`Edit ${addr.address_type} address`}>
+                          <Pencil className="mr-1 h-3.5 w-3.5" /> Edit
+                        </Button>
+                        <Button type="button" variant="ghost" size="sm" onClick={() => handleDeleteAddress(addr)} className="h-8 px-2 text-xs text-rose-600 hover:bg-rose-50 hover:text-rose-700" aria-label={`Delete ${addr.address_type} address`}>
+                          <Trash2 className="mr-1 h-3.5 w-3.5" /> Delete
+                        </Button>
                       </div>
-                    </label>
+                    </div>
                   ))}
                 </div>
               )}
 
               {showAddrForm && (
-                <form onSubmit={handleAddAddress} className="space-y-3 rounded-lg border bg-gray-50 p-4">
+                <form onSubmit={handleAddAddress} className="space-y-3 rounded-lg border border-emerald-200 bg-emerald-50/40 p-4">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">New Address</span>
-                    <Button type="button" variant="ghost" size="sm" onClick={() => setShowAddrForm(false)}>
+                    <span className="text-sm font-semibold">{editingAddressId ? "Edit Delivery Address" : "New Address"}</span>
+                    <Button type="button" variant="ghost" size="sm" onClick={resetAddressForm}>
                       <X className="h-4 w-4" />
                     </Button>
                   </div>
                   <Input name="address_line1" value={addrForm.address_line1} onChange={handleAddrChange} placeholder="Address line 1 *" required />
                   <Input name="address_line2" value={addrForm.address_line2} onChange={handleAddrChange} placeholder="Address line 2 (optional)" />
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-slate-700">Primary Phone Number <span className="text-rose-600">*</span></label>
+                      <Input type="tel" name="phone_number" value={addrForm.phone_number} onChange={handleAddrChange} placeholder="10-digit contact number" required />
+                      <p className="text-[11px] text-slate-500">{profilePhone ? "Pre-filled from your profile. You can change it for this delivery address." : "Add your phone number to your profile or enter it here. Required for delivery calls."}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-slate-700">Alternative Phone Number</label>
+                      <Input type="tel" name="alternative_phone_number" value={addrForm.alternative_phone_number} onChange={handleAddrChange} placeholder="Backup contact number (optional)" />
+                      <p className="text-[11px] text-slate-500">Used if the primary number is unreachable.</p>
+                    </div>
+                  </div>
                   <div className="grid grid-cols-2 gap-3">
                     <Input name="city" value={addrForm.city} onChange={handleAddrChange} placeholder="City *" required />
                     <Input name="state" value={addrForm.state} onChange={handleAddrChange} placeholder="State *" required />
@@ -891,53 +1167,187 @@ export default function CheckoutPage() {
                     <option value="other">Other</option>
                   </select>
                   <Button type="submit" size="sm" disabled={savingAddr}>
-                    {savingAddr ? "Saving..." : "Save Address"}
+                    {savingAddr ? "Saving..." : editingAddressId ? "Update Address" : "Save Address"}
                   </Button>
                 </form>
               )}
 
-              <Button variant="outline" size="sm" onClick={() => setShowAddrForm(!showAddrForm)} className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => {
+                if (showAddrForm) resetAddressForm();
+                else {
+                  setEditingAddressId(null);
+                  setAddrForm({ ...initialAddrForm, phone_number: profilePhone });
+                  setShowAddrForm(true);
+                }
+              }} className="flex items-center gap-2">
                 <Plus className="h-4 w-4" /> {showAddrForm ? "Cancel" : "Add new address"}
               </Button>
             </CardContent>
           </Card>
 
-            <Card className="border-emerald-200 bg-emerald-50/40">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <CalendarClock className="h-5 w-5 text-emerald-600" /> Fresh delivery window
-                </CardTitle>
-                <CardDescription>Choose when the farmer&apos;s produce should reach you.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 gap-3">
-                  <label className={`cursor-pointer rounded-lg border p-3 ${deliveryDate === new Date().toISOString().split("T")[0] ? "border-emerald-500 bg-white" : "bg-white/60"}`}>
-                    <input type="radio" name="deliveryDate" className="mr-2" checked={deliveryDate === new Date().toISOString().split("T")[0]} onChange={() => setDeliveryDate(new Date().toISOString().split("T")[0])} />
-                    <span className="text-sm font-medium">Today</span>
-                    <span className="mt-1 block text-xs text-muted-foreground">Best for leafy greens</span>
-                  </label>
-                  <label className={`cursor-pointer rounded-lg border p-3 ${deliveryDate !== new Date().toISOString().split("T")[0] ? "border-emerald-500 bg-white" : "bg-white/60"}`}>
-                    <input type="radio" name="deliveryDate" className="mr-2" checked={deliveryDate !== new Date().toISOString().split("T")[0]} onChange={() => { const d = new Date(); d.setDate(d.getDate() + 1); setDeliveryDate(d.toISOString().split("T")[0]); }} />
-                    <span className="text-sm font-medium">Tomorrow</span>
-                    <span className="mt-1 block text-xs text-muted-foreground">Plan ahead</span>
-                  </label>
+          {/* Delivery availability is presented as one backend-driven state. */}
+          <Card className="overflow-hidden border-slate-200 shadow-sm">
+            <CardHeader className="border-b border-slate-100 bg-white px-5 py-4">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Truck className="h-5 w-5 text-emerald-700" /> Delivery Availability
+              </CardTitle>
+              <CardDescription>We check the delivery window and partner availability for your selected address.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3 p-4 sm:p-5">
+              {!estimatedDeliveryAddressId ? (
+                <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600">
+                  Select a delivery address to check the fastest delivery service.
                 </div>
-                <div>
-                  <label className="text-sm font-medium">Preferred time</label>
-                  <select value={deliveryTimeSlot} onChange={(e) => setDeliveryTimeSlot(e.target.value)} className="mt-1 w-full rounded-md border bg-white px-3 py-2 text-sm">
-                    <option value="morning">Morning (6AM - 10AM)</option>
-                    <option value="midday">Midday (10AM - 2PM)</option>
-                    <option value="afternoon">Afternoon (2PM - 6PM)</option>
-                    <option value="evening">Evening (6PM - 8PM)</option>
-                  </select>
+              ) : !deliveryAvailability || !deliveryQuote ? (
+                <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                  <Loader2 className="h-5 w-5 animate-spin text-emerald-700" />
+                  Checking delivery service, partner availability and estimated delivery time…
                 </div>
-                <p className="flex items-center gap-2 text-xs text-emerald-800"><Leaf className="h-4 w-4" /> Same-day delivery helps reduce food waste and keeps produce fresher.</p>
-              </CardContent>
-            </Card>
+              ) : fastestDeliveryAvailable ? (
+                <div className="rounded-xl border border-emerald-300 bg-gradient-to-r from-emerald-50 to-green-50 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+                        <CheckCircle2 className="h-6 w-6" />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="font-bold text-emerald-900">Delivery service active</p>
+                        <p className="mt-1 text-sm leading-5 text-emerald-800">
+                          {deliveryAvailability.message || "A suitable delivery partner is available for this order."}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-emerald-200 bg-white px-4 py-3 text-left sm:min-w-[190px]">
+                      <p className="flex items-center gap-2 text-sm font-bold text-slate-900">
+                        <CalendarClock className="h-4 w-4 text-emerald-700" /> Fastest Delivery
+                      </p>
+                      <p className="mt-1 text-sm font-semibold text-emerald-800">
+                        Within {deliveryQuote.estimatedDeliveryMinutes} minutes
+                      </p>
+                      <p className="mt-1 flex items-center gap-1 text-xs font-semibold text-emerald-700">
+                        <CheckCircle2 className="h-3.5 w-3.5" /> Partner available
+                        {deliveryAvailability.availablePartnerCount > 0 ? ` · ${deliveryAvailability.availablePartnerCount}` : ""}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {deliveryQuote && (
+                <div className="grid gap-3 rounded-xl border border-slate-200 bg-white p-3 sm:grid-cols-3">
+                  <div>
+                    <p className="text-xs text-slate-500">Delivery fee</p>
+                    <p className="mt-1 text-sm font-bold text-slate-900">
+                      {deliveryQuote.freeDelivery && deliveryQuote.fee === 0 ? "FREE" : formatPrice(deliveryQuote.fee)}
+                    </p>
+                  </div>
+                  <div className="sm:border-l sm:border-slate-200 sm:pl-4">
+                    <p className="text-xs text-slate-500">Distance from farmer</p>
+                    <p className="mt-1 text-sm font-bold text-slate-900">
+                      {deliveryQuote.distanceKm > 0 ? `${deliveryQuote.distanceKm.toFixed(1)} km` : "Calculated by service"}
+                    </p>
+                  </div>
+                  <div className="sm:border-l sm:border-slate-200 sm:pl-4">
+                    <p className="text-xs text-slate-500">Delivery estimate</p>
+                    <p className="mt-1 text-sm font-bold text-slate-900">
+                      {fastestDeliveryAvailable ? `≤ ${deliveryQuote.estimatedDeliveryMinutes} min` : "Standard delivery"}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Choose Delivery Slot */}
+          <Card className="overflow-hidden border-slate-200 shadow-sm">
+            <CardHeader className="border-b border-slate-100 bg-white px-5 py-3">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <CalendarClock className="h-5 w-5 text-emerald-700" /> Choose Delivery Slot
+              </CardTitle>
+              <CardDescription>Select a convenient date and time for delivery.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3 p-4">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                {Array.from({ length: 5 }, (_, index) => {
+                  const date = new Date();
+                  date.setDate(date.getDate() + index);
+                  const dateValue = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
+                  const selected = deliveryDate === dateValue;
+                  return (
+                    <button key={dateValue} type="button" onClick={() => setDeliveryDate(dateValue)}
+                      className={`flex min-h-[66px] flex-col items-center justify-center rounded-xl border px-2 py-2 text-center transition ${selected ? "border-emerald-600 bg-emerald-50 text-emerald-900 ring-1 ring-emerald-200" : "border-slate-200 bg-white text-slate-700 hover:border-emerald-300"}`}>
+                      <CalendarClock className={`mb-1 h-4 w-4 ${selected ? "text-emerald-700" : "text-slate-500"}`} />
+                      <span className="text-xs font-semibold">{index === 0 ? "Today" : date.toLocaleDateString("en-IN", { weekday: "short" })}</span>
+                      <span className="text-xs">{date.toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              {checkoutSlots.length === 0 && (
+                <div className="grid gap-2 sm:grid-cols-3">
+                  {([
+                    ["morning", "Morning", "8:00 AM – 11:00 AM"],
+                    ["afternoon", "Afternoon", "12:00 PM – 4:00 PM"],
+                    ["evening", "Evening", "4:00 PM – 7:00 PM"],
+                  ] as const).map(([value, label, time]) => {
+                    const selected = deliveryTimeSlot === value;
+                    return (
+                      <button key={value} type="button" onClick={() => {
+                        setSelectedDeliverySlotId("");
+                        setDeliveryTimeSlot(value);
+                      }}
+                        className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition ${selected ? "border-emerald-500 bg-emerald-50 ring-1 ring-emerald-100" : "border-slate-200 bg-white hover:border-emerald-300"}`}>
+                        <span className={`h-4 w-4 rounded-full border-2 ${selected ? "border-emerald-600 bg-emerald-600 ring-2 ring-emerald-100" : "border-slate-300"}`} />
+                        <span><span className="block text-sm font-semibold text-slate-900">{label}</span><span className="block text-xs text-slate-600">{time}</span></span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              <div className="border-t border-slate-100 pt-3">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Available farmer delivery batches</p>
+                {!selectedCheckoutAddress?.city ? (
+                  <p className="text-sm text-slate-500">Select a delivery address to find matching delivery slots.</p>
+                ) : checkoutSlotsLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> Finding available slots…</div>
+                ) : checkoutSlotsError ? (
+                  <div className="rounded-lg border border-dashed border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                    Could not load farmer delivery slots. <button type="button" className="font-semibold underline" onClick={() => refetchCheckoutSlots()}>Try again</button>
+                  </div>
+                ) : checkoutSlots.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-sm text-slate-500">No open farmer-published slots are available on this date. Choose another date or continue with standard delivery. New slots are checked automatically.</div>
+                ) : (
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {checkoutSlots.map((slot: any) => (
+                      <button type="button" key={slot.id}
+                        onClick={() => {
+                          if (checkoutCartWeightKg > Number(slot.remainingCapacityKg ?? slot.maxCapacityKg ?? 0)) {
+                            toast.error("This slot has only " + Number(slot.remainingCapacityKg ?? 0).toFixed(2) + " kg remaining.");
+                            return;
+                          }
+                          setSelectedDeliverySlotId(slot.id);
+                          setDeliveryTimeSlot(`${slot.startTime} - ${slot.endTime}`);
+                        }}
+                        disabled={checkoutCartWeightKg > Number(slot.remainingCapacityKg ?? slot.maxCapacityKg ?? 0)}
+                        className={`rounded-lg border p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${selectedDeliverySlotId === slot.id ? "border-emerald-600 bg-emerald-50 ring-1 ring-emerald-100" : "border-slate-200 hover:border-emerald-300"}`}>
+                        <div className="flex items-center justify-between gap-2"><span className="text-sm font-semibold text-slate-900">{slot.area}</span><span className="rounded-full bg-emerald-100 px-2 py-1 text-[11px] font-semibold text-emerald-700">{Number(slot.remainingCapacityKg ?? 0).toFixed(2)} kg left</span></div>
+                        <p className="mt-1 text-xs text-slate-600">{slot.startTime} – {slot.endTime}</p>
+                        <p className="mt-1 text-xs text-slate-500">{slot.farmerInfo?.farmName || slot.farmerInfo?.name || "Local farmer"} · Service area: {slot.area} · {slot.distanceKm ? `${slot.distanceKm} km away` : `${slot.radiusKm} km coverage`}</p>
+                        <p className="mt-1 text-xs font-medium text-emerald-700">Delivery fee: ₹{Number(slot.deliveryFee || 0).toFixed(2)}</p>
+                        {checkoutCartWeightKg > Number(slot.remainingCapacityKg ?? 0) && <p className="mt-1 text-xs font-medium text-rose-600">Not enough capacity for your cart</p>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {selectedCheckoutSlot && <div className="mt-2 flex items-center justify-between rounded-lg bg-emerald-50 p-2.5 text-xs"><span className="text-emerald-800">Selected: {selectedCheckoutSlot.area}, {selectedCheckoutSlot.startTime}–{selectedCheckoutSlot.endTime}</span><Button type="button" size="sm" variant="ghost" onClick={() => setSelectedDeliverySlotId("")}>Remove</Button></div>}
+              </div>
+              <p className="flex items-center gap-2 text-xs text-emerald-800"><Leaf className="h-4 w-4" /> Fresh produce delivered directly from local farmers.</p>
+            </CardContent>
+          </Card>
 
           {/* Payment Method */}
           <Card className="overflow-hidden border-slate-200 shadow-sm">
-            <CardHeader className="border-b bg-white px-5 py-5">
+            <CardHeader className="border-b border-slate-100 bg-white px-5 py-4">
               <CardTitle className="flex items-center gap-2 text-lg">
                 <CreditCard className="h-5 w-5 text-emerald-600" />
                 Payment Method
@@ -947,7 +1357,7 @@ export default function CheckoutPage() {
               </CardDescription>
             </CardHeader>
 
-            <CardContent className="space-y-3 p-4 sm:p-5">
+            <CardContent className="space-y-2 p-4 sm:p-5">
               {PAYMENT_METHODS.map((method: any) => {
                 const Icon = method.icon;
                 const selected = paymentMethod === method.value;
@@ -962,11 +1372,11 @@ export default function CheckoutPage() {
                     <button
                       type="button"
                       onClick={() => setPaymentMethod(method.value)}
-                      className="flex w-full items-center gap-3 p-4 text-left"
+                      className="flex w-full items-center gap-3 px-3 py-2 text-left"
                       aria-expanded={selected}
                     >
                       <span
-                        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${selected
+                        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${selected
                           ? "bg-emerald-600 text-white"
                           : "bg-slate-100 text-slate-600"}`}
                       >
@@ -1054,9 +1464,9 @@ export default function CheckoutPage() {
 
                                 {paymentStage === "failed" && (
                                   <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800">
-                                    <p className="font-semibold">Payment was not completed</p>
+                                    <p className="font-semibold">{paymentMethod === "cash" ? "Order placement needs attention" : "Payment was not completed"}</p>
                                     <p className="mt-1">
-                                      Your order is not marked paid. Check the Razorpay checkout and try again.
+                                      {paymentMethod === "cash" ? "No payment is due now for Cash on Delivery. Review the message above and try placing the order again." : "Your order is not marked paid. Check the Razorpay checkout and try again."}
                                     </p>
                                   </div>
                                 )}
@@ -1065,7 +1475,7 @@ export default function CheckoutPage() {
                                   type="button"
                                   className="w-full"
                                   size="lg"
-                                  onClick={handlePlaceOrder}
+                                  onClick={() => handlePlaceOrder()}
                                   disabled={isPlacing}
                                 >
                                   {isPlacing ? (
@@ -1202,74 +1612,23 @@ export default function CheckoutPage() {
                 );
               })}
 
-              <div className="mt-5 border-t pt-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-slate-600">Total payable</span>
-                  <span className="text-xl font-bold text-slate-950">{formatPrice(estimatedTotal)}</span>
-                </div>
 
-                <div className="mt-4 flex items-center gap-2 text-xs text-slate-500">
-                  <ShieldCheck className="h-4 w-4 shrink-0 text-emerald-600" />
-                  <span>
-                    {paymentMethod === "cash"
-                      ? "No online payment is taken for Cash on Delivery."
-                      : "Payment is verified securely before the order is marked paid."}
-                  </span>
-                </div>
-
-                {!(paymentMethod === "upi" && selectedUpiApp) && (
-                  <Button
-                    className="mt-4 w-full"
-                    size="lg"
-                    onClick={handlePlaceOrder}
-                    disabled={isPlacing || (paymentMethod === "wallet" && walletBalance < estimatedTotal)}
-                  >
-                    {isPlacing ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        {paymentMethod === "cash" ? "Placing order..." : "Processing payment..."}
-                      </>
-                    ) : paymentMethod === "cash" ? (
-                      `Place order · ${formatPrice(estimatedTotal)}`
-                    ) : paymentMethod === "wallet" ? (
-                      `Pay ${formatPrice(estimatedTotal)} from Wallet`
-                    ) : (
-                      `Pay ${formatPrice(estimatedTotal)}`
-                    )}
-                  </Button>
-                )}
-              </div>
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Special Instructions</CardTitle>
-              <CardDescription>Optional notes for the farmer or delivery partner</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <textarea
-                value={specialInstructions}
-                onChange={(e) => setSpecialInstructions(e.target.value)}
-                placeholder="e.g., Leave at the gate, call before delivery"
-                rows={3}
-                className="w-full rounded-md border px-3 py-2 text-sm"
-              />
-            </CardContent>
-          </Card>
         </div>
 
         {/* Order Summary Sidebar */}
-        <div className="space-y-6">
-          <Card className="h-fit">
-            <CardHeader>
-              <CardTitle>Order Summary</CardTitle>
+        <div className="space-y-3 lg:sticky lg:top-24">
+          <Card className="h-fit overflow-hidden border-slate-200 shadow-md">
+            <CardHeader className="border-b border-slate-100 bg-white px-5 py-4">
+              <CardTitle className="flex items-center gap-2 text-lg"><ShoppingCart className="h-5 w-5 text-emerald-700" /> Order Summary</CardTitle>
               <CardDescription>{itemCount} item(s) in your cart</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-4 p-4 sm:p-5">
               {items.map((item) => (
-                <div key={item.id} className="flex gap-3 rounded-lg border p-3">
-                  <div className="h-16 w-16 flex-shrink-0 overflow-hidden rounded-md bg-slate-100">
+                <div key={item.id} className="flex gap-3 rounded-xl border border-slate-200 bg-white p-3">
+                  <div className="h-20 w-20 flex-shrink-0 overflow-hidden rounded-lg bg-slate-100">
                     <img
                       src={item.image || "/images/placeholder-product.jpg"}
                       alt={item.name}
@@ -1281,7 +1640,7 @@ export default function CheckoutPage() {
                   </div>
                   <div className="flex min-w-0 flex-1 flex-col justify-between">
                     <div>
-                      <p className="text-sm font-medium text-slate-900">{item.name}</p>
+                      <p className="text-base font-bold text-slate-900">{item.name}</p>
                       <p className="text-xs text-muted-foreground">{item.farmerName || "Local Farmer"}</p>
                     </div>
                     <div className="flex items-center justify-between">
@@ -1290,7 +1649,7 @@ export default function CheckoutPage() {
                         <span className="text-slate-300">|</span>
                         <span>Qty: {item.quantity}</span>
                       </div>
-                      <span className="text-sm font-semibold text-emerald-700">{formatPrice((item.originalPrice || item.price) * item.quantity)}</span>
+                      <span className="text-base font-bold text-emerald-700">{formatPrice((item.originalPrice || item.price) * item.quantity)}</span>
                     </div>
                   </div>
                 </div>
@@ -1326,15 +1685,53 @@ export default function CheckoutPage() {
                 )}
                 {couponError && <p className="text-xs text-red-500">{couponError}</p>}
               </div>
+              <div className="rounded-xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-white p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="flex items-center gap-2 text-sm font-extrabold text-slate-900"><Coins className="h-4 w-4 text-emerald-700" /> Use AgriPoints</p>
+                    <p className="mt-1 text-xs text-slate-600">
+                      {loyaltyPointsLoading ? "Loading your points balance…" : `Available balance: ${availableAgriPoints.toLocaleString("en-IN")} points`}
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-emerald-800">100 pts = ₹1</span>
+                </div>
+                {effectiveAgriPoints > 0 ? (
+                  <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm">
+                    <span className="font-semibold text-emerald-800">{effectiveAgriPoints.toLocaleString("en-IN")} points applied</span>
+                    <span className="flex items-center gap-2 font-bold text-emerald-800">−{formatPrice(agriPointsDiscount)}
+                      <button type="button" onClick={handleRemoveAgriPoints} className="text-xs font-semibold text-slate-500 underline">Remove</button>
+                    </span>
+                  </div>
+                ) : (
+                  <div className="mt-3 flex gap-2">
+                    <Input type="number" min="100" step="100" max={maxAgriPoints}
+                      value={agriPointsInput}
+                      onChange={(event) => { setAgriPointsInput(event.target.value); setAgriPointsError(""); }}
+                      placeholder="Enter points (e.g. 500)" className="min-w-0 flex-1 bg-white"
+                      disabled={loyaltyPointsLoading || availableAgriPoints < 100 || maxAgriPoints < 100} />
+                    <Button type="button" variant="outline" size="sm" onClick={handleApplyAgriPoints}
+                      disabled={loyaltyPointsLoading || availableAgriPoints < 100 || maxAgriPoints < 100}>Apply</Button>
+                  </div>
+                )}
+                <p className="mt-2 text-[11px] text-slate-500">You can redeem up to {maxAgriPoints.toLocaleString("en-IN")} points on this order. Points are deducted only after the order is created successfully.</p>
+                {agriPointsError && <p className="mt-1 text-xs font-medium text-rose-600">{agriPointsError}</p>}
+                {!loyaltyPointsLoading && availableAgriPoints < 100 && <p className="mt-1 text-xs text-slate-500">You need at least 100 points to redeem a ₹1 discount.</p>}
+              </div>
               <div className="border-t pt-3 space-y-1.5">
                 <div className="flex justify-between text-sm">
-                  <span>Subtotal</span>
+                  <span>Product total</span>
                   <span>{formatPrice(displayTotal)}</span>
                 </div>
                 {couponDiscount > 0 && (
                   <div className="flex justify-between text-sm text-emerald-600">
                     <span>Coupon discount</span>
                     <span>-{formatPrice(couponDiscount)}</span>
+                  </div>
+                )}
+                {agriPointsDiscount > 0 && (
+                  <div className="flex justify-between text-sm font-semibold text-emerald-700">
+                    <span>AgriPoints discount ({effectiveAgriPoints.toLocaleString("en-IN")} pts)</span>
+                    <span>−{formatPrice(agriPointsDiscount)}</span>
                   </div>
                 )}
                 <div className="flex justify-between text-sm">
@@ -1353,16 +1750,72 @@ export default function CheckoutPage() {
                   <span>Platform fee</span>
                   <span className="text-muted-foreground">{formatPrice(platformFeeValue)}</span>
                 </div>
-              <div className="flex justify-between border-t pt-2 text-sm font-semibold">
+              <div className="flex justify-between rounded-lg border-t border-emerald-100 bg-emerald-50 px-3 py-3 text-base font-bold">
                   <span>Estimated total</span>
                   <span>{formatPrice(estimatedTotal)}</span>
                 </div>
+
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-4">
+                <p className="flex items-center gap-2 font-bold text-slate-900"><Leaf className="h-5 w-5 text-emerald-700" /> Why buy from AgriConnect?</p>
+                <div className="mt-4 grid grid-cols-3 divide-x divide-emerald-200 text-center">
+                  <div className="px-2"><Leaf className="mx-auto h-5 w-5 text-emerald-700" /><p className="mt-1 text-xs font-medium text-slate-700">Direct from<br/>Farmers</p></div>
+                  <div className="px-2"><ShieldCheck className="mx-auto h-5 w-5 text-emerald-700" /><p className="mt-1 text-xs font-medium text-slate-700">Quality<br/>Assured</p></div>
+                  <div className="px-2"><Truck className="mx-auto h-5 w-5 text-emerald-700" /><p className="mt-1 text-xs font-medium text-slate-700">Fresh & Safe<br/>Delivery</p></div>
+                </div>
+              </div>
+              <div className="border-t border-slate-100 pt-4">
+                <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
+                  <ShieldCheck className="h-4 w-4 shrink-0 text-emerald-600" />
+                  <span>
+                    {paymentMethod === "cash"
+                      ? "No online payment is taken for Cash on Delivery."
+                      : "Payment is verified securely before the order is marked paid."}
+                  </span>
+                </div>
+
+                {!(paymentMethod === "upi" && selectedUpiApp) && (
+                  <Button
+                    className="mt-4 h-12 w-full bg-emerald-800 text-base font-bold text-white shadow-sm hover:bg-emerald-900"
+                    size="lg"
+                    onClick={() => handlePlaceOrder()}
+                    disabled={isPlacing || (paymentMethod === "wallet" && walletBalance < estimatedTotal)}
+                  >
+                    {isPlacing ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        {paymentMethod === "cash" ? "Placing order..." : "Processing payment..."}
+                      </>
+                    ) : paymentMethod === "cash" ? (
+                      `Place Order (${formatPrice(estimatedTotal)})`
+                    ) : paymentMethod === "wallet" ? (
+                      `Pay ${formatPrice(estimatedTotal)} from Wallet`
+                    ) : (
+                      `Pay ${formatPrice(estimatedTotal)}`
+                    )}
+                  </Button>
+                )}
+              </div>
               </div>
             </CardContent>
           </Card>
 
         </div>
       </div>
+      {!fastestDeliveryAvailable && deliveryAvailability && deliveryQuote && (
+        <div className="grid gap-3 rounded-2xl border border-blue-200 bg-white p-3 shadow-sm sm:grid-cols-[minmax(180px,0.28fr)_minmax(0,1fr)] sm:items-center">
+          <div className="rounded-xl bg-blue-50 px-4 py-3">
+            <p className="text-sm font-bold text-blue-900">Alternate delivery</p>
+            <p className="mt-1 text-xs text-blue-800">When fastest delivery is not possible</p>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-300 bg-blue-50/70 px-4 py-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <Truck className="h-7 w-7 shrink-0 text-blue-700" />
+              <div><p className="font-bold text-blue-900">Standard Delivery</p><p className="text-xs leading-5 text-blue-800">Fastest 30-minute delivery is not feasible for this address right now. Standard delivery is available.</p></div>
+            </div>
+            <div className="border-l border-blue-200 pl-4 text-sm text-blue-900"><p className="text-xs text-blue-700">Estimated delivery</p><p className="font-bold">{deliveryAvailability.estimatedDeliveryLabel || "Standard delivery window"}</p></div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

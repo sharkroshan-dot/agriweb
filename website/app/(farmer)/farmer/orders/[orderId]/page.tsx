@@ -1,10 +1,10 @@
 "use client";
 
 import { useMemo, useState, useRef, useEffect } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Package, MapPin, Clock, CreditCard, User, Phone, Hash, ShoppingBag, ChevronDown, ChevronUp, Store, CheckCircle, Loader2, ScanLine, X } from "lucide-react";
+import { ArrowLeft, Package, MapPin, Clock, CreditCard, User, Phone, Hash, ShoppingBag, ChevronDown, ChevronUp, Store, CheckCircle, Loader2, ScanLine, X, Truck, CheckCircle2, CalendarDays, Mail, ExternalLink, ClipboardList } from "lucide-react";
 import { Button } from "../../../../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../../components/ui/card";
 import { Badge } from "../../../../components/ui/badge";
@@ -27,6 +27,63 @@ const statusColors: Record<string, string> = {
   refunded: "border-orange-200 bg-orange-50 text-orange-700",
 };
 
+const humanizeRole = (role: string) => String(role || "")
+  .replace(/_/g, " ")
+  .replace(/\b\w/g, (letter: string) => letter.toUpperCase());
+
+const getOrderProgress = (status: string, deliveryType: string) => {
+  const isPickup = String(deliveryType || "").toLowerCase() === "pickup";
+  const steps = [
+    { label: "Order placed", description: "Order received", icon: ShoppingBag },
+    { label: "Confirmed", description: "Order accepted", icon: CheckCircle2 },
+    { label: "Preparing", description: "Getting products ready", icon: Package },
+    { label: isPickup ? "Ready for pickup" : "Ready for delivery", description: isPickup ? "Waiting for collection" : "Waiting for dispatch", icon: isPickup ? Store : Package },
+    { label: isPickup ? "Picked up" : "Delivered", description: isPickup ? "Handed over to customer" : "Order delivered", icon: isPickup ? CheckCircle2 : Truck },
+  ];
+  const ranks: Record<string, number> = {
+    pending: 0, confirmed: 1, processing: 2, quality_check: 2,
+    ready_for_pickup: 3, ready_for_delivery: 3, dispatched: 4,
+    in_transit: 4, picked_up: 5, delivered: 5,
+  };
+  return { steps, activeIndex: ranks[status] ?? 0, terminal: status === "cancelled" || status === "refunded" };
+};
+
+const cropEmoji = (name: string) => {
+  const crop = String(name || '').toLowerCase();
+  if (/brinjal|eggplant|aubergine/.test(crop)) return '🍆';
+  if (/tomato/.test(crop)) return '🍅';
+  if (/potato/.test(crop)) return '🥔';
+  if (/onion/.test(crop)) return '🧅';
+  if (/carrot/.test(crop)) return '🥕';
+  if (/cabbage|lettuce/.test(crop)) return '🥬';
+  if (/broccoli/.test(crop)) return '🥦';
+  if (/chilli|chili|pepper/.test(crop)) return '🌶️';
+  if (/cucumber/.test(crop)) return '🥒';
+  if (/corn|maize/.test(crop)) return '🌽';
+  if (/garlic/.test(crop)) return '🧄';
+  if (/mango/.test(crop)) return '🥭';
+  if (/banana/.test(crop)) return '🍌';
+  if (/apple/.test(crop)) return '🍎';
+  if (/orange/.test(crop)) return '🍊';
+  if (/grape/.test(crop)) return '🍇';
+  if (/rice|paddy/.test(crop)) return '🌾';
+  return '🌱';
+};
+
+function OrderProductThumbnail({ name, image }: { name: string; image?: string }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  return (
+    <div className="flex h-48 w-48 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-emerald-100 bg-white p-2 shadow-sm">
+      {image && !imageFailed ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={image} alt={name} className="h-full w-full object-contain" onError={() => setImageFailed(true)} />
+      ) : (
+        <span className="text-7xl" role="img" aria-label={name}>{cropEmoji(name)}</span>
+      )}
+    </div>
+  );
+}
+
 const pickupPaymentLabel = (method: string) => {
   const m = (method || "").toLowerCase();
   if (m === "cash" || m === "cod" || m === "cash_on_delivery") return "Cash on Pickup";
@@ -35,20 +92,25 @@ const pickupPaymentLabel = (method: string) => {
 
 export default function FarmerOrderDetailPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const orderId = params.orderId as string;
+  const isB2BOrder = searchParams.get("source") === "b2b";
   const [showAllTracking, setShowAllTracking] = useState(false);
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ["farmerOrder", orderId],
-    queryFn: () => api.get(`/orders/${orderId}`),
+    queryKey: ["farmerOrder", isB2BOrder ? "b2b" : "retail", orderId],
+    queryFn: () => api.get(isB2BOrder ? `/b2b/orders/${orderId}` : `/orders/${orderId}`),
     enabled: !!orderId,
     refetchInterval: 10000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: true,
+    staleTime: 0,
   });
 
   const { data: fulfillmentCheckData } = useQuery({
     queryKey: ["farmerFulfillmentCheck", orderId],
     queryFn: () => api.get(`/farmers/me/orders/${orderId}/fulfillment-check`),
-    enabled: !!orderId,
+    enabled: !!orderId && !isB2BOrder,
     refetchInterval: 10000,
   });
   const fulfillmentCheck = fulfillmentCheckData?.data || fulfillmentCheckData || null;
@@ -158,12 +220,13 @@ export default function FarmerOrderDetailPage() {
       deliveryType: o.deliveryType || "delivery",
       date: o.orderDate || o.createdAt,
       items: items.map((i: any) => ({
-        name: i.productName || "Product",
-        quantity: String(i.quantity || 0),
-        price: Number(i.totalPrice || i.unitPrice * i.quantity || 0),
-        unitPrice: Number(i.unitPrice || 0),
+        name: i.productName || i.cropName || i.name || "Product",
+        image: i.productImage || i.images?.[0] || i.image || i.imageUrl || i.product?.images?.[0] || i.product?.image || i.productDetails?.images?.[0] || i.productSnapshot?.images?.[0] || "",
+        quantity: String(i.quantity ?? i.quantityKg ?? i.approvedQuantityKg ?? 0),
+        price: Number(i.totalPrice || i.lineTotal || i.unitPrice * (i.quantity ?? i.quantityKg ?? 0) || 0),
+        unitPrice: Number(i.unitPrice || i.pricePerKg || 0),
       })),
-      subtotal: Number(o.subtotal || 0),
+      subtotal: Number(o.subtotal ?? o.subtotalAmount ?? o.totalAmount ?? 0),
       delivery: Number(o.deliveryCharge || 0),
       platformFee: Number(o.platformFee || 0),
       platformCommission: Number(o.platformCommission || 0),
@@ -173,18 +236,54 @@ export default function FarmerOrderDetailPage() {
       customerName: o.customer?.name || "Customer",
       customerPhone: o.customer?.phone || "",
       customerEmail: o.customer?.email || "",
-      address: o.deliveryAddress
-        ? [o.deliveryAddress.addressLine1, o.deliveryAddress.addressLine2, o.deliveryAddress.city, o.deliveryAddress.state, o.deliveryAddress.zipCode].filter(Boolean).join(", ")
-        : "Address not available",
+      address: typeof o.deliveryAddress === "string"
+        ? o.deliveryAddress
+        : o.deliveryAddress
+          ? [o.deliveryAddress.addressLine1, o.deliveryAddress.addressLine2, o.deliveryAddress.city || o.deliveryAddress.town, o.deliveryAddress.district, o.deliveryAddress.state, o.deliveryAddress.zipCode || o.deliveryAddress.postalCode].filter(Boolean).join(", ")
+          : o.shippingAddress
+            ? (typeof o.shippingAddress === "string" ? o.shippingAddress : [o.shippingAddress.addressLine1, o.shippingAddress.addressLine2, o.shippingAddress.city, o.shippingAddress.state, o.shippingAddress.zipCode].filter(Boolean).join(", "))
+            : "Address not available",
       paymentMethod: o.paymentMethod || "cash",
       paymentStatus: o.paymentStatus || "pending",
       specialInstructions: o.specialInstructions,
-      tracking: (o.statusHistory || []).map((h: any) => ({
-        status: (h.status || "").toLowerCase(),
-        eventType: h.eventType || "",
-        date: h.timestamp || h.createdAt || h.date,
-        description: h.title || h.note || String(h.status || "Status update").replace(/_/g, " ").replace(/\\b\\w/g, (c: string) => c.toUpperCase()),
-      })).sort((a: any, b: any) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()),
+      tracking: (Array.isArray(o.statusHistory) ? o.statusHistory : [])
+        .filter((h: any) => h && typeof h === "object" && h.isInvalidTransition !== true)
+        .map((h: any, index: number) => {
+          const action = String(h.action || h.eventType || "").trim().toLowerCase();
+          const status = String(h.status || o.status || o.orderStatus || "updated").trim().toLowerCase();
+          const actionLabels: Record<string, string> = {
+            order_created: "Order placed",
+            quality_check: "Quality inspection updated",
+            assign_pickup: "Farm pickup team assigned",
+            confirm_pickup: "Produce collected from farm",
+            receive_stock: "Produce received at warehouse",
+            set_fulfillment_route: "Delivery route selected",
+            dispatch_transfer: "Warehouse transfer dispatched",
+            receive_at_destination: "Received at destination warehouse",
+            complete_consolidation: "Farmer orders consolidated",
+            dispatch_to_buyer: "Final delivery assigned and dispatched",
+            confirm_delivery: "Delivered to business",
+            reschedule_delivery: "Delivery schedule changed",
+            complete_order: "Order completed",
+            cancel_order: "Order cancelled",
+          };
+          const humanize = (value: string) => value
+            .replace(/_/g, " ")
+            .replace(/\b\w/g, (letter: string) => letter.toUpperCase());
+          const date = h.timestamp || h.createdAt || h.date || h.updatedAt || null;
+          const parsedDate = date ? new Date(date).getTime() : 0;
+          return {
+            key: String(h._id || h.id || `${action || status}-${date || index}-${index}`),
+            status,
+            label: String(h.title || actionLabels[action] || (action ? humanize(action) : humanize(status))),
+            actorRole: h.actorRole || "",
+            date,
+            sortTime: Number.isFinite(parsedDate) ? parsedDate : 0,
+            description: String(h.details || h.description || h.note || h.message || ""),
+            isDerived: h.isDerived === true,
+          };
+        })
+        .sort((a: any, b: any) => b.sortTime - a.sortTime),
     };
   }, [data]);
 
@@ -209,8 +308,8 @@ export default function FarmerOrderDetailPage() {
             <Package className="h-10 w-10 text-destructive" />
             <p className="font-medium text-destructive">Failed to load order</p>
             <p className="text-sm text-muted-foreground">{(error as any)?.message || "An unexpected error occurred"}</p>
-            <p className="mt-2 text-xs text-muted-foreground">orderId: {orderId}</p>
-            <p className="mt-2 text-xs text-muted-foreground">API: http://localhost:8000/api/v1/orders/{orderId}</p>
+            <p className="mt-2 text-sm text-muted-foreground">orderId: {orderId}</p>
+            <p className="mt-2 text-sm text-muted-foreground">API: http://localhost:8000/api/v1/{isB2BOrder ? "b2b/orders" : "orders"}/{orderId}</p>
             <Button asChild>
               <Link href="/farmer/orders">Back to orders</Link>
             </Button>
@@ -242,84 +341,130 @@ export default function FarmerOrderDetailPage() {
     );
   }
 
-  return (
-    <div className="space-y-6 p-6">
-      <Button variant="ghost" asChild>
-        <Link href="/farmer/orders" className="flex items-center gap-2">
-          <ArrowLeft className="h-4 w-4" /> Back to orders
-        </Link>
-      </Button>
+  const progress = getOrderProgress(order.status, order.deliveryType);
+  const mapUrl = order.address && order.address !== "Address not available"
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.address)}`
+    : null;
+  const paymentMethodLabel = pickupPaymentLabel(order.paymentMethod);
+  const statusLabel = order.status.replace(/_/g, " ").replace(/\b\w/g, (letter: string) => letter.toUpperCase());
 
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Order {order.orderNumber.slice(-8)}</h1>
-          <p className="text-sm text-muted-foreground">Placed on {formatDate(order.date)}</p>
+  return (
+    <div className="farmer-order-detail mx-0 w-full min-w-0 max-w-none space-y-4 px-2 py-3 text-sm sm:px-3 sm:py-4 lg:px-4">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="min-w-0">
+          <Button variant="ghost" size="sm" asChild className="-ml-3 mb-2 text-slate-500 hover:text-slate-900">
+            <Link href="/farmer/orders" className="flex items-center gap-2"><ArrowLeft className="h-4 w-4" /> Back to orders</Link>
+          </Button>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="rounded-xl bg-emerald-50 p-3 text-emerald-700"><Package className="h-6 w-6" /></div>
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-wider text-slate-500">Orders / Order details</p>
+              <h1 className="mt-0.5 text-xl font-bold tracking-tight text-slate-950 sm:text-2xl">Order #{order.orderNumber}</h1>
+              <p className="mt-1 text-sm text-slate-500">Placed on {formatDate(order.date)}</p>
+            </div>
+            <Badge className={`ml-0 sm:ml-2 border px-3 py-1 text-sm ${statusColors[order.status] || "border-slate-200 bg-slate-50 text-slate-700"}`}>{statusLabel}</Badge>
+          </div>
         </div>
-        <Badge className={statusColors[order.status] || "border-gray-200 bg-gray-50 text-gray-700"}>
-          {order.status.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}
-        </Badge>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
-        <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Package className="h-5 w-5" /> Items
-              </CardTitle>
-              <CardDescription>{order.items.length} product(s) in this order</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {order.items.map((item: any, i: number) => (
-                <div key={i} className="flex items-center justify-between rounded-lg border p-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium text-slate-900">{item.name}</p>
-                    <p className="text-sm text-muted-foreground">Qty: {item.quantity} &times; {formatPrice(Number(item.unitPrice))}</p>
+      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,2.1fr)_minmax(320px,0.9fr)]">
+        <div className="min-w-0 space-y-5">
+          {!progress.terminal ? (
+            <Card className="border-slate-200 shadow-sm">
+              <CardContent className="p-4 sm:p-5">
+                <div className="mb-5 flex items-center justify-between gap-3">
+                  <div>
+                    <h2 className="font-semibold text-slate-900">Order progress</h2>
+                    <p className="mt-1 text-sm text-slate-500">Follow each step until the order is complete.</p>
                   </div>
-                  <span className="ml-4 font-semibold">{formatPrice(Number(item.price))}</span>
+                  <span className="text-sm font-medium text-emerald-700">{progress.activeIndex >= 5 ? "Completed" : `Step ${Math.min(progress.activeIndex + 1, 5)} of 5`}</span>
+                </div>
+                <div className="grid grid-cols-5 gap-1 sm:gap-3">
+                  {progress.steps.map((step: any, index: number) => {
+                    const StepIcon = step.icon;
+                    const complete = order.status === "delivered" || order.status === "picked_up" || index < progress.activeIndex;
+                    const active = index === progress.activeIndex && !complete;
+                    return (
+                      <div key={step.label} className="relative min-w-0 text-center">
+                        {index > 0 && <div className={`absolute left-[-50%] top-4 h-0.5 w-full ${complete || index <= progress.activeIndex ? "bg-emerald-500" : "bg-slate-200"}`} />}
+                        <div className={`relative mx-auto flex h-8 w-8 items-center justify-center rounded-full border-2 ${complete ? "border-emerald-600 bg-emerald-600 text-white" : active ? "border-emerald-600 bg-emerald-50 text-emerald-700 ring-4 ring-emerald-50" : "border-slate-200 bg-white text-slate-400"}`}>
+                          {complete ? <CheckCircle2 className="h-4 w-4" /> : <StepIcon className="h-4 w-4" />}
+                        </div>
+                        <p className={`mt-2 text-sm font-semibold leading-tight sm:text-sm ${complete || active ? "text-slate-900" : "text-slate-400"}`}>{step.label}</p>
+                        <p className="mt-1 hidden text-sm text-slate-400 sm:block">{complete ? "Completed" : active ? "In progress" : "Pending"}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card className="border-amber-200 bg-amber-50/60 shadow-sm"><CardContent className="flex items-center gap-3 p-4"><div className="rounded-full bg-amber-100 p-2 text-amber-700"><Package className="h-5 w-5" /></div><div><p className="font-semibold capitalize text-amber-900">Order {order.status}</p><p className="text-sm text-amber-800">This order is no longer moving through the regular delivery steps.</p></div></CardContent></Card>
+          )}
+
+          <Card className="overflow-hidden border-slate-200 shadow-sm">
+            <CardHeader className="border-b border-slate-100 px-5 py-4">
+              <CardTitle className="flex items-center gap-2 text-base text-slate-900"><ShoppingBag className="h-5 w-5 text-emerald-700" /> Order items</CardTitle>
+              <CardDescription>{order.items.length} product{order.items.length === 1 ? "" : "s"} in this order</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4 p-4">
+              <div className="hidden grid-cols-[minmax(0,1fr)_100px_120px_120px] gap-3 rounded-lg bg-slate-50 px-4 py-3 text-sm font-semibold uppercase tracking-wide text-slate-500 sm:grid">
+                <span>Product</span><span className="text-center">Quantity</span><span className="text-right">Unit price</span><span className="text-right">Amount</span>
+              </div>
+              {order.items.map((item: any, index: number) => (
+                <div key={index} className="grid min-h-56 grid-cols-2 items-center gap-4 rounded-lg border border-slate-200 px-4 py-5 sm:grid-cols-[minmax(0,1fr)_100px_120px_120px] sm:gap-4 sm:border-0 sm:px-4">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <OrderProductThumbnail key={`${item.productId || item.name}-${item.image || "crop-fallback"}`} name={item.name} image={item.image} />
+                    <div className="min-w-0">
+                      <p className="font-semibold text-slate-900">{item.name}</p>
+                      <p className="text-sm text-slate-500 sm:hidden">Qty: {item.quantity}</p>
+                    </div>
+                  </div>
+                  <span className="hidden text-center text-sm text-slate-700 sm:block">{item.quantity}</span>
+                  <span className="text-right text-sm text-slate-600 sm:text-right">{formatPrice(Number(item.unitPrice))}</span>
+                  <span className="text-right text-sm font-semibold text-slate-900">{formatPrice(Number(item.price))}</span>
                 </div>
               ))}
-              <div className="border-t pt-3 space-y-1.5">
-                <div className="flex justify-between text-sm">
-                  <span>Subtotal</span>
-                  <span>{formatPrice(order.subtotal)}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span>Delivery</span>
-                  <span>{formatPrice(order.delivery)}</span>
-                </div>
-                {order.platformFee > 0 && (
-                  <div className="flex justify-between text-sm">
-                    <span>Platform fee</span>
-                    <span>{formatPrice(order.platformFee)}</span>
-                  </div>
-                )}
-                {order.discount > 0 && (
-                  <div className="flex justify-between text-sm text-emerald-600">
-                    <span>Discount</span>
-                    <span>-{formatPrice(order.discount)}</span>
-                  </div>
-                )}
-                <div className="flex justify-between border-t pt-2 font-semibold">
-                  <span>Total</span>
-                  <span>{formatPrice(order.total)}</span>
-                </div>
+              <div className="ml-auto max-w-sm space-y-2 border-t border-slate-100 pt-4 text-sm">
+                <div className="flex justify-between gap-4 text-slate-600"><span>Subtotal</span><span>{formatPrice(order.subtotal)}</span></div>
+                <div className="flex justify-between gap-4 text-slate-600"><span>Delivery</span><span>{formatPrice(order.delivery)}</span></div>
+                {order.platformFee > 0 && <div className="flex justify-between gap-4 text-slate-600"><span>Platform fee</span><span>{formatPrice(order.platformFee)}</span></div>}
+                {order.discount > 0 && <div className="flex justify-between gap-4 text-emerald-700"><span>Discount</span><span>-{formatPrice(order.discount)}</span></div>}
+                <div className="flex justify-between gap-4 border-t border-slate-200 pt-3 text-base font-bold text-slate-950"><span>Total</span><span>{formatPrice(order.total)}</span></div>
               </div>
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <MapPin className="h-5 w-5" /> Delivery Address
-              </CardTitle>
+          <Card className="overflow-hidden border-slate-200 shadow-sm">
+            <CardHeader className="flex flex-row items-center justify-between border-b border-slate-100 px-5 py-4">
+              <div><CardTitle className="flex items-center gap-2 text-base text-slate-900"><Clock className="h-5 w-5 text-emerald-700" /> Tracking & activity</CardTitle><CardDescription className="mt-1">Updates recorded for this order, newest first</CardDescription></div>
+              {order.tracking.length > 0 && <Button type="button" variant="outline" size="sm" onClick={() => setShowAllTracking(!showAllTracking)}>{showAllTracking ? "Show latest" : "View all activity"} <ChevronDown className="ml-1 h-4 w-4" /></Button>}
             </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">{order.address}</p>
-              {order.specialInstructions && (
-                <div className="mt-3 rounded-md bg-gray-50 p-3 text-sm">
-                  <p className="text-xs font-medium text-gray-500">Special Instructions</p>
-                  <p className="mt-1 text-gray-700">{order.specialInstructions}</p>
+            <CardContent className="p-4">
+              {order.tracking.length > 0 ? (
+                <div className="space-y-0">
+                  {(showAllTracking ? order.tracking : order.tracking.slice(0, 4)).map((event: any, index: number, visibleEvents: any[]) => (
+                    <div key={event.key} className="flex gap-3 pb-5 last:pb-0">
+                      <div className="flex w-5 shrink-0 flex-col items-center">
+                        <span className={`mt-1 h-3 w-3 rounded-full border-2 ${index === 0 ? "border-emerald-600 bg-emerald-600" : "border-slate-300 bg-white"}`} />
+                        {index < visibleEvents.length - 1 && <span className="mt-1 w-px flex-1 bg-slate-200" />}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <p className={`text-sm font-semibold ${index === 0 ? "text-emerald-800" : "text-slate-800"}`}>{event.label || "Order update"}</p>
+                          {event.date && <time className="text-sm text-slate-500">{formatDate(event.date)}</time>}
+                        </div>
+                        {event.description && <p className="mt-1 text-sm leading-relaxed text-slate-600">{event.description}</p>}
+                        {event.actorRole && <p className="mt-1 text-sm text-slate-500">Updated by {humanizeRole(event.actorRole)}</p>}
+                        {event.isDerived && <p className="mt-1 text-sm text-slate-400">Reconstructed from saved order details</p>}
+                      </div>
+                    </div>
+                  ))}
+                  {order.tracking.length > 4 && <button type="button" onClick={() => setShowAllTracking(!showAllTracking)} className="mt-4 text-sm font-semibold text-emerald-700 hover:text-emerald-800">{showAllTracking ? "Show fewer updates" : `Show all ${order.tracking.length} updates`}</button>}
+                </div>
+              ) : (
+                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-8 text-center">
+                  <Clock className="mx-auto h-7 w-7 text-slate-400" /><p className="mt-2 text-sm font-medium text-slate-700">No tracking updates yet</p><p className="mt-1 text-sm text-slate-500">New activity will appear here when the order progresses.</p>
                 </div>
               )}
             </CardContent>
@@ -327,112 +472,46 @@ export default function FarmerOrderDetailPage() {
 
           {fulfillmentCheck && (
             <Card className={fulfillmentCheck.readyForDispatch ? "border-emerald-200 bg-emerald-50/40" : "border-amber-200 bg-amber-50/40"}>
-              <CardHeader className="pb-2"><CardTitle className="text-base">Packing & Dispatch Check</CardTitle><CardDescription>Every customer-order item must be packed before this order can leave the farm.</CardDescription></CardHeader>
+              <CardHeader className="pb-2"><CardTitle className="text-base">Packing & dispatch check</CardTitle><CardDescription>Every item must be packed before this order can leave the farm.</CardDescription></CardHeader>
               <CardContent className="space-y-2 text-sm">
-                <div className="flex items-center justify-between"><span>Order items</span><b>{fulfillmentCheck.packedItemCount || 0} / {fulfillmentCheck.itemCount || 0} packed</b></div>
-                <div className="flex items-center justify-between"><span>Dispatch gate</span><Badge variant={fulfillmentCheck.readyForDispatch ? "success" : "warning"}>{fulfillmentCheck.readyForDispatch ? "Ready" : "Blocked"}</Badge></div>
-                {!fulfillmentCheck.readyForDispatch && <p className="text-xs text-amber-800">Complete packing for every item before dispatch.</p>}
+                <div className="flex items-center justify-between"><span>Order items packed</span><b>{fulfillmentCheck.packedItemCount || 0} / {fulfillmentCheck.itemCount || 0}</b></div>
+                <div className="flex items-center justify-between"><span>Dispatch status</span><Badge variant={fulfillmentCheck.readyForDispatch ? "success" : "warning"}>{fulfillmentCheck.readyForDispatch ? "Ready" : "Not ready"}</Badge></div>
+                {!fulfillmentCheck.readyForDispatch && <p className="text-sm text-amber-800">Complete packing for every item before dispatch.</p>}
               </CardContent>
             </Card>
           )}
 
-          {order.tracking && order.tracking.length > 0 && (
-            <Card>
-              <CardHeader className="pb-3">
-                <button
-                  onClick={() => setShowAllTracking(!showAllTracking)}
-                  className="flex w-full items-center justify-between text-left"
-                >
-                  <CardTitle className="flex items-center gap-2">
-                    <Clock className="h-5 w-5" /> Tracking
-                  </CardTitle>
-                  {showAllTracking ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                </button>
-              </CardHeader>
-              <CardContent>
-                <div className="relative space-y-0">
-                  {(showAllTracking ? order.tracking : order.tracking.slice(-2)).map((event: any, i: number) => (
-                    <div key={i} className="flex gap-4 pb-4 last:pb-0">
-                      <div className="flex flex-col items-center">
-                        <div className={`h-3 w-3 rounded-full border-2 ${i === 0 ? "border-emerald-500 bg-emerald-500" : "border-gray-300 bg-white"}`} />
-                        {i < (showAllTracking ? order.tracking.length : Math.min(2, order.tracking.length)) - 1 && (
-                          <div className="mt-1 w-0.5 flex-1 bg-gray-200" />
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1 pt-0.5">
-                        <p className={`text-sm font-medium ${i === 0 ? "text-emerald-700" : "text-gray-500"}`}>
-                          {event.status.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}
-                        </p>
-                        {event.description && <p className="text-xs text-muted-foreground">{event.description}</p>}
-                        {event.date && <p className="mt-0.5 text-xs text-muted-foreground">{formatDate(event.date)}</p>}
-                      </div>
-                    </div>
-                  ))}
-                  {order.tracking.length > 2 && (
-                    <button
-                      onClick={() => setShowAllTracking(!showAllTracking)}
-                      className="text-xs text-emerald-600 hover:text-emerald-700 font-medium"
-                    >
-                      {showAllTracking ? "Show less" : `Show all ${order.tracking.length} updates`}
-                    </button>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          )}
+          <Card className="overflow-hidden border-slate-200 shadow-sm">
+            <CardHeader className="border-b border-slate-100 px-5 py-4"><CardTitle className="flex items-center gap-2 text-base text-slate-900"><MapPin className="h-5 w-5 text-emerald-700" /> Delivery address</CardTitle></CardHeader>
+            <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+              <p className="min-w-0 flex-1 text-sm leading-relaxed text-slate-700">{order.address}</p>
+              {mapUrl && <a href={mapUrl} target="_blank" rel="noopener noreferrer" className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-emerald-200 px-3 py-2 text-sm font-semibold text-emerald-700 transition-colors hover:bg-emerald-50"><MapPin className="h-4 w-4" /> View map <ExternalLink className="h-3.5 w-3.5" /></a>}
+              {order.specialInstructions && <div className="w-full rounded-lg bg-slate-50 p-3 text-sm"><p className="text-sm font-semibold text-slate-500">Delivery instructions</p><p className="mt-1 text-slate-700">{order.specialInstructions}</p></div>}
+            </CardContent>
+          </Card>
         </div>
 
-        <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <User className="h-5 w-5" /> Customer Details
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm">
-              <div className="flex items-center gap-2">
-                <User className="h-4 w-4 text-muted-foreground shrink-0" />
-                <span className="font-medium">{order.customerName}</span>
-              </div>
-              {order.customerPhone && (
-                <div className="flex items-center gap-2">
-                  <Phone className="h-4 w-4 text-muted-foreground shrink-0" />
-                  <span>{order.customerPhone}</span>
-                </div>
-              )}
-              {order.customerEmail && (
-                <div className="flex items-center gap-2">
-                  <span className="text-muted-foreground">{order.customerEmail}</span>
-                </div>
-              )}
+        <aside className="space-y-5">
+          <Card className="overflow-hidden border-slate-200 shadow-sm">
+            <CardHeader className="border-b border-slate-100 bg-emerald-50/50 px-5 py-4"><CardTitle className="flex items-center gap-2 text-base text-slate-900"><User className="h-5 w-5 text-emerald-700" /> Customer details</CardTitle></CardHeader>
+            <CardContent className="space-y-4 p-4 text-sm">
+              <div className="flex items-center gap-3"><User className="h-4 w-4 shrink-0 text-slate-400" /><span className="font-medium text-slate-800">{order.customerName}</span></div>
+              {order.customerPhone && <a href={`tel:${order.customerPhone}`} className="flex items-center gap-3 text-slate-700 hover:text-emerald-700"><Phone className="h-4 w-4 shrink-0 text-slate-400" />{order.customerPhone}</a>}
+              {order.customerEmail && <a href={`mailto:${order.customerEmail}`} className="flex items-center gap-3 break-all text-slate-700 hover:text-emerald-700"><Mail className="h-4 w-4 shrink-0 text-slate-400" />{order.customerEmail}</a>}
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Hash className="h-5 w-5" /> Order Info
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm">
-              <div className="flex items-center gap-2">
-                <ShoppingBag className="h-4 w-4 text-muted-foreground shrink-0" />
-                <span className="font-medium">{order.orderNumber}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
-                <span>{formatDate(order.date)}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <CreditCard className="h-4 w-4 text-muted-foreground shrink-0" />
-                <span className="capitalize">{order.paymentMethod.replace(/_/g, " ")}</span>
-                {order.paymentStatus === "paid" && <Badge variant="success">Paid</Badge>}
-                {order.paymentStatus !== "paid" && <Badge variant="secondary">Pending</Badge>}
-              </div>
+          <Card className="overflow-hidden border-slate-200 shadow-sm">
+            <CardHeader className="border-b border-slate-100 px-5 py-4"><CardTitle className="flex items-center gap-2 text-base text-slate-900"><ClipboardList className="h-5 w-5 text-emerald-700" /> Order summary</CardTitle></CardHeader>
+            <CardContent className="space-y-3 p-4 text-sm">
+              <div className="flex items-start justify-between gap-3"><span className="text-slate-500">Order ID</span><span className="break-all text-right font-medium text-slate-800">{order.orderNumber}</span></div>
+              <div className="flex items-center justify-between gap-3"><span className="flex items-center gap-2 text-slate-500"><CalendarDays className="h-4 w-4" /> Date</span><span className="text-right font-medium text-slate-800">{formatDate(order.date)}</span></div>
+              <div className="flex items-center justify-between gap-3"><span className="flex items-center gap-2 text-slate-500"><CreditCard className="h-4 w-4" /> Payment</span><span className="text-right font-medium capitalize text-slate-800">{paymentMethodLabel}</span></div>
+              <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-3"><span className="text-slate-500">Payment status</span><Badge variant={order.paymentStatus === "paid" ? "success" : "secondary"}>{String(order.paymentStatus || "pending").replace(/_/g, " ")}</Badge></div>
             </CardContent>
           </Card>
 
-          {order.deliveryType === "pickup" && order.status === "ready_for_pickup" && (
+                    {order.deliveryType === "pickup" && order.status === "ready_for_pickup" && (
             <Card className="border-amber-200 bg-amber-50/40">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -445,19 +524,19 @@ export default function FarmerOrderDetailPage() {
               <CardContent className="space-y-3">
                 <div className="grid grid-cols-2 gap-3 rounded-lg border bg-white p-3 text-sm">
                   <div>
-                    <p className="text-xs text-muted-foreground">Customer</p>
+                    <p className="text-sm text-muted-foreground">Customer</p>
                     <p className="font-medium">{order.customerName}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground">Order</p>
+                    <p className="text-sm text-muted-foreground">Order</p>
                     <p className="font-medium">{order.orderNumber}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground">Amount</p>
+                    <p className="text-sm text-muted-foreground">Amount</p>
                     <p className="font-medium">{formatPrice(order.total)}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground">Payment</p>
+                    <p className="text-sm text-muted-foreground">Payment</p>
                     <p className="font-medium">{pickupPaymentLabel(order.paymentMethod)}</p>
                   </div>
                 </div>
@@ -467,7 +546,7 @@ export default function FarmerOrderDetailPage() {
                     <div className="overflow-hidden rounded-lg border bg-slate-900">
                       <div id="farmer-qr-reader" className="mx-auto max-w-xs" />
                     </div>
-                    <p className="text-center text-xs text-muted-foreground">
+                    <p className="text-center text-sm text-muted-foreground">
                       Point the camera at the QR code on the customer's phone.
                     </p>
                     <Button
@@ -485,7 +564,7 @@ export default function FarmerOrderDetailPage() {
                 )}
 
                 {scanError && (
-                  <p className="rounded-md bg-red-50 p-2 text-xs text-red-700">{scanError}</p>
+                  <p className="rounded-md bg-red-50 p-2 text-sm text-red-700">{scanError}</p>
                 )}
 
                 <div className="flex gap-2">
@@ -497,12 +576,12 @@ export default function FarmerOrderDetailPage() {
                   >
                     <ScanLine className="mr-2 h-4 w-4" /> Scan QR
                   </Button>
-                  <div className="flex items-center text-xs font-medium text-muted-foreground">
+                  <div className="flex items-center text-sm font-medium text-muted-foreground">
                     or enter code
                   </div>
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-gray-600">Pickup Code</label>
+                  <label className="mb-1 block text-sm font-medium text-gray-600">Pickup Code</label>
                   <Input
                     value={pickupCode}
                     onChange={(e) => setPickupCode(e.target.value.trim())}
@@ -540,7 +619,8 @@ export default function FarmerOrderDetailPage() {
               </CardContent>
             </Card>
           )}
-        </div>
+
+        </aside>
       </div>
     </div>
   );

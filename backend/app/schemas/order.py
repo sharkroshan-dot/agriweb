@@ -77,6 +77,7 @@ class OrderBase(BaseModel):
     specialInstructions: Optional[str] = None
     paymentMethod: PaymentMethod
     couponCode: Optional[str] = None
+    redeemPoints: int = Field(0, ge=0, description="AgriPoints to redeem at checkout")
     deliveryType: DeliveryType = DeliveryType.DELIVERY
     fulfillmentMethod: Optional[FulfillmentMethod] = None
     fulfillmentStage: FulfillmentStage = FulfillmentStage.PENDING
@@ -85,6 +86,7 @@ class OrderBase(BaseModel):
     pickupTimeSlot: Optional[str] = None
     requestedDeliveryDate: Optional[datetime] = None
     deliveryTimeSlot: Optional[str] = None
+    deliverySlotId: Optional[str] = None
     deliverySpeed: Optional[str] = None  # fastest_30m or standard
 
 class OrderCreate(OrderBase):
@@ -149,6 +151,9 @@ class OrderResponse(BaseModel):
     platformFee: float
     platformCommission: float = 0
     discount: float
+    couponDiscount: float = 0
+    pointsRedeemed: int = 0
+    pointsDiscount: float = 0
     totalAmount: float
     orderStatus: OrderStatus
     paymentStatus: PaymentStatus
