@@ -10328,6 +10328,14 @@ async def get_my_outgoing_stock(
             "nearbyThresholdKm": threshold,
             "sourceDistrict": source_district or None,
             "destinationDistrict": destination_district or None,
+            "deliveryDistrict": destination_district or None,
+            "customerDistrict": destination_district or None,
+            # Include the resolved customer destination so Fulfillment & Dispatch
+            # can select the nearest active local hub instead of relying only on
+            # a district string. This includes coordinates recovered from a
+            # saved customer address when the checkout snapshot is incomplete.
+            "deliveryLocation": _make_json_safe(destination_location),
+            "deliveryAddress": _make_json_safe(address or saved_address or {}),
             "directDeliveryConfigured": direct_configured,
             "routeDecisionReason": reason,
         })
